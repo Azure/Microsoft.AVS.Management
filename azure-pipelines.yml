@@ -1,0 +1,20 @@
+# Starter pipeline
+
+trigger:
+- mibart/trialBranch
+
+pool:
+  vmImage: windows-2019
+
+steps:
+- script: echo "Actual task to perform, TBD"
+  displayName: 'Run simple echo command'
+  
+- task: onebranch.pipeline.signing@1
+  inputs:
+    command: 'sign'
+    signing_environment: 'azure-ado'
+    signing_profile: 'external_distribution'
+    cp_code: 'CP-230012'
+    files_to_sign: '**/*.exe;**/*.dll;**/*.ps1;**/*.psd1**/*.psm1;!**/PowerCLI-Example-Scripts-master/**'
+    search_root: '$(Build.SourcesDirectory)'
