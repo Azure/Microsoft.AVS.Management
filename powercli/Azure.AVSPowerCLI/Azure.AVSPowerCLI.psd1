@@ -9,7 +9,7 @@
 @{
 
 # Script module or binary module file associated with this manifest.
-RootModule = './Azure.AVSPowerCLI.psm1'
+RootModule = 'Azure.AVSPowerCLI.psm1'
 
 # Version number of this module.
 ModuleVersion = '1.0'
@@ -52,8 +52,7 @@ Copyright = '(c) Microsoft. All rights reserved.'
 
 # Modules that must be imported into the global environment prior to importing this module
 RequiredModules = @(
-@{"ModuleName"="VMware.VimAutomation.Common";"ModuleVersion"="12.0.0.15939652"},
-@{"ModuleName"="VMware.vSphere.SsoAdmin";"ModuleVersion"="1.0.0"}
+@{"ModuleName"="VMware.VimAutomation.Common";"ModuleVersion"="12.0.0.15939652"}
 )
 
 
@@ -73,13 +72,13 @@ RequiredModules = @(
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @("New-AvsDRSElevationRule", "New-AvsExternalADIdentitySource","Set-AvsStoragePolicy")
+FunctionsToExport = @("Set-AvsStoragePolicy", "New-AvsExternalADIdentitySource", "New-AvsDrsElevationRule", "Set-AvsDrsClusterGroup", "Set-AvsDrsElevationRule")
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
-CmdletsToExport = @("New-AvsDRSElevationRule", "New-AvsExternalADIdentitySource","Set-AvsStoragePolicy")
+CmdletsToExport = @()
 
 # Variables to export from this module
-VariablesToExport = '*'
+VariablesToExport = ''
 
 # Aliases to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no aliases to export.
 AliasesToExport = @()

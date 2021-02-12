@@ -1,6 +1,5 @@
 #Requires -Modules PowerShellGet
 #Requires -Version 5.0
-#Requires -Modules VMWare.PowerCLI
 
 <#
 =======================================================================================================
@@ -345,4 +344,4 @@ Param
     }
 }
 
-Export-ModuleMember -Function * -Alias *
+Export-ModuleMember -Function *
