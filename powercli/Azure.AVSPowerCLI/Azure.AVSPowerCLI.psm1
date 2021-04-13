@@ -78,7 +78,7 @@ function Connect-vCenterServer
     # Add the domain server named "dabecher.local" to vCenter
     Add-ActiveDirectoryIdentitySource -Name 'dabecher' -DomainName 'dabecher.local' -DomainAlias 'dabecher' -PrimaryUrl 'ldap://10.40.0.5:389' -BaseDNUsers 'dc=dabecher, dc=local' -BaseDNGroups 'dc=dabecher, dc=local' -Username 'dabecher@dabecher.local' -Password 'PlaceholderPassword'
 #>
-function New-AvsExternalADIdentitySource {
+function New-AvsLDAPIdentitySource {
 [CmdletBinding(PositionalBinding = $false)]
 Param
 (
@@ -101,7 +101,14 @@ Param
   $_ -like '*ldap*'
   })]
   [string]
-  $PrimaryURL,
+  $PrimaryUrl,
+
+  [Parameter(Mandatory = $false)]
+  [ValidateScript({
+  $_ -like '*ldap*'
+  })]
+  [string]
+  $SecondaryUrl,
 
   [Parameter(Mandatory = $true)]
   [ValidateNotNull()]
@@ -125,13 +132,50 @@ Param
     HelpMessage='Password you want to use for authenticating with the server')]
   [ValidateNotNull()]
   [securestring]
-  $Password
+  $Password,
+
+  [Parameter(
+    Mandatory = $true,
+    HelpMessage='Certificate for authentication')]
+  [ValidateNotNull()]
+  [securestring]
+  $Certificates
 )
     Set-TestEnvironmentVariables
     Connect-SsoServer
     $Password = ConvertFrom-SecureString $Password
-    $ExternalSource = Add-ActiveDirectoryIdentitySource -Name $Name -DomainName $DomainName -DomainAlias $DomainAlias -PrimaryUrl $PrimaryURL -BaseDNUsers $BaseDNUsers -BaseDNGroups $BaseDNGroups -Username $Username -Password $Password
-    Write-Output $ExternalSource
+    $ExternalSource
+
+    if ($SecondaryUrl) {
+        $ExternalSource = 
+            Add-LDAPIdentitySource 
+                -Name $Name 
+                -DomainName $DomainName 
+                -DomainAlias $DomainAlias 
+                -PrimaryUrl $PrimaryUrl 
+                -SecondaryUrl $SecondaryUrl
+                -BaseDNUsers $BaseDNUsers 
+                -BaseDNGroups $BaseDNGroups 
+                -Username $Username 
+                -Password $Password
+                -ServerType 'ActiveDirectory'
+                -Certificates $Certificates
+        Write-Output $ExternalSource
+    } Else {
+        $ExternalSource = 
+            Add-LDAPIdentitySource 
+                -Name $Name 
+                -DomainName $DomainName 
+                -DomainAlias $DomainAlias 
+                -PrimaryUrl $PrimaryUrl
+                -BaseDNUsers $BaseDNUsers 
+                -BaseDNGroups $BaseDNGroups 
+                -Username $Username 
+                -Password $Password
+                -ServerType 'ActiveDirectory'
+                -Certificates $Certificates
+        Write-Output $ExternalSource
+    }
     return $ExternalSource
 }
 
@@ -175,6 +219,7 @@ Param
 )
     Set-TestEnvironmentVariables
     Connect-vCenterServer
+    
     $DrsVmHostGroupName = $DrsGroupName + "Host"
     Write-Host ($DrsRuleName + $DrsGroupName + $Cluster +  $VMList + $VMHostList)
     New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster
@@ -338,8 +383,9 @@ Param
     } ElseIf ($VMName -ne $null) {
       $storagepolicy = Get-SpbmStoragePolicy -Name $StoragePolicyName
       $result = Set-VM $VMName -StoragePolicy $storagepolicy -SkipHardDisks
+      return $result
     } Else {
-      $result = "Placeholder for cluster editing"
+      $result = "Placeholder for cluster editing, currently not supported"
       return $result
     }
 }

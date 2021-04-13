@@ -58,6 +58,13 @@ Param
   [ValidateNotNull()]
   [string]
   $Password
+
+   [Parameter(
+    Mandatory = $true)
+    HelpMessage='Certificate you want to use for authenticating with the server')]
+  [ValidateNotNull()]
+  [string]
+  $Certificates
 )
 
 function Get-SecretFromKV {
@@ -101,50 +108,105 @@ function Connect-SsoServer
   return $connectedServer
 }
 
-function Add-ExternalIdentitySource
-{
+function New-AvsLDAPIdentitySource {
+[CmdletBinding(PositionalBinding = $false)]
+Param
+(
+  [Parameter(Mandatory = $true)]
+  [ValidateNotNull()]
+  [string]
+  $Name,
 
-    [CmdletBinding(PositionalBinding = $false)]
-    Param
-    (
-      [Parameter(Mandatory = $true)]
-      [string]
-      $Name,
+  [Parameter(Mandatory = $true)]
+  [ValidateNotNull()]
+  [string]
+  $DomainName,
 
-      [Parameter(Mandatory = $true)]
-      [string]
-      $DomainName,
+  [Parameter(Mandatory = $true)]
+  [string]
+  $DomainAlias,
 
-      [Parameter(Mandatory = $true)]
-      [string]
-      $DomainAlias,
+  [Parameter(Mandatory = $true)]
+  [ValidateScript({
+  $_ -like '*ldap*'
+  })]
+  [string]
+  $PrimaryUrl,
 
-      [Parameter(Mandatory = $true)]
-      [string]
-      $PrimaryURL,
+  [Parameter(Mandatory = $false)]
+  [ValidateScript({
+  $_ -like '*ldap*'
+  })]
+  [string]
+  $SecondaryUrl,
 
-      [Parameter(Mandatory = $true)]
-      [string]
-      $BaseDNUsers,
+  [Parameter(Mandatory = $true)]
+  [ValidateNotNull()]
+  [string]
+  $BaseDNUsers,
 
-      [Parameter(Mandatory = $true)]
-      [string]
-      $BaseDNGroups,
+  [Parameter(Mandatory = $true)]
+  [ValidateNotNull()]
+  [string]
+  $BaseDNGroups,
 
-      [Parameter(Mandatory = $true)]
-      [string]
-      $Username,
+  [Parameter(
+    Mandatory = $true,
+    HelpMessage='User name you want to use for authenticating with the server')]
+  [ValidateNotNull()]
+  [string]
+  $Username,
 
-      [Parameter(Mandatory = $true)]
-      [string]
-      $Password
-    )
+  [Parameter(
+    Mandatory = $true,
+    HelpMessage='Password you want to use for authenticating with the server')]
+  [ValidateNotNull()]
+  [securestring]
+  $Password,
 
-    $ExternalSource = Add-ActiveDirectoryIdentitySource -Name $Name -DomainName $DomainName -DomainAlias $DomainAlias -PrimaryUrl $PrimaryURL -BaseDNUsers $BaseDNUsers -BaseDNGroups $BaseDNGroups -Username $Username -Password $Password
-    Write-Output $ExternalSource
+  [Parameter(
+    Mandatory = $true,
+    HelpMessage='Certificate for authentication')]
+  [ValidateNotNull()]
+  [securestring]
+  $Certificates
+)
+    $Password = ConvertFrom-SecureString $Password
+    $ExternalSource
+
+    if ($SecondaryUrl) {
+        $ExternalSource = 
+            Add-LDAPIdentitySource 
+                -Name $Name 
+                -DomainName $DomainName 
+                -DomainAlias $DomainAlias 
+                -PrimaryUrl $PrimaryUrl 
+                -SecondaryUrl $SecondaryUrl
+                -BaseDNUsers $BaseDNUsers 
+                -BaseDNGroups $BaseDNGroups 
+                -Username $Username 
+                -Password $Password
+                -ServerType 'ActiveDirectory'
+                -Certificates $Certificates
+        Write-Output $ExternalSource
+    } Else {
+        $ExternalSource = 
+            Add-LDAPIdentitySource 
+                -Name $Name 
+                -DomainName $DomainName 
+                -DomainAlias $DomainAlias 
+                -PrimaryUrl $PrimaryUrl
+                -BaseDNUsers $BaseDNUsers 
+                -BaseDNGroups $BaseDNGroups 
+                -Username $Username 
+                -Password $Password
+                -ServerType 'ActiveDirectory'
+                -Certificates $Certificates
+        Write-Output $ExternalSource
+    }
     return $ExternalSource
 }
 
 Set-TestEnvironmentVariables
 Connect-SsoServer
-Add-ExternalIdentitySource -Name $Name -DomainName $DomainName -DomainAlias $DomainAlias -PrimaryURL $PrimaryURL -BaseDNUsers $BaseDNUsers -BaseDNGroups $BaseDNGroups -Username $Username -Password $Password
+New-AvsLDAPIdentitySource -Name $Name -DomainName $DomainName -DomainAlias $DomainAlias -PrimaryURL $PrimaryURL -BaseDNUsers $BaseDNUsers -BaseDNGroups $BaseDNGroups -Username $Username -Password $Password -Certificates $Certificates
