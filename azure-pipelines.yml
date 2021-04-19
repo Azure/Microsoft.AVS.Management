@@ -1,0 +1,11 @@
+# Starter pipeline
+
+trigger:
+- mibart/trialBranch
+
+pool:
+  vmImage: windows-2019
+
+steps:
+- script: echo "Actual task to perform, TBD"
+  displayName: 'Run simple echo command'
