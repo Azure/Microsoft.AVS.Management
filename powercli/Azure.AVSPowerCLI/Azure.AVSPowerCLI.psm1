@@ -4,72 +4,14 @@
 <#
 =======================================================================================================
     AUTHOR:  David Becher
-    DATE:    1/29/2021
+    DATE:    4/22/2021
     Version: 1.0
     Comment: Add an external identity source to tenant vCenter. Requires powershell to have VMware.PowerCLI, AzurePowershell, and VMware.vSphere.SsoAdminModule installed
     Callouts: This script will require the powershell session running it to be able to authenticate to azure to pull secrets from key vault, will need service principal? Also make sure we don't allow code injections  
 ========================================================================================================
 #>
 
-# Helper Functions
-function Get-SecretFromKV 
-{
-Param
-    (
-      [Parameter(Mandatory = $true)]
-      [string]
-      $KeyvaultName,
-
-      [Parameter(Mandatory = $true)]
-      [string]
-      $SecretName
-      )
-    Write-Host "The key vault is $KeyvaultName and the secret is $SecretName"
-    $secret = (Get-AzKeyVaultSecret -VaultName $KeyvaultName -Name $SecretName).SecretValue
-    return $secret
-}
-
-
-function Set-TestEnvironmentVariables 
-{
-    Connect-AzAccount
-    Set-AzContext -Subscription "23995e3f-96a0-4b7a-95a0-c77f91054b52"
-    $env:KeyvaultName = "kv-4febfd10-f5c89d1442f7"
-    $env:ServerSecretName = "tntnmanagementserver"
-    $env:PasswordSecretName = "vcsa"
-    $env:tntMgmtNetwork = '10.0.0.0/22'
-}
-
-function Connect-SsoServer
-{
-   #$env:PSModulePath = Join-Path -Path $PSHOME -ChildPath 'Modules'al' -Password $env:ServiceUserPassword
-   #$env:PSModulePath = "$env:PSModulePath;$(Split-Path -Path $PSModuleInfo.ModuleBase -Pare
-   # The $env:ServiceUserPassword must be set on the container at start up (adminstrator password to tenant vCenter)
-   $vCenterIP = $env:tntMgmtNetwork -replace $env:tntMgmtNetwork.split('.')[-1], '2' 
-   $ServiceUserPassword = Get-SecretFromKV $env:KeyvaultName $env:PasswordSecretName
-   
-   $connectedServer= Connect-SsoAdminServer -Server $vCenterIP -User 'administrator@vsphere.local' -Password $ServiceUserPassword -SkipCertificateCheck
-
-  return $connectedServer
-}
-
-
-function Connect-vCenterServer
-{
-
-   #$env:PSModulePath = Join-Path -Path $PSHOME -ChildPath 'Modules'al' -Password $env:ServiceUserPassword
-   #$env:PSModulePath = "$env:PSModulePath;$(Split-Path -Path $PSModuleInfo.ModuleBase -Pare
-   # The $env:ServiceUserPassword must be set on the container at start up (adminstrator password to tenant vCenter)
-   $vCenterIP = $env:tntMgmtNetwork -replace $env:tntMgmtNetwork.split('.')[-1], '2' 
-   #Set-PowerCLIConfiguration -InvalidCertificateAction Ignore
-   $connectedServer = Connect-VIServer -Server $vCenterIP 
-
-
-   return $connectedServer
-}
-
 # Exported Functions
-
 <#
     .Synopsis
      Allow customers to add an external identity source (Active Directory over LDAP) for use with single sign on to vCenter.
@@ -82,40 +24,51 @@ function New-AvsLDAPIdentitySource {
 [CmdletBinding(PositionalBinding = $false)]
 Param
 (
-  [Parameter(Mandatory = $true)]
+  [Parameter(
+    Mandatory = $true,
+    HelpMessage='User-Friendly name to store in vCenter')]
   [ValidateNotNull()]
   [string]
   $Name,
 
-  [Parameter(Mandatory = $true)]
+  [Parameter(
+    Mandatory = $true,
+    HelpMessage='Full DomainName: adserver.local')]
   [ValidateNotNull()]
   [string]
   $DomainName,
 
-  [Parameter(Mandatory = $true)]
+  [Parameter(
+    Mandatory = $true,
+    HelpMessage='DomainAlias: adserver')]
   [string]
   $DomainAlias,
 
-  [Parameter(Mandatory = $true)]
+  [Parameter(
+    Mandatory = $true,
+    HelpMessage='URL of your AD Servier: ldaps://yourserver:636')]
   [ValidateScript({
-  $_ -like '*ldap*'
+  $_ -like '*ldaps://*636'
   })]
   [string]
   $PrimaryUrl,
 
-  [Parameter(Mandatory = $false)]
-  [ValidateScript({
-  $_ -like '*ldap*'
-  })]
+  [Parameter(
+    Mandatory = $false,
+    HelpMessage='Optional: URL of a backup server')]
   [string]
   $SecondaryUrl,
 
-  [Parameter(Mandatory = $true)]
+  [Parameter(
+    Mandatory = $true,
+    HelpMessage='BaseDNGroups, "DC=name, DC=name"')]
   [ValidateNotNull()]
   [string]
   $BaseDNUsers,
 
-  [Parameter(Mandatory = $true)]
+  [Parameter(
+    Mandatory = $true,
+    HelpMessage='BaseDNGroups, "DC=name, DC=name"')]
   [ValidateNotNull()]
   [string]
   $BaseDNGroups,
@@ -131,49 +84,51 @@ Param
     Mandatory = $true,
     HelpMessage='Password you want to use for authenticating with the server')]
   [ValidateNotNull()]
-  [securestring]
+  [string]
   $Password,
 
   [Parameter(
     Mandatory = $true,
-    HelpMessage='Certificate for authentication')]
+    HelpMessage='SAS path URI to Certificate for authentication. Ensure permissions to read included')]
   [ValidateNotNull()]
-  [securestring]
-  $Certificates
+  [string]
+  $CertificateSAS
 )
-    Set-TestEnvironmentVariables
-    Connect-SsoServer
-    $Password = ConvertFrom-SecureString $Password
+
+    $Source=$CertificateSAS
+    $Destination="./cert.cer"
+    Invoke-WebRequest -Uri $Source -OutFile $Destination
+    
     $ExternalSource
 
     if ($SecondaryUrl) {
         $ExternalSource = 
-            Add-LDAPIdentitySource 
-                -Name $Name 
-                -DomainName $DomainName 
-                -DomainAlias $DomainAlias 
-                -PrimaryUrl $PrimaryUrl 
-                -SecondaryUrl $SecondaryUrl
-                -BaseDNUsers $BaseDNUsers 
-                -BaseDNGroups $BaseDNGroups 
-                -Username $Username 
-                -Password $Password
-                -ServerType 'ActiveDirectory'
-                -Certificates $Certificates
+            Add-LDAPIdentitySource `
+                -Name $Name `
+                -DomainName $DomainName `
+                -DomainAlias $DomainAlias `
+                -PrimaryUrl $PrimaryUrl `
+                -SecondaryUrl $SecondaryUrl`
+                -BaseDNUsers $BaseDNUsers `
+                -BaseDNGroups $BaseDNGroups `
+                -Username $Username `
+                -Password $Password`
+                -ServerType 'ActiveDirectory'`
+                -Certificates $Destination
         Write-Output $ExternalSource
     } Else {
         $ExternalSource = 
-            Add-LDAPIdentitySource 
-                -Name $Name 
-                -DomainName $DomainName 
-                -DomainAlias $DomainAlias 
-                -PrimaryUrl $PrimaryUrl
-                -BaseDNUsers $BaseDNUsers 
-                -BaseDNGroups $BaseDNGroups 
-                -Username $Username 
-                -Password $Password
-                -ServerType 'ActiveDirectory'
-                -Certificates $Certificates
+            Add-LDAPIdentitySource `
+                -Name $Name `
+                -DomainName $DomainName `
+                -DomainAlias $DomainAlias `
+                -PrimaryUrl $PrimaryUrl`
+                -BaseDNUsers $BaseDNUsers `
+                -BaseDNGroups $BaseDNGroups `
+                -Username $Username `
+                -Password $Password`
+                -ServerType 'ActiveDirectory'`
+                -Certificates $Destination
         Write-Output $ExternalSource
     }
     return $ExternalSource
@@ -191,7 +146,6 @@ function New-AvsDrsElevationRule {
 [CmdletBinding(PositionalBinding = $false)]
 Param
 (
-
     [Parameter(Mandatory = $true)]
     [ValidateNotNullOrEmpty()]
     [string]
@@ -216,10 +170,7 @@ Param
     [ValidateNotNullOrEmpty()]
     [string[]]
     $VMHostList
-)
-    Set-TestEnvironmentVariables
-    Connect-vCenterServer
-    
+)   
     $DrsVmHostGroupName = $DrsGroupName + "Host"
     Write-Host ($DrsRuleName + $DrsGroupName + $Cluster +  $VMList + $VMHostList)
     New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster
@@ -266,10 +217,6 @@ function Set-AvsDrsClusterGroup {
       } elseif ($Add -eq $false -and $Remove -eq $false) {
         $result = "Nothing was done. Please select with either -Add or -Remove"
       }
-
-      Set-TestEnvironmentVariables
-      Connect-vCenterServer
-
       if ($VMList -And $VMHostList) {
         $result = "Only update the parameter for your Drs Group. Either VM or Host. Nothing done."
         return $result
@@ -324,9 +271,6 @@ function Set-AvsDrsElevationRule {
       Write-Host "Enabled: $Enabled"
 
       Write-Host "Enabled is ne null:" + ($Enabled -ne $null) 
-      #Set-TestEnvironmentVariables
-      #Connect-vCenterServer
-  
       if (($Enabled -ne $null) -And $Name) {
         Write-Host "Enabled $Enabled and Name: $Name"
         $result = Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $true -Name $Name
@@ -337,7 +281,7 @@ function Set-AvsDrsElevationRule {
         return $result
       } ElseIf ($Name) {
         $result = Set-DrsVMHostRule -Rule $DrsRuleName -Name $Name
-        Write-Host "no Enabled $enabled just Name $Name "
+        Write-Host "Not Enabled $enabled just Name $Name "
         return $result
       } Else {
         $result = Get-DrsVMHostRule -Name $DrsRuleName
@@ -347,7 +291,6 @@ function Set-AvsDrsElevationRule {
   
   }
   
-
 <#
     .Synopsis
      Edit the storage policy on the VM to a predefined storage policy
@@ -373,10 +316,7 @@ Param
     [Parameter(Mandatory = $false)]
     [string]
     $Cluster
-)
-    Set-TestEnvironmentVariables
-    Connect-vCenterServer
-                
+)               
     if ($VMName -And $Cluster) {
       $result = "Only can update one VM or a cluster at a time. Please try again with just -VMName or -Cluster"
       return $result
