@@ -9,7 +9,6 @@ resources:
     type: github
     endpoint: ComplianceGHRepo
     name: PowerShell/compliance
-
 stages:
 - stage: Compliance
   displayName: Compliance
@@ -22,7 +21,6 @@ stages:
     - checkout: self
     - checkout: ComplianceRepo
     - template: ci-compliance.yml@ComplianceRepo
-
 # extends:
 #   template: v2/OneBranch.Official.CrossPlat.yml@templates
 #   parameters:
