@@ -47,9 +47,6 @@ Param
   [Parameter(
     Mandatory = $true,
     HelpMessage='URL of your AD Servier: ldaps://yourserver:636')]
-  [ValidateScript({
-  $_ -like '*ldaps://*636'
-  })]
   [string]
   $PrimaryUrl,
 
@@ -85,53 +82,70 @@ Param
     HelpMessage='Password you want to use for authenticating with the server')]
   [ValidateNotNull()]
   [string]
-  $Password,
+  $Password
+  )
 
-  [Parameter(
-    Mandatory = $true,
-    HelpMessage='SAS path URI to Certificate for authentication. Ensure permissions to read included')]
-  [ValidateNotNull()]
-  [string]
-  $CertificateSAS
-)
-
-    $Source=$CertificateSAS
-    $Destination="./cert.cer"
-    Invoke-WebRequest -Uri $Source -OutFile $Destination
-    
-    $ExternalSource
-
-    if ($SecondaryUrl) {
-        $ExternalSource = 
-            Add-LDAPIdentitySource `
-                -Name $Name `
-                -DomainName $DomainName `
-                -DomainAlias $DomainAlias `
-                -PrimaryUrl $PrimaryUrl `
-                -SecondaryUrl $SecondaryUrl`
-                -BaseDNUsers $BaseDNUsers `
-                -BaseDNGroups $BaseDNGroups `
-                -Username $Username `
-                -Password $Password`
-                -ServerType 'ActiveDirectory'`
-                -Certificates $Destination
-        Write-Output $ExternalSource
-    } Else {
-        $ExternalSource = 
-            Add-LDAPIdentitySource `
-                -Name $Name `
-                -DomainName $DomainName `
-                -DomainAlias $DomainAlias `
-                -PrimaryUrl $PrimaryUrl`
-                -BaseDNUsers $BaseDNUsers `
-                -BaseDNGroups $BaseDNGroups `
-                -Username $Username `
-                -Password $Password`
-                -ServerType 'ActiveDirectory'`
-                -Certificates $Destination
-        Write-Output $ExternalSource
+    $Destination="$pwd\cert.cer"
+    $webRequest = [System.Net.HttpWebRequest]::Create("https://www.bing.com")
+    try
+    {
+        #Make the request but ignore (dispose it) the response, since we only care about the service point
+        $webRequest.GetResponse().Dispose()
     }
-    return $ExternalSource
+    catch [System.Net.WebException]
+    {
+        if ($_.Exception.Status -eq [System.Net.WebExceptionStatus]::TrustFailure)
+        {
+            #We ignore trust failures, since we only want the certificate, and the service point is still populated at this point
+        }
+        else
+        {
+            #Let other exceptions bubble up, or write-error the exception and return from this method
+            throw
+        }
+    }
+    Write-Output "ServicePoint: " $webRequest.ServicePoint
+    $cert = $webRequest.ServicePoint.Certificate
+    Write-Output $cert
+    if ($cert) {
+      $bytes = $cert.Export([Security.Cryptography.X509Certificates.X509ContentType]::Cert)
+      Set-Content -Value $bytes -AsByteStream -Path $Destination
+      $ExternalSource
+      if ($SecondaryUrl) {
+          $ExternalSource = 
+              Add-LDAPIdentitySource `
+                  -Name $Name `
+                  -DomainName $DomainName `
+                  -DomainAlias $DomainAlias `
+                  -PrimaryUrl $PrimaryUrl `
+                  -SecondaryUrl $SecondaryUrl`
+                  -BaseDNUsers $BaseDNUsers `
+                  -BaseDNGroups $BaseDNGroups `
+                  -Username $Username `
+                  -Password $Password`
+                  -ServerType 'ActiveDirectory'`
+                  -Certificates $bytes
+          Write-Output $ExternalSource
+      } Else {
+          $ExternalSource = 
+              Add-LDAPIdentitySource `
+                  -Name $Name `
+                  -DomainName $DomainName `
+                  -DomainAlias $DomainAlias `
+                  -PrimaryUrl $PrimaryUrl`
+                  -BaseDNUsers $BaseDNUsers `
+                  -BaseDNGroups $BaseDNGroups `
+                  -Username $Username `
+                  -Password $Password`
+                  -ServerType 'ActiveDirectory'`
+                  -Certificates $bytes
+          Write-Output $ExternalSource
+      }
+      return $ExternalSource
+    } else {
+      Write-Output "Couldn't pull certificate from the website"
+      return "Please validate the primary URL"
+    }
 }
 
 <#
@@ -187,6 +201,7 @@ Param
     # Create a should run rule named MyDrsRule on Cluster-1 Hosts using the listed VM's and VMHosts
     Set-AvsDrsClusterGroup -DrsGroupName "MyDrsGroup" -Cluster "Cluster-1" -VMList "vm1", "vm2" 
 #>
+
 function Set-AvsDrsClusterGroup {
   [CmdletBinding(PositionalBinding = $false)]
   Param
@@ -240,7 +255,7 @@ function Set-AvsDrsClusterGroup {
       Else {
         $result = "Please select to add or remove either VMs or VMHosts from the Drs Group"
       }
-}
+  }
 
 <#
     .Synopsis
@@ -288,7 +303,6 @@ function Set-AvsDrsElevationRule {
         Write-Host "Nothing done  "
         return $result
       }
-  
   }
   
 <#
