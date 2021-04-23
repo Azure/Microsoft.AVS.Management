@@ -1,0 +1,60 @@
+##This is a build definition yaml for CDPx buil pipelines.
+environment:
+  host:
+    os: 'windows'                                                       # used to verify at runtime that correct host pool is being used
+    flavor: 'server'                                                    # not used and will be removed in future
+    version: '2016'                                                     # not used and will be removed in future
+  runtime:
+    provider: 'appcontainer'                                            # Currently only appcontainer is supported
+                                                                        # future will bring oscontainer and virtualmachine
+    image: 'cdpxwin1809.azurecr.io/global/vse2019:latest' # This is the image that your pipeline will run in.
+                                                                        # For (appcontainer), Docker Hub public Microsoft repository images
+                                                                        # can be used.
+                                                                        # Example microsoft/dotnet:1.1.1-sdk-nanoserver.
+                                                                        # Or the CDP team vended and custom images can be used.
+                                                                        # These are cdpxwin.azurecr.io/user/<user-image-name> or
+                                                                        # cdpxwin.azurecr.io/legacy/samples/wsmobile (for now).
+    source_mode: 'link'                                                 # 'copy' or 'link'. There is a known bug for npm and ruby on some of
+                                                                        # our images that linked folder in container may cause errors on
+                                                                        # these languages, for that case, use 'copy' here and pipeline will
+                                                                        # full copy source into container from host before each step and full
+                                                                        # copy out back to host after each step. It may be very slow if you
+                                                                        # have a giant repository.
+
+restore:
+  commands:
+
+versioning:
+  commands:
+    - !!defaultcommand
+      name: 'Generate Custom Version'
+      command: '.build-tools\CDPxHelpers\generateCustomVersion.cmd'
+      arguments: "-major 0 -minor 1" # These arguments specify the major and minor version values and any build tag.
+
+
+signing_options:
+  profile: 'external_distribution'
+
+build:
+  commands:
+    - !!buildcommand
+      name: 'AVS-Automation-AdminTools '
+      command: 'build/build.cmd'
+      #fail_on_stderr: false
+      artifacts:
+        - from: 'adminToolBuildOutput'
+          to: 'adminToolBuildOutput'
+          include:
+            - '**/*.ps1'
+          signing_options:
+            sign_inline: true #"Inline Signing: https://onebranch.visualstudio.com/OneBranch/_wiki/wikis/OneBranch.wiki/4951/Signing?anchor=inline-signing%2Fsigning-and-packaging"
+
+package:
+  commands:
+
+
+test:
+  commands:
+
+# user_cleanup:
+#   commands:
