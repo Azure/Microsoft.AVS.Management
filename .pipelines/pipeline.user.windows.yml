@@ -44,4 +44,5 @@ build:
           include:
             - '**/*.ps1'
           signing_options:
+            profile: 'external_distribution'
             sign_inline: true #"Inline Signing: https://onebranch.visualstudio.com/OneBranch/_wiki/wikis/OneBranch.wiki/4951/Signing?anchor=inline-signing%2Fsigning-and-packaging"

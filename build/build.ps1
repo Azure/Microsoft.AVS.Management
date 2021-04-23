@@ -13,4 +13,4 @@ $outputFolderName = "adminToolBuildOutput"
 
 Write-Host "----AVS-Automation-AdminTools: copying files to foler $outputFolderName ----"
 New-Item -Path $repoRoot -Name "$outputFolderName" -ItemType "directory"
-Copy-Item -Path "$repoRoot\powercli\scripts\*" -Destination "C:\Users\Administrator\Downloads\testCpIt" -Recurse
+Copy-Item -Path "$repoRoot\powercli\scripts\*" -Destination "$repoRoot\$outputFolderName" -Recurse
