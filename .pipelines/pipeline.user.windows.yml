@@ -25,7 +25,7 @@ versioning:
   commands:
     - !!defaultcommand
       name: 'Generate Custom Version'
-      command: '.build-tools\CDPxHelpers\generateCustomVersion.cmd'
+      command: '.build-tools\generateVersion.cmd'
       arguments: "-major 0 -minor 1" # These arguments specify the major and minor version values and any build tag.
 
 
