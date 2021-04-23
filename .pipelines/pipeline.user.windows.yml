@@ -20,3 +20,28 @@ environment:
                                                                         # full copy source into container from host before each step and full
                                                                         # copy out back to host after each step. It may be very slow if you
                                                                         # have a giant repository.
+
+versioning:
+  commands:
+    - !!defaultcommand
+      name: 'Generate Custom Version'
+      command: '.build-tools\CDPxHelpers\generateCustomVersion.cmd'
+      arguments: "-major 0 -minor 1" # These arguments specify the major and minor version values and any build tag.
+
+
+signing_options:
+  profile: 'external_distribution'
+
+build:
+  commands:
+    - !!buildcommand
+      name: 'AVS-Automation-AdminTools '
+      command: 'build/build.cmd'
+      #fail_on_stderr: false
+      artifacts:
+        - from: 'adminToolBuildOutput'
+          to: 'adminToolBuildOutput'
+          include:
+            - '**/*.ps1'
+          signing_options:
+            sign_inline: true #"Inline Signing: https://onebranch.visualstudio.com/OneBranch/_wiki/wikis/OneBranch.wiki/4951/Signing?anchor=inline-signing%2Fsigning-and-packaging"
