@@ -5,8 +5,8 @@
 =======================================================================================================
     AUTHOR:  David Becher
     DATE:    4/22/2021
-    Version: 1.0
-    Comment: Add an external identity source to tenant vCenter. Requires powershell to have VMware.PowerCLI, AzurePowershell, and VMware.vSphere.SsoAdminModule installed
+    Version: 1.0.0
+    Comment: Cmdlets for various administrative functions of Azure VMWare Solution products
     Callouts: This script will require the powershell session running it to be able to authenticate to azure to pull secrets from key vault, will need service principal? Also make sure we don't allow code injections  
 ========================================================================================================
 #>
@@ -14,11 +14,11 @@
 # Exported Functions
 <#
     .Synopsis
-     Allow customers to add an external identity source (Active Directory over LDAP) for use with single sign on to vCenter.
+     Allow customers to add an external identity source (Active Directory over LDAP) for use with single sign on to vCenter. Prefaced by Connect-SsoAdminServer
 
     .Example 
     # Add the domain server named "dabecher.local" to vCenter
-    Add-ActiveDirectoryIdentitySource -Name 'dabecher' -DomainName 'dabecher.local' -DomainAlias 'dabecher' -PrimaryUrl 'ldap://10.40.0.5:389' -BaseDNUsers 'dc=dabecher, dc=local' -BaseDNGroups 'dc=dabecher, dc=local' -Username 'dabecher@dabecher.local' -Password 'PlaceholderPassword'
+    Add-ActiveDirectoryIdentitySource -Name 'dabecher' -DomainName 'dabecher.local' -DomainAlias 'dabecher' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=dabecher, dc=local' -BaseDNGroups 'dc=dabecher, dc=local' -Username 'dabecher@dabecher.local' -Password 'PlaceholderPassword' -Credential './path/to/certificate/cert.cer'
 #>
 function New-AvsLDAPIdentitySource {
 [CmdletBinding(PositionalBinding = $false)]
@@ -92,7 +92,7 @@ Param
 
   [Parameter(
     Mandatory = $true,
-    HelpMessage='SAS path URI to Certificate for authentication. Ensure permissions to read included. For how to generate see <>')]
+    HelpMessage='SAS path URI to Certificate for authentication. Ensure permissions to read included. For how to generate see <Insert Helpful Link>')]
   [ValidateNotNull()]
   [string]
   $CertificateSAS
