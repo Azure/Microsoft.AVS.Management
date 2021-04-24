@@ -1,16 +1,6 @@
 #Requires -Modules PowerShellGet
 #Requires -Version 5.0
-<#
-    ========================================================================================
-===============
-    AUTHOR:  David Becher
-    DATE:    1/29/2021
-    Version: 1.0
-    Comment: Add an external identity source to tenant vCenter. Requires powershell to have VMware.PowerCLI, AzurePowershell, and VMware.vSphere.SsoAdminModule installed
-    Callouts: This script will require the powershell session running it to be able to authenticate to azure to pull secrets from key vault, will need service principal? Also make sure we don't allow code injections  
- ========================================================================================
-===============
-#>
+
 [CmdletBinding(PositionalBinding = $false)]
 Param
 (
@@ -45,26 +35,20 @@ Param
   [string]
   $BaseDNGroups,
 
-  [Parameter(
-    Mandatory = $true),
-    HelpMessage='User name you want to use for authenticating with the server')]
+  [Parameter(Mandatory = $true)]
   [ValidateNotNull()]
   [string]
   $Username,
 
-  [Parameter(
-    Mandatory = $true)
-    HelpMessage='Password you want to use for authenticating with the server')]
+  [Parameter(Mandatory = $true)]
   [ValidateNotNull()]
   [string]
-  $Password
+  $Password,
 
-   [Parameter(
-    Mandatory = $true)
-    HelpMessage='Certificate you want to use for authenticating with the server')]
+  [Parameter(Mandatory = $true)]
   [ValidateNotNull()]
   [string]
-  $Certificates
+  $PathToCertificate
 )
 
 function Get-SecretFromKV {
@@ -108,105 +92,6 @@ function Connect-SsoServer
   return $connectedServer
 }
 
-function New-AvsLDAPIdentitySource {
-[CmdletBinding(PositionalBinding = $false)]
-Param
-(
-  [Parameter(Mandatory = $true)]
-  [ValidateNotNull()]
-  [string]
-  $Name,
-
-  [Parameter(Mandatory = $true)]
-  [ValidateNotNull()]
-  [string]
-  $DomainName,
-
-  [Parameter(Mandatory = $true)]
-  [string]
-  $DomainAlias,
-
-  [Parameter(Mandatory = $true)]
-  [ValidateScript({
-  $_ -like '*ldap*'
-  })]
-  [string]
-  $PrimaryUrl,
-
-  [Parameter(Mandatory = $false)]
-  [ValidateScript({
-  $_ -like '*ldap*'
-  })]
-  [string]
-  $SecondaryUrl,
-
-  [Parameter(Mandatory = $true)]
-  [ValidateNotNull()]
-  [string]
-  $BaseDNUsers,
-
-  [Parameter(Mandatory = $true)]
-  [ValidateNotNull()]
-  [string]
-  $BaseDNGroups,
-
-  [Parameter(
-    Mandatory = $true,
-    HelpMessage='User name you want to use for authenticating with the server')]
-  [ValidateNotNull()]
-  [string]
-  $Username,
-
-  [Parameter(
-    Mandatory = $true,
-    HelpMessage='Password you want to use for authenticating with the server')]
-  [ValidateNotNull()]
-  [securestring]
-  $Password,
-
-  [Parameter(
-    Mandatory = $true,
-    HelpMessage='Certificate for authentication')]
-  [ValidateNotNull()]
-  [securestring]
-  $Certificates
-)
-    $Password = ConvertFrom-SecureString $Password
-    $ExternalSource
-
-    if ($SecondaryUrl) {
-        $ExternalSource = 
-            Add-LDAPIdentitySource 
-                -Name $Name 
-                -DomainName $DomainName 
-                -DomainAlias $DomainAlias 
-                -PrimaryUrl $PrimaryUrl 
-                -SecondaryUrl $SecondaryUrl
-                -BaseDNUsers $BaseDNUsers 
-                -BaseDNGroups $BaseDNGroups 
-                -Username $Username 
-                -Password $Password
-                -ServerType 'ActiveDirectory'
-                -Certificates $Certificates
-        Write-Output $ExternalSource
-    } Else {
-        $ExternalSource = 
-            Add-LDAPIdentitySource 
-                -Name $Name 
-                -DomainName $DomainName 
-                -DomainAlias $DomainAlias 
-                -PrimaryUrl $PrimaryUrl
-                -BaseDNUsers $BaseDNUsers 
-                -BaseDNGroups $BaseDNGroups 
-                -Username $Username 
-                -Password $Password
-                -ServerType 'ActiveDirectory'
-                -Certificates $Certificates
-        Write-Output $ExternalSource
-    }
-    return $ExternalSource
-}
-
 Set-TestEnvironmentVariables
 Connect-SsoServer
-New-AvsLDAPIdentitySource -Name $Name -DomainName $DomainName -DomainAlias $DomainAlias -PrimaryURL $PrimaryURL -BaseDNUsers $BaseDNUsers -BaseDNGroups $BaseDNGroups -Username $Username -Password $Password -Certificates $Certificates
+New-AvsLDAPIdentitySource -Name $Name -DomainName $DomainName -DomainAlias $DomainAlias -PrimaryURL $PrimaryURL -BaseDNUsers $BaseDNUsers -BaseDNGroups $BaseDNGroups -Username $Username -Password $Password -CertificateSAS $PathToCertificate
