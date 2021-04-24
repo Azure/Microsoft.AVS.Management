@@ -47,12 +47,18 @@ Param
   [Parameter(
     Mandatory = $true,
     HelpMessage='URL of your AD Servier: ldaps://yourserver:636')]
+  [ValidateScript({
+    $_ -like '*ldaps://*636'
+  })]
   [string]
   $PrimaryUrl,
 
   [Parameter(
     Mandatory = $false,
     HelpMessage='Optional: URL of a backup server')]
+  [ValidateScript({
+    $_ -like '*ldaps://*636'
+  })]
   [string]
   $SecondaryUrl,
 
@@ -82,70 +88,62 @@ Param
     HelpMessage='Password you want to use for authenticating with the server')]
   [ValidateNotNull()]
   [string]
-  $Password
+  $Password,
+
+  [Parameter(
+    Mandatory = $true,
+    HelpMessage='SAS path URI to Certificate for authentication. Ensure permissions to read included. For how to generate see <>')]
+  [ValidateNotNull()]
+  [string]
+  $CertificateSAS
   )
 
-    $Destination="$pwd\cert.cer"
-    $webRequest = [System.Net.HttpWebRequest]::Create("https://www.bing.com")
+    $Destination="./cert.cer"
+    $Source=$CertificateSAS
     try
     {
-        #Make the request but ignore (dispose it) the response, since we only care about the service point
-        $webRequest.GetResponse().Dispose()
+        Write-Host "Downloading Certificate........."
+        $Response = Invoke-WebRequest -Uri $Source -OutFile $Destination
+        # This will only execute if the Invoke-WebRequest is successful.
+        $StatusCode = $Response.StatusCode
+        Write-Host("Certificate downloaded: " + $StatusCode)
     }
-    catch [System.Net.WebException]
+    catch
     {
-        if ($_.Exception.Status -eq [System.Net.WebExceptionStatus]::TrustFailure)
-        {
-            #We ignore trust failures, since we only want the certificate, and the service point is still populated at this point
-        }
-        else
-        {
-            #Let other exceptions bubble up, or write-error the exception and return from this method
-            throw
-        }
+        $StatusCode = $_.Exception.Response.StatusCode.value__
+        return ("Failed to download: " + $StatusCode)
     }
-    Write-Output "ServicePoint: " $webRequest.ServicePoint
-    $cert = $webRequest.ServicePoint.Certificate
-    Write-Output $cert
-    if ($cert) {
-      $bytes = $cert.Export([Security.Cryptography.X509Certificates.X509ContentType]::Cert)
-      Set-Content -Value $bytes -AsByteStream -Path $Destination
-      $ExternalSource
-      if ($SecondaryUrl) {
-          $ExternalSource = 
-              Add-LDAPIdentitySource `
-                  -Name $Name `
-                  -DomainName $DomainName `
-                  -DomainAlias $DomainAlias `
-                  -PrimaryUrl $PrimaryUrl `
-                  -SecondaryUrl $SecondaryUrl`
-                  -BaseDNUsers $BaseDNUsers `
-                  -BaseDNGroups $BaseDNGroups `
-                  -Username $Username `
-                  -Password $Password`
-                  -ServerType 'ActiveDirectory'`
-                  -Certificates $bytes
-          Write-Output $ExternalSource
-      } Else {
-          $ExternalSource = 
-              Add-LDAPIdentitySource `
-                  -Name $Name `
-                  -DomainName $DomainName `
-                  -DomainAlias $DomainAlias `
-                  -PrimaryUrl $PrimaryUrl`
-                  -BaseDNUsers $BaseDNUsers `
-                  -BaseDNGroups $BaseDNGroups `
-                  -Username $Username `
-                  -Password $Password`
-                  -ServerType 'ActiveDirectory'`
-                  -Certificates $bytes
-          Write-Output $ExternalSource
-      }
+    
+    Write-Host "Adding the LDAP Identity Source..."
+    if ($SecondaryUrl) {
+        $ExternalSource = 
+            Add-LDAPIdentitySource `
+                -Name $Name `
+                -DomainName $DomainName `
+                -DomainAlias $DomainAlias `
+                -PrimaryUrl $PrimaryUrl `
+                -SecondaryUrl $SecondaryUrl`
+                -BaseDNUsers $BaseDNUsers `
+                -BaseDNGroups $BaseDNGroups `
+                -Username $Username `
+                -Password $Password`
+                -ServerType 'ActiveDirectory'`
+                -Certificates $Destination
+    } Else {
+        $ExternalSource = 
+            Add-LDAPIdentitySource `
+                -Name $Name `
+                -DomainName $DomainName `
+                -DomainAlias $DomainAlias `
+                -PrimaryUrl $PrimaryUrl`
+                -BaseDNUsers $BaseDNUsers `
+                -BaseDNGroups $BaseDNGroups `
+                -Username $Username `
+                -Password $Password `
+                -ServerType 'ActiveDirectory'`
+                -Certificates $Destination
+    }
       return $ExternalSource
-    } else {
-      Write-Output "Couldn't pull certificate from the website"
-      return "Please validate the primary URL"
-    }
 }
 
 <#
@@ -160,27 +158,37 @@ function New-AvsDrsElevationRule {
 [CmdletBinding(PositionalBinding = $false)]
 Param
 (
-    [Parameter(Mandatory = $true)]
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='User-Friendly name of the Drs rule to create')]
     [ValidateNotNullOrEmpty()]
     [string]
     $DrsRuleName,
     
-    [Parameter(Mandatory = $true)]
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='User-Friendly name of the Drs group to create')]
     [ValidateNotNullOrEmpty()]
     [string]
     $DrsGroupName,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='Cluster to create the rule and group on')]
     [ValidateNotNullOrEmpty()]
     [string]
     $Cluster,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='List of the VMs to add to the VM group')]
     [ValidateNotNullOrEmpty()]
     [string[]]
     $VMList,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='List of the VMHosts to add to the VMHost group')]
     [ValidateNotNullOrEmpty()]
     [string[]]
     $VMHostList
@@ -206,56 +214,60 @@ function Set-AvsDrsClusterGroup {
   [CmdletBinding(PositionalBinding = $false)]
   Param
   (   
-      [Parameter(Mandatory = $true)]
-      [ValidateNotNullOrEmpty()]
-      [string]
-      $DrsGroupName,
-  
-      [Parameter(Mandatory = $false)]
-      [ValidateNotNullOrEmpty()]
-      [string[]]
-      $VMList,
-  
-      [Parameter(Mandatory = $false)]
-      [ValidateNotNullOrEmpty()]
-      [string[]]
-      $VMHostList,
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='Name of the Drs group to edit')]
+    [ValidateNotNullOrEmpty()]
+    [string]
+    $DrsGroupName,
 
-      [switch] $Add = $false,
-      [switch] $Remove = $false
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='List of the VMs to add to the VM group')]
+    [ValidateNotNullOrEmpty()]
+    [string[]]
+    $VMList,
+
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='List of the VMHosts to add to the VMHost group')]
+    [ValidateNotNullOrEmpty()]
+    [string[]]
+    $VMHostList,
+
+    [switch] $Add = $false,
+    [switch] $Remove = $false
 
   )
 
-      if ($Add -And $Remove) {
-        $result = "You can't add and remove at the same time. Try again with just one flag"
+  If ($Add -And $Remove) {
+    $result = "You can't add and remove at the same time. Try again with just one flag"
+    return $result
+  } ElseIf ($Add -eq $false -and $Remove -eq $false) {
+    $result = "Nothing was done. Please select with either -Add or -Remove"
+  } Else {
+    If ($VMList -And $VMHostList) {
+    $result = "Nothing done. Please select with either -VMHostList or -VMHost."
+    return $result
+    } ElseIf ($VMList) {
+      If ($Add) {
+        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -Confirm
         return $result
-      } elseif ($Add -eq $false -and $Remove -eq $false) {
-        $result = "Nothing was done. Please select with either -Add or -Remove"
-      }
-      if ($VMList -And $VMHostList) {
-        $result = "Only update the parameter for your Drs Group. Either VM or Host. Nothing done."
+      } ElseIf ($Remove) {
+        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Remove -Confirm
         return $result
-      } ElseIf ($VMList) {
-        If ($Add) {
-          $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -Confirm
-          return $result
-        } ElseIf ($Remove) {
-          $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -Confirm
-          return $result
-        }
-      } ElseIf ($VMHostList) {
-        If ($Add) {
-          $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -Confirm
-          return $result
-        } ElseIf ($Remove) {
-          $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -Confirm
-          return $result
-        }
       }
-      Else {
-        $result = "Please select to add or remove either VMs or VMHosts from the Drs Group"
+    } ElseIf ($VMHostList) {
+      If ($Add) {
+        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -Confirm
+        return $result
+      } ElseIf ($Remove) {
+        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -Confirm
+        return $result
       }
+    }
   }
+}
 
 <#
     .Synopsis
@@ -269,16 +281,22 @@ function Set-AvsDrsElevationRule {
   [CmdletBinding(PositionalBinding = $false)]
   Param
   (   
-      [Parameter(Mandatory = $true)]
+      [Parameter(
+        Mandatory = $true,
+        HelpMessage='Name of the Drs rule to edit')]
       [ValidateNotNullOrEmpty()]
       [string]
       $DrsRuleName,
   
-      [Parameter(Mandatory = $false)]
+      [Parameter(
+        Mandatory = $false,
+        HelpMessage='Enabled switch: $true or $false')]
       [Nullable[boolean]]
       $Enabled,
   
-      [Parameter(Mandatory = $false)]
+      [Parameter(
+        Mandatory = $false,
+        HelpMessage='New name for the Drs rule')]
       [ValidateNotNullOrEmpty()]
       [string]
       $Name
@@ -318,19 +336,25 @@ function Set-AvsStoragePolicy {
 Param
 (
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='Name of the storage policy to set')]
     [ValidateNotNullOrEmpty()]
     [string]
     $StoragePolicyName,
     
-    [Parameter(Mandatory = $false)]
+    [Parameter(
+      Mandatory = $false,
+      HelpMessage='Name of the VM to set the storage policy on')]
     [string]
     $VMName,
 
-    [Parameter(Mandatory = $false)]
+    [Parameter(
+      Mandatory = $false,
+      HelpMessage='Name of the Cluster to set the storage policy on')]
     [string]
     $Cluster
-)               
+)
     if ($VMName -And $Cluster) {
       $result = "Only can update one VM or a cluster at a time. Please try again with just -VMName or -Cluster"
       return $result
@@ -339,7 +363,7 @@ Param
       $result = Set-VM $VMName -StoragePolicy $storagepolicy -SkipHardDisks
       return $result
     } Else {
-      $result = "Placeholder for cluster editing, currently not supported"
+      $result = "Placeholder for cluster editing, currently not supported. Nothing done"
       return $result
     }
 }
