@@ -1,7 +1,10 @@
 #!/usr/bin/pwsh
 $repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"
-#Set-Location $repoRoot
+#$signedModulesLoc = "signedPSModules"
+$modulesDirectory = "powercli"
+$outputFolderName = "adminToolBuildOutput"
 
+Set-Location "$repoRoot\$modulesDirectory"
 #Create folder for build output
 # $commit = (Get-Date -Format "yyyyMMddTHHmmssffffZ")
 # if (($null -ne $env:CDP_COMMIT_ID) -and ($env:CDP_COMMIT_ID -ne "")) {
@@ -9,8 +12,9 @@ $repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"
 # } elseif (($null -ne $env:BUILD_SOURCEVERSION) -and ($env:BUILD_SOURCEVERSION -ne "*")) {
 #     $commit = ${env:BUILD_SOURCEVERSION}.substring(0,8)
 # }
-$outputFolderName = "adminToolBuildOutput"
-
-Write-Host "----AVS-Automation-AdminTools: copying files to foler $outputFolderName ----"
 New-Item -Path $repoRoot -Name "$outputFolderName" -ItemType "directory"
-Copy-Item -Path "$repoRoot\powercli\scripts\*" -Destination "$repoRoot\$outputFolderName" -Recurse
+
+Write-Host "----AVS-Automation-AdminTools: making nuget package ----"
+nuget spec Azure.AVSPowerCLI
+nuget pack Azure.AVSPowerCLI.nuspec -NonInteractive -OutputDirectory "$repoRoot\$outputFolderName"
+Write-Host "----AVS-Automation-AdminTools: Azure.AVSPowerCLI nuget package deposited in $repoRoot\$outputFolderName----"
