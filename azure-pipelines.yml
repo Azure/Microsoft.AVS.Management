@@ -30,5 +30,5 @@ stages:
     steps:
     - task: PowerShell@2
       inputs:
-        filePath: 'publish/publishPackage.ps1'
+        filePath: 'package/publishPackage.ps1'
         pwsh: true
