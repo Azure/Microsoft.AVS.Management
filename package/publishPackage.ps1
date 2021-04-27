@@ -9,5 +9,5 @@ $feedSource = "AVS-Automation-AdminTools"
 Set-Location "$repoRoot\$outputFolderName"
 Write-Host "----AVS-Automation-AdminTools: publish nuget package to $feedSource ----"
 
-nuget.exe push *.nupkg -src 'https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v3/index.json'
+nuget.exe push *.nupkg -src 'https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v3/index.json' -ApiKey valueNotUsed
 Set-Location "$repoRoot"
