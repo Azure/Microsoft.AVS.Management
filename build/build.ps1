@@ -1,12 +1,12 @@
 #!/usr/bin/pwsh
 $repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"
-$artifactDirectoryRoot = "$env:BUILD_ARTIFACTSTAGINGDIRECTORY"
 $signedModulesLoc = "signedPSModules"
-# $modulesDirectory = "powercli"
 $outputFolderName = "adminToolBuildOutput"
+# $artifactDirectoryRoot = "$env:BUILD_ARTIFACTSTAGINGDIRECTORY"
+# $modulesDirectory = "powercli"
 
 New-Item -Path $repoRoot -Name "$outputFolderName" -ItemType "directory"
-Copy-Item -Path "$artifactDirectoryRoot\$signedModulesLoc\*" -Destination "$repoRoot\$outputFolderName" -Recurse
+Copy-Item -Path "$repoRoot\$signedModulesLoc\*" -Destination "$repoRoot\$outputFolderName" -Recurse
 Set-Location "$repoRoot\$outputFolderName"
 
 Write-Host "----AVS-Automation-AdminTools: making nuget package ----"
