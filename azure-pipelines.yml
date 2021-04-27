@@ -15,12 +15,12 @@ stages:
   - job: Build_Job
     displayName: Build AVS-Automation-AdminTools
 
-  steps:
-  - task: PowerShell@2
-    inputs:
-      filePath: '$(Build.SourcesDirectory)/azure-avs-automation-admintools/build/copyModules.ps1'
-      pwsh: true
-  - task: PowerShell@2
-    inputs:
-      filePath: '$(Build.SourcesDirectory)/azure-avs-automation-admintools/build/build.ps1'
-      pwsh: true
+    steps:
+    - task: PowerShell@2
+      inputs:
+        filePath: '$(Build.SourcesDirectory)/azure-avs-automation-admintools/build/copyModules.ps1'
+        pwsh: true
+    - task: PowerShell@2
+      inputs:
+        filePath: '$(Build.SourcesDirectory)/azure-avs-automation-admintools/build/build.ps1'
+        pwsh: true
