@@ -6,14 +6,21 @@
 trigger:
 - none
 
-pool:
-  vmImage: windows-latest
+stages:
+  -stage: Build 
+  displayName: Build
+  pool:
+    vmImage: vs2019-win2016
+  jobs:
+  - job:Build_Job
+  displayName: Build AVS-Automation-AdminTools
 
-steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
-
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+  steps:
+  - task: PowerShell@2
+    inputs:
+      filePath: '"$(Build.SourcesDirectory)/azure-avs-automation-admintools/build/copyModules.ps1"'
+      pwsh: true
+  - task: PowerShell@2
+    inputs:
+      filePath: '"$(Build.SourcesDirectory)/azure-avs-automation-admintools/build/build.ps1"'
+      pwsh: true
