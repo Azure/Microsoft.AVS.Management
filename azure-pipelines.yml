@@ -7,11 +7,7 @@ trigger:
 - none
 
 stages:
-<<<<<<< HEAD
 - stage: Build 
-=======
-  - stage: Build 
->>>>>>> e5368ae60de507398c74cd43844c18655a78b9d4
   displayName: Build
   pool:
     vmImage: vs2019-win2016
