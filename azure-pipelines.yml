@@ -26,7 +26,7 @@ stages:
         pwsh: true
 
   - job: Publish to Feed
-    displayName: 'Push .nupkg to AVS-Automation-AdminTools'
+    displayName: 'Push nupkg to AVS-Automation-AdminTools'
     steps:
     - task: PowerShell@2
       inputs:
