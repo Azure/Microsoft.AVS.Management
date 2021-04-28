@@ -10,7 +10,7 @@ pr:
     include:
     - main
   drafts: false
-  batch: true
+  autocancel: false
 
 stages:
 - stage: Build 
