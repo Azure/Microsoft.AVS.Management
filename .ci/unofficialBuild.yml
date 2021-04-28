@@ -1,13 +1,16 @@
 # https://aka.ms/yaml
 
-# trigger:
-# - none
-
-pr:
+trigger:
+drafts: false
   branches:
     include:
     - main
-  drafts: false
+
+# pr:
+#   branches:
+#     include:
+#     - main
+#   drafts: false
 
 stages:
 - stage: Build 
