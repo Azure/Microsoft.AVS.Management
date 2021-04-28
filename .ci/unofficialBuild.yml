@@ -1,7 +1,6 @@
 # https://aka.ms/yaml
 
 trigger:
-drafts: false
   branches:
     include:
     - main
