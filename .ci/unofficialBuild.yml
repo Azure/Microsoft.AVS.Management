@@ -1,7 +1,7 @@
 # https://aka.ms/yaml
 
-# trigger:
-# - none
+trigger:
+- none
 
 pr:
   branches:
