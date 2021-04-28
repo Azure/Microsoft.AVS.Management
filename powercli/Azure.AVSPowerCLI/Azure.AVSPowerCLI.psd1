@@ -72,7 +72,7 @@ RequiredModules = @(
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @("Set-AvsStoragePolicy", "New-AvsExternalADIdentitySource", "New-AvsDrsElevationRule", "Set-AvsDrsClusterGroup", "Set-AvsDrsElevationRule")
+FunctionsToExport = @("Set-AvsStoragePolicy", "New-AvsLDAPIdentitySource", "New-AvsDrsElevationRule", "Set-AvsDrsClusterGroup", "Set-AvsDrsElevationRule")
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = @()
