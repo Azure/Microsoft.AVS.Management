@@ -1,15 +1,8 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
-
 trigger:
   batch: true
   branches:
     include:
     - main
-    exclude: 
-    - '*'
 
 stages:
 - stage: Build 
@@ -33,10 +26,3 @@ stages:
       inputs:
         filePath: 'package/publishOfficialPackage.ps1'
         pwsh: true
-  # - job: Publish_to_Feed
-  #   displayName: Publish Nuget Package to Feed
-  #   steps:
-  #   - task: PowerShell@2
-  #     inputs:
-  #       filePath: 'package/publishPackage.ps1'
-  #       pwsh: true
