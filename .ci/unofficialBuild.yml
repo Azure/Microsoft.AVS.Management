@@ -1,5 +1,8 @@
 # https://aka.ms/yaml
 
+trigger:
+- none
+
 pr:
   branches:
     include:
@@ -13,7 +16,7 @@ stages:
     vmImage: windows-2019
   jobs:
   - job: Build_and_Publish_Job
-    displayName: Build AVS-Automation-AdminTools
+    displayName: Build Unofficial AVS-Automation-AdminTools
     steps:
     - task: PowerShell@2
       inputs:
