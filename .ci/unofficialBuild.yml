@@ -2,7 +2,8 @@
 
 pr:
   branches:
-    include: main
+    include:
+    - main
   drafts: false
 
 stages:
