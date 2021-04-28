@@ -2,12 +2,12 @@
 $repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"
 #$signedModulesLoc = "signedPSModules"
 $outputFolderName = "adminToolBuildOutput"
-$feedSource = "AVS-Automation-AdminTools"
+$feedSource = "Unofficial-AVS-Automation-AdminTools"
 # $artifactDirectoryRoot = "$env:BUILD_ARTIFACTSTAGINGDIRECTORY"
 # $modulesDirectory = "powercli"
 
 Set-Location "$repoRoot\$outputFolderName"
-Write-Host "----AVS-Automation-AdminTools: publish nuget package to $feedSource ----"
+Write-Host "----Unofficial-AVS-Automation-AdminTools: publish nuget package to $feedSource ----"
 
-nuget.exe push *.nupkg -src 'https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v3/index.json' -ApiKey valueNotUsed
+nuget.exe push *.nupkg -src 'https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v3/index.json' -ApiKey valueNotUsed
 Set-Location "$repoRoot"
