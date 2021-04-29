@@ -16,6 +16,6 @@ Set-Location (Join-Path "$repoRoot" "$newModuleFolder")
 Write-Host "----AVS-Automation-AdminTools: making nuget package ----"
 nuget spec Azure.AVSPowerCLI
 nuget pack Azure.AVSPowerCLI.nuspec -NonInteractive
-Write-Host "----AVS-Automation-AdminTools: Azure.AVSPowerCLI nuget package deposited in $repoRoot\$outputFolderName----"
+Write-Host "----AVS-Automation-AdminTools: Azure.AVSPowerCLI nuget package deposited----"
 
 Set-Location "$repoRoot"
