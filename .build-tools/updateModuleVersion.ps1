@@ -4,10 +4,17 @@
 $repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"
 $manifestFolder = (Join-Path "powercli" "Azure.AVSPowerCLI")
 $manifestFile = "Azure.AVSPowerCLI.psd1"
-$pathToManifest = (Join-Path "$repoRoot" "$manifestFolder" "$manifestFile")
+
+$newModuleFolder = "Azure.AVSPowerCLI"
+New-Item -Path $repoRoot -Name "$newModuleFolder" -ItemType "directory"
+$pathToNewModuleFolder = (Join-Path "$repoRoot" "$newModuleFolder")
+Copy-Item -Path "$repoRoot\$manifestFolder\*" -Destination "$pathToNewModuleFolder" -Recurse
+
+
+
 
 Write-Output "---- Updating the module version to $env:BUILD_BUILDNUMBER----"
-$targetModuleParams = @{ModuleVersion = "$env:BUILD_BUILDNUMBER"; Path = "$pathToManifest"}
+$targetModuleParams = @{ModuleVersion = "$env:BUILD_BUILDNUMBER"; Path = (Join-Path "$pathToNewModuleFolder" "$manifestFile")}
 Update-ModuleManifest @targetModuleParams
 Write-Output "---- SUCCESS: updated the module version to $env:BUILD_BUILDNUMBER----"
 Get-Content "$pathToManifest"

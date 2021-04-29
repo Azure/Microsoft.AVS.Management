@@ -5,8 +5,8 @@ $repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"
 $feedSource = "Unofficial-AVS-Automation-AdminTools"
 # $artifactDirectoryRoot = "$env:BUILD_ARTIFACTSTAGINGDIRECTORY"
 # $modulesDirectory = "powercli"
-$moduleFolder = (Join-Path "powercli" "Azure.AVSPowerCLI")
-Set-Location (Join-Path "$repoRoot" "$moduleFolder")
+$newModuleFolder = "Azure.AVSPowerCLI"
+Set-Location (Join-Path "$repoRoot" "$newModuleFolder")
 # Set-Location "$repoRoot\$outputFolderName"
 Write-Host "----Unofficial-AVS-Automation-AdminTools: publish nuget package to $feedSource ----"
 
