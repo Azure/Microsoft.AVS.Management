@@ -30,6 +30,7 @@ stages:
         filePath: '.build-tools/getRequiredModules.ps1'
         pwsh: true
   - job: Update_PS_Module_Version
+    dependsOn: Get_Required_Modules
     displayName: Update Module Version
     steps:
     - task: PowerShell@2
@@ -37,6 +38,7 @@ stages:
         filePath: '.build-tools/updateModuleVersion.ps1'
         pwsh: true
   - job: Build_and_Publish_Job
+    dependsOn: Update_PS_Module_Version
     displayName: Build Unofficial AVS-Automation-AdminTools
     steps:
     - task: PowerShell@2
