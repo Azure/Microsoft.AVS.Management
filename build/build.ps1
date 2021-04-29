@@ -1,5 +1,7 @@
 #!/usr/bin/pwsh
 $repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"
+$artifactDirRoot = "$env:BUILD_ARTIFACTSTAGINGDIRECTORY"
+
 # $signedModulesLoc = "signedPSModules"
 # $outputFolderName = "adminToolBuildOutput"
 # $artifactDirectoryRoot = "$env:BUILD_ARTIFACTSTAGINGDIRECTORY"
@@ -11,11 +13,12 @@ $newModuleFolder = "Azure.AVSPowerCLI"
 # New-Item -Path $repoRoot -Name "$newModuleFolder" -ItemType "directory"
 # Copy-Item -Path "$repoRoot\$s\*" -Destination "$repoRoot\$newModuleFolder" -Recurse
 # Set-Location "$repoRoot\$outputFolderName"
-Set-Location (Join-Path "$repoRoot" "$newModuleFolder")
-
+Set-Location (Join-Path "$artifactDirRoot" "$newModuleFolder")
+Get-Content "Azure.AVSPowerCLI.psd1"
 Write-Host "----AVS-Automation-AdminTools: making nuget package ----"
 nuget spec Azure.AVSPowerCLI
 nuget pack Azure.AVSPowerCLI.nuspec -NonInteractive
 Write-Host "----AVS-Automation-AdminTools: Azure.AVSPowerCLI nuget package deposited----"
 
+Get-Content "Azure.AVSPowerCLI.psd1"
 Set-Location "$repoRoot"
