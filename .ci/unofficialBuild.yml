@@ -11,7 +11,7 @@ pr:
   autoCancel: false
 
 variables:
-  MAJOR: 0
+  MAJOR: 1
   minor: 1
 
 name: $(MAJOR).$(minor).$(Rev:r)
