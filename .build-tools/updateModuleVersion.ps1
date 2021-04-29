@@ -13,7 +13,7 @@ $newPathToManifest = (Join-Path "$pathToNewModuleFolder" "$manifestFile")
 
 Get-Content "$newPathToManifest"
 Write-Output "---- Updating the module version to $env:BUILD_BUILDNUMBER----"
-$targetModuleParams = @{ModuleVersion = "$env:BUILD_BUILDNUMBER"; Path = "newPathToManifest"}
+$targetModuleParams = @{ModuleVersion = "$env:BUILD_BUILDNUMBER"; Path = "$newPathToManifest"}
 Update-ModuleManifest @targetModuleParams
 Write-Output "---- SUCCESS: updated the module version to $env:BUILD_BUILDNUMBER----"
 Get-Content "$newPathToManifest"
