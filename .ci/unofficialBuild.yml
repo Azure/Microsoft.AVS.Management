@@ -10,12 +10,32 @@ pr:
   drafts: false
   autoCancel: false
 
+variables:
+  MAJOR: 0
+  minor: 1
+
+name: $(MAJOR).$(minor).$(Rev:r)
+
 stages:
 - stage: Build 
   displayName: Build
   pool:
     vmImage: windows-2019
   jobs:
+  - job: Get_Required_Modules
+    displayName: Get Required Modules
+    steps:
+    - task: PowerShell@2
+      inputs:
+        filePath: '.build-tools/getRequiredModules.ps1'
+        pwsh: true
+  - job: Update_PS_Module_Version
+    displayName: Update Module Version
+    steps:
+    - task: PowerShell@2
+      inputs:
+        filePath: '.build-tools/updateModuleVersion.ps1'
+        pwsh: true
   - job: Build_and_Publish_Job
     displayName: Build Unofficial AVS-Automation-AdminTools
     steps:
