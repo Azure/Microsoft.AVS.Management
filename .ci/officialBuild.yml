@@ -4,18 +4,28 @@ trigger:
     include:
     - main
 
+variables:
+  MAJOR: 0
+  minor: 1
+
+name: $(MAJOR).$(minor).$(Rev:r)
+
 stages:
-- stage: Build 
-  displayName: Official_Build
+- stage: Official_Build 
+  displayName: Build and Publish Package
   pool:
     vmImage: windows-2019
   jobs:
   - job: Build_and_Publish_Job
-    displayName: Build AVS-Automation-AdminTools
+    displayName: Build Unofficial AVS-Automation-AdminTools
     steps:
     - task: PowerShell@2
       inputs:
-        filePath: 'build/copyModules.ps1'
+        filePath: '.build-tools/getRequiredModules.ps1'
+        pwsh: true
+    - task: PowerShell@2
+      inputs:
+        filePath: '.build-tools/updateModuleVersion.ps1'
         pwsh: true
     - task: PowerShell@2
       inputs:
@@ -24,5 +34,6 @@ stages:
     - task: NuGetAuthenticate@0
     - task: PowerShell@2
       inputs:
-        filePath: 'package/publishOfficialPackage.ps1'
+        filePath: 'package/publishPackage.ps1'
+        arguments: -buildType 'official'
         pwsh: true

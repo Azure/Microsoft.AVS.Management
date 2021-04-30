@@ -40,5 +40,5 @@ stages:
     - task: NuGetAuthenticate@0
     - task: PowerShell@2
       inputs:
-        filePath: 'package/publishUnofficialPackage.ps1'
+        filePath: 'package/publishPackage.ps1'
         pwsh: true
