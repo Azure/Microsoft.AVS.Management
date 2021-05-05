@@ -37,3 +37,30 @@ stages:
         filePath: 'package/publishPackage.ps1'
         arguments: -buildType 'official'
         pwsh: true
+- stage: Compliance
+  displayName: Compliance
+  dependsOn: Official_Build
+  jobs:
+  - job: Check_Compliance
+    steps:
+    - pwsh: |
+        Write-Output "---- NO COMPLIANCE TASKS----"
+- stage: Test
+  displayName: Test
+  dependsOn: Official_Build
+  jobs:
+  - job: Run_Tests
+    steps:
+    - pwsh: |
+        Write-Output "---- NO TEST RUNNING----"
+- stage: Release
+  displayName: Release
+  dependsOn: 
+  - Official_Build
+  - Compliance
+  - Test
+  jobs:
+  - job: Release
+    steps:
+    - pwsh: |
+        Write-Output "---- NO RELEAST TASKS----"
