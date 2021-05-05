@@ -52,7 +52,7 @@ stages:
         Write-Output "---- NO COMPLIANCE TASKS----"
 - stage: Test
   displayName: Test
-  dependsOn: Build_and_Publish
+  dependsOn: Compliance
   jobs:
   - job: Run_Tests
     steps:
