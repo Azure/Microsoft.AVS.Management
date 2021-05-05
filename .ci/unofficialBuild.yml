@@ -44,7 +44,7 @@ stages:
         pwsh: true
 - stage: Compliance
   displayName: Compliance
-  dependsOn: Official_Build
+  dependsOn: Build_and_Publish
   jobs:
   - job: Check_Compliance
     steps:
@@ -52,7 +52,7 @@ stages:
         Write-Output "---- NO COMPLIANCE TASKS----"
 - stage: Test
   displayName: Test
-  dependsOn: Official_Build
+  dependsOn: Build_and_Publish
   jobs:
   - job: Run_Tests
     steps:
@@ -61,9 +61,9 @@ stages:
 - stage: Release
   displayName: Release
   dependsOn: 
-  - Official_Build
   - Compliance
   - Test
+  condition: succeeded('Compliane', 'Test')
   jobs:
   - job: Release
     steps:
