@@ -42,29 +42,29 @@ stages:
       inputs:
         filePath: 'package/publishPackage.ps1'
         pwsh: true
-- stage: Compliance
-  displayName: Compliance
-  dependsOn: Build_and_Publish
-  jobs:
-  - job: Check_Compliance
-    steps:
-    - pwsh: |
-        Write-Output "---- NO COMPLIANCE TASKS----"
-- stage: Test
-  displayName: Test
-  dependsOn: Compliance
-  jobs:
-  - job: Run_Tests
-    steps:
-    - pwsh: |
-        Write-Output "---- NO TEST RUNNING----"
-- stage: Release
-  displayName: Release
-  dependsOn: 
-  - Test
-  condition: succeeded('Test')
-  jobs:
-  - job: Release
-    steps:
-    - pwsh: |
-        Write-Output "---- NO RELEAST TASKS----"
+# - stage: Compliance
+#   displayName: Compliance
+#   dependsOn: Build_and_Publish
+#   jobs:
+#   - job: Check_Compliance
+#     steps:
+#     - pwsh: |
+#         Write-Output "---- NO COMPLIANCE TASKS----"
+# - stage: Test
+#   displayName: Test
+#   dependsOn: Compliance
+#   jobs:
+#   - job: Run_Tests
+#     steps:
+#     - pwsh: |
+#         Write-Output "---- NO TEST RUNNING----"
+# - stage: Release
+#   displayName: Release
+#   dependsOn: 
+#   - Test
+#   condition: succeeded('Test')
+#   jobs:
+#   - job: Release
+#     steps:
+#     - pwsh: |
+#         Write-Output "---- NO RELEAST TASKS----"
