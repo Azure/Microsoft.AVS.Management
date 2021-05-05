@@ -61,9 +61,8 @@ stages:
 - stage: Release
   displayName: Release
   dependsOn: 
-  - Compliance
   - Test
-  condition: succeeded('Compliane', 'Test')
+  condition: succeeded('Test')
   jobs:
   - job: Release
     steps:
