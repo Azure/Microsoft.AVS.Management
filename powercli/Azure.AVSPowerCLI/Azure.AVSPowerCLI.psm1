@@ -100,8 +100,13 @@ Param
   [switch] $LDAPS = $false
   )
 
-    # DNS Probe the Primary and Secondary URL (Has customer applied FQDN) - Christian 
-    
+    try {
+      $DNSResult = [system.net.dns]::gethostaddresses("$DomainName")
+      Write-Host "Successfully connected to $DomainName"
+    } catch {
+      return ("Failed to connect to $DomainName. Check your DNS Settings")
+    }
+
     if ($LDAP) {
       Write-Host "Adding the LDAP Identity Source..."
       $ExternalSource = 
