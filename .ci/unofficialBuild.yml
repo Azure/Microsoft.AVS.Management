@@ -35,6 +35,11 @@ stages:
         pwsh: true
     - task: PowerShell@2
       inputs:
+        filePath: 'tests/prevalidateModules.ps1'
+        arguments: 'powercli/Azure.AVSPowerCLI'
+        pwsh: true
+    - task: PowerShell@2
+      inputs:
         filePath: 'build/build.ps1'
         pwsh: true
     - task: NuGetAuthenticate@0
