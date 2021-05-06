@@ -46,9 +46,9 @@ Param
 
   [Parameter(
     Mandatory = $true,
-    HelpMessage='URL of your AD Servier: ldaps://yourserver:636')]
+    HelpMessage='URL of your AD Server: ldaps://yourserver:636')]
   [ValidateScript({
-    $_ -like '*ldaps://*636'
+    $_ -match 'ldap.*:.*((389)|(636)|(3268)(3269))'
   })]
   [string]
   $PrimaryUrl,
@@ -57,7 +57,7 @@ Param
     Mandatory = $false,
     HelpMessage='Optional: URL of a backup server')]
   [ValidateScript({
-    $_ -like '*ldaps://*636'
+    $_ -match 'ldap.*:.*((389)|(636)|(3268)(3269))'
   })]
   [string]
   $SecondaryUrl,
@@ -91,59 +91,74 @@ Param
   $Password,
 
   [Parameter(
-    Mandatory = $true,
-    HelpMessage='SAS path URI to Certificate for authentication. Ensure permissions to read included. For how to generate see <Insert Helpful Link>')]
-  [ValidateNotNull()]
-  [string]
-  $CertificateSAS
+    Mandatory = $false,
+    HelpMessage='Array of SAS path URI to Certificates for authentication. Ensure permissions to read included. For how to generate see <Insert Helpful Link>')]
+  [string[]]
+  $CertificatesSAS,
+
+  [switch] $LDAP = $false,
+  [switch] $LDAPS = $false
   )
 
-    $Destination="./cert.cer"
-    $Source=$CertificateSAS
-    try
-    {
-        Write-Host "Downloading Certificate........."
-        $Response = Invoke-WebRequest -Uri $Source -OutFile $Destination
-        # This will only execute if the Invoke-WebRequest is successful.
-        $StatusCode = $Response.StatusCode
-        Write-Host("Certificate downloaded: " + $StatusCode)
-    }
-    catch
-    {
-        $StatusCode = $_.Exception.Response.StatusCode.value__
-        return ("Failed to download: " + $StatusCode)
-    }
+    # DNS Probe the Primary and Secondary URL (Has customer applied FQDN) - Christian 
     
-    Write-Host "Adding the LDAP Identity Source..."
-    if ($SecondaryUrl) {
-        $ExternalSource = 
-            Add-LDAPIdentitySource `
-                -Name $Name `
-                -DomainName $DomainName `
-                -DomainAlias $DomainAlias `
-                -PrimaryUrl $PrimaryUrl `
-                -SecondaryUrl $SecondaryUrl`
-                -BaseDNUsers $BaseDNUsers `
-                -BaseDNGroups $BaseDNGroups `
-                -Username $Username `
-                -Password $Password`
-                -ServerType 'ActiveDirectory'`
-                -Certificates $Destination
-    } Else {
-        $ExternalSource = 
-            Add-LDAPIdentitySource `
-                -Name $Name `
-                -DomainName $DomainName `
-                -DomainAlias $DomainAlias `
-                -PrimaryUrl $PrimaryUrl`
-                -BaseDNUsers $BaseDNUsers `
-                -BaseDNGroups $BaseDNGroups `
-                -Username $Username `
-                -Password $Password `
-                -ServerType 'ActiveDirectory'`
-                -Certificates $Destination
+    if ($LDAP) {
+      Write-Host "Adding the LDAP Identity Source..."
+      $ExternalSource = 
+        Add-LDAPIdentitySource `
+            -Name $Name `
+            -DomainName $DomainName `
+            -DomainAlias $DomainAlias `
+            -PrimaryUrl $PrimaryUrl `
+            -SecondaryUrl $SecondaryUrl`
+            -BaseDNUsers $BaseDNUsers `
+            -BaseDNGroups $BaseDNGroups `
+            -Username $Username `
+            -Password $Password`
+            -ServerType 'ActiveDirectory'
+  } elseif ($LDAPS) {
+    Write-Host "Adding the LDAPS Identity Source..."
+    if ($CertificatesSAS.count -eq 0) {
+      return "If adding an LDAPS identity source, please ensure you pass in at least one certificate"
     }
-      return $ExternalSource
+    $DestinationFileArray=@()
+    $Index = 1
+    foreach ($CertSas in $CertificatesSAS) {
+      Write-Host "Downloading Cert $Index"
+      $CertLocation = "./cert" + $Index + ".cer"
+      $Index = $Index + 1
+      try
+      {
+          $Response = Invoke-WebRequest -Uri $CertSas -OutFile $CertLocation
+          # This will only execute if the Invoke-WebRequest is successful.
+          $StatusCode = $Response.StatusCode
+          Write-Host("Certificate downloaded. $StatusCode")
+          $DestinationFileArray += $CertLocation
+      }
+      catch
+      {
+          $StatusCode = $_.Exception.Response.StatusCode.value__
+          return ("Failed to download: " + $StatusCode)
+      }
+    }
+    $ExternalSource = 
+        Add-LDAPIdentitySource `
+            -Name $Name `
+            -DomainName $DomainName `
+            -DomainAlias $DomainAlias `
+            -PrimaryUrl $PrimaryUrl `
+            -SecondaryUrl $SecondaryUrl`
+            -BaseDNUsers $BaseDNUsers `
+            -BaseDNGroups $BaseDNGroups `
+            -Username $Username `
+            -Password $Password`
+            -ServerType 'ActiveDirectory'`
+            -Certificates $Destination
+  } Else {
+    return "Please select either LDAP or LDAPS with -LDAP or -LDAPS"
+  }
+  Write-Host $ExternalSource
+  return (Get-IdentitySource -External)
 }
 
 <#
