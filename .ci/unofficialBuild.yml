@@ -43,13 +43,13 @@ stages:
         filePath: 'tests/prevalidateModules.ps1'
         arguments: 'powercli/${{ variables.moduleFolderName }}'
         pwsh: true
+    - task: NuGetAuthenticate@0
     - task: PowerShell@2
       displayName: Package Module
       inputs:
         filePath: 'package/packageModule.ps1'
         arguments: 'powercli/${{ variables.moduleFolderName }} ${{ variables.moduleFolderName }} unofficial'
         pwsh: true
-    - task: NuGetAuthenticate@0
     - task: PowerShell@2
       displayName: Publish Module
       inputs:
