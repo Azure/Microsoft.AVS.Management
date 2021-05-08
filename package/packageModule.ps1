@@ -60,7 +60,7 @@ Get-ChildItem "$aboluteNewFolderPath"
 # Set-Location "$aboluteNewFolderPath"
 # Get-Content "$manifestFile"
 Write-Host "----AVS-Automation-AdminTools: publishing $buildType build package ----"
-Publish-Module -Path "$aboluteNewFolderPath" -Repository ($feedParameters).Name
+Publish-Module -Path "$aboluteNewFolderPath" -Repository ($feedParameters).Name -NuGetApiKey valueNotUsed
 if (!$?) {
     Write-Error -Message "----ERROR: Unable to publish module----" -ErrorAction Stop
 }else {
