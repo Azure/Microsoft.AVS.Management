@@ -13,12 +13,14 @@ $feedParameters = @{}
 if ($buildType -eq 'official') {
     $feedParameters = @{
         Name = "AVS-Automation-AdminTools"
+        SourceLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v3/index.json"
         PublishLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v3/index.json"
         InstallationPolicy = 'Trusted'
     }
 }elseif ($buildType -eq 'unofficial') {
     $feedParameters = @{
         Name = "Unofficial-AVS-Automation-AdminTools"
+        SourceLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v3/index.json"
         PublishLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v3/index.json"
         InstallationPolicy = 'Trusted'
     }
