@@ -58,8 +58,8 @@ Get-ChildItem "$aboluteNewFolderPath"
 # }
 # Set-Location "$aboluteNewFolderPath"
 # Get-Content "$manifestFile"
-Write-Host "----AVS-Automation-AdminTools: publising $buildType build package ----"
-Publish-Module $aboluteNewFolderPath
+Write-Host "----AVS-Automation-AdminTools: publishing $buildType build package ----"
+Publish-Module -Path "$aboluteNewFolderPath"
 if (!$?) {
     Write-Error -Message "----ERROR: Unable to publish module----" -ErrorAction Stop
 }else {
