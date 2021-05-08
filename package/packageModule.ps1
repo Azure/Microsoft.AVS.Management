@@ -26,7 +26,7 @@ Set-Location "$aboluteNewFolderPath"
 Get-Content "$manifestFile"
 Write-Host "----AVS-Automation-AdminTools: making nuget package ----"
 nuget spec "$manifestFile"
-$nugetFileName = Split-Path "$manifestFile"
+$nugetFileName = (Get-ChildItem "$manifestFile").BaseName
 nuget pack "$($nugetFileName).nuspec" -NonInteractive -Version "$env:BUILD_BUILDNUMBER"
 Write-Host "----AVS-Automation-AdminTools: Azure.AVSPowerCLI nuget package deposited----"
 
