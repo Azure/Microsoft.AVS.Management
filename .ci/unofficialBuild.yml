@@ -13,6 +13,7 @@ pr:
 variables:
   MAJOR: 0
   minor: 1
+  moduleFolderName: 'Azure.AVSPowerCLI'
 
 name: $(MAJOR).$(minor).$(Rev:r)
 
@@ -34,26 +35,26 @@ stages:
       displayName: Versioning Module
       inputs:
         filePath: '.build-tools/updateModuleVersion.ps1'
-        arguments: 'powercli/Azure.AVSPowerCLI/Azure.AVSPowerCLI.psd1'
+        arguments: 'powercli/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
         pwsh: true
     - task: PowerShell@2
       displayName: Pre-Validate Module and Scripts #PSGallery publishing guidelines: https://docs.microsoft.com/en-us/powershell/scripting/gallery/how-to/publishing-packages/publishing-a-package?view=powershell-7.1#pre-validate-your-item
       inputs:
         filePath: 'tests/prevalidateModules.ps1'
-        arguments: 'powercli/Azure.AVSPowerCLI'
+        arguments: 'powercli/${{ variables.moduleFolderName }}'
         pwsh: true
     - task: PowerShell@2
       displayName: Package Module
       inputs:
         filePath: 'package/packageModule.ps1'
-        arguments: 'powercli/Azure.AVSPowerCLI outPackage'
+        arguments: 'powercli/${{ variables.moduleFolderName }} ${{ variables.moduleFolderName }} unofficial'
         pwsh: true
     - task: NuGetAuthenticate@0
     - task: PowerShell@2
       displayName: Publish Module
       inputs:
         filePath: 'package/publishPackage.ps1'
-        arguments: 'unofficial outPackage'
+        #arguments: 'unofficial outPackage'
         pwsh: true
 - stage: Compliance
   displayName: Compliance
