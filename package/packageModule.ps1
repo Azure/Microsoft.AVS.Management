@@ -9,7 +9,7 @@ $aboluteNewFolderPath = (Join-Path -Path "$repoRoot" -ChildPath "$newModuleFolde
 if (!(Test-Path "$aboluteNewFolderPath")) {
     Write-Output "Copying directory contents: $aboluteSrcFolderPath --> $aboluteNewFolderPath"
     New-Item -Path "$aboluteNewFolderPath" -ItemType Directory
-    Copy-Item -Path "$aboluteSrcFolderPath" -Destination "$aboluteNewFolderPath"
+    Copy-Item -Path "$aboluteSrcFolderPath\*" -Destination "$aboluteNewFolderPath"
 }else{
     Write-Output "----Path for new module directory already exists ----"
 }
