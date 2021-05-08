@@ -1,28 +1,25 @@
 #!/usr/bin/pwsh
-
 param (
-    [Parameter(Mandatory=$false)][string]$manifestDirPath = (Join-Path "powercli" "Azure.AVSPowerCLI"),
-    [Parameter(Mandatory=$false)][string]$manifestFileName = "Azure.AVSPowerCLI.psd1"
+    [Parameter(Mandatory=$true)][string]$relativePathToManifest
 )
-
+Write-Output "----START: updateModuleVersion----"
 #Install all RequiredModules in the module manifests because the command Update-ModuleManifest 
 # requires these modules to be on the host to update properly.
 $repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"
-$artifactDirRoot = "$env:BUILD_ARTIFACTSTAGINGDIRECTORY"
+$manifestAbsolutePath = Join-Path -Path "$repoRoot" -ChildPath "$relativePathToManifest"
+$manifestFolder = (Split-Path "$manifestAbsolutePath")
 
-$newModuleFolder = (Split-Path "$manifestFileName" -LeafBase)
-New-Item -Path "$artifactDirRoot" -Name "$newModuleFolder" -ItemType "directory"
-$pathToNewModuleFolder = (Join-Path "$artifactDirRoot" "$newModuleFolder")
-Copy-Item -Path "$repoRoot\$manifestDirPath\*" -Destination "$pathToNewModuleFolder" -Recurse
-$newPathToManifest = (Join-Path "$pathToNewModuleFolder" "$manifestFileName")
-
-Get-Content "$newPathToManifest"
+Get-Content "$manifestAbsolutePath"
 Write-Output "---- Updating the module version to $env:BUILD_BUILDNUMBER----"
 
-Set-Location "$pathToNewModuleFolder"
-$targetModuleParams = @{ModuleVersion = "$env:BUILD_BUILDNUMBER"; Path = "$newPathToManifest"}
+Set-Location "$manifestFolder"
+$targetModuleParams = @{ModuleVersion = "$env:BUILD_BUILDNUMBER"; Path = "$manifestAbsolutePath"}
 Update-ModuleManifest @targetModuleParams
-Write-Output "---- SUCCESS: updated the module version to $env:BUILD_BUILDNUMBER----"
-
-Get-Content "$newPathToManifest"
-Set-Location "$repoRoot"
+if (!$?) {
+    Write-Error -Message "FAILED: Could not update module version" -ErrorAction Stop
+    
+}else {
+    Write-Output "---- SUCCEED: updated the module version to $env:BUILD_BUILDNUMBER----"
+    Get-Content "$manifestAbsolutePath"
+}
+Write-Output "----END: updateModuleVersion----"
