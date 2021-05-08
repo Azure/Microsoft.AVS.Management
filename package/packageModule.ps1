@@ -27,7 +27,8 @@ if ($buildType -eq 'official') {
 }else {
     Write-Error -Message "----Error: Unsupported buildType: $buildType----" -ErrorAction Stop
 }
-
+Write-Output "feed parameters:"
+Write-Output "$feedParameters"
 Write-Output "----Registering PSRepository ----"
 Register-PSRepository @feedParameters
 if (!$?) {
@@ -59,7 +60,7 @@ Get-ChildItem "$aboluteNewFolderPath"
 # Set-Location "$aboluteNewFolderPath"
 # Get-Content "$manifestFile"
 Write-Host "----AVS-Automation-AdminTools: publishing $buildType build package ----"
-Publish-Module -Path "$aboluteNewFolderPath"
+Publish-Module -Path "$aboluteNewFolderPath" -Repository ($feedParameters).Name
 if (!$?) {
     Write-Error -Message "----ERROR: Unable to publish module----" -ErrorAction Stop
 }else {
