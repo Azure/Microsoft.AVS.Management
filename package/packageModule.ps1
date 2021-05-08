@@ -5,10 +5,7 @@ param (
     [Parameter(Mandatory=$true)][string]$buildType
 
 )
-# $nugetSource = switch ($buildType) {
-#     'official' { "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v3/index.json" }
-#     Default {'https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v3/index.json'}
-# }
+
 $feedParameters = @{}
 if ($buildType -eq 'official') {
     $feedParameters = @{
@@ -48,17 +45,8 @@ if (!(Test-Path "$aboluteNewFolderPath")) {
 }else{
     Write-Output "----Path for new module directory already exists ----"
 }
-# $manifestFiles = (Get-ChildItem "$aboluteNewFolderPath\*" -Include "*.psd1")
 Write-Output "Contents of new directory: $aboluteNewFolderPath"
 Get-ChildItem "$aboluteNewFolderPath"
-# $manifestFile = ""
-# if (($manifestFiles).Count -gt 0) {
-#     $manifestFile = $manifestFiles[0].FullName
-# }else {
-#     Write-Error -Message "----Packaging Failed: No manifest file found----" -ErrorAction Stop
-# }
-# Set-Location "$aboluteNewFolderPath"
-# Get-Content "$manifestFile"
 Write-Host "----AVS-Automation-AdminTools: publishing $buildType build package ----"
 Publish-Module -Path "$aboluteNewFolderPath" -Repository ($feedParameters).Name -NuGetApiKey "valueNotUsed"
 if (!$?) {
@@ -66,9 +54,4 @@ if (!$?) {
 }else {
     Write-Output "SUCCEEDED: module published"
 }
-# $nugetFileName = (Get-ChildItem "$manifestFile").BaseName
-# nuget spec "$nugetFileName"
-# nuget pack "$($nugetFileName).nuspec" -NonInteractive -Version "$env:BUILD_BUILDNUMBER"
 Write-Host "----AVS-Automation-AdminTools: Azure.AVSPowerCLI nuget package deposited----"
-
-Get-Content "$manifestFile"
