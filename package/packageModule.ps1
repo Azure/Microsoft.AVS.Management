@@ -10,13 +10,13 @@ param (
 #     Default {'https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v3/index.json'}
 # }
 $feedParameters = @{}
-if ($buildType == 'official') {
+if ($buildType -eq 'official') {
     $feedParameters = @{
         Name = "AVS-Automation-AdminTools"
         PublishLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v3/index.json"
         InstallationPolicy = 'Trusted'
     }
-}elseif ($buildType == 'unofficial') {
+}elseif ($buildType -eq 'unofficial') {
     $feedParameters = @{
         Name = "Unofficial-AVS-Automation-AdminTools"
         PublishLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v3/index.json"
