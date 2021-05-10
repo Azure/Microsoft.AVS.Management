@@ -42,8 +42,8 @@ stages:
       inputs:
         ConnectedServiceName: 'AVS-Automation-AdminTools-OfficialBuild'
         FolderPath: 'powercli/${{ variables.moduleFolderName }}'
-        Pattern: '*.psd1,*.psm1'
-        UseMinimatch: true
+        Pattern: '${{ variables.moduleFolderName }}.psd1,${{ variables.moduleFolderName }}.psm1'
+        UseMinimatch: false
         signConfigType: 'inlineSignParams'
         inlineOperation: |
           [
@@ -80,6 +80,8 @@ stages:
         MaxConcurrency: '50'
         MaxRetryAttempts: '5'
     - task: NuGetAuthenticate@0
+      inputs:
+        forceReinstallCredentialProvider: true
     - task: PowerShell@2
       displayName: Package Module
       inputs:

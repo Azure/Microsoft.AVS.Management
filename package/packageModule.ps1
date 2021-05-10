@@ -9,7 +9,7 @@ param (
 $feedParameters = @{}
 if ($buildType -eq 'official') {
     $feedParameters = @{
-        Name = "AVS-Automation-AdminTools"
+        Name = 'AVS-Automation-AdminTools'
         SourceLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v3/index.json"
         PublishLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v3/index.json"
         InstallationPolicy = 'Trusted'
