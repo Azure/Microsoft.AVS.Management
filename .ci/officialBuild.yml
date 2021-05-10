@@ -83,12 +83,6 @@ stages:
       inputs:
         forceReinstallCredentialProvider: true
     - task: PowerShell@2
-      displayName: Run Cred Provider
-      inputs:
-        filePath: '.build-tools/installcredprovider.ps1'
-        arguments: '-AddNetfx'
-        pwsh: true
-    - task: PowerShell@2
       displayName: Package Module
       inputs:
         filePath: 'package/packageModule.ps1'
