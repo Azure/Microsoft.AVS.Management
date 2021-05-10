@@ -19,7 +19,7 @@ stages:
     vmImage: windows-2019
   jobs:
   - job: Build_and_Publish_Job
-    displayName: Build Unofficial AVS-Automation-AdminTools
+    displayName: Build Official AVS-Automation-AdminTools
     steps:
     - task: PowerShell@2
       displayName: Restore Dependencies
