@@ -38,12 +38,53 @@ stages:
         filePath: 'tests/prevalidateModules.ps1'
         arguments: 'powercli/${{ variables.moduleFolderName }}'
         pwsh: true
+    - task: EsrpCodeSigning@1
+      inputs:
+        ConnectedServiceName: 'AVS-Automation-AdminTools-OfficialBuild'
+        FolderPath: 'powercli/${{ variables.moduleFolderName }}'
+        Pattern: '*.psd1,*.psm1'
+        UseMinimatch: true
+        signConfigType: 'inlineSignParams'
+        inlineOperation: |
+          [
+            {
+              "keyCode": "CP-230012",
+              "operationSetCode": "SigntoolSign",
+              "parameters": [
+                {
+                  "parameterName": "OpusName",
+                  "parameterValue": "AVS-Automation-AdminTools"
+                },
+                {
+                  "parameterName": "OpusInfo",
+                  "parameterValue": "https://github.com/Azure/azure-avs-automation-admintools"
+                },
+                {
+                  "parameterName": "PageHash",
+                  "parameterValue": "/NPH"
+                },
+                {
+                  "parameterName": "FileDigest",
+                  "parameterValue": "/fd sha256"
+                },
+                {
+                  "parameterName": "TimeStamp",
+                  "parameterValue": "/tr \"http://rfc3161.gtm.corp.microsoft.com/TSS/HttpTspServer\" /td sha256"
+                }
+              ],
+              "toolName": "signtool.exe",
+              "toolVersion": "6.2.9304.0"
+            }
+          ]
+        SessionTimeout: '60'
+        MaxConcurrency: '50'
+        MaxRetryAttempts: '5'
     - task: NuGetAuthenticate@0
     - task: PowerShell@2
       displayName: Package Module
       inputs:
         filePath: 'package/packageModule.ps1'
-        arguments: 'powercli/${{ variables.moduleFolderName }} ${{ variables.moduleFolderName }} official'
+        arguments: 'powercli/${{ variables.moduleFolderName }} powercli/${{ variables.moduleFolderName }} official'
         pwsh: true
     - task: PowerShell@2
       displayName: Publish Module
