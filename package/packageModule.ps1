@@ -5,33 +5,36 @@ param (
     [Parameter(Mandatory=$true)][string]$buildType
 )
 $feedParameters = @{}
-if ($buildType -eq 'official') {
-    $feedParameters = @{
-        Name = 'AVS-Automation-AdminTools'
-        SourceLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v3/index.json"
-        PublishLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v3/index.json"
-        InstallationPolicy = 'Trusted'
-    }
-}elseif ($buildType -eq 'unofficial') {
+# if ($buildType -eq 'official') {
+#     $feedParameters = @{
+#         Name = 'AVS-Automation-AdminTools'
+#         SourceLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v3/index.json"
+#         PublishLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v3/index.json"
+#         InstallationPolicy = 'Trusted'
+#     }
+# }else
+if ($buildType -eq 'unofficial' -or $buildType -eq 'official') {
     $feedParameters = @{
         Name = "Unofficial-AVS-Automation-AdminTools"
         SourceLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v3/index.json"
         PublishLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v3/index.json"
         InstallationPolicy = 'Trusted'
     }
-    Register-PSRepository @feedParameters
 }else {
     Write-Error -Message "----Error: Unsupported buildType: $buildType----" -ErrorAction Stop
 }
 Write-Output "feed parameters:"
 Write-Output "$feedParameters"
 Write-Output "----Registering PSRepository ----"
-# if (!$?) {
-#     Write-Error -Message "----ERROR: Unable to register repository----" -ErrorAction Stop
-# }else {
+Get-PSRepository
+Register-PSRepository @feedParameters
+if (!$?) {
+    Write-Error -Message "----ERROR: Unable to register repository----" -ErrorAction Stop
+}else {
     
-#     Write-Output "----SUCCEEDED: repository registered ----"
-# }
+    Write-Output "----SUCCEEDED: repository registered ----"
+}
+Get-PSRepository
 
 $repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"
 $aboluteSrcFolderPath = (Join-Path -Path "$repoRoot" -ChildPath "$srcFolder")
