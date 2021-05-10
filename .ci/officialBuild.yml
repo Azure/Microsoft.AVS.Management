@@ -5,8 +5,10 @@ trigger:
     - main
 
 variables:
-  MAJOR: 0
-  minor: 1
+  MAJOR: 1
+  minor: 0
+  moduleFolderName: 'Azure.AVSPowerCLI'
+
 
 name: $(MAJOR).$(minor).$(Rev:r)
 
@@ -20,47 +22,57 @@ stages:
     displayName: Build Unofficial AVS-Automation-AdminTools
     steps:
     - task: PowerShell@2
+      displayName: Restore Dependencies
       inputs:
         filePath: '.build-tools/getRequiredModules.ps1'
         pwsh: true
     - task: PowerShell@2
+      displayName: Versioning Module
       inputs:
         filePath: '.build-tools/updateModuleVersion.ps1'
+        arguments: 'powercli/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
         pwsh: true
     - task: PowerShell@2
+      displayName: Pre-Validate Module and Scripts #PSGallery publishing guidelines: https://docs.microsoft.com/en-us/powershell/scripting/gallery/how-to/publishing-packages/publishing-a-package?view=powershell-7.1#pre-validate-your-item
       inputs:
-        filePath: 'build/build.ps1'
+        filePath: 'tests/prevalidateModules.ps1'
+        arguments: 'powercli/${{ variables.moduleFolderName }}'
         pwsh: true
     - task: NuGetAuthenticate@0
     - task: PowerShell@2
+      displayName: Package Module
+      inputs:
+        filePath: 'package/packageModule.ps1'
+        arguments: 'powercli/${{ variables.moduleFolderName }} ${{ variables.moduleFolderName }} official'
+        pwsh: true
+    - task: PowerShell@2
+      displayName: Publish Module
       inputs:
         filePath: 'package/publishPackage.ps1'
-        arguments: -buildType 'official'
         pwsh: true
-# - stage: Compliance
-#   displayName: Compliance
-#   dependsOn: Official_Build
-#   jobs:
-#   - job: Check_Compliance
-#     steps:
-#     - pwsh: |
-#         Write-Output "---- NO COMPLIANCE TASKS----"
-# - stage: Test
-#   displayName: Test
-#   dependsOn: Official_Build
-#   jobs:
-#   - job: Run_Tests
-#     steps:
-#     - pwsh: |
-#         Write-Output "---- NO TEST RUNNING----"
-# - stage: Release
-#   displayName: Release
-#   dependsOn: 
-#   - Official_Build
-#   - Compliance
-#   - Test
-#   jobs:
-#   - job: Release
-#     steps:
-#     - pwsh: |
-#         Write-Output "---- NO RELEAST TASKS----"
+- stage: Compliance
+  displayName: Compliance
+  dependsOn: Official_Build
+  jobs:
+  - job: Check_Compliance
+    steps:
+    - pwsh: |
+        Write-Output "---- NO COMPLIANCE TASKS----"
+- stage: Test
+  displayName: Test
+  dependsOn: Compliance
+  jobs:
+  - job: Run_Tests
+    steps:
+    - pwsh: |
+        Write-Output "---- NO TEST RUNNING----"
+- stage: Release
+  displayName: Release
+  dependsOn: 
+  - Test
+  condition: succeeded('Test')
+  jobs:
+  - job: Release
+    steps:
+    - pwsh: |
+        Write-Output "---- NO RELEAST TASKS----"

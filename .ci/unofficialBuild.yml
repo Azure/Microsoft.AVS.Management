@@ -54,7 +54,6 @@ stages:
       displayName: Publish Module
       inputs:
         filePath: 'package/publishPackage.ps1'
-        #arguments: 'unofficial outPackage'
         pwsh: true
 - stage: Compliance
   displayName: Compliance
