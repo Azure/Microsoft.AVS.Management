@@ -11,7 +11,7 @@ if ($buildType -eq 'official') {
         SourceLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v3/index.json"
         PublishLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v3/index.json"
         InstallationPolicy = 'Trusted'
-        Credential = (Get-Credential)
+        Credential = (New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList ${env:USER00}, ${env:ARTIFACTCREDENTIAL})
     }
 }elseif ($buildType -eq 'unofficial') {
     $feedParameters = @{
