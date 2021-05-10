@@ -3,9 +3,7 @@ param (
     [Parameter(Mandatory=$true)][string]$srcFolder,
     [Parameter(Mandatory=$true)][string]$newModuleFolder,
     [Parameter(Mandatory=$true)][string]$buildType
-
 )
-
 $feedParameters = @{}
 if ($buildType -eq 'official') {
     $feedParameters = @{
