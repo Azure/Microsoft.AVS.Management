@@ -12,7 +12,7 @@
 RootModule = 'Azure.AVSPowerCLI.psm1'
 
 # Version number of this module.
-ModuleVersion = '1.0'
+ModuleVersion = '1.0.0'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -52,7 +52,7 @@ Copyright = '(c) Microsoft. All rights reserved.'
 
 # Modules that must be imported into the global environment prior to importing this module
 RequiredModules = @(
-@{"ModuleName"="VMware.VimAutomation.Common";"ModuleVersion"="12.0.0.15939652"}
+@{"ModuleName"="VMware.vSphere.SsoAdmin"; "ModuleVersion"="1.2.3"}
 )
 
 
