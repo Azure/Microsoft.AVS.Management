@@ -164,7 +164,6 @@ Param
   return (Get-IdentitySource -External)
 }
 
-
 <#
     .Synopsis
      Creates a Drs Cluster Host Group, a Drs Cluster VM Group, and a Drs Cluster Virtual Machine to Host Rule between the two
@@ -214,11 +213,11 @@ Param
 )
 
     $DrsVmHostGroupName = $DrsGroupName + "Host"
-    Write-Information "Creating DRS Cluster group " + $DrsGroupName + " for the VMs: " $VMList
+    Write-Host "Creating DRS Cluster group " + $DrsGroupName + " for the VMs: " $VMList
     New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster -ErrorAction Stop
-    Write-Information "Creating DRS Cluster group " + $DrsVmHostGroupName + " for the VMHosts: " $VMHostList
+    Write-Host "Creating DRS Cluster group " + $DrsVmHostGroupName + " for the VMHosts: " $VMHostList
     New-DrsClusterGroup -Name $DrsVmHostGroupName -VMHost $VMHostList -Cluster $Cluster -ErrorAction Stop
-    Write-Information "Creating ShouldRunOn DRS Rule " + $DrsRuleName + " on cluster " $Cluster
+    Write-Host "Creating ShouldRunOn DRS Rule " + $DrsRuleName + " on cluster " $Cluster
     $result = New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn" -ErrorAction Stop
     Get-DrsVMHostRule -Type "ShouldRunOn"
     return $result 
