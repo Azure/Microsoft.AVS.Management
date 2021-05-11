@@ -167,6 +167,7 @@ Param
   return (Get-IdentitySource -External)
 }
 
+
 <#
     .Synopsis
      Creates a Drs Cluster Host Group, a Drs Cluster VM Group, and a Drs Cluster Virtual Machine to Host Rule between the two
@@ -213,13 +214,16 @@ Param
     [ValidateNotNullOrEmpty()]
     [string[]]
     $VMHostList
-)   
+)
+
     $DrsVmHostGroupName = $DrsGroupName + "Host"
-    Write-Host ("Creating DRS Rule: " + $DrsRuleName + $DrsGroupName + $Cluster +  $VMList + $VMHostList) # Output
-    # All commandlets have error action, I can pass stop as the argument. How to make sure any failures ends the execution?
+    Write-Information "Creating DRS Cluster group " + $DrsGroupName + " for the VMs: " $VMList
     New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster -ErrorAction Stop
+    Write-Information "Creating DRS Cluster group " + $DrsVmHostGroupName + " for the VMHosts: " $VMHostList
     New-DrsClusterGroup -Name $DrsVmHostGroupName -VMHost $VMHostList -Cluster $Cluster -ErrorAction Stop
+    Write-Information "Creating ShouldRunOn DRS Rule " + $DrsRuleName + " on cluster " $Cluster
     $result = New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn" -ErrorAction Stop
+    Get-DrsVMHostRule -Type "ShouldRunOn"
     return $result 
 }
 
@@ -274,19 +278,19 @@ function Set-AvsDrsClusterGroup {
     } ElseIf ($VMList) {
       If ($Add) {
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -Confirm
-        return $result
       } ElseIf ($Remove) {
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Remove -Confirm
-        return $result
       }
+      Get-DrsClusterGroup -Type "VMGroup"
+      return $result
     } ElseIf ($VMHostList) {
       If ($Add) {
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -Confirm
-        return $result
       } ElseIf ($Remove) {
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -Confirm
-        return $result
       }
+      Get-DrsClusterGroup -Type "VMHostGroup"
+      return $result
     }
   }
 }
@@ -343,6 +347,8 @@ function Set-AvsDrsElevationRule {
         Write-Host "Nothing done  "
         return $result
       }
+
+    Get-DrsVMHostRule -Type "ShouldRunOn"
   }
   
 <#
