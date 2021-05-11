@@ -81,7 +81,7 @@ stages:
         MaxRetryAttempts: '5'
     - task: NuGetAuthenticate@0
       inputs:
-        forceReinstallCredentialProvider: true
+        nuGetServiceConnections: Unofficial-AVS-Automation-AdminTools
     - task: PowerShell@2
       displayName: Package Module
       inputs:
