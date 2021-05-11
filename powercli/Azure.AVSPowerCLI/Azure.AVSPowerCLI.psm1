@@ -245,52 +245,50 @@ function Set-AvsDrsClusterGroup {
     $DrsGroupName,
 
     [Parameter(
-      Mandatory = $true,
+      Mandatory = $false,
       HelpMessage='List of the VMs to add to the VM group')]
-    [ValidateNotNullOrEmpty()]
     [string[]]
     $VMList,
 
     [Parameter(
-      Mandatory = $true,
+      Mandatory = $false,
       HelpMessage='List of the VMHosts to add to the VMHost group')]
-    [ValidateNotNullOrEmpty()]
     [string[]]
     $VMHostList,
 
-    [switch] $Add = $false,
-    [switch] $Remove = $false
-
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='Action to perform: Either "add" or "remove"')]
+    [ValidateNotNullOrEmpty()]
+    [string]
+    $Action
   )
 
-  If ($Add -And $Remove) {
-    $result = "You can't add and remove at the same time. Try again with just one flag"
-    return $result
-  } ElseIf ($Add -eq $false -and $Remove -eq $false) {
-    $result = "Nothing was done. Please select with either -Add or -Remove"
-  } Else {
     If ($VMList -And $VMHostList) {
-    $result = "Nothing done. Please select with either -VMHostList or -VMHost."
-    return $result
+      $result = Write-Output "Nothing done. Please select with either -VMHostList or -VMHost, not both."
+      return $result
     } ElseIf ($VMList) {
-      If ($Add) {
+      If ($Action.ToLower() -eq "add") {
+        Write-Host "Adding VMs to the DrsClusterGroup..."
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -Confirm
-      } ElseIf ($Remove) {
+      } ElseIf ($Action.ToLower() -eq "remove") {
+        Write-Host "Removing VMs from the DrsClusterGroup..."
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Remove -Confirm
+      } Else {
+        $result = Write-Output "Nothing done. Please select with either -Action Add or -Action Remove"
       }
-      Get-DrsClusterGroup -Type "VMGroup"
+      Write-Output (Get-DrsClusterGroup -Type "VMGroup")
       return $result
     } ElseIf ($VMHostList) {
-      If ($Add) {
+      If ($Action.ToLower() -eq "add") {
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -Confirm
-      } ElseIf ($Remove) {
+      } ElseIf ($Action.ToLower() -eq "remove") {
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -Confirm
       }
-      Get-DrsClusterGroup -Type "VMHostGroup"
+      Write-Output (Get-DrsClusterGroup -Type "VMHostGroup")
       return $result
     }
   }
-}
 
 <#
     .Synopsis
