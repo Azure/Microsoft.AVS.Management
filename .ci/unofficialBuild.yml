@@ -1,0 +1,83 @@
+# https://aka.ms/yaml
+
+trigger:
+- none
+
+pr:
+  branches:
+    include:
+    - main
+  drafts: false
+  autoCancel: false
+
+variables:
+  MAJOR: 0
+  minor: 1
+  moduleFolderName: 'Azure.AVSPowerCLI'
+
+name: $(MAJOR).$(minor).$(Rev:r)
+
+stages:
+- stage: Build_and_Publish 
+  displayName: Build and Publish Package
+  pool:
+    vmImage: windows-2019
+  jobs:
+  - job: Build_and_Publish_Job
+    displayName: Build Unofficial AVS-Automation-AdminTools
+    steps:
+    - task: PowerShell@2
+      displayName: Restore Dependencies
+      inputs:
+        filePath: '.build-tools/getRequiredModules.ps1'
+        pwsh: true
+    - task: PowerShell@2
+      displayName: Versioning Module
+      inputs:
+        filePath: '.build-tools/updateModuleVersion.ps1'
+        arguments: 'powercli/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
+        pwsh: true
+    - task: PowerShell@2
+      displayName: Pre-Validate Module and Scripts #PSGallery publishing guidelines: https://docs.microsoft.com/en-us/powershell/scripting/gallery/how-to/publishing-packages/publishing-a-package?view=powershell-7.1#pre-validate-your-item
+      inputs:
+        filePath: 'tests/prevalidateModules.ps1'
+        arguments: 'powercli/${{ variables.moduleFolderName }}'
+        pwsh: true
+    - task: NuGetAuthenticate@0
+    - task: PowerShell@2
+      displayName: Package Module
+      inputs:
+        filePath: 'package/packageModule.ps1'
+        arguments: 'powercli/${{ variables.moduleFolderName }} ${{ variables.moduleFolderName }} unofficial'
+        pwsh: true
+    - task: PowerShell@2
+      displayName: Publish Module
+      inputs:
+        filePath: 'package/publishPackage.ps1'
+        pwsh: true
+- stage: Compliance
+  displayName: Compliance
+  dependsOn: Build_and_Publish
+  jobs:
+  - job: Check_Compliance
+    steps:
+    - pwsh: |
+        Write-Output "---- NO COMPLIANCE TASKS----"
+- stage: Test
+  displayName: Test
+  dependsOn: Compliance
+  jobs:
+  - job: Run_Tests
+    steps:
+    - pwsh: |
+        Write-Output "---- NO TEST RUNNING----"
+- stage: Release
+  displayName: Release
+  dependsOn: 
+  - Test
+  condition: succeeded('Test')
+  jobs:
+  - job: Release
+    steps:
+    - pwsh: |
+        Write-Output "---- NO RELEAST TASKS----"

@@ -21,7 +21,7 @@ ModuleVersion = '1.0'
 GUID = '84d7f529-e6a8-4b7e-99b4-dafc636ffad2'
 
 # Author of this module
-Author = 'dabecher'
+Author = 'David Becher'
 
 # Company or vendor of this module
 CompanyName = 'Microsoft'
@@ -30,7 +30,7 @@ CompanyName = 'Microsoft'
 Copyright = '(c) Microsoft. All rights reserved.'
 
 # Description of the functionality provided by this module
-# Description = ''
+Description = 'Allow customers to add an external identity source (Active Directory over LDAP) for use with single sign on to vCenter.'
 
 # Minimum version of the PowerShell engine required by this module
 # PowerShellVersion = ''
@@ -72,7 +72,7 @@ RequiredModules = @(
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @("Set-AvsStoragePolicy", "New-AvsExternalADIdentitySource", "New-AvsDrsElevationRule", "Set-AvsDrsClusterGroup", "Set-AvsDrsElevationRule")
+FunctionsToExport = @("Set-AvsStoragePolicy", "New-AvsLDAPIdentitySource", "New-AvsDrsElevationRule", "Set-AvsDrsClusterGroup", "Set-AvsDrsElevationRule")
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = @()
@@ -119,7 +119,7 @@ PrivateData = @{
         # RequireLicenseAcceptance = $false
 
         # External dependent modules of this module
-        # ExternalModuleDependencies = @()
+        ExternalModuleDependencies = @("VMware.VimAutomation.Common")
 
     } # End of PSData hashtable
 

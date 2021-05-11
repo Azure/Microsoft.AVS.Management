@@ -1,16 +1,6 @@
 #Requires -Modules PowerShellGet
 #Requires -Version 5.0
-<#
-    ========================================================================================
-===============
-    AUTHOR:  David Becher
-    DATE:    1/29/2021
-    Version: 1.0
-    Comment: Add an external identity source to tenant vCenter. Requires powershell to have VMware.PowerCLI, AzurePowershell, and VMware.vSphere.SsoAdminModule installed
-    Callouts: This script will require the powershell session running it to be able to authenticate to azure to pull secrets from key vault, will need service principal? Also make sure we don't allow code injections  
- ========================================================================================
-===============
-#>
+
 [CmdletBinding(PositionalBinding = $false)]
 Param
 (
@@ -45,19 +35,20 @@ Param
   [string]
   $BaseDNGroups,
 
-  [Parameter(
-    Mandatory = $true),
-    HelpMessage='User name you want to use for authenticating with the server')]
+  [Parameter(Mandatory = $true)]
   [ValidateNotNull()]
   [string]
   $Username,
 
-  [Parameter(
-    Mandatory = $true)
-    HelpMessage='Password you want to use for authenticating with the server')]
+  [Parameter(Mandatory = $true)]
   [ValidateNotNull()]
   [string]
-  $Password
+  $Password,
+
+  [Parameter(Mandatory = $true)]
+  [ValidateNotNull()]
+  [string]
+  $PathToCertificate
 )
 
 function Get-SecretFromKV {
@@ -101,50 +92,6 @@ function Connect-SsoServer
   return $connectedServer
 }
 
-function Add-ExternalIdentitySource
-{
-
-    [CmdletBinding(PositionalBinding = $false)]
-    Param
-    (
-      [Parameter(Mandatory = $true)]
-      [string]
-      $Name,
-
-      [Parameter(Mandatory = $true)]
-      [string]
-      $DomainName,
-
-      [Parameter(Mandatory = $true)]
-      [string]
-      $DomainAlias,
-
-      [Parameter(Mandatory = $true)]
-      [string]
-      $PrimaryURL,
-
-      [Parameter(Mandatory = $true)]
-      [string]
-      $BaseDNUsers,
-
-      [Parameter(Mandatory = $true)]
-      [string]
-      $BaseDNGroups,
-
-      [Parameter(Mandatory = $true)]
-      [string]
-      $Username,
-
-      [Parameter(Mandatory = $true)]
-      [string]
-      $Password
-    )
-
-    $ExternalSource = Add-ActiveDirectoryIdentitySource -Name $Name -DomainName $DomainName -DomainAlias $DomainAlias -PrimaryUrl $PrimaryURL -BaseDNUsers $BaseDNUsers -BaseDNGroups $BaseDNGroups -Username $Username -Password $Password
-    Write-Output $ExternalSource
-    return $ExternalSource
-}
-
 Set-TestEnvironmentVariables
 Connect-SsoServer
-Add-ExternalIdentitySource -Name $Name -DomainName $DomainName -DomainAlias $DomainAlias -PrimaryURL $PrimaryURL -BaseDNUsers $BaseDNUsers -BaseDNGroups $BaseDNGroups -Username $Username -Password $Password
+New-AvsLDAPIdentitySource -Name $Name -DomainName $DomainName -DomainAlias $DomainAlias -PrimaryURL $PrimaryURL -BaseDNUsers $BaseDNUsers -BaseDNGroups $BaseDNGroups -Username $Username -Password $Password -CertificateSAS $PathToCertificate
