@@ -5,8 +5,8 @@ pr:
 - none
 
 schedules:
-- cron: "21 6 * * Mon-Thu"
-  displayName: M-Th at 06:00 UTC
+- cron: "30 0 * * Tue-Sat"
+  displayName: Tue-Sat at 00:30 UTC
   branches:
     include:
     - main
