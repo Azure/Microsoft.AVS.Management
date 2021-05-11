@@ -30,7 +30,7 @@ CompanyName = 'Microsoft'
 Copyright = '(c) Microsoft. All rights reserved.'
 
 # Description of the functionality provided by this module
-# Description = ''
+Description = 'Various cmdlets for adminstrator level tasks in managing Azure VMWare Solutions'
 
 # Minimum version of the PowerShell engine required by this module
 # PowerShellVersion = ''
@@ -54,7 +54,6 @@ Copyright = '(c) Microsoft. All rights reserved.'
 RequiredModules = @(
 @{"ModuleName"="VMware.vSphere.SsoAdmin"; "ModuleVersion"="1.2.3"}
 )
-
 
 # Assemblies that must be loaded prior to importing this module
 # RequiredAssemblies = @()
@@ -119,7 +118,7 @@ PrivateData = @{
         # RequireLicenseAcceptance = $false
 
         # External dependent modules of this module
-        # ExternalModuleDependencies = @()
+        ExternalModuleDependencies = @("VMware.vSphere.SsoAdmin")
 
     } # End of PSData hashtable
 

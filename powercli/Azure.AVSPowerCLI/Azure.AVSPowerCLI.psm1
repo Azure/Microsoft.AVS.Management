@@ -96,18 +96,14 @@ Param
   [string[]]
   $CertificatesSAS,
 
-  [switch] $LDAP = $false,
-  [switch] $LDAPS = $false
+  [Parameter(
+    Mandatory = $true,
+    HelpMessage='Protocol to use when configuring the AD. LDAPS or LDAP')]
+  [string]
+  $Protocol
   )
 
-    # try {
-    #   $DNSResult = [system.net.dns]::gethostaddresses("$DomainName")
-    #   Write-Host "Successfully connected to $DomainName"
-    # } catch {
-    #   return ("Failed to connect to $DomainName. Check your DNS Settings")
-    # }
-
-    if ($LDAP) {
+    if ($Protocol.ToLower() -eq "ldap") {
       Write-Host "Adding the LDAP Identity Source..."
       $ExternalSource = 
         Add-LDAPIdentitySource `
@@ -115,15 +111,16 @@ Param
             -DomainName $DomainName `
             -DomainAlias $DomainAlias `
             -PrimaryUrl $PrimaryUrl `
-            -SecondaryUrl $SecondaryUrl`
+            -SecondaryUrl $SecondaryUrl `
             -BaseDNUsers $BaseDNUsers `
             -BaseDNGroups $BaseDNGroups `
             -Username $Username `
-            -Password $Password`
+            -Password $Password `
             -ServerType 'ActiveDirectory'
-  } elseif ($LDAPS) {
+  } elseif ($Protocol.ToLower() -eq "ldaps") {
     if ($CertificatesSAS.count -eq 0) {
-      return "If adding an LDAPS identity source, please ensure you pass in at least one certificate"
+      Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate"
+      return "Failed to add LDAPS source"
     }
     $DestinationFileArray=@()
     $Index = 1
@@ -153,20 +150,19 @@ Param
             -DomainName $DomainName `
             -DomainAlias $DomainAlias `
             -PrimaryUrl $PrimaryUrl `
-            -SecondaryUrl $SecondaryUrl`
+            -SecondaryUrl $SecondaryUrl `
             -BaseDNUsers $BaseDNUsers `
             -BaseDNGroups $BaseDNGroups `
             -Username $Username `
-            -Password $Password`
-            -ServerType 'ActiveDirectory'`
+            -Password $Password `
+            -ServerType 'ActiveDirectory' `
             -Certificates $DestinationFileArray
   } Else {
-    return "Please select either LDAP or LDAPS with -LDAP or -LDAPS"
+    return 'Please select either LDAP or LDAPS with "-Protocol LDAP" or "-Protocol LDAPS"'
   }
   Write-Host $ExternalSource
   return (Get-IdentitySource -External)
 }
-
 
 <#
     .Synopsis
@@ -217,11 +213,11 @@ Param
 )
 
     $DrsVmHostGroupName = $DrsGroupName + "Host"
-    Write-Information "Creating DRS Cluster group " + $DrsGroupName + " for the VMs: " $VMList
+    Write-Host "Creating DRS Cluster group " + $DrsGroupName + " for the VMs: " $VMList
     New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster -ErrorAction Stop
-    Write-Information "Creating DRS Cluster group " + $DrsVmHostGroupName + " for the VMHosts: " $VMHostList
+    Write-Host "Creating DRS Cluster group " + $DrsVmHostGroupName + " for the VMHosts: " $VMHostList
     New-DrsClusterGroup -Name $DrsVmHostGroupName -VMHost $VMHostList -Cluster $Cluster -ErrorAction Stop
-    Write-Information "Creating ShouldRunOn DRS Rule " + $DrsRuleName + " on cluster " $Cluster
+    Write-Host "Creating ShouldRunOn DRS Rule " + $DrsRuleName + " on cluster " $Cluster
     $result = New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn" -ErrorAction Stop
     Get-DrsVMHostRule -Type "ShouldRunOn"
     return $result 
@@ -248,52 +244,50 @@ function Set-AvsDrsClusterGroup {
     $DrsGroupName,
 
     [Parameter(
-      Mandatory = $true,
+      Mandatory = $false,
       HelpMessage='List of the VMs to add to the VM group')]
-    [ValidateNotNullOrEmpty()]
     [string[]]
     $VMList,
 
     [Parameter(
-      Mandatory = $true,
+      Mandatory = $false,
       HelpMessage='List of the VMHosts to add to the VMHost group')]
-    [ValidateNotNullOrEmpty()]
     [string[]]
     $VMHostList,
 
-    [switch] $Add = $false,
-    [switch] $Remove = $false
-
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='Action to perform: Either "add" or "remove"')]
+    [ValidateNotNullOrEmpty()]
+    [string]
+    $Action
   )
 
-  If ($Add -And $Remove) {
-    $result = "You can't add and remove at the same time. Try again with just one flag"
-    return $result
-  } ElseIf ($Add -eq $false -and $Remove -eq $false) {
-    $result = "Nothing was done. Please select with either -Add or -Remove"
-  } Else {
     If ($VMList -And $VMHostList) {
-    $result = "Nothing done. Please select with either -VMHostList or -VMHost."
-    return $result
+      $result = Write-Output "Nothing done. Please select with either -VMHostList or -VMHost, not both."
+      return $result
     } ElseIf ($VMList) {
-      If ($Add) {
+      If ($Action.ToLower() -eq "add") {
+        Write-Host "Adding VMs to the DrsClusterGroup..."
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -Confirm
-      } ElseIf ($Remove) {
+      } ElseIf ($Action.ToLower() -eq "remove") {
+        Write-Host "Removing VMs from the DrsClusterGroup..."
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Remove -Confirm
+      } Else {
+        $result = Write-Output "Nothing done. Please select with either -Action Add or -Action Remove"
       }
-      Get-DrsClusterGroup -Type "VMGroup"
+      Write-Output (Get-DrsClusterGroup -Type "VMGroup")
       return $result
     } ElseIf ($VMHostList) {
-      If ($Add) {
+      If ($Action.ToLower() -eq "add") {
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -Confirm
-      } ElseIf ($Remove) {
+      } ElseIf ($Action.ToLower() -eq "remove") {
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -Confirm
       }
-      Get-DrsClusterGroup -Type "VMHostGroup"
+      Write-Output (Get-DrsClusterGroup -Type "VMHostGroup")
       return $result
     }
   }
-}
 
 <#
     .Synopsis
