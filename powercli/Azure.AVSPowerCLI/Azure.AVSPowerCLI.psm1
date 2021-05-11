@@ -5,8 +5,8 @@
 =======================================================================================================
     AUTHOR:  David Becher
     DATE:    4/22/2021
-    Version: 1.0
-    Comment: Add an external identity source to tenant vCenter. Requires powershell to have VMware.PowerCLI, AzurePowershell, and VMware.vSphere.SsoAdminModule installed
+    Version: 1.0.0
+    Comment: Cmdlets for various administrative functions of Azure VMWare Solution products
     Callouts: This script will require the powershell session running it to be able to authenticate to azure to pull secrets from key vault, will need service principal? Also make sure we don't allow code injections  
 ========================================================================================================
 #>
@@ -14,11 +14,11 @@
 # Exported Functions
 <#
     .Synopsis
-     Allow customers to add an external identity source (Active Directory over LDAP) for use with single sign on to vCenter.
+     Allow customers to add an external identity source (Active Directory over LDAP) for use with single sign on to vCenter. Prefaced by Connect-SsoAdminServer
 
     .Example 
     # Add the domain server named "dabecher.local" to vCenter
-    Add-ActiveDirectoryIdentitySource -Name 'dabecher' -DomainName 'dabecher.local' -DomainAlias 'dabecher' -PrimaryUrl 'ldap://10.40.0.5:389' -BaseDNUsers 'dc=dabecher, dc=local' -BaseDNGroups 'dc=dabecher, dc=local' -Username 'dabecher@dabecher.local' -Password 'PlaceholderPassword'
+    Add-ActiveDirectoryIdentitySource -Name 'dabecher' -DomainName 'dabecher.local' -DomainAlias 'dabecher' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=dabecher, dc=local' -BaseDNGroups 'dc=dabecher, dc=local' -Username 'dabecher@dabecher.local' -Password 'PlaceholderPassword' -Credential './path/to/certificate/cert.cer'
 #>
 function New-AvsLDAPIdentitySource {
 [CmdletBinding(PositionalBinding = $false)]
@@ -46,9 +46,9 @@ Param
 
   [Parameter(
     Mandatory = $true,
-    HelpMessage='URL of your AD Servier: ldaps://yourserver:636')]
+    HelpMessage='URL of your AD Server: ldaps://yourserver:636')]
   [ValidateScript({
-    $_ -like '*ldaps://*636'
+    $_ -match 'ldap.*:.*((389)|(636)|(3268)(3269))'
   })]
   [string]
   $PrimaryUrl,
@@ -57,7 +57,7 @@ Param
     Mandatory = $false,
     HelpMessage='Optional: URL of a backup server')]
   [ValidateScript({
-    $_ -like '*ldaps://*636'
+    $_ -match 'ldap.*:.*((389)|(636)|(3268)(3269))'
   })]
   [string]
   $SecondaryUrl,
@@ -91,59 +91,77 @@ Param
   $Password,
 
   [Parameter(
+    Mandatory = $false,
+    HelpMessage='Array of SAS path URI to Certificates for authentication. Ensure permissions to read included. For how to generate see <Insert Helpful Link>')]
+  [string[]]
+  $CertificatesSAS,
+
+  [Parameter(
     Mandatory = $true,
-    HelpMessage='SAS path URI to Certificate for authentication. Ensure permissions to read included. For how to generate see <>')]
-  [ValidateNotNull()]
+    HelpMessage='Protocol to use when configuring the AD. LDAPS or LDAP')]
   [string]
-  $CertificateSAS
+  $Protocol
   )
 
-    $Destination="./cert.cer"
-    $Source=$CertificateSAS
-    try
-    {
-        Write-Host "Downloading Certificate........."
-        $Response = Invoke-WebRequest -Uri $Source -OutFile $Destination
-        # This will only execute if the Invoke-WebRequest is successful.
-        $StatusCode = $Response.StatusCode
-        Write-Host("Certificate downloaded: " + $StatusCode)
+    if ($Protocol.ToLower() -eq "ldap") {
+      Write-Host "Adding the LDAP Identity Source..."
+      $ExternalSource = 
+        Add-LDAPIdentitySource `
+            -Name $Name `
+            -DomainName $DomainName `
+            -DomainAlias $DomainAlias `
+            -PrimaryUrl $PrimaryUrl `
+            -SecondaryUrl $SecondaryUrl `
+            -BaseDNUsers $BaseDNUsers `
+            -BaseDNGroups $BaseDNGroups `
+            -Username $Username `
+            -Password $Password `
+            -ServerType 'ActiveDirectory'
+  } elseif ($Protocol.ToLower() -eq "ldaps") {
+    if ($CertificatesSAS.count -eq 0) {
+      Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate"
+      return "Failed to add LDAPS source"
     }
-    catch
-    {
-        $StatusCode = $_.Exception.Response.StatusCode.value__
-        return ("Failed to download: " + $StatusCode)
+    $DestinationFileArray=@()
+    $Index = 1
+    foreach ($CertSas in $CertificatesSAS) {
+      Write-Host "Downloading Cert $Index"
+      $CertLocation = "./cert" + $Index + ".cer"
+      $Index = $Index + 1
+      try
+      {
+          $Response = Invoke-WebRequest -Uri $CertSas -OutFile $CertLocation
+          # This will only execute if the Invoke-WebRequest is successful.
+          $StatusCode = $Response.StatusCode
+          Write-Host("Certificate downloaded. $StatusCode")
+          $DestinationFileArray += $CertLocation
+      }
+      catch
+      {
+          $StatusCode = $_.Exception.Response.StatusCode.value__
+          return ("Failed to download: " + $StatusCode)
+      }
     }
-    
-    Write-Host "Adding the LDAP Identity Source..."
-    if ($SecondaryUrl) {
-        $ExternalSource = 
-            Add-LDAPIdentitySource `
-                -Name $Name `
-                -DomainName $DomainName `
-                -DomainAlias $DomainAlias `
-                -PrimaryUrl $PrimaryUrl `
-                -SecondaryUrl $SecondaryUrl`
-                -BaseDNUsers $BaseDNUsers `
-                -BaseDNGroups $BaseDNGroups `
-                -Username $Username `
-                -Password $Password`
-                -ServerType 'ActiveDirectory'`
-                -Certificates $Destination
-    } Else {
-        $ExternalSource = 
-            Add-LDAPIdentitySource `
-                -Name $Name `
-                -DomainName $DomainName `
-                -DomainAlias $DomainAlias `
-                -PrimaryUrl $PrimaryUrl`
-                -BaseDNUsers $BaseDNUsers `
-                -BaseDNGroups $BaseDNGroups `
-                -Username $Username `
-                -Password $Password `
-                -ServerType 'ActiveDirectory'`
-                -Certificates $Destination
-    }
-      return $ExternalSource
+    Write-Host $DestinationFileArray
+    Write-Host "Adding the LDAPS Identity Source..."
+    $ExternalSource = 
+        Add-LDAPIdentitySource `
+            -Name $Name `
+            -DomainName $DomainName `
+            -DomainAlias $DomainAlias `
+            -PrimaryUrl $PrimaryUrl `
+            -SecondaryUrl $SecondaryUrl `
+            -BaseDNUsers $BaseDNUsers `
+            -BaseDNGroups $BaseDNGroups `
+            -Username $Username `
+            -Password $Password `
+            -ServerType 'ActiveDirectory' `
+            -Certificates $DestinationFileArray
+  } Else {
+    return 'Please select either LDAP or LDAPS with "-Protocol LDAP" or "-Protocol LDAPS"'
+  }
+  Write-Host $ExternalSource
+  return (Get-IdentitySource -External)
 }
 
 <#
@@ -192,13 +210,17 @@ Param
     [ValidateNotNullOrEmpty()]
     [string[]]
     $VMHostList
-)   
+)
+
     $DrsVmHostGroupName = $DrsGroupName + "Host"
-    Write-Host ($DrsRuleName + $DrsGroupName + $Cluster +  $VMList + $VMHostList)
-    New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster
-    New-DrsClusterGroup -Name $DrsVmHostGroupName -VMHost $VMHostList -Cluster $Cluster
-    $result = New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn"
-    return $result
+    Write-Host "Creating DRS Cluster group " + $DrsGroupName + " for the VMs: " $VMList
+    New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster -ErrorAction Stop
+    Write-Host "Creating DRS Cluster group " + $DrsVmHostGroupName + " for the VMHosts: " $VMHostList
+    New-DrsClusterGroup -Name $DrsVmHostGroupName -VMHost $VMHostList -Cluster $Cluster -ErrorAction Stop
+    Write-Host "Creating ShouldRunOn DRS Rule " + $DrsRuleName + " on cluster " $Cluster
+    $result = New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn" -ErrorAction Stop
+    Get-DrsVMHostRule -Type "ShouldRunOn"
+    return $result 
 }
 
 <#
@@ -222,52 +244,50 @@ function Set-AvsDrsClusterGroup {
     $DrsGroupName,
 
     [Parameter(
-      Mandatory = $true,
+      Mandatory = $false,
       HelpMessage='List of the VMs to add to the VM group')]
-    [ValidateNotNullOrEmpty()]
     [string[]]
     $VMList,
 
     [Parameter(
-      Mandatory = $true,
+      Mandatory = $false,
       HelpMessage='List of the VMHosts to add to the VMHost group')]
-    [ValidateNotNullOrEmpty()]
     [string[]]
     $VMHostList,
 
-    [switch] $Add = $false,
-    [switch] $Remove = $false
-
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='Action to perform: Either "add" or "remove"')]
+    [ValidateNotNullOrEmpty()]
+    [string]
+    $Action
   )
 
-  If ($Add -And $Remove) {
-    $result = "You can't add and remove at the same time. Try again with just one flag"
-    return $result
-  } ElseIf ($Add -eq $false -and $Remove -eq $false) {
-    $result = "Nothing was done. Please select with either -Add or -Remove"
-  } Else {
     If ($VMList -And $VMHostList) {
-    $result = "Nothing done. Please select with either -VMHostList or -VMHost."
-    return $result
+      $result = Write-Output "Nothing done. Please select with either -VMHostList or -VMHost, not both."
+      return $result
     } ElseIf ($VMList) {
-      If ($Add) {
+      If ($Action.ToLower() -eq "add") {
+        Write-Host "Adding VMs to the DrsClusterGroup..."
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -Confirm
-        return $result
-      } ElseIf ($Remove) {
+      } ElseIf ($Action.ToLower() -eq "remove") {
+        Write-Host "Removing VMs from the DrsClusterGroup..."
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Remove -Confirm
-        return $result
+      } Else {
+        $result = Write-Output "Nothing done. Please select with either -Action Add or -Action Remove"
       }
+      Write-Output (Get-DrsClusterGroup -Type "VMGroup")
+      return $result
     } ElseIf ($VMHostList) {
-      If ($Add) {
+      If ($Action.ToLower() -eq "add") {
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -Confirm
-        return $result
-      } ElseIf ($Remove) {
+      } ElseIf ($Action.ToLower() -eq "remove") {
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -Confirm
-        return $result
       }
+      Write-Output (Get-DrsClusterGroup -Type "VMHostGroup")
+      return $result
     }
   }
-}
 
 <#
     .Synopsis
@@ -321,6 +341,8 @@ function Set-AvsDrsElevationRule {
         Write-Host "Nothing done  "
         return $result
       }
+
+    Get-DrsVMHostRule -Type "ShouldRunOn"
   }
   
 <#

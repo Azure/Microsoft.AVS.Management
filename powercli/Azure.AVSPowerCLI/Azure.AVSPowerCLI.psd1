@@ -12,7 +12,7 @@
 RootModule = 'Azure.AVSPowerCLI.psm1'
 
 # Version number of this module.
-ModuleVersion = '1.0'
+ModuleVersion = '1.0.0'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -30,7 +30,7 @@ CompanyName = 'Microsoft'
 Copyright = '(c) Microsoft. All rights reserved.'
 
 # Description of the functionality provided by this module
-Description = 'Allow customers to add an external identity source (Active Directory over LDAP) for use with single sign on to vCenter.'
+Description = 'Various cmdlets for adminstrator level tasks in managing Azure VMWare Solutions'
 
 # Minimum version of the PowerShell engine required by this module
 # PowerShellVersion = ''
@@ -52,9 +52,8 @@ Description = 'Allow customers to add an external identity source (Active Direct
 
 # Modules that must be imported into the global environment prior to importing this module
 RequiredModules = @(
-@{"ModuleName"="VMware.VimAutomation.Common";"ModuleVersion"="12.0.0.15939652"}
+@{"ModuleName"="VMware.vSphere.SsoAdmin"; "ModuleVersion"="1.2.3"}
 )
-
 
 # Assemblies that must be loaded prior to importing this module
 # RequiredAssemblies = @()
@@ -119,7 +118,7 @@ PrivateData = @{
         # RequireLicenseAcceptance = $false
 
         # External dependent modules of this module
-        ExternalModuleDependencies = @("VMware.VimAutomation.Common")
+        ExternalModuleDependencies = @("VMware.vSphere.SsoAdmin")
 
     } # End of PSData hashtable
 
