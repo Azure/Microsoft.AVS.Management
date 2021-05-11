@@ -102,21 +102,27 @@ Param
   [string]
   $Protocol
   )
+    $ErrorActionPreference="Stop"
 
     if ($Protocol.ToLower() -eq "ldap") {
       Write-Host "Adding the LDAP Identity Source..."
-      $ExternalSource = 
-        Add-LDAPIdentitySource `
-            -Name $Name `
-            -DomainName $DomainName `
-            -DomainAlias $DomainAlias `
-            -PrimaryUrl $PrimaryUrl `
-            -SecondaryUrl $SecondaryUrl `
-            -BaseDNUsers $BaseDNUsers `
-            -BaseDNGroups $BaseDNGroups `
-            -Username $Username `
-            -Password $Password `
-            -ServerType 'ActiveDirectory'
+      try {
+        $ExternalSource = 
+          Add-LDAPIdentitySource `
+              -Name $Name `
+              -DomainName $DomainName `
+              -DomainAlias $DomainAlias `
+              -PrimaryUrl $PrimaryUrl `
+              -SecondaryUrl $SecondaryUrl `
+              -BaseDNUsers $BaseDNUsers `
+              -BaseDNGroups $BaseDNGroups `
+              -Username $Username `
+              -Password $Password `
+              -ServerType 'ActiveDirectory'
+      } catch {
+        Write-Error "Error adding LDAP IdentitySource: " + $_.Exception
+        return $_.Exception
+      }
   } elseif ($Protocol.ToLower() -eq "ldaps") {
     if ($CertificatesSAS.count -eq 0) {
       Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate"
@@ -139,11 +145,12 @@ Param
       catch
       {
           $StatusCode = $_.Exception.Response.StatusCode.value__
-          return ("Failed to download: " + $StatusCode)
+          return ("Failed to download: " + $_.Exception)
       }
     }
     Write-Host $DestinationFileArray
     Write-Host "Adding the LDAPS Identity Source..."
+    try {
     $ExternalSource = 
         Add-LDAPIdentitySource `
             -Name $Name `
@@ -157,11 +164,15 @@ Param
             -Password $Password `
             -ServerType 'ActiveDirectory' `
             -Certificates $DestinationFileArray
+    } catch {
+      Write-Error "Error adding LDAPS Identity Source: " + $_.Exception
+      return $_.Exception
+    }
   } Else {
     return 'Please select either LDAP or LDAPS with "-Protocol LDAP" or "-Protocol LDAPS"'
   }
   Write-Host $ExternalSource
-  return (Get-IdentitySource -External)
+  return (Get-IdentitySource -External -ErrorAction Continue)
 }
 
 <#
@@ -211,15 +222,16 @@ Param
     [string[]]
     $VMHostList
 )
+    $ErrorActionPreference="Stop"
 
     $DrsVmHostGroupName = $DrsGroupName + "Host"
     Write-Host "Creating DRS Cluster group " + $DrsGroupName + " for the VMs: " $VMList
-    New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster -ErrorAction Stop
+    New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster
     Write-Host "Creating DRS Cluster group " + $DrsVmHostGroupName + " for the VMHosts: " $VMHostList
-    New-DrsClusterGroup -Name $DrsVmHostGroupName -VMHost $VMHostList -Cluster $Cluster -ErrorAction Stop
+    New-DrsClusterGroup -Name $DrsVmHostGroupName -VMHost $VMHostList -Cluster $Cluster
     Write-Host "Creating ShouldRunOn DRS Rule " + $DrsRuleName + " on cluster " $Cluster
-    $result = New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn" -ErrorAction Stop
-    Get-DrsVMHostRule -Type "ShouldRunOn"
+    $result = New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn"
+    Get-DrsVMHostRule -Type "ShouldRunOn" -ErrorAction Continue
     return $result 
 }
 
@@ -262,6 +274,7 @@ function Set-AvsDrsClusterGroup {
     [string]
     $Action
   )
+    $ErrorActionPreference="Stop"
 
     If ($VMList -And $VMHostList) {
       $result = Write-Output "Nothing done. Please select with either -VMHostList or -VMHost, not both."
@@ -321,6 +334,7 @@ function Set-AvsDrsElevationRule {
       [string]
       $Name
   )
+      $ErrorActionPreference="Stop"
       Write-Host "Enabled: $Enabled"
 
       Write-Host "Enabled is ne null:" + ($Enabled -ne $null) 
@@ -377,6 +391,7 @@ Param
     [string]
     $Cluster
 )
+    $ErrorActionPreference="Stop"
     if ($VMName -And $Cluster) {
       $result = "Only can update one VM or a cluster at a time. Please try again with just -VMName or -Cluster"
       return $result
