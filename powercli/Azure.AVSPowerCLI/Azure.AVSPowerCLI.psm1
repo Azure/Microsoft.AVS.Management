@@ -96,18 +96,14 @@ Param
   [string[]]
   $CertificatesSAS,
 
-  [switch] $LDAP = $false,
-  [switch] $LDAPS = $false
+  [Parameter(
+    Mandatory = $true,
+    HelpMessage='Protocol to use when configuring the AD. LDAPS or LDAP')]
+  [string]
+  $Protocol
   )
 
-    # try {
-    #   $DNSResult = [system.net.dns]::gethostaddresses("$DomainName")
-    #   Write-Host "Successfully connected to $DomainName"
-    # } catch {
-    #   return ("Failed to connect to $DomainName. Check your DNS Settings")
-    # }
-
-    if ($LDAP) {
+    if ($Protocol.ToLower() -eq "ldap") {
       Write-Host "Adding the LDAP Identity Source..."
       $ExternalSource = 
         Add-LDAPIdentitySource `
@@ -115,15 +111,16 @@ Param
             -DomainName $DomainName `
             -DomainAlias $DomainAlias `
             -PrimaryUrl $PrimaryUrl `
-            -SecondaryUrl $SecondaryUrl`
+            -SecondaryUrl $SecondaryUrl `
             -BaseDNUsers $BaseDNUsers `
             -BaseDNGroups $BaseDNGroups `
             -Username $Username `
-            -Password $Password`
+            -Password $Password `
             -ServerType 'ActiveDirectory'
-  } elseif ($LDAPS) {
+  } elseif ($Protocol.ToLower() -eq "ldaps") {
     if ($CertificatesSAS.count -eq 0) {
-      return "If adding an LDAPS identity source, please ensure you pass in at least one certificate"
+      Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate"
+      return "Failed to add LDAPS source"
     }
     $DestinationFileArray=@()
     $Index = 1
@@ -153,15 +150,15 @@ Param
             -DomainName $DomainName `
             -DomainAlias $DomainAlias `
             -PrimaryUrl $PrimaryUrl `
-            -SecondaryUrl $SecondaryUrl`
+            -SecondaryUrl $SecondaryUrl `
             -BaseDNUsers $BaseDNUsers `
             -BaseDNGroups $BaseDNGroups `
             -Username $Username `
-            -Password $Password`
-            -ServerType 'ActiveDirectory'`
+            -Password $Password `
+            -ServerType 'ActiveDirectory' `
             -Certificates $DestinationFileArray
   } Else {
-    return "Please select either LDAP or LDAPS with -LDAP or -LDAPS"
+    return 'Please select either LDAP or LDAPS with "-Protocol LDAP" or "-Protocol LDAPS"'
   }
   Write-Host $ExternalSource
   return (Get-IdentitySource -External)
