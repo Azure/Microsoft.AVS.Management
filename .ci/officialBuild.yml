@@ -1,8 +1,11 @@
 trigger:
 - none
 
+pr:
+- none
+
 schedules:
-- cron: "12 6 * * Mon-Thu"
+- cron: "21 6 * * Mon-Thu"
   displayName: M-Th at 06:00 UTC
   branches:
     include:
