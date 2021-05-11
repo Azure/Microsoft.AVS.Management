@@ -1,7 +1,7 @@
 #!/usr/bin/pwsh
 
 $requiredModules = @(
-@{"ModuleName"="VMware.VimAutomation.Common";"ModuleVersion"="12.0.0.15939652"}
+@{"ModuleName"="VMware.vSphere.SsoAdmin";"ModuleVersion"="1.2.3"}
 )
 
 Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
