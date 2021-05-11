@@ -100,12 +100,12 @@ Param
   [switch] $LDAPS = $false
   )
 
-    try {
-      $DNSResult = [system.net.dns]::gethostaddresses("$DomainName")
-      Write-Host "Successfully connected to $DomainName"
-    } catch {
-      return ("Failed to connect to $DomainName. Check your DNS Settings")
-    }
+    # try {
+    #   $DNSResult = [system.net.dns]::gethostaddresses("$DomainName")
+    #   Write-Host "Successfully connected to $DomainName"
+    # } catch {
+    #   return ("Failed to connect to $DomainName. Check your DNS Settings")
+    # }
 
     if ($LDAP) {
       Write-Host "Adding the LDAP Identity Source..."
@@ -122,7 +122,6 @@ Param
             -Password $Password`
             -ServerType 'ActiveDirectory'
   } elseif ($LDAPS) {
-    Write-Host "Adding the LDAPS Identity Source..."
     if ($CertificatesSAS.count -eq 0) {
       return "If adding an LDAPS identity source, please ensure you pass in at least one certificate"
     }
@@ -146,6 +145,8 @@ Param
           return ("Failed to download: " + $StatusCode)
       }
     }
+    Write-Host $DestinationFileArray
+    Write-Host "Adding the LDAPS Identity Source..."
     $ExternalSource = 
         Add-LDAPIdentitySource `
             -Name $Name `
@@ -158,7 +159,7 @@ Param
             -Username $Username `
             -Password $Password`
             -ServerType 'ActiveDirectory'`
-            -Certificates $Destination
+            -Certificates $DestinationFileArray
   } Else {
     return "Please select either LDAP or LDAPS with -LDAP or -LDAPS"
   }
@@ -214,11 +215,12 @@ Param
     $VMHostList
 )   
     $DrsVmHostGroupName = $DrsGroupName + "Host"
-    Write-Host ($DrsRuleName + $DrsGroupName + $Cluster +  $VMList + $VMHostList)
-    New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster
-    New-DrsClusterGroup -Name $DrsVmHostGroupName -VMHost $VMHostList -Cluster $Cluster
-    $result = New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn"
-    return $result
+    Write-Host ("Creating DRS Rule: " + $DrsRuleName + $DrsGroupName + $Cluster +  $VMList + $VMHostList) # Output
+    # All commandlets have error action, I can pass stop as the argument. How to make sure any failures ends the execution?
+    New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster -ErrorAction Stop
+    New-DrsClusterGroup -Name $DrsVmHostGroupName -VMHost $VMHostList -Cluster $Cluster -ErrorAction Stop
+    $result = New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn" -ErrorAction Stop
+    return $result 
 }
 
 <#
