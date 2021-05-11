@@ -23,10 +23,10 @@ if ($buildType -eq 'unofficial' -or $buildType -eq 'official') {
 }else {
     Write-Error -Message "----Error: Unsupported buildType: $buildType----" -ErrorAction Stop
 }
-Write-Output "feed parameters:"
-Write-Output "$feedParameters"
-Write-Output "----Registering PSRepository ----"
+Write-Output "Available repositories:"
 Get-PSRepository
+
+Write-Output "----Registering PSRepository ----"
 Register-PSRepository @feedParameters
 if (!$?) {
     Write-Error -Message "----ERROR: Unable to register repository----" -ErrorAction Stop
@@ -34,6 +34,7 @@ if (!$?) {
     
     Write-Output "----SUCCEEDED: repository registered ----"
 }
+Write-Output "Available repositories:"
 Get-PSRepository
 
 $repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"

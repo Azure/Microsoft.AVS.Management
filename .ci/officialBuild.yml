@@ -1,8 +1,10 @@
-trigger:
-  batch: true
+schedules:
+- cron: "0 6 * * Mon-Thu"
+  displayName: M-Th at 06:00 UTC
   branches:
     include:
     - main
+    - mibart/msengAdoPipeline
 
 variables:
   MAJOR: 1
