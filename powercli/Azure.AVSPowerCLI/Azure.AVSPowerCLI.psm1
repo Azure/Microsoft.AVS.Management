@@ -106,23 +106,18 @@ Param
 
     if ($Protocol.ToLower() -eq "ldap") {
       Write-Host "Adding the LDAP Identity Source..."
-      try {
-        $ExternalSource = 
-          Add-LDAPIdentitySource `
-              -Name $Name `
-              -DomainName $DomainName `
-              -DomainAlias $DomainAlias `
-              -PrimaryUrl $PrimaryUrl `
-              -SecondaryUrl $SecondaryUrl `
-              -BaseDNUsers $BaseDNUsers `
-              -BaseDNGroups $BaseDNGroups `
-              -Username $Username `
-              -Password $Password `
-              -ServerType 'ActiveDirectory'
-      } catch {
-        Write-Error "Error adding LDAP IdentitySource: " + $_.Exception
-        return $_.Exception
-      }
+      $ExternalSource = 
+        Add-LDAPIdentitySource `
+            -Name $Name `
+            -DomainName $DomainName `
+            -DomainAlias $DomainAlias `
+            -PrimaryUrl $PrimaryUrl `
+            -SecondaryUrl $SecondaryUrl `
+            -BaseDNUsers $BaseDNUsers `
+            -BaseDNGroups $BaseDNGroups `
+            -Username $Username `
+            -Password $Password `
+            -ServerType 'ActiveDirectory'
   } elseif ($Protocol.ToLower() -eq "ldaps") {
     if ($CertificatesSAS.count -eq 0) {
       Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate"
@@ -150,7 +145,6 @@ Param
     }
     Write-Host $DestinationFileArray
     Write-Host "Adding the LDAPS Identity Source..."
-    try {
     $ExternalSource = 
         Add-LDAPIdentitySource `
             -Name $Name `
@@ -164,10 +158,6 @@ Param
             -Password $Password `
             -ServerType 'ActiveDirectory' `
             -Certificates $DestinationFileArray
-    } catch {
-      Write-Error "Error adding LDAPS Identity Source: " + $_.Exception
-      return $_.Exception
-    }
   } Else {
     return 'Please select either LDAP or LDAPS with "-Protocol LDAP" or "-Protocol LDAPS"'
   }
