@@ -105,7 +105,7 @@ Param
     $ErrorActionPreference="Stop"
 
     if ($Protocol.ToLower() -eq "ldap") {
-      Write-Host "Adding the LDAP Identity Source..."
+      Write-Host "Adding the LDAP Identity Source"
       $ExternalSource = 
         Add-LDAPIdentitySource `
             -Name $Name `
@@ -118,7 +118,7 @@ Param
             -Username $Username `
             -Password $Password `
             -ServerType 'ActiveDirectory'
-  } elseif ($Protocol.ToLower() -eq "ldaps") {
+    } elseif ($Protocol.ToLower() -eq "ldaps") {
     if ($CertificatesSAS.count -eq 0) {
       Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate"
       return "Failed to add LDAPS source"
@@ -127,7 +127,8 @@ Param
     $Index = 1
     foreach ($CertSas in $CertificatesSAS) {
       Write-Host "Downloading Cert $Index"
-      $CertLocation = "./cert" + $Index + ".cer"
+      $CertDir = $pwd.Path
+      $CertLocation = "$CertDir/cert$Index.cer"
       $Index = $Index + 1
       try
       {
@@ -140,10 +141,10 @@ Param
       catch
       {
           $StatusCode = $_.Exception.Response.StatusCode.value__
-          return ("Failed to download: " + $_.Exception)
+          return ("Failed to download certificate " + ($Index-1) + ": " + $_.Exception)
       }
     }
-    Write-Host $DestinationFileArray
+    Write-Verbose "Certificates: " + $DestinationFileArray
     Write-Host "Adding the LDAPS Identity Source..."
     $ExternalSource = 
         Add-LDAPIdentitySource `
@@ -161,7 +162,7 @@ Param
   } Else {
     return 'Please select either LDAP or LDAPS with "-Protocol LDAP" or "-Protocol LDAPS"'
   }
-  Write-Host $ExternalSource
+  Write-Verbose "PowerCLI Result: $ExternalSource"
   return (Get-IdentitySource -External -ErrorAction Continue)
 }
 
@@ -220,6 +221,7 @@ Param
     Write-Host "Creating DRS Cluster group " + $DrsVmHostGroupName + " for the VMHosts: " $VMHostList
     New-DrsClusterGroup -Name $DrsVmHostGroupName -VMHost $VMHostList -Cluster $Cluster
     Write-Host "Creating ShouldRunOn DRS Rule " + $DrsRuleName + " on cluster " $Cluster
+    Write-Verbose "New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type 'ShouldRunOn'"
     $result = New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn"
     Get-DrsVMHostRule -Type "ShouldRunOn" -ErrorAction Continue
     return $result 
@@ -233,7 +235,6 @@ Param
     # Create a should run rule named MyDrsRule on Cluster-1 Hosts using the listed VM's and VMHosts
     Set-AvsDrsClusterGroup -DrsGroupName "MyDrsGroup" -Cluster "Cluster-1" -VMList "vm1", "vm2" 
 #>
-
 function Set-AvsDrsClusterGroup {
   [CmdletBinding(PositionalBinding = $false)]
   Param
@@ -286,11 +287,16 @@ function Set-AvsDrsClusterGroup {
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -Confirm
       } ElseIf ($Action.ToLower() -eq "remove") {
         $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -Confirm
+      } Else {
+        $result = Write-Output "Nothing done. Please select with either -Action Add or -Action Remove"
       }
       Write-Output (Get-DrsClusterGroup -Type "VMHostGroup")
       return $result
+    } Else {
+      $result = Write-Output "Nothing done. Please select with either -VMHostList or -VMHost."
+      return $result
     }
-  }
+}
 
 <#
     .Synopsis
@@ -322,31 +328,30 @@ function Set-AvsDrsElevationRule {
         HelpMessage='New name for the Drs rule')]
       [ValidateNotNullOrEmpty()]
       [string]
-      $Name
+      $NewName
   )
       $ErrorActionPreference="Stop"
-      Write-Host "Enabled: $Enabled"
 
-      Write-Host "Enabled is ne null:" + ($Enabled -ne $null) 
-      if (($Enabled -ne $null) -And $Name) {
-        Write-Host "Enabled $Enabled and Name: $Name"
-        $result = Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $true -Name $Name
-        return $result
+      Write-Verbose "Enabled is ne null:" + ($Enabled -ne $null) 
+      if (($Enabled -ne $null) -And $NewName) {
+        Write-Host "Changing enabled flag to $Enabled and Name to $NewName"
+        Write-Verbose "$result = Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $true -Name $NewName"
+        Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $true -Name $NewName
       } ElseIf ($Enabled -ne $null) {
-        $result = Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $true 
-        Write-Host "Enabled $enabled "
-        return $result
+        Write-Host "Changing the enabled flag for $DrsRuleName to $Enabled"
+        Write-Verbose "$result = Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $true"
+        Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $Enabled
       } ElseIf ($Name) {
-        $result = Set-DrsVMHostRule -Rule $DrsRuleName -Name $Name
-        Write-Host "Not Enabled $enabled just Name $Name "
-        return $result
+        Write-Host "Renaming $DrsRuleName to $NewName"
+        Write-Verbose "Set-DrsVMHostRule -Rule $DrsRuleName -Name $NewName"
+        Set-DrsVMHostRule -Rule $DrsRuleName -Name $NewName 
       } Else {
-        $result = Get-DrsVMHostRule -Name $DrsRuleName
-        Write-Host "Nothing done  "
-        return $result
+        Write-Host "Nothing done."
       }
 
-    Get-DrsVMHostRule -Type "ShouldRunOn"
+    $result = Get-DrsVMHostRule -Type "ShouldRunOn" -ErrorAction Continue
+    return $result
+    
   }
   
 <#
@@ -361,38 +366,37 @@ function Set-AvsStoragePolicy {
 [CmdletBinding(PositionalBinding = $false)]
 Param
 (
+  [Parameter(
+    Mandatory = $true,
+    HelpMessage='Name of the storage policy to set')]
+  [ValidateNotNullOrEmpty()]
+  [string]
+  $StoragePolicyName,
+  
+  [Parameter(
+    Mandatory = $false,
+    HelpMessage='Name of the VM to set the storage policy on')]
+  [string]
+  $VMName,
 
-    [Parameter(
-      Mandatory = $true,
-      HelpMessage='Name of the storage policy to set')]
-    [ValidateNotNullOrEmpty()]
-    [string]
-    $StoragePolicyName,
-    
-    [Parameter(
-      Mandatory = $false,
-      HelpMessage='Name of the VM to set the storage policy on')]
-    [string]
-    $VMName,
-
-    [Parameter(
-      Mandatory = $false,
-      HelpMessage='Name of the Cluster to set the storage policy on')]
-    [string]
-    $Cluster
+  [Parameter(
+    Mandatory = $false,
+    HelpMessage='Name of the Cluster to set the storage policy on')]
+  [string]
+  $Cluster
 )
     $ErrorActionPreference="Stop"
     if ($VMName -And $Cluster) {
       $result = "Only can update one VM or a cluster at a time. Please try again with just -VMName or -Cluster"
-      return $result
     } ElseIf ($VMName -ne $null) {
+      Write-Verbose (Get-SbpmStoragePolicy)
       $storagepolicy = Get-SpbmStoragePolicy -Name $StoragePolicyName
       $result = Set-VM $VMName -StoragePolicy $storagepolicy -SkipHardDisks
       return $result
     } Else {
-      $result = "Placeholder for cluster editing, currently not supported. Nothing done"
-      return $result
+      $result = "Cluster editing currently not supported"
     }
+    return $result
 }
 
 Export-ModuleMember -Function *
