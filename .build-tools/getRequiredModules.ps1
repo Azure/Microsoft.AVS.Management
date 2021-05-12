@@ -1,14 +1,13 @@
 #!/usr/bin/pwsh
-
-$requiredModules = @(
-@{"ModuleName"="VMware.VimAutomation.Common";"ModuleVersion"="12.0.0.15939652"}
+param (
+    [Parameter(Mandatory=$true)][string]$psdPath
 )
-
+$requiredModules = (Test-ModuleManifest "$psdPath").RequiredModules
 Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
 
 foreach ($module in $requiredModules) {
-    $targetModule = $module.ModuleName
-    $targetVersion = $module.ModuleVersion
+    $targetModule = $($module.Name)
+    $targetVersion = $($module.Version)
     Write-Host "Installing $targetModule-$targetVersion ...."
     Install-Module $targetModule -RequiredVersion $targetVersion
     Write-Host "----COMPLETED installation of $targetModule-$targetVersion----"

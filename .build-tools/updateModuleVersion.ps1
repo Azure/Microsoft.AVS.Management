@@ -4,7 +4,7 @@ param (
 )
 Write-Output "----START: updateModuleVersion----"
 #Install all RequiredModules in the module manifests because the command Update-ModuleManifest 
-# requires these modules to be on the host to update properly.
+# requires these modules to be on the host in order to run properly.
 $repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"
 $manifestAbsolutePath = Join-Path -Path "$repoRoot" -ChildPath "$relativePathToManifest"
 $manifestFolder = (Split-Path "$manifestAbsolutePath")

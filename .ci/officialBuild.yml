@@ -16,7 +16,6 @@ variables:
   minor: 0
   moduleFolderName: 'Azure.AVSPowerCLI'
 
-
 name: $(MAJOR).$(minor).$(Rev:r)
 
 stages:
@@ -32,6 +31,7 @@ stages:
       displayName: Restore Dependencies
       inputs:
         filePath: '.build-tools/getRequiredModules.ps1'
+        arguments: 'powercli/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
         pwsh: true
     - task: PowerShell@2
       displayName: Versioning Module
@@ -95,11 +95,6 @@ stages:
         filePath: 'package/packageModule.ps1'
         arguments: 'powercli/${{ variables.moduleFolderName }} powercli/${{ variables.moduleFolderName }} official'
         pwsh: true
-    - task: PowerShell@2
-      displayName: Publish Module
-      inputs:
-        filePath: 'package/publishPackage.ps1'
-        pwsh: true
 - stage: Compliance
   displayName: Compliance
   dependsOn: Official_Build
@@ -125,4 +120,4 @@ stages:
   - job: Release
     steps:
     - pwsh: |
-        Write-Output "---- NO RELEAST TASKS----"
+        Write-Output "---- NO RELEASE TASKS----"
