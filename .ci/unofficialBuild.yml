@@ -18,7 +18,7 @@ variables:
 name: $(MAJOR).$(minor).$(Rev:r)
 
 stages:
-- stage: Build_and_Publish 
+- stage: Unofficial_Build 
   displayName: Build and Publish Package
   pool:
     vmImage: windows-2019
@@ -30,6 +30,7 @@ stages:
       displayName: Restore Dependencies
       inputs:
         filePath: '.build-tools/getRequiredModules.ps1'
+        arguments: 'powercli/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
         pwsh: true
     - task: PowerShell@2
       displayName: Versioning Module
@@ -50,14 +51,9 @@ stages:
         filePath: 'package/packageModule.ps1'
         arguments: 'powercli/${{ variables.moduleFolderName }} ${{ variables.moduleFolderName }} unofficial'
         pwsh: true
-    - task: PowerShell@2
-      displayName: Publish Module
-      inputs:
-        filePath: 'package/publishPackage.ps1'
-        pwsh: true
 - stage: Compliance
   displayName: Compliance
-  dependsOn: Build_and_Publish
+  dependsOn: Unofficial_Build
   jobs:
   - job: Check_Compliance
     steps:

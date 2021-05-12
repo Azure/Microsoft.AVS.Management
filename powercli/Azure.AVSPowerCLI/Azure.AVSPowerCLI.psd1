@@ -30,7 +30,7 @@ CompanyName = 'Microsoft'
 Copyright = '(c) Microsoft. All rights reserved.'
 
 # Description of the functionality provided by this module
-Description = 'Allow customers to add an external identity source (Active Directory over LDAP) for use with single sign on to vCenter.'
+Description = 'Various cmdlets for adminstrator level tasks in managing Azure VMWare Solutions'
 
 # Minimum version of the PowerShell engine required by this module
 # PowerShellVersion = ''
@@ -54,7 +54,6 @@ Description = 'Allow customers to add an external identity source (Active Direct
 RequiredModules = @(
 @{"ModuleName"="VMware.vSphere.SsoAdmin"; "ModuleVersion"="1.2.3"}
 )
-
 
 # Assemblies that must be loaded prior to importing this module
 # RequiredAssemblies = @()
