@@ -141,10 +141,11 @@ Param
       catch
       {
           $StatusCode = $_.Exception.Response.StatusCode.value__
-          return ("Failed to download certificate " + ($Index-1) + ": " + $_.Exception)
+          Write-Error $_.Execption
+          return "Failed to download certificate ($Index-1)"
       }
     }
-    Write-Verbose "Certificates: " + $DestinationFileArray
+    Write-Verbose "Certificates: $DestinationFileArray"
     Write-Host "Adding the LDAPS Identity Source..."
     $ExternalSource = 
         Add-LDAPIdentitySource `
@@ -216,11 +217,11 @@ Param
     $ErrorActionPreference="Stop"
 
     $DrsVmHostGroupName = $DrsGroupName + "Host"
-    Write-Host "Creating DRS Cluster group " + $DrsGroupName + " for the VMs: " $VMList
+    Write-Host "Creating DRS Cluster group $DrsGroupName for the VMs $VMList"
     New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster
-    Write-Host "Creating DRS Cluster group " + $DrsVmHostGroupName + " for the VMHosts: " $VMHostList
+    Write-Host "Creating DRS Cluster group $DrsVmHostGroupName for the VMHosts: $VMHostList"
     New-DrsClusterGroup -Name $DrsVmHostGroupName -VMHost $VMHostList -Cluster $Cluster
-    Write-Host "Creating ShouldRunOn DRS Rule " + $DrsRuleName + " on cluster " $Cluster
+    Write-Host "Creating ShouldRunOn DRS Rule $DrsRuleName on cluster $Cluster"
     Write-Verbose "New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type 'ShouldRunOn'"
     $result = New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn"
     Get-DrsVMHostRule -Type "ShouldRunOn" -ErrorAction Continue
@@ -332,7 +333,7 @@ function Set-AvsDrsElevationRule {
   )
       $ErrorActionPreference="Stop"
 
-      Write-Verbose "Enabled is ne null:" + ($Enabled -ne $null) 
+      Write-Verbose "Enabled is ne null: ($Enabled -ne $null)"
       if (($Enabled -ne $null) -And $NewName) {
         Write-Host "Changing enabled flag to $Enabled and Name to $NewName"
         Write-Verbose "$result = Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $true -Name $NewName"
