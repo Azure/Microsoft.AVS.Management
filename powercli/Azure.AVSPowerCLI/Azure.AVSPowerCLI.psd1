@@ -21,7 +21,7 @@ ModuleVersion = '1.0.0'
 GUID = '84d7f529-e6a8-4b7e-99b4-dafc636ffad2'
 
 # Author of this module
-Author = 'dabecher'
+Author = 'David Becher'
 
 # Company or vendor of this module
 CompanyName = 'Microsoft'
