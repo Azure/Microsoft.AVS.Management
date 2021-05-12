@@ -2,7 +2,7 @@
 param (
     [Parameter(Mandatory=$true)][string]$psdPath
 )
-$requiredModules = (Test-ModuleManifest "$psdPath").RequiredModules
+$requiredModules = (Test-ModuleManifest "$psdPath" -ErrorAction SilentlyContinue).RequiredModules
 Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
 
 foreach ($module in $requiredModules) {
