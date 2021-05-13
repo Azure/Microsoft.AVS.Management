@@ -3,7 +3,6 @@ param (
     [Parameter(Mandatory=$true)][string]$modulesFolderPath
 )
 
-Install-Module -Name "PSScriptAnalyzer" -RequiredVersion 1.19.1 -Force
 $repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"
 $fileExtList = @("*.ps1","*.psm1","*.psd1")
 $script:zeroPSAnalyzerErrorsFound = $true

@@ -13,5 +13,5 @@ foreach ($module in $requiredModules) {
     Write-Host "----COMPLETED installation of $targetModule-$targetVersion----"
 }
 
-
+Install-Module -Name "PSScriptAnalyzer" -RequiredVersion 1.19.1 -Force
 Write-Host "----SUCCESS: installed all required modules----"
