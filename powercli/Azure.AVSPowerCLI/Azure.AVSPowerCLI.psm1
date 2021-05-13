@@ -16,6 +16,21 @@
     .Synopsis
      Allow customers to add an external identity source (Active Directory over LDAP) for use with single sign on to vCenter. Prefaced by Connect-SsoAdminServer
 
+    .Parameter Name
+     The user-friendly name the external AD will be given in vCenter
+
+    .Parameter DomainName
+     Domain name of the external active directory, e.g. myactivedirectory.local
+
+    .Parameter DomainAlias 
+     Domain alias of the external active directory, e.g. myactivedirectory
+
+    .Parameter Protocol
+     Which protocol to use to connect to the active directory, either LDAP or LDAPS.
+
+    .Parameter CertificatesSAS
+     An array of Shared Access Signature strings to the certificates required to connect to the external active directory, if using LDAPS
+
     .Example 
     # Add the domain server named "dabecher.local" to vCenter
     Add-ActiveDirectoryIdentitySource -Name 'dabecher' -DomainName 'dabecher.local' -DomainAlias 'dabecher' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=dabecher, dc=local' -BaseDNGroups 'dc=dabecher, dc=local' -Username 'dabecher@dabecher.local' -Password 'PlaceholderPassword' -Credential './path/to/certificate/cert.cer'
@@ -102,10 +117,11 @@ Param
   [string]
   $Protocol
   )
-    $ErrorActionPreference="Stop"
-
-    if ($Protocol.ToLower() -eq "ldap") {
+    if ($Protocol -eq "ldap") {
       Write-Host "Adding the LDAP Identity Source"
+      if ($CertificatesSAS.count -ne 0) {
+        Write-Warning "Ignoring certificates because selected protocol was LDAP"
+      }
       $ExternalSource = 
         Add-LDAPIdentitySource `
             -Name $Name `
@@ -117,10 +133,10 @@ Param
             -BaseDNGroups $BaseDNGroups `
             -Username $Username `
             -Password $Password `
-            -ServerType 'ActiveDirectory'
-    } elseif ($Protocol.ToLower() -eq "ldaps") {
+            -ServerType 'ActiveDirectory' -ErrorAction Stop
+    } elseif ($Protocol -eq "ldaps") {
     if ($CertificatesSAS.count -eq 0) {
-      Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate"
+      Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate" -ErrorAction Stop
       return "Failed to add LDAPS source"
     }
     $DestinationFileArray=@()
@@ -133,15 +149,16 @@ Param
       try
       {
           $Response = Invoke-WebRequest -Uri $CertSas -OutFile $CertLocation
-          # This will only execute if the Invoke-WebRequest is successful.
+          Write-Verbose -Message "Following lines will only execute if the download was successful"
           $StatusCode = $Response.StatusCode
           Write-Host("Certificate downloaded. $StatusCode")
           $DestinationFileArray += $CertLocation
       }
       catch
       {
-          $StatusCode = $_.Exception.Response.StatusCode.value__
-          Write-Error $_.Execption
+          Write-Verbose "Stack Trace: $($PSItem.Exception.StackTrace)"
+          Write-Verbose "InnerException: $($PSItem.Exception.InnerException)" 
+          Write-Error $PSItem.Exception.Message -ErrorAction Stop
           return "Failed to download certificate ($Index-1)"
       }
     }
@@ -159,7 +176,7 @@ Param
             -Username $Username `
             -Password $Password `
             -ServerType 'ActiveDirectory' `
-            -Certificates $DestinationFileArray
+            -Certificates $DestinationFileArray -ErrorAction Stop
   } Else {
     return 'Please select either LDAP or LDAPS with "-Protocol LDAP" or "-Protocol LDAPS"'
   }
@@ -218,13 +235,14 @@ Param
 
     $DrsVmHostGroupName = $DrsGroupName + "Host"
     Write-Host "Creating DRS Cluster group $DrsGroupName for the VMs $VMList"
-    New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster
+    New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster -ErrorAction Stop
     Write-Host "Creating DRS Cluster group $DrsVmHostGroupName for the VMHosts: $VMHostList"
-    New-DrsClusterGroup -Name $DrsVmHostGroupName -VMHost $VMHostList -Cluster $Cluster
+    New-DrsClusterGroup -Name $DrsVmHostGroupName -VMHost $VMHostList -Cluster $Cluster -ErrorAction Stop
     Write-Host "Creating ShouldRunOn DRS Rule $DrsRuleName on cluster $Cluster"
     Write-Verbose "New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type 'ShouldRunOn'"
-    $result = New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn"
-    Get-DrsVMHostRule -Type "ShouldRunOn" -ErrorAction Continue
+    $result = New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn" -ErrorAction Stop
+    $currentRule = Get-DrsVMHostRule -Type "ShouldRunOn" -ErrorAction Continue
+    Write-Output $currentRule
     return $result 
 }
 
@@ -266,28 +284,27 @@ function Set-AvsDrsClusterGroup {
     [string]
     $Action
   )
-    $ErrorActionPreference="Stop"
 
     If ($VMList -And $VMHostList) {
       $result = Write-Output "Nothing done. Please select with either -VMHostList or -VMHost, not both."
       return $result
     } ElseIf ($VMList) {
-      If ($Action.ToLower() -eq "add") {
+      If ($Action -eq "add") {
         Write-Host "Adding VMs to the DrsClusterGroup..."
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -Confirm
-      } ElseIf ($Action.ToLower() -eq "remove") {
+        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -Confirm -ErrorAction Stop
+      } ElseIf ($Action -eq "remove") {
         Write-Host "Removing VMs from the DrsClusterGroup..."
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Remove -Confirm
+        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Remove -Confirm -ErrorAction Stop
       } Else {
         $result = Write-Output "Nothing done. Please select with either -Action Add or -Action Remove"
       }
       Write-Output (Get-DrsClusterGroup -Type "VMGroup")
       return $result
     } ElseIf ($VMHostList) {
-      If ($Action.ToLower() -eq "add") {
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -Confirm
-      } ElseIf ($Action.ToLower() -eq "remove") {
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -Confirm
+      If ($Action -eq "add") {
+        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -Confirm -ErrorAction Stop
+      } ElseIf ($Action -eq "remove") {
+        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -Confirm -ErrorAction Stop
       } Else {
         $result = Write-Output "Nothing done. Please select with either -Action Add or -Action Remove"
       }
@@ -331,26 +348,25 @@ function Set-AvsDrsElevationRule {
       [string]
       $NewName
   )
-      $ErrorActionPreference="Stop"
-
       Write-Verbose "Enabled is ne null: ($Enabled -ne $null)"
       if (($Enabled -ne $null) -And $NewName) {
         Write-Host "Changing enabled flag to $Enabled and Name to $NewName"
         Write-Verbose "$result = Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $true -Name $NewName"
-        Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $true -Name $NewName
+        Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $true -Name $NewName -ErrorAction Stop
       } ElseIf ($Enabled -ne $null) {
         Write-Host "Changing the enabled flag for $DrsRuleName to $Enabled"
         Write-Verbose "$result = Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $true"
-        Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $Enabled
+        Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $Enabled -ErrorAction Stop
       } ElseIf ($Name) {
         Write-Host "Renaming $DrsRuleName to $NewName"
         Write-Verbose "Set-DrsVMHostRule -Rule $DrsRuleName -Name $NewName"
-        Set-DrsVMHostRule -Rule $DrsRuleName -Name $NewName 
+        Set-DrsVMHostRule -Rule $DrsRuleName -Name $NewName -ErrorAction Stop
       } Else {
-        Write-Host "Nothing done."
+        Write-Output "Nothing done."
       }
 
-    $result = Get-DrsVMHostRule -Type "ShouldRunOn" -ErrorAction Continue
+    $result = Get-DrsVMHostRule -Type "ShouldRunOn"
+    Write-Output $result
     return $result
     
   }
@@ -386,16 +402,17 @@ Param
   [string]
   $Cluster
 )
-    $ErrorActionPreference="Stop"
     if ($VMName -And $Cluster) {
       $result = "Only can update one VM or a cluster at a time. Please try again with just -VMName or -Cluster"
+      Write-Output $result
     } ElseIf ($VMName -ne $null) {
       Write-Verbose (Get-SbpmStoragePolicy)
-      $storagepolicy = Get-SpbmStoragePolicy -Name $StoragePolicyName
-      $result = Set-VM $VMName -StoragePolicy $storagepolicy -SkipHardDisks
+      $storagepolicy = Get-SpbmStoragePolicy -Name $StoragePolicyName -ErrorAction Stop
+      $result = Set-VM $VMName -StoragePolicy $storagepolicy -SkipHardDisks -ErrorAction Stop
       return $result
     } Else {
       $result = "Cluster editing currently not supported"
+      Write-Output $result
     }
     return $result
 }
