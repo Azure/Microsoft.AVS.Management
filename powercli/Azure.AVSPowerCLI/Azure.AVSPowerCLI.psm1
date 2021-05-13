@@ -32,8 +32,8 @@
      An array of Shared Access Signature strings to the certificates required to connect to the external active directory, if using LDAPS
 
     .Example 
-    # Add the domain server named "dabecher.local" to vCenter
-    Add-ActiveDirectoryIdentitySource -Name 'dabecher' -DomainName 'dabecher.local' -DomainAlias 'dabecher' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=dabecher, dc=local' -BaseDNGroups 'dc=dabecher, dc=local' -Username 'dabecher@dabecher.local' -Password 'PlaceholderPassword' -Credential './path/to/certificate/cert.cer'
+    # Add the domain server named "myserver.local" to vCenter
+    Add-AvsLDAPIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local' -Username 'myserver@myserver.local' -Password 'PlaceholderPassword' -CertificatesSAS 'https://sharedaccessstring.path/accesskey' -Protocol LDAPS
 #>
 function New-AvsLDAPIdentitySource {
 [CmdletBinding(PositionalBinding = $false)]
@@ -190,7 +190,7 @@ Param
 
     .Example 
     # Create a should run rule named MyDrsRule on Cluster-1 Hosts using the listed VM's and VMHosts
-    New-DrsElevationRule -DrsGroupName "MyDrsGroup" -DrsRuleName "MyDrsRule" -Cluster "Cluster-1" -VMList "vm1", "vm2" -VMHostList "esx01", "esx02"
+    New-AvsDrsElevationRule -DrsGroupName "MyDrsGroup" -DrsRuleName "MyDrsRule" -Cluster "Cluster-1" -VMList "vm1", "vm2" -VMHostList "esx01", "esx02"
 #>
 function New-AvsDrsElevationRule {
 [CmdletBinding(PositionalBinding = $false)]
@@ -251,8 +251,10 @@ Param
      Edits a Drs Cluster Group
 
     .Example 
-    # Create a should run rule named MyDrsRule on Cluster-1 Hosts using the listed VM's and VMHosts
-    Set-AvsDrsClusterGroup -DrsGroupName "MyDrsGroup" -Cluster "Cluster-1" -VMList "vm1", "vm2" 
+    # Edit an existing drs group named "MyDrsGroup" on Cluster-1 Hosts adding the listed VM's '
+    Set-AvsDrsClusterGroup -DrsGroupName "MyDrsGroup" -Cluster "Cluster-1" -VMList "vm1", "vm2"  -Action "add"
+    # Edit an existing drs group named "MyDrsGroup" on Cluster-1 Hosts removing the listed VM Hosts '
+    Set-AvsDrsClusterGroup -DrsGroupName "MyDrsGroup" -Cluster "Cluster-1" -VMHostList "vmHost1", "vmHost2"  -Action "remove"
 #>
 function Set-AvsDrsClusterGroup {
   [CmdletBinding(PositionalBinding = $false)]
@@ -318,11 +320,11 @@ function Set-AvsDrsClusterGroup {
 
 <#
     .Synopsis
-     Edits a Drs Cluster Group
+     Edits a Drs Elevation Rule. Allowed operations are enable/disable and renaming.
 
     .Example 
-    # Create a should run rule named MyDrsRule on Cluster-1 Hosts using the listed VM's and VMHosts
-    Set-AvsDrsClusterGroup -DrsGroupName "MyDrsGroup" -Cluster "Cluster-1" -VMList "vm1", "vm2" 
+    # Enable and change the name of a drs rule named "myDrsRule"
+    Set-AvsDrsElevationRule -DrsRuleName "myDrsRule"  -Enabled $true -NewName "mynewDrsRule"
 #>
 function Set-AvsDrsElevationRule {
   [CmdletBinding(PositionalBinding = $false)]
