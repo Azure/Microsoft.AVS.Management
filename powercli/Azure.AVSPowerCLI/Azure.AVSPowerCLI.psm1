@@ -158,6 +158,7 @@ Param
       {
           Write-Verbose "Stack Trace: $($PSItem.Exception.StackTrace)"
           Write-Verbose "InnerException: $($PSItem.Exception.InnerException)" 
+          Write-Warning "Ensure the SAS string is still valid"
           Write-Error $PSItem.Exception.Message -ErrorAction Stop
           return "Failed to download certificate ($Index-1)"
       }
@@ -256,6 +257,7 @@ Param
     # Edit an existing drs group named "MyDrsGroup" on Cluster-1 Hosts removing the listed VM Hosts '
     Set-AvsDrsClusterGroup -DrsGroupName "MyDrsGroup" -Cluster "Cluster-1" -VMHostList "vmHost1", "vmHost2"  -Action "remove"
 #>
+
 function Set-AvsDrsClusterGroup {
   [CmdletBinding(PositionalBinding = $false)]
   Param
@@ -286,35 +288,42 @@ function Set-AvsDrsClusterGroup {
     [string]
     $Action
   )
+    [string] $groupType = (Get-DrsClusterGroup -Name $DrsGroupName).GroupType.ToString()
+    Write-Verbose "The group type for $DrsGroupName is $groupType"
+    If (($groupType -eq "VMGroup") -and ($null -ne $VMHostList)) {
+      Get-DrsClusterGroup
+      Write-Warning "$DrsGroupName is a $groupType and cannot be modified with VMHosts. Retry with -VMList and validate the group name"
+      return
+    } ElseIf (($groupType -eq "VMHostGroup") -and ($null -ne $VMList)) {
+      Get-DrsClusterGroup
+      Write-Warning "$DrsGroupName is a $groupType and cannot be modified with VMs. Retry with -VMHostList and validate the group name"
+      return 
+    }
 
     If ($VMList -And $VMHostList) {
-      $result = Write-Output "Nothing done. Please select with either -VMHostList or -VMHost, not both."
-      return $result
+      return Write-Output "Nothing done. Please select with either -VMHostList or -VMHost, not both."
     } ElseIf ($VMList) {
       If ($Action -eq "add") {
         Write-Host "Adding VMs to the DrsClusterGroup..."
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -Confirm -ErrorAction Stop
+        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -ErrorAction Stop
       } ElseIf ($Action -eq "remove") {
         Write-Host "Removing VMs from the DrsClusterGroup..."
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Remove -Confirm -ErrorAction Stop
+        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Remove -ErrorAction Stop
       } Else {
         $result = Write-Output "Nothing done. Please select with either -Action Add or -Action Remove"
       }
-      Write-Output (Get-DrsClusterGroup -Type "VMGroup")
       return $result
     } ElseIf ($VMHostList) {
       If ($Action -eq "add") {
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -Confirm -ErrorAction Stop
+        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -ErrorAction Stop
       } ElseIf ($Action -eq "remove") {
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -Confirm -ErrorAction Stop
+        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -ErrorAction Stop
       } Else {
         $result = Write-Output "Nothing done. Please select with either -Action Add or -Action Remove"
       }
-      Write-Output (Get-DrsClusterGroup -Type "VMHostGroup")
       return $result
     } Else {
-      $result = Write-Output "Nothing done. Please select with either -VMHostList or -VMHost."
-      return $result
+      return Write-Output "Nothing done. Please select with either -VMHostList or -VMHost."
     }
 }
 
@@ -353,11 +362,11 @@ function Set-AvsDrsElevationRule {
       Write-Verbose "Enabled is ne null: ($Enabled -ne $null)"
       if (($Enabled -ne $null) -And $NewName) {
         Write-Host "Changing enabled flag to $Enabled and Name to $NewName"
-        Write-Verbose "$result = Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $true -Name $NewName"
-        Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $true -Name $NewName -ErrorAction Stop
+        Write-Verbose "Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $Enabled -Name $NewName"
+        Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $Enabled -Name $NewName -ErrorAction Stop
       } ElseIf ($Enabled -ne $null) {
         Write-Host "Changing the enabled flag for $DrsRuleName to $Enabled"
-        Write-Verbose "$result = Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $true"
+        Write-Verbose "Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $Enabled"
         Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $Enabled -ErrorAction Stop
       } ElseIf ($Name) {
         Write-Host "Renaming $DrsRuleName to $NewName"
@@ -366,11 +375,7 @@ function Set-AvsDrsElevationRule {
       } Else {
         Write-Output "Nothing done."
       }
-
-    $result = Get-DrsVMHostRule -Type "ShouldRunOn"
-    Write-Output $result
-    return $result
-    
+    return
   }
   
 <#
@@ -408,7 +413,7 @@ Param
       $result = "Only can update one VM or a cluster at a time. Please try again with just -VMName or -Cluster"
       Write-Output $result
     } ElseIf ($VMName -ne $null) {
-      Write-Verbose (Get-SbpmStoragePolicy)
+      Write-Verbose (Get-SpbmStoragePolicy)
       $storagepolicy = Get-SpbmStoragePolicy -Name $StoragePolicyName -ErrorAction Stop
       $result = Set-VM $VMName -StoragePolicy $storagepolicy -SkipHardDisks -ErrorAction Stop
       return $result
@@ -416,7 +421,6 @@ Param
       $result = "Cluster editing currently not supported"
       Write-Output $result
     }
-    return $result
 }
 
 Export-ModuleMember -Function *
