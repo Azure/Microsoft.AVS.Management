@@ -71,7 +71,7 @@ RequiredModules = @(
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @("Set-AvsStoragePolicy", "New-AvsLDAPIdentitySource", "New-AvsDrsElevationRule", "Set-AvsDrsClusterGroup", "Set-AvsDrsElevationRule")
+FunctionsToExport = @("Set-AvsVMStoragePolicy", "New-AvsLDAPIdentitySource", "New-AvsLDAPSIdentitySource", "New-AvsDrsElevationRule", "Set-AvsDrsVMClusterGroup", "Set-AvsDrsVMHostClusterGroup", "Set-AvsDrsElevationRule")
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = @()
@@ -118,7 +118,7 @@ PrivateData = @{
         # RequireLicenseAcceptance = $false
 
         # External dependent modules of this module
-        ExternalModuleDependencies = @("VMware.vSphere.SsoAdmin")
+        ExternalModuleDependencies = @("VMware.vSphere.SsoAdmin", "VMware.VimAutomation.Core")
 
     } # End of PSData hashtable
 

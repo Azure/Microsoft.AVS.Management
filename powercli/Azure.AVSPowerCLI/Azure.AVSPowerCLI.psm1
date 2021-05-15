@@ -25,12 +25,6 @@
     .Parameter DomainAlias 
      Domain alias of the external active directory, e.g. myactivedirectory
 
-    .Parameter Protocol
-     Which protocol to use to connect to the active directory, either LDAP or LDAPS.
-
-    .Parameter CertificatesSAS
-     An array of Shared Access Signature strings to the certificates required to connect to the external active directory, if using LDAPS
-
     .Example 
     # Add the domain server named "myserver.local" to vCenter
     Add-AvsLDAPIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local' -Username 'myserver@myserver.local' -Password 'PlaceholderPassword' -CertificatesSAS 'https://sharedaccessstring.path/accesskey' -Protocol LDAPS
@@ -63,7 +57,7 @@ Param
     Mandatory = $true,
     HelpMessage='URL of your AD Server: ldaps://yourserver:636')]
   [ValidateScript({
-    $_ -match 'ldap.*:.*((389)|(636)|(3268)(3269))'
+    $_ -match 'ldap:.*((389)|(636)|(3268)(3269))'
   })]
   [string]
   $PrimaryUrl,
@@ -72,7 +66,7 @@ Param
     Mandatory = $false,
     HelpMessage='Optional: URL of a backup server')]
   [ValidateScript({
-    $_ -match 'ldap.*:.*((389)|(636)|(3268)(3269))'
+    $_ -match 'ldap:.*((389)|(636)|(3268)(3269))'
   })]
   [string]
   $SecondaryUrl,
@@ -103,38 +97,122 @@ Param
     HelpMessage='Password you want to use for authenticating with the server')]
   [ValidateNotNull()]
   [string]
-  $Password,
-
-  [Parameter(
-    Mandatory = $false,
-    HelpMessage='Array of SAS path URI to Certificates for authentication. Ensure permissions to read included. For how to generate see <Insert Helpful Link>')]
-  [string[]]
-  $CertificatesSAS,
-
-  [Parameter(
-    Mandatory = $true,
-    HelpMessage='Protocol to use when configuring the AD. LDAPS or LDAP')]
-  [string]
-  $Protocol
+  $Password
   )
-    if ($Protocol -eq "ldap") {
-      Write-Host "Adding the LDAP Identity Source"
-      if ($CertificatesSAS.count -ne 0) {
-        Write-Warning "Ignoring certificates because selected protocol was LDAP"
-      }
-      $ExternalSource = 
-        Add-LDAPIdentitySource `
-            -Name $Name `
-            -DomainName $DomainName `
-            -DomainAlias $DomainAlias `
-            -PrimaryUrl $PrimaryUrl `
-            -SecondaryUrl $SecondaryUrl `
-            -BaseDNUsers $BaseDNUsers `
-            -BaseDNGroups $BaseDNGroups `
-            -Username $Username `
-            -Password $Password `
-            -ServerType 'ActiveDirectory' -ErrorAction Stop
-    } elseif ($Protocol -eq "ldaps") {
+
+  $ExternalSource = 
+    Add-LDAPIdentitySource `
+        -Name $Name `
+        -DomainName $DomainName `
+        -DomainAlias $DomainAlias `
+        -PrimaryUrl $PrimaryUrl `
+        -SecondaryUrl $SecondaryUrl `
+        -BaseDNUsers $BaseDNUsers `
+        -BaseDNGroups $BaseDNGroups `
+        -Username $Username `
+        -Password $Password `
+        -ServerType 'ActiveDirectory' -ErrorAction Stop
+  Write-Verbose "PowerCLI Result: $ExternalSource"
+  return (Get-IdentitySource -External -ErrorAction Continue)
+}
+
+<#
+    .Synopsis
+     Allow customers to add an LDAPS Secure external identity source (Active Directory over LDAP) for use with single sign on to vCenter. Prefaced by Connect-SsoAdminServer
+
+    .Parameter Name
+     The user-friendly name the external AD will be given in vCenter
+
+    .Parameter DomainName
+     Domain name of the external active directory, e.g. myactivedirectory.local
+
+    .Parameter DomainAlias 
+     Domain alias of the external active directory, e.g. myactivedirectory
+
+    .Parameter CertificatesSAS
+     An array of Shared Access Signature strings to the certificates required to connect to the external active directory, if using LDAPS
+
+    .Example 
+    # Add the domain server named "myserver.local" to vCenter
+    Add-AvsLDAPIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local' -Username 'myserver@myserver.local' -Password 'PlaceholderPassword' -CertificatesSAS 'https://sharedaccessstring.path/accesskey' -Protocol LDAPS
+#>
+function New-AvsLDAPSIdentitySource {
+  [CmdletBinding(PositionalBinding = $false)]
+  Param
+  (
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='User-Friendly name to store in vCenter')]
+    [ValidateNotNull()]
+    [string]
+    $Name,
+  
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='Full DomainName: adserver.local')]
+    [ValidateNotNull()]
+    [string]
+    $DomainName,
+  
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='DomainAlias: adserver')]
+    [string]
+    $DomainAlias,
+  
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='URL of your AD Server: ldaps://yourserver:636')]
+    [ValidateScript({
+      $_ -match 'ldaps:.*((389)|(636)|(3268)(3269))'
+    })]
+    [string]
+    $PrimaryUrl,
+  
+    [Parameter(
+      Mandatory = $false,
+      HelpMessage='Optional: URL of a backup server')]
+    [ValidateScript({
+      $_ -match 'ldaps:.*((389)|(636)|(3268)(3269))'
+    })]
+    [string]
+    $SecondaryUrl,
+  
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='BaseDNGroups, "DC=name, DC=name"')]
+    [ValidateNotNull()]
+    [string]
+    $BaseDNUsers,
+  
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='BaseDNGroups, "DC=name, DC=name"')]
+    [ValidateNotNull()]
+    [string]
+    $BaseDNGroups,
+  
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='User name you want to use for authenticating with the server')]
+    [ValidateNotNull()]
+    [string]
+    $Username,
+  
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='Password you want to use for authenticating with the server')]
+    [ValidateNotNull()]
+    [string]
+    $Password,
+  
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='Array of SAS path URI to Certificates for authentication. Ensure permissions to read included. For how to generate see <Insert Helpful Link>')]
+    [string[]]
+    $CertificatesSAS
+    )
+
     if ($CertificatesSAS.count -eq 0) {
       Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate" -ErrorAction Stop
       return "Failed to add LDAPS source"
@@ -178,12 +256,9 @@ Param
             -Password $Password `
             -ServerType 'ActiveDirectory' `
             -Certificates $DestinationFileArray -ErrorAction Stop
-  } Else {
-    return 'Please select either LDAP or LDAPS with "-Protocol LDAP" or "-Protocol LDAPS"'
+    Write-Verbose "PowerCLI Result: $ExternalSource"
+    return (Get-IdentitySource -External -ErrorAction Continue)
   }
-  Write-Verbose "PowerCLI Result: $ExternalSource"
-  return (Get-IdentitySource -External -ErrorAction Continue)
-}
 
 <#
     .Synopsis
@@ -258,7 +333,7 @@ Param
     Set-AvsDrsClusterGroup -DrsGroupName "MyDrsGroup" -Cluster "Cluster-1" -VMHostList "vmHost1", "vmHost2"  -Action "remove"
 #>
 
-function Set-AvsDrsClusterGroup {
+function Set-AvsDrsVMClusterGroup {
   [CmdletBinding(PositionalBinding = $false)]
   Param
   (   
@@ -270,13 +345,51 @@ function Set-AvsDrsClusterGroup {
     $DrsGroupName,
 
     [Parameter(
-      Mandatory = $false,
+      Mandatory = $true,
       HelpMessage='List of the VMs to add to the VM group')]
     [string[]]
     $VMList,
 
     [Parameter(
-      Mandatory = $false,
+      Mandatory = $true,
+      HelpMessage='Action to perform: Either "add" or "remove"')]
+    [ValidateNotNullOrEmpty()]
+    [string]
+    $Action
+  )
+    [string] $groupType = (Get-DrsClusterGroup -Name $DrsGroupName).GroupType.ToString()
+    Write-Verbose "The group type for $DrsGroupName is $groupType"
+    If ($groupType -eq "VMHostGroup") {
+      Get-DrsClusterGroup
+      Write-Warning "$DrsGroupName is a $groupType and cannot be modified with VMHosts. Please validate that you're using the correct cmdlet. Did you mean Set-AvsDrsVMHostClusterGroup?"
+      return 
+    }
+
+    If ($Action -eq "add") {
+      Write-Host "Adding VMs to the DrsClusterGroup..."
+      $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -ErrorAction Stop
+    } ElseIf ($Action -eq "remove") {
+      Write-Host "Removing VMs from the DrsClusterGroup..."
+      $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Remove -ErrorAction Stop
+    } Else {
+      $result = Write-Warning "Nothing done. Please select with either -Action Add or -Action Remove"
+    }
+    return $result
+}
+
+function Set-AvsDrsVMHostClusterGroup {
+  [CmdletBinding(PositionalBinding = $false)]
+  Param
+  (   
+    [Parameter(
+      Mandatory = $true,
+      HelpMessage='Name of the Drs group to edit')]
+    [ValidateNotNullOrEmpty()]
+    [string]
+    $DrsGroupName,
+
+    [Parameter(
+      Mandatory = $true,
       HelpMessage='List of the VMHosts to add to the VMHost group')]
     [string[]]
     $VMHostList,
@@ -290,41 +403,20 @@ function Set-AvsDrsClusterGroup {
   )
     [string] $groupType = (Get-DrsClusterGroup -Name $DrsGroupName).GroupType.ToString()
     Write-Verbose "The group type for $DrsGroupName is $groupType"
-    If (($groupType -eq "VMGroup") -and ($null -ne $VMHostList)) {
+    If ($groupType -eq "VMGroup") {
       Get-DrsClusterGroup
-      Write-Warning "$DrsGroupName is a $groupType and cannot be modified with VMHosts. Retry with -VMList and validate the group name"
-      return
-    } ElseIf (($groupType -eq "VMHostGroup") -and ($null -ne $VMList)) {
-      Get-DrsClusterGroup
-      Write-Warning "$DrsGroupName is a $groupType and cannot be modified with VMs. Retry with -VMHostList and validate the group name"
+      Write-Warning "$DrsGroupName is a $groupType and cannot be modified with VMHosts. Please validate that you're using the correct cmdlet. Did you mean Set-AvsDrsVMClusterGroup?"
       return 
     }
 
-    If ($VMList -And $VMHostList) {
-      return Write-Output "Nothing done. Please select with either -VMHostList or -VMHost, not both."
-    } ElseIf ($VMList) {
-      If ($Action -eq "add") {
-        Write-Host "Adding VMs to the DrsClusterGroup..."
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -ErrorAction Stop
-      } ElseIf ($Action -eq "remove") {
-        Write-Host "Removing VMs from the DrsClusterGroup..."
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Remove -ErrorAction Stop
-      } Else {
-        $result = Write-Output "Nothing done. Please select with either -Action Add or -Action Remove"
-      }
-      return $result
-    } ElseIf ($VMHostList) {
-      If ($Action -eq "add") {
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -ErrorAction Stop
-      } ElseIf ($Action -eq "remove") {
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -ErrorAction Stop
-      } Else {
-        $result = Write-Output "Nothing done. Please select with either -Action Add or -Action Remove"
-      }
-      return $result
+    If ($Action -eq "add") {
+      $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -ErrorAction Stop
+    } ElseIf ($Action -eq "remove") {
+      $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -ErrorAction Stop
     } Else {
-      return Write-Output "Nothing done. Please select with either -VMHostList or -VMHost."
+      $result = Write-Warning "Nothing done. Please select with either -Action Add or -Action Remove"
     }
+    return $result
 }
 
 <#
@@ -386,7 +478,7 @@ function Set-AvsDrsElevationRule {
     # Create a should run rule named MyDrsRule on Cluster-1 Hosts using the listed VM's and VMHosts
     Set-AvsStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -VMName "EVM02-TNT79"
 #>
-function Set-AvsStoragePolicy {
+function Set-AvsVMStoragePolicy {
 [CmdletBinding(PositionalBinding = $false)]
 Param
 (
@@ -398,29 +490,16 @@ Param
   $StoragePolicyName,
   
   [Parameter(
-    Mandatory = $false,
+    Mandatory = $true,
     HelpMessage='Name of the VM to set the storage policy on')]
+  [ValidateNotNullOrEmpty()]
   [string]
-  $VMName,
-
-  [Parameter(
-    Mandatory = $false,
-    HelpMessage='Name of the Cluster to set the storage policy on')]
-  [string]
-  $Cluster
+  $VMName
 )
-    if ($VMName -And $Cluster) {
-      $result = "Only can update one VM or a cluster at a time. Please try again with just -VMName or -Cluster"
-      Write-Output $result
-    } ElseIf ($VMName -ne $null) {
-      Write-Verbose (Get-SpbmStoragePolicy)
-      $storagepolicy = Get-SpbmStoragePolicy -Name $StoragePolicyName -ErrorAction Stop
-      $result = Set-VM $VMName -StoragePolicy $storagepolicy -SkipHardDisks -ErrorAction Stop
-      return $result
-    } Else {
-      $result = "Cluster editing currently not supported"
-      Write-Output $result
-    }
+  Write-Verbose (Get-SpbmStoragePolicy)
+  $storagepolicy = Get-SpbmStoragePolicy -Name $StoragePolicyName -ErrorAction Stop
+  $result = Set-VM $VMName -StoragePolicy $storagepolicy -SkipHardDisks -ErrorAction Stop
+  return $result
 }
 
 Export-ModuleMember -Function *
