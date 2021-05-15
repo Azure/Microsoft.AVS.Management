@@ -52,7 +52,8 @@ Description = 'Various cmdlets for adminstrator level tasks in managing Azure VM
 
 # Modules that must be imported into the global environment prior to importing this module
 RequiredModules = @(
-@{"ModuleName"="VMware.vSphere.SsoAdmin"; "ModuleVersion"="1.2.3"}
+@{"ModuleName"="VMware.vSphere.SsoAdmin"; "ModuleVersion"="1.2.3"},
+@{"ModuleName"="VMware.VimAutomation.Core"; "ModuleVersion"="12.3.0.17839688"}
 )
 
 # Assemblies that must be loaded prior to importing this module
@@ -97,13 +98,13 @@ PrivateData = @{
     PSData = @{
 
         # Tags applied to this module. These help with module discovery in online galleries.
-        # Tags = @()
+        Tags = @("VMware", "PowerCLI", "Azure", "AVS")
 
         # A URL to the license for this module.
         # LicenseUri = ''
 
         # A URL to the main website for this project.
-        # ProjectUri = ''
+        ProjectUri = 'https://github.com/Azure/azure-avs-automation-admintools'
 
         # A URL to an icon representing this module.
         # IconUri = ''
