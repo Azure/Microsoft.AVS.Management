@@ -27,7 +27,7 @@
 
     .Example 
     # Add the domain server named "myserver.local" to vCenter
-    Add-AvsLDAPIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local' -Username 'myserver@myserver.local' -Password 'PlaceholderPassword' -CertificatesSAS 'https://sharedaccessstring.path/accesskey' -Protocol LDAPS
+    Add-AvsLDAPIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldap://10.40.0.5:389' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local' -Username 'myserver@myserver.local' -Password 'PlaceholderPassword'
 #>
 function New-AvsLDAPIdentitySource {
 [CmdletBinding(PositionalBinding = $false)]
@@ -134,7 +134,7 @@ Param
 
     .Example 
     # Add the domain server named "myserver.local" to vCenter
-    Add-AvsLDAPIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local' -Username 'myserver@myserver.local' -Password 'PlaceholderPassword' -CertificatesSAS 'https://sharedaccessstring.path/accesskey' -Protocol LDAPS
+    Add-AvsLDAPSIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local' -Username 'myserver@myserver.local' -Password 'PlaceholderPassword' -CertificatesSAS 'https://sharedaccessstring.path/accesskey' -Protocol LDAPS
 #>
 function New-AvsLDAPSIdentitySource {
   [CmdletBinding(PositionalBinding = $false)]
@@ -324,15 +324,12 @@ Param
 
 <#
     .Synopsis
-     Edits a Drs Cluster Group
+     Edits a VM Drs Cluster Group
 
     .Example 
     # Edit an existing drs group named "MyDrsGroup" on Cluster-1 Hosts adding the listed VM's '
-    Set-AvsDrsClusterGroup -DrsGroupName "MyDrsGroup" -Cluster "Cluster-1" -VMList "vm1", "vm2"  -Action "add"
-    # Edit an existing drs group named "MyDrsGroup" on Cluster-1 Hosts removing the listed VM Hosts '
-    Set-AvsDrsClusterGroup -DrsGroupName "MyDrsGroup" -Cluster "Cluster-1" -VMHostList "vmHost1", "vmHost2"  -Action "remove"
+    Set-AvsDrsVMClusterGroup -DrsGroupName "MyDrsGroup" -Cluster "Cluster-1" -VMList "vm1", "vm2"  -Action "add"
 #>
-
 function Set-AvsDrsVMClusterGroup {
   [CmdletBinding(PositionalBinding = $false)]
   Param
@@ -377,6 +374,14 @@ function Set-AvsDrsVMClusterGroup {
     return $result
 }
 
+<#
+    .Synopsis
+     Edits a VMHost Drs Cluster Group
+
+    .Example 
+    # Edit an existing drs group named "MyDrsGroup" on Cluster-1 Hosts removing the listed VM Hosts '
+    Set-AvsDrsClusterGroup -DrsGroupName "MyDrsGroup" -Cluster "Cluster-1" -VMHostList "vmHost1", "vmHost2"  -Action "remove"
+#>
 function Set-AvsDrsVMHostClusterGroup {
   [CmdletBinding(PositionalBinding = $false)]
   Param
@@ -476,7 +481,7 @@ function Set-AvsDrsElevationRule {
 
     .Example 
     # Create a should run rule named MyDrsRule on Cluster-1 Hosts using the listed VM's and VMHosts
-    Set-AvsStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -VMName "EVM02-TNT79"
+    Set-AvsVMStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -VMName "EVM02-TNT79"
 #>
 function Set-AvsVMStoragePolicy {
 [CmdletBinding(PositionalBinding = $false)]
