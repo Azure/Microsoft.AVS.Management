@@ -4,11 +4,12 @@ trigger:
 - none
 
 pr:
-  branches:
-    include:
-    - main
-  drafts: false
-  autoCancel: false
+- none
+  # branches:
+  #   include:
+  #   - main
+  # drafts: false
+  # autoCancel: false
 
 variables:
   MAJOR: 0
