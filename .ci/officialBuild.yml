@@ -15,9 +15,9 @@ resources:
   repositories:
   - repository: ComplianceRepo
     type: github
-    endpoint: AVS-Automation-AdminTools
+    endpoint: ComplianceGHRepo
     name: PowerShell/Compliance
-    
+
 variables:
   MAJOR: 1
   minor: 0
