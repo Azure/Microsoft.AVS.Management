@@ -11,6 +11,13 @@ schedules:
     include:
     - main
 
+resources:
+  repositories:
+  - repository: ComplianceRepo
+    type: github
+    endpoint: AVS-Automation-AdminTools
+    name: PowerShell/Compliance
+    
 variables:
   MAJOR: 1
   minor: 0
