@@ -3,21 +3,15 @@ trigger:
 
 pr:
 - none
-
-schedules:
-- cron: "30 0 * * Tue-Sat"
-  displayName: Tue-Sat at 00:30 UTC
-  branches:
-    include:
-    - main
-
+####################################
 variables:
   MAJOR: 1
   minor: 0
   moduleFolderName: 'Azure.AVSPowerCLI'
 
+# Package version
 name: $(MAJOR).$(minor).$(Rev:r)
-
+#######################################
 stages:
 - stage: Official_Build 
   displayName: Build and Publish Package
