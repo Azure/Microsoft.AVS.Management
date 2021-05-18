@@ -10,7 +10,7 @@ schedules:
   branches:
     include:
     - main
-
+###################################
 resources:
   repositories:
   - repository: ComplianceRepo
@@ -24,7 +24,7 @@ variables:
   moduleFolderName: 'Azure.AVSPowerCLI'
 
 name: $(MAJOR).$(minor).$(Rev:r)
-
+###################################
 stages:
 - stage: Official_Build 
   displayName: Build and Publish Package
