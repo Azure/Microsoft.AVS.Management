@@ -3,20 +3,15 @@ trigger:
 
 pr:
 - none
-
-schedules:
-- cron: "30 0 * * Tue-Sat"
-  displayName: Tue-Sat at 00:30 UTC
-  branches:
-    include:
-    - main
-
+########################################
 variables:
   MAJOR: 1
   minor: 0
   moduleFolderName: 'Azure.AVSPowerCLI'
 
+#Versioning
 name: $(MAJOR).$(minor).$(Rev:r)
+#######################################
 
 stages:
 - stage: Official_Build 
@@ -95,29 +90,29 @@ stages:
         filePath: 'package/packageModule.ps1'
         arguments: 'powercli/${{ variables.moduleFolderName }} powercli/${{ variables.moduleFolderName }} official'
         pwsh: true
-- stage: Compliance
-  displayName: Compliance
-  dependsOn: Official_Build
-  jobs:
-  - job: Check_Compliance
-    steps:
-    - pwsh: |
-        Write-Output "---- NO COMPLIANCE TASKS----"
-- stage: Test
-  displayName: Test
-  dependsOn: Compliance
-  jobs:
-  - job: Run_Tests
-    steps:
-    - pwsh: |
-        Write-Output "---- NO TEST RUNNING----"
-- stage: Release
-  displayName: Release
-  dependsOn: 
-  - Test
-  condition: succeeded('Test')
-  jobs:
-  - job: Release
-    steps:
-    - pwsh: |
-        Write-Output "---- NO RELEASE TASKS----"
+# - stage: Compliance
+#   displayName: Compliance
+#   dependsOn: Official_Build
+#   jobs:
+#   - job: Check_Compliance
+#     steps:
+#     - pwsh: |
+#         Write-Output "---- NO COMPLIANCE TASKS----"
+# - stage: Test
+#   displayName: Test
+#   dependsOn: Compliance
+#   jobs:
+#   - job: Run_Tests
+#     steps:
+#     - pwsh: |
+#         Write-Output "---- NO TEST RUNNING----"
+# - stage: Release
+#   displayName: Release
+#   dependsOn: 
+#   - Test
+#   condition: succeeded('Test')
+#   jobs:
+#   - job: Release
+#     steps:
+#     - pwsh: |
+#         Write-Output "---- NO RELEASE TASKS----"
