@@ -47,7 +47,11 @@ if (!(Test-Path "$aboluteNewFolderPath")) {
 }else{
     Write-Output "----Path for new module directory already exists ----"
 }
+
 Write-Output "Contents of new directory: $aboluteNewFolderPath"
+Get-ChildItem "$aboluteNewFolderPath"
+Remove-Item "$aboluteNewFolderPath\CodeSignSummary*"
+Write-Output "Contents of new directory after removing CodeSignSummary: $aboluteNewFolderPath"
 Get-ChildItem "$aboluteNewFolderPath"
 
 Write-Host "----AVS-Automation-AdminTools: publishing $buildType build package ----"
