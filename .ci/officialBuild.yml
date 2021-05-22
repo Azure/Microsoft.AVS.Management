@@ -56,9 +56,11 @@ stages:
     - Build
     condition: succeeded('Build')
     steps:
-    - download: current
-      artifact: ${{ variables.moduleFolderName }}
-      path: $(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        source: 'current'
+        artifact: '${{ variables.moduleFolderName }}'
+        path: '$(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}'
     - task: EsrpCodeSigning@1
       inputs:
         ConnectedServiceName: 'AVS-Automation-AdminTools-OfficialBuild'
