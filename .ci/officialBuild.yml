@@ -20,7 +20,7 @@ stages:
   pool:
     vmImage: windows-2019
   jobs:
-  - job: Build_and_Publish_Job
+  - job: Build
     displayName: Build Official AVS-Automation-AdminTools
     steps:
     - task: PowerShell@2
@@ -50,8 +50,8 @@ stages:
   - job: Release
     displayName: Sign and Publish
     dependsOn: 
-    - Official_Build
-    condition: succeeded('Official_Build')
+    - Build
+    condition: succeeded('Build')
     steps:
     - task: EsrpCodeSigning@1
       inputs:
