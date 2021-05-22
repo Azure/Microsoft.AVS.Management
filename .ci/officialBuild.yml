@@ -47,13 +47,11 @@ stages:
         filePath: '.build-tools/copyModuleItems.ps1'
         arguments: '$(System.DefaultWorkingDirectory)/powercli $(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}'
         pwsh: true
-- stage: Release
-  displayName: Release
-  dependsOn: 
-  - Official_Build
-  condition: succeeded('Official_Build')
-  jobs:
   - job: Release
+    displayName: Sign and Publish
+    dependsOn: 
+    - Official_Build
+    condition: succeeded('Official_Build')
     steps:
     - task: EsrpCodeSigning@1
       inputs:
