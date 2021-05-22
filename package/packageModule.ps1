@@ -1,65 +1,90 @@
 #!/usr/bin/pwsh
 param (
-    [Parameter(Mandatory=$true)][string]$srcFolder,
-    [Parameter(Mandatory=$true)][string]$newModuleFolder,
+    [Parameter(Mandatory=$true)][string]$aboluteSrcFolderPath,
     [Parameter(Mandatory=$true)][string]$buildType
 )
+    
+#### Declare all variables used
+$artifactStagingRoot = "$env:BUILD_ARTIFACTSTAGINGDIRECTORY"
+$localFeedLocation = Join-Path -Path "$artifactStagingRoot" -ChildPath "LocalNugetFeed"
+$localFeedParameters = @{}
 $feedParameters = @{}
-# if ($buildType -eq 'official') {
-#     $feedParameters = @{
-#         Name = 'AVS-Automation-AdminTools'
-#         SourceLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v3/index.json"
-#         PublishLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v3/index.json"
-#         InstallationPolicy = 'Trusted'
-#     }
-# }else
-if ($buildType -eq 'unofficial' -or $buildType -eq 'official') {
+##################################
+
+if ($buildType -eq 'official') {
+    New-Item -ItemType Directory -Path "$localFeedLocation"
+    $localFeedParameters = @{
+        Name = 'Local-Feed'
+        SourceLocation = "$localFeedLocation"
+        PublishLocation = "$localFeedLocation"
+        InstallationPolicy = 'Trusted'
+    }
+    
+    Write-Output "Registering $(($localFeedParameters).Name)"
+    Register-PSRepository @localFeedParameters
+    if (!$?) {
+        Write-Error -Message "----ERROR: Unable to register repository----"
+        Throw "Must be able to register feed $(($localFeedParameters).Name) before publishing to it"
+    }else {
+        
+        Write-Output "----SUCCEEDED: $(($localFeedParameters).Name) repository registered ----"
+    }
+    Write-Output "Contents of directory: $aboluteSrcFolderPath"
+    Get-ChildItem "$aboluteSrcFolderPath"
+    Remove-Item "$aboluteSrcFolderPath\CodeSignSummary*"
+    Write-Output "Contents of directory after removing CodeSignSummary: $aboluteSrcFolderPath"
+    Get-ChildItem "$aboluteSrcFolderPath"
+    
+}elseif ($buildType -eq 'unofficial') {
     $feedParameters = @{
         Name = "Unofficial-AVS-Automation-AdminTools"
         SourceLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v3/index.json"
         PublishLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v3/index.json"
         InstallationPolicy = 'Trusted'
     }
+    Write-Output "----Registering PSRepository ----"
+    Register-PSRepository @feedParameters
+    if (!$?) {
+        Write-Error -Message "----ERROR: Unable to register repository----"
+        Throw "Must be able to register feed before publishing to it"
+    }else {
+        
+        Write-Output "----SUCCEEDED: ($feedParameters).Name repository registered ----"
+    }
 }else {
-    Write-Error -Message "----Error: Unsupported buildType: $buildType----" -ErrorAction Stop
+    Write-Error -Message "----Error: Unsupported buildType: $buildType ----"
+    Throw "The -buildType provided must be valid."
 }
-Write-Output "Available repositories:"
+
+Write-Output "Currently Available repositories:"
 Get-PSRepository
 
-Write-Output "----Registering PSRepository ----"
-Register-PSRepository @feedParameters
-if (!$?) {
-    Write-Error -Message "----ERROR: Unable to register repository----" -ErrorAction Stop
-}else {
-    
-    Write-Output "----SUCCEEDED: repository registered ----"
-}
-Write-Output "Available repositories:"
-Get-PSRepository
-
-$repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"
-$aboluteSrcFolderPath = (Join-Path -Path "$repoRoot" -ChildPath "$srcFolder")
-$aboluteNewFolderPath = (Join-Path -Path "$repoRoot" -ChildPath "$newModuleFolder")
-if (!(Test-Path "$aboluteNewFolderPath")) {
-    Write-Output "Copying directory contents: $aboluteSrcFolderPath --> $aboluteNewFolderPath"
-    New-Item -Path "$aboluteNewFolderPath" -ItemType Directory
-    Copy-Item -Path "$aboluteSrcFolderPath\*" -Destination "$aboluteNewFolderPath"
+if (!(Test-Path "$aboluteSrcFolderPath")) {
+    Write-Error "Error: Directory $aboluteSrcFolderPath does not exist!!"
+    Throw "Source directory must be valid path"
 }else{
-    Write-Output "----Path for new module directory already exists ----"
+    Write-Output "----Found module directory $aboluteSrcFolderPath ----"
 }
 
-Write-Output "Contents of new directory: $aboluteNewFolderPath"
-Get-ChildItem "$aboluteNewFolderPath"
-Remove-Item "$aboluteNewFolderPath\CodeSignSummary*"
-Write-Output "Contents of new directory after removing CodeSignSummary: $aboluteNewFolderPath"
-Get-ChildItem "$aboluteNewFolderPath"
+Write-Output "Contents of directory: $aboluteSrcFolderPath"
+Get-ChildItem "$aboluteSrcFolderPath"
 
 Write-Host "----AVS-Automation-AdminTools: publishing $buildType build package ----"
-Publish-Module -Path "$aboluteNewFolderPath" -Repository ($feedParameters).Name -NuGetApiKey "valueNotUsed"
-if (!$?) {
-    Write-Error -Message "----ERROR: Unable to publish module----" -ErrorAction Stop
+if ($buildType -eq 'official') {
+    Publish-Module -Path "$aboluteSrcFolderPath" -Repository $(($localFeedParameters).Name) -NuGetApiKey "valueNotUsed"
+    Publish-Module -Path "$aboluteSrcFolderPath" -NuGetApiKey "$env:AVS_PSGALLERY_APIKEY"
+    
+    Write-Output "Contents of directory: $localFeedLocation"
+    Get-ChildItem "$localFeedLocation"
+
 }else {
-    Write-Output "SUCCEEDED: module published"
+    Write-Output "Unofficial module published to $($feedParameters.Name)"
+    Publish-Module -Path "$aboluteSrcFolderPath" -Repository ($feedParameters).Name -NuGetApiKey "valueNotUsed"
+    if (!$?) {
+            Write-Error -Message "----ERROR: Unable to publish module----" -ErrorAction Stop
+        }else {
+                Write-Output "SUCCEEDED: module published"
+            }
 }
 
-Write-Host "----AVS-Automation-AdminTools: Azure.AVSPowerCLI nuget package deposited----"
+Write-Host "----AVS-Automation-AdminTools: Modules successfully published----"

@@ -8,6 +8,8 @@ variables:
   MAJOR: 1
   minor: 0
   moduleFolderName: 'Azure.AVSPowerCLI'
+  outputFolderName: 'signed'
+  GDN_CODESIGN_TARGETDIRECTORY: '$(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}'
 
 #Versioning
 name: $(MAJOR).$(minor).$(Rev:r)
@@ -19,7 +21,9 @@ stages:
   pool:
     vmImage: windows-2019
   jobs:
-  - job: Build_and_Publish_Job
+  # Build
+  #########################################################################################
+  - job: Build
     displayName: Build Official AVS-Automation-AdminTools
     steps:
     - task: PowerShell@2
@@ -40,10 +44,81 @@ stages:
         filePath: 'tests/prevalidateModules.ps1'
         arguments: 'powercli/${{ variables.moduleFolderName }}'
         pwsh: true
+    - task: PowerShell@2
+      displayName: Copy files to Staging Directory 
+      inputs:
+        filePath: '.build-tools/copyModuleItems.ps1'
+        arguments: '$(System.DefaultWorkingDirectory)/powercli $(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}'
+        pwsh: true
+    - publish: $(System.DefaultWorkingDirectory)/powercli
+      artifact: ${{ variables.moduleFolderName }}
+      displayName: Stage Files for Signing
+  ## Compliance
+  ###########################################################################################
+  - job: Check_Compliance
+    displayName: Compliance Tasks
+    dependsOn: 
+    - Build
+    condition: succeeded('Build')
+    steps:
+    - task: ComponentGovernanceComponentDetection@0
+      displayName: 'Component Detection'
+      inputs:
+        sourceScanPath: '$(Build.SourcesDirectory)'
+        snapshotForceEnabled: true
+    - task: securedevelopmentteam.vss-secure-development-tools.build-task-credscan.CredScan@2
+      displayName: 'Run CredScan'
+      inputs:
+        toolMajorVersion: V2
+        debugMode: false
+      continueOnError: false
+    - task: PoliCheck@1
+      displayName: 'Run PoliCheck'
+      inputs:
+        targetType: F
+        optionsFC: 0
+        optionsXS: 0
+        optionsPE: '1|2|3|4'
+        optionsHMENABLE: 0
+      continueOnError: false
+    - task: PublishSecurityAnalysisLogs@2
+      displayName: 'Publish Security Analysis Logs to Build Artifacts'
+      continueOnError: false
+    - task: SdtReport@1
+      inputs:
+        AllTools: false
+        APIScan: false
+        BinSkim: false
+        CodesignValidation: false
+        CredScan: true
+        FortifySCA: false
+        FxCop: false
+        ModernCop: false
+        MSRD: false
+        PoliCheck: true
+        PoliCheckBreakOn: 'Severity2Above'
+        RoslynAnalyzers: false
+        SDLNativeRules: false
+        Semmle: false
+        TSLint: false
+        ToolLogsNotFoundAction: 'Standard'
+  # Sign and Publish
+  ################################################################################################
+  - job: Release
+    displayName: Sign and Publish
+    dependsOn: 
+    - Check_Compliance
+    condition: succeeded('Check_Compliance')
+    steps:
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        source: 'current'
+        artifact: '${{ variables.moduleFolderName }}'
+        path: '$(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}'
     - task: EsrpCodeSigning@1
       inputs:
         ConnectedServiceName: 'AVS-Automation-AdminTools-OfficialBuild'
-        FolderPath: 'powercli/${{ variables.moduleFolderName }}'
+        FolderPath: '$(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}/${{ variables.moduleFolderName }}'
         Pattern: '${{ variables.moduleFolderName }}.psd1,${{ variables.moduleFolderName }}.psm1'
         UseMinimatch: false
         signConfigType: 'inlineSignParams'
@@ -81,23 +156,29 @@ stages:
         SessionTimeout: '60'
         MaxConcurrency: '50'
         MaxRetryAttempts: '5'
+    - task: PowerShell@2
+      displayName: Restore Dependencies
+      inputs:
+        filePath: '.build-tools/getRequiredModules.ps1'
+        arguments: 'powercli/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
+        pwsh: true
     - task: NuGetAuthenticate@0
       inputs:
         nuGetServiceConnections: Unofficial-AVS-Automation-AdminTools
     - task: PowerShell@2
       displayName: Package Module
+      env:
+        AVS_PSGALLERY_APIKEY: $(avsPsgalleryApiKey)
       inputs:
         filePath: 'package/packageModule.ps1'
-        arguments: 'powercli/${{ variables.moduleFolderName }} powercli/${{ variables.moduleFolderName }} official'
+        arguments: '$(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}/${{ variables.moduleFolderName }} official'
         pwsh: true
-# - stage: Compliance
-#   displayName: Compliance
-#   dependsOn: Official_Build
-#   jobs:
-#   - job: Check_Compliance
-#     steps:
-#     - pwsh: |
-#         Write-Output "---- NO COMPLIANCE TASKS----"
+    - publish: $(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}
+      displayName: Publish Signed Files To Artifact Directory
+      artifact: 'signed'
+    - publish: $(Build.ArtifactStagingDirectory)/LocalNugetFeed
+      displayName: Publish nupkg to Artifact Directory
+      artifact: 'nupkg'
 # - stage: Test
 #   displayName: Test
 #   dependsOn: Compliance
@@ -106,13 +187,3 @@ stages:
 #     steps:
 #     - pwsh: |
 #         Write-Output "---- NO TEST RUNNING----"
-# - stage: Release
-#   displayName: Release
-#   dependsOn: 
-#   - Test
-#   condition: succeeded('Test')
-#   jobs:
-#   - job: Release
-#     steps:
-#     - pwsh: |
-#         Write-Output "---- NO RELEASE TASKS----"

@@ -52,7 +52,7 @@ stages:
       displayName: Package Module
       inputs:
         filePath: 'package/packageModule.ps1'
-        arguments: 'powercli/${{ variables.moduleFolderName }} ${{ variables.moduleFolderName }} unofficial'
+        arguments: 'powercli/${{ variables.moduleFolderName }} unofficial'
         pwsh: true
 # - stage: Compliance
 #   displayName: Compliance
