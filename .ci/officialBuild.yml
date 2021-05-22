@@ -47,12 +47,18 @@ stages:
         filePath: '.build-tools/copyModuleItems.ps1'
         arguments: '$(System.DefaultWorkingDirectory)/powercli $(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}'
         pwsh: true
+    - publish: $(System.DefaultWorkingDirectory)/powercli
+      artifact: ${{ variables.moduleFolderName }}
+      displayName: Copy Artifact for Next Job
   - job: Release
     displayName: Sign and Publish
     dependsOn: 
     - Build
     condition: succeeded('Build')
     steps:
+    - download: current
+      artifact: ${{ variables.moduleFolderName }}
+      path: $(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}
     - task: EsrpCodeSigning@1
       inputs:
         ConnectedServiceName: 'AVS-Automation-AdminTools-OfficialBuild'
