@@ -19,14 +19,14 @@ if ($buildType -eq 'official') {
         PublishLocation = "$localFeedLocation"
         InstallationPolicy = 'Trusted'
     }
-    Write-Output "Registering ($localFeedParameters).Name"
+    Write-Output "Registering $(($localFeedParameters).Name)"
     Register-PSRepository @localFeedParameters
     if (!$?) {
         Write-Error -Message "----ERROR: Unable to register repository----"
-        Throw "Must be able to register feed ($localFeedParameters).Name before publishing to it"
+        Throw "Must be able to register feed $(($localFeedParameters).Name) before publishing to it"
     }else {
         
-        Write-Output "----SUCCEEDED: ($localFeedParameters).Name repository registered ----"
+        Write-Output "----SUCCEEDED: $(($localFeedParameters).Name) repository registered ----"
     }
     Write-Output "Contents of directory: $aboluteSrcFolderPath"
     Get-ChildItem "$aboluteSrcFolderPath"
@@ -70,7 +70,10 @@ Get-ChildItem "$aboluteSrcFolderPath"
 
 Write-Host "----AVS-Automation-AdminTools: publishing $buildType build package ----"
 if ($buildType -eq 'official') {
-    Publish-Module -Path "$aboluteSrcFolderPath" -Repository ($localFeedParameters).Name -NuGetApiKey "valueNotUsed"
+    Publish-Module -Path "$aboluteSrcFolderPath" -Repository $(($localFeedParameters).Name) -NuGetApiKey "valueNotUsed"
+
+    Write-Output "Contents of directory: $localFeedLocation"
+    Get-ChildItem "$localFeedLocation"
 
 }else {
     Write-Output "Unofficial module published to ($feedParameters).Name"
