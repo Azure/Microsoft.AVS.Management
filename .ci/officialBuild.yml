@@ -118,7 +118,7 @@ stages:
         arguments: '$(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}/${{ variables.moduleFolderName }} official'
         pwsh: true
     - publish: $(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}
-      artifact: 'signed/${{ variables.moduleFolderName }}'
+      artifact: 'signed'
       displayName: Publish Signed Artifact for Next Job
 # - stage: Compliance
 #   displayName: Compliance
