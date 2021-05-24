@@ -19,6 +19,7 @@ if ($buildType -eq 'official') {
         PublishLocation = "$localFeedLocation"
         InstallationPolicy = 'Trusted'
     }
+    
     Write-Output "Registering $(($localFeedParameters).Name)"
     Register-PSRepository @localFeedParameters
     if (!$?) {
@@ -71,7 +72,7 @@ Get-ChildItem "$aboluteSrcFolderPath"
 Write-Host "----AVS-Automation-AdminTools: publishing $buildType build package ----"
 if ($buildType -eq 'official') {
     Publish-Module -Path "$aboluteSrcFolderPath" -Repository $(($localFeedParameters).Name) -NuGetApiKey "valueNotUsed"
-
+    #Publish-Module -Path "PSGallery" -NuGetApiKey "$env:AVS_PSGALLERY_APIKEY"
     Write-Output "Contents of directory: $localFeedLocation"
     Get-ChildItem "$localFeedLocation"
 

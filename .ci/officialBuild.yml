@@ -21,6 +21,8 @@ stages:
   pool:
     vmImage: windows-2019
   jobs:
+  # Build
+  #########################################################################################
   - job: Build
     displayName: Build Official AVS-Automation-AdminTools
     steps:
@@ -50,7 +52,9 @@ stages:
         pwsh: true
     - publish: $(System.DefaultWorkingDirectory)/powercli
       artifact: ${{ variables.moduleFolderName }}
-      displayName: Copy Artifact for Next Job
+      displayName: Stage Files for Signing
+  ## Compliance
+  ###########################################################################################
   - job: Check_Compliance
     displayName: Compliance Tasks
     dependsOn: 
@@ -76,9 +80,6 @@ stages:
         optionsXS: 0
         optionsPE: '1|2|3|4'
         optionsHMENABLE: 0
-    #      optionsRulesDBPath: '$(Build.SourcesDirectory)\tools\terms\PowerShell-Terms-Rules.mdb'
-    #      optionsFTPATH: '$(Build.SourcesDirectory)\tools\terms\FileTypeSet.xml'
-        toolVersion: 5.8.2.1
       continueOnError: false
     - task: PublishSecurityAnalysisLogs@2
       displayName: 'Publish Security Analysis Logs to Build Artifacts'
@@ -101,6 +102,8 @@ stages:
         Semmle: false
         TSLint: false
         ToolLogsNotFoundAction: 'Standard'
+  # Sign and Publish
+  ################################################################################################
   - job: Release
     displayName: Sign and Publish
     dependsOn: 
@@ -164,13 +167,18 @@ stages:
         nuGetServiceConnections: Unofficial-AVS-Automation-AdminTools
     - task: PowerShell@2
       displayName: Package Module
+      env:
+        AVS_PSGALLERY_APIKEY: $(avsPsgalleryApiKey)
       inputs:
         filePath: 'package/packageModule.ps1'
         arguments: '$(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}/${{ variables.moduleFolderName }} official'
         pwsh: true
     - publish: $(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}
+      displayName: Publish Signed Files
       artifact: 'signed'
-      displayName: Publish Signed Artifact for Next Job
+    - publish: $(Build.ArtifactStagingDirectory)/LocalNugetFeed
+      displayName: Publish Signed Files
+      artifact: 'nupkg'
 # - stage: Test
 #   displayName: Test
 #   dependsOn: Compliance
@@ -179,13 +187,3 @@ stages:
 #     steps:
 #     - pwsh: |
 #         Write-Output "---- NO TEST RUNNING----"
-# - stage: Release
-#   displayName: Release
-#   dependsOn: 
-#   - Test
-#   condition: succeeded('Test')
-#   jobs:
-#   - job: Release
-#     steps:
-#     - pwsh: |
-#         Write-Output "---- NO RELEASE TASKS----"
