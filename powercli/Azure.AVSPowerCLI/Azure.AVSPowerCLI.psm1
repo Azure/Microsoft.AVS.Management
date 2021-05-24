@@ -415,15 +415,13 @@ function Set-AvsDrsVMHostClusterGroup {
     }
 
     If ($Action -eq "add") {
-        Write-Host "Adding VMHosts to the DrsClusterGroup..."
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -ErrorAction Stop
-    }
-    ElseIf ($Action -eq "remove") {
-        Write-Host "Removing VMHosts from the DrsClusterGroup..."
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -ErrorAction Stop
-    }
-    Else {
-        $result = Write-Warning "Nothing done. Please select with either -Action Add or -Action Remove"
+      Write-Host "Adding VMHosts to the DrsClusterGroup..."
+      $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -ErrorAction Stop
+    } ElseIf ($Action -eq "remove") {
+      Write-Host "Removing VMHosts from the DrsClusterGroup..."
+      $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -ErrorAction Stop
+    } Else {
+      $result = Write-Warning "Nothing done. Please select with either -Action Add or -Action Remove"
     }
     return $result
 }
@@ -503,16 +501,16 @@ function Set-AvsVMStoragePolicy {
         [string]
         $StoragePolicyName,
   
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Name of the VM to set the storage policy on')]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $VMName
-    )
-    $storagepolicy = Get-SpbmStoragePolicy -Name $StoragePolicyName -ErrorAction Stop
-    $result = Set-VM $VMName -StoragePolicy $storagepolicy -SkipHardDisks -ErrorAction Stop -Confirm:$false
-    return $result
+  [Parameter(
+    Mandatory = $true,
+    HelpMessage='Name of the VM to set the storage policy on')]
+  [ValidateNotNullOrEmpty()]
+  [string]
+  $VMName
+)
+  $storagepolicy = Get-SpbmStoragePolicy -Name $StoragePolicyName -ErrorAction Stop
+  $result = Set-VM $VMName -StoragePolicy $storagepolicy -SkipHardDisks -ErrorAction Stop
+  return $result
 }
 
 Export-ModuleMember -Function *
