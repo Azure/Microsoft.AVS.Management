@@ -50,6 +50,52 @@ stages:
     - publish: $(System.DefaultWorkingDirectory)/powercli
       artifact: ${{ variables.moduleFolderName }}
       displayName: Copy Artifact for Next Job
+  - job: Check_Compliance
+    steps:
+    - task: ComponentGovernanceComponentDetection@0
+      displayName: 'Component Detection'
+      inputs:
+        sourceScanPath: '$(Build.SourcesDirectory)'
+        snapshotForceEnabled: true
+    - task: CredScan@2
+      displayName: 'Run CredScan'
+      inputs:
+        toolMajorVersion: V2
+        debugMode: false
+      continueOnError: false
+    - task: PoliCheck@1
+      displayName: 'Run PoliCheck'
+      inputs:
+        targetType: F
+        optionsFC: 0
+        optionsXS: 0
+        optionsPE: '1|2|3|4'
+        optionsHMENABLE: 0
+    #      optionsRulesDBPath: '$(Build.SourcesDirectory)\tools\terms\PowerShell-Terms-Rules.mdb'
+    #      optionsFTPATH: '$(Build.SourcesDirectory)\tools\terms\FileTypeSet.xml'
+        toolVersion: 5.8.2.1
+      continueOnError: false
+    - task: PublishSecurityAnalysisLogs@2
+      displayName: 'Publish Security Analysis Logs to Build Artifacts'
+      continueOnError: false
+    - task: SdtReport@1
+      inputs:
+        AllTools: false
+        APIScan: false
+        BinSkim: false
+        CodesignValidation: false
+        CredScan: true
+        FortifySCA: false
+        FxCop: false
+        ModernCop: false
+        MSRD: false
+        PoliCheck: true
+        PoliCheckBreakOn: 'Severity2Above'
+        RoslynAnalyzers: false
+        SDLNativeRules: false
+        Semmle: false
+        TSLint: false
+        ToolLogsNotFoundAction: 'Standard'
   - job: Release
     displayName: Sign and Publish
     dependsOn: 
@@ -120,14 +166,6 @@ stages:
     - publish: $(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}
       artifact: 'signed'
       displayName: Publish Signed Artifact for Next Job
-# - stage: Compliance
-#   displayName: Compliance
-#   dependsOn: Official_Build
-#   jobs:
-#   - job: Check_Compliance
-#     steps:
-#     - pwsh: |
-#         Write-Output "---- NO COMPLIANCE TASKS----"
 # - stage: Test
 #   displayName: Test
 #   dependsOn: Compliance
