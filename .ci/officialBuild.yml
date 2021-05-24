@@ -174,10 +174,10 @@ stages:
         arguments: '$(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}/${{ variables.moduleFolderName }} official'
         pwsh: true
     - publish: $(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}
-      displayName: Publish Signed Files
+      displayName: Publish Signed Files To Artifact Directory
       artifact: 'signed'
     - publish: $(Build.ArtifactStagingDirectory)/LocalNugetFeed
-      displayName: Publish Signed Files
+      displayName: Publish nupkg to Artifact Directory
       artifact: 'nupkg'
 # - stage: Test
 #   displayName: Test
