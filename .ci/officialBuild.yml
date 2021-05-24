@@ -9,6 +9,7 @@ variables:
   minor: 0
   moduleFolderName: 'Azure.AVSPowerCLI'
   outputFolderName: 'signed'
+  GDN_CODESIGN_TARGETDIRECTORY: '$(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}'
 
 #Versioning
 name: $(MAJOR).$(minor).$(Rev:r)
@@ -51,6 +52,10 @@ stages:
       artifact: ${{ variables.moduleFolderName }}
       displayName: Copy Artifact for Next Job
   - job: Check_Compliance
+    displayName: Compliance Tasks
+    dependsOn: 
+    - Build
+    condition: succeeded('Build')
     steps:
     - task: ComponentGovernanceComponentDetection@0
       displayName: 'Component Detection'
@@ -99,8 +104,8 @@ stages:
   - job: Release
     displayName: Sign and Publish
     dependsOn: 
-    - Build
-    condition: succeeded('Build')
+    - Check_Compliance
+    condition: succeeded('Check_Compliance')
     steps:
     - task: DownloadPipelineArtifact@2
       inputs:
