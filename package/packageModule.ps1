@@ -77,13 +77,13 @@ if ($buildType -eq 'official') {
     Get-ChildItem "$localFeedLocation"
 
 }else {
-    Write-Output "Unofficial module published to ($feedParameters).Name"
-    # Publish-Module -Path "$aboluteNewFolderPath" -Repository ($feedParameters).Name -NuGetApiKey "valueNotUsed"
-    # if (!$?) {
-        #     Write-Error -Message "----ERROR: Unable to publish module----" -ErrorAction Stop
-        # }else {
-            #     Write-Output "SUCCEEDED: module published"
-            # }
+    Write-Output "Unofficial module published to $($feedParameters.Name)"
+    Publish-Module -Path "$aboluteNewFolderPath" -Repository ($feedParameters).Name -NuGetApiKey "valueNotUsed"
+    if (!$?) {
+            Write-Error -Message "----ERROR: Unable to publish module----" -ErrorAction Stop
+        }else {
+                Write-Output "SUCCEEDED: module published"
+            }
 }
 
 Write-Host "----AVS-Automation-AdminTools: Modules successfully published----"
