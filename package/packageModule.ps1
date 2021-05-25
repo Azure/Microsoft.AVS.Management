@@ -1,6 +1,6 @@
 #!/usr/bin/pwsh
 param (
-    [Parameter(Mandatory=$true)][string]$aboluteSrcFolderPath,
+    [Parameter(Mandatory=$true)][string]$absoluteSrcFolderPath,
     [Parameter(Mandatory=$true)][string]$buildType
 )
     
@@ -29,11 +29,11 @@ if ($buildType -eq 'official') {
         
         Write-Output "----SUCCEEDED: $(($localFeedParameters).Name) repository registered ----"
     }
-    Write-Output "Contents of directory: $aboluteSrcFolderPath"
-    Get-ChildItem "$aboluteSrcFolderPath"
-    Remove-Item "$aboluteSrcFolderPath\CodeSignSummary*"
-    Write-Output "Contents of directory after removing CodeSignSummary: $aboluteSrcFolderPath"
-    Get-ChildItem "$aboluteSrcFolderPath"
+    Write-Output "Contents of directory: $absoluteSrcFolderPath"
+    Get-ChildItem "$absoluteSrcFolderPath"
+    Remove-Item "$absoluteSrcFolderPath\CodeSignSummary*"
+    Write-Output "Contents of directory after removing CodeSignSummary: $absoluteSrcFolderPath"
+    Get-ChildItem "$absoluteSrcFolderPath"
     
 }elseif ($buildType -eq 'unofficial') {
     $feedParameters = @{
@@ -59,27 +59,27 @@ if ($buildType -eq 'official') {
 Write-Output "Currently Available repositories:"
 Get-PSRepository
 
-if (!(Test-Path "$aboluteSrcFolderPath")) {
-    Write-Error "Error: Directory $aboluteSrcFolderPath does not exist!!"
+if (!(Test-Path "$absoluteSrcFolderPath")) {
+    Write-Error "Error: Directory $absoluteSrcFolderPath does not exist!!"
     Throw "Source directory must be valid path"
 }else{
-    Write-Output "----Found module directory $aboluteSrcFolderPath ----"
+    Write-Output "----Found module directory $absoluteSrcFolderPath ----"
 }
 
-Write-Output "Contents of directory: $aboluteSrcFolderPath"
-Get-ChildItem "$aboluteSrcFolderPath"
+Write-Output "Contents of directory: $absoluteSrcFolderPath"
+Get-ChildItem "$absoluteSrcFolderPath"
 
 Write-Host "----AVS-Automation-AdminTools: publishing $buildType build package ----"
 if ($buildType -eq 'official') {
-    Publish-Module -Path "$aboluteSrcFolderPath" -Repository $(($localFeedParameters).Name) -NuGetApiKey "valueNotUsed"
-    Publish-Module -Path "$aboluteSrcFolderPath" -NuGetApiKey "$env:AVS_PSGALLERY_APIKEY"
+    Publish-Module -Path "$absoluteSrcFolderPath" -Repository $(($localFeedParameters).Name) -NuGetApiKey "valueNotUsed"
+    Publish-Module -Path "$absoluteSrcFolderPath" -NuGetApiKey "$env:AVS_PSGALLERY_APIKEY"
     
     Write-Output "Contents of directory: $localFeedLocation"
     Get-ChildItem "$localFeedLocation"
 
 }else {
     Write-Output "Unofficial module published to $($feedParameters.Name)"
-    Publish-Module -Path "$aboluteSrcFolderPath" -Repository ($feedParameters).Name -NuGetApiKey "valueNotUsed"
+    Publish-Module -Path "$absoluteSrcFolderPath" -Repository ($feedParameters).Name -NuGetApiKey "valueNotUsed"
     if (!$?) {
             Write-Error -Message "----ERROR: Unable to publish module----" -ErrorAction Stop
         }else {

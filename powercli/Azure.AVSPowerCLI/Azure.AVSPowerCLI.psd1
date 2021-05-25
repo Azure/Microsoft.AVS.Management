@@ -119,7 +119,7 @@ PrivateData = @{
         # RequireLicenseAcceptance = $false
 
         # External dependent modules of this module
-        ExternalModuleDependencies = @("VMware.vSphere.SsoAdmin", "VMware.VimAutomation.Core")
+        #ExternalModuleDependencies = @("VMware.vSphere.SsoAdmin", "VMware.VimAutomation.Core")
 
     } # End of PSData hashtable
 
