@@ -1,5 +1,5 @@
 # Project
-[Azure VMware Solution](https://azure.microsoft.com/en-us/services/azure-vmware/) - Powershell Functions for Administration of AVS Resources.
+[Azure VMware Solution](https://azure.microsoft.com/en-us/services/azure-vmware/) - Powershell Functions for Administration of private VMware datacenters on Azure.
 
 ## Contributing
 

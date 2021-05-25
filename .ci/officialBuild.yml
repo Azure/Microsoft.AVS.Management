@@ -7,7 +7,7 @@ pr:
 variables:
   MAJOR: 1
   minor: 0
-  moduleFolderName: 'Azure.AVSPowerCLI'
+  moduleFolderName: 'Microsoft.AVS.Management'
 
 #Versioning
 name: $(MAJOR).$(minor).$(Rev:r)
@@ -26,24 +26,24 @@ stages:
       displayName: Restore Dependencies
       inputs:
         filePath: '.build-tools/getRequiredModules.ps1'
-        arguments: 'powercli/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
+        arguments: '${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
         pwsh: true
     - task: PowerShell@2
       displayName: Versioning Module
       inputs:
         filePath: '.build-tools/updateModuleVersion.ps1'
-        arguments: 'powercli/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
+        arguments: '${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
         pwsh: true
     - task: PowerShell@2
       displayName: Pre-Validate Module and Scripts #PSGallery publishing guidelines: https://docs.microsoft.com/en-us/powershell/scripting/gallery/how-to/publishing-packages/publishing-a-package?view=powershell-7.1#pre-validate-your-item
       inputs:
         filePath: 'tests/prevalidateModules.ps1'
-        arguments: 'powercli/${{ variables.moduleFolderName }}'
+        arguments: '${{ variables.moduleFolderName }}'
         pwsh: true
     - task: EsrpCodeSigning@1
       inputs:
         ConnectedServiceName: 'AVS-Automation-AdminTools-OfficialBuild'
-        FolderPath: 'powercli/${{ variables.moduleFolderName }}'
+        FolderPath: '${{ variables.moduleFolderName }}'
         Pattern: '${{ variables.moduleFolderName }}.psd1,${{ variables.moduleFolderName }}.psm1'
         UseMinimatch: false
         signConfigType: 'inlineSignParams'
@@ -88,7 +88,7 @@ stages:
       displayName: Package Module
       inputs:
         filePath: 'package/packageModule.ps1'
-        arguments: 'powercli/${{ variables.moduleFolderName }} powercli/${{ variables.moduleFolderName }} official'
+        arguments: '${{ variables.moduleFolderName }} ${{ variables.moduleFolderName }} official'
         pwsh: true
 # - stage: Compliance
 #   displayName: Compliance
