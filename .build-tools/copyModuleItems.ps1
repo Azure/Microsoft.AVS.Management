@@ -23,5 +23,5 @@ if (!$isValidArtifactPath) {
 }
 
 Write-Output "Copying contents of $srcAbsPath to $dstAbsPath"
-Copy-Item -Path "$srcAbsPath/*" -Destination "$dstAbsPath" -Recurse
+Copy-Item -Path "$srcAbsPath" -Destination "$dstAbsPath" -Recurse
 
