@@ -36,7 +36,7 @@ stages:
       displayName: Versioning Module
       inputs:
         filePath: '.build-tools/updateModuleVersion.ps1'
-        arguments: 'powercli/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
+        arguments: 'powercli/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1 -IsOfficial'
         pwsh: true
     - task: PowerShell@2
       displayName: Pre-Validate Module and Scripts #PSGallery publishing guidelines: https://docs.microsoft.com/en-us/powershell/scripting/gallery/how-to/publishing-packages/publishing-a-package?view=powershell-7.1#pre-validate-your-item
