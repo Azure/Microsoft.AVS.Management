@@ -6,9 +6,7 @@
 Applied to a commandlet function indicates that the SDDC should be marked as Building while the function executes.
 AVS SDDC in Building state prevents other changes from being made to the SDDC until the function completes/fails. 
 #>
-Class AVSUpdatesSDDCAttribute : Attribute {
-    UpdatesSDDCAttribute() {}
-}
+Class AVSUpdatesSDDC : Attribute {}
 
 <#
 =======================================================================================================
