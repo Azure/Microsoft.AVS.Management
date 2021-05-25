@@ -62,4 +62,4 @@ if (!$?) {
     Write-Output "SUCCEEDED: module published"
 }
 
-Write-Host "----AVS-Automation-AdminTools: AVS.Management nuget package deposited----"
+Write-Host "----AVS-Automation-AdminTools: Microsoft.AVS.Management nuget package deposited----"
