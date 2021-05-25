@@ -72,13 +72,14 @@ Get-ChildItem "$aboluteSrcFolderPath"
 Write-Host "----AVS-Automation-AdminTools: publishing $buildType build package ----"
 if ($buildType -eq 'official') {
     Publish-Module -Path "$aboluteSrcFolderPath" -Repository $(($localFeedParameters).Name) -NuGetApiKey "valueNotUsed"
-    #Publish-Module -Path "PSGallery" -NuGetApiKey "$env:AVS_PSGALLERY_APIKEY"
+    Publish-Module -Path "$aboluteSrcFolderPath" -NuGetApiKey "$env:AVS_PSGALLERY_APIKEY"
+    
     Write-Output "Contents of directory: $localFeedLocation"
     Get-ChildItem "$localFeedLocation"
 
 }else {
     Write-Output "Unofficial module published to $($feedParameters.Name)"
-    Publish-Module -Path "$aboluteNewFolderPath" -Repository ($feedParameters).Name -NuGetApiKey "valueNotUsed"
+    Publish-Module -Path "$aboluteSrcFolderPath" -Repository ($feedParameters).Name -NuGetApiKey "valueNotUsed"
     if (!$?) {
             Write-Error -Message "----ERROR: Unable to publish module----" -ErrorAction Stop
         }else {
