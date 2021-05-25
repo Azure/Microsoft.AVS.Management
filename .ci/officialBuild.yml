@@ -7,7 +7,7 @@ pr:
 variables:
   MAJOR: 1
   minor: 0
-  moduleFolderName: 'Azure.AVSPowerCLI'
+  moduleFolderName: 'AVS.Management'
 
 #Versioning
 name: $(MAJOR).$(minor).$(Rev:r)
