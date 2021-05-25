@@ -72,7 +72,7 @@ Get-ChildItem "$absoluteSrcFolderPath"
 Write-Host "----AVS-Automation-AdminTools: publishing $buildType build package ----"
 if ($buildType -eq 'official') {
     #Publish-Module -Path "$absoluteSrcFolderPath" -Repository $(($localFeedParameters).Name) -NuGetApiKey "valueNotUsed"
-    Publish-Module -Path "$absoluteSrcFolderPath" -NuGetApiKey "$env:AVS_PSGALLERY_APIKEY"
+    #Publish-Module -Path "$absoluteSrcFolderPath" -NuGetApiKey "$env:AVS_PSGALLERY_APIKEY"
     Write-Host "----AVS-Automation-AdminTools: $(Split-Path -Path "$absoluteSrcFolderPath" -Leaf) package published to PSGallery----"
     
     Write-Output "Contents of directory: $localFeedLocation"
