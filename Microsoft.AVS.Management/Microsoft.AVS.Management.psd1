@@ -122,7 +122,7 @@
             # RequireLicenseAcceptance = $false
 
             # External dependent modules of this module
-            ExternalModuleDependencies = @("VMware.vSphere.SsoAdmin", "VMware.VimAutomation.Core", "VMware.VimAutomation.Storage")
+            # ExternalModuleDependencies = @("VMware.vSphere.SsoAdmin", "VMware.VimAutomation.Core", "VMware.VimAutomation.Storage")
 
         } # End of PSData hashtable
 

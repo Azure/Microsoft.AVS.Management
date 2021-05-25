@@ -4,6 +4,7 @@ param (
     [switch]$IsOfficial = $false
 )
 Write-Output "----START: updateModuleVersion----"
+Write-Output "----IsOfficial: $IsOfficial----"
 #Install all RequiredModules in the module manifests because the command Update-ModuleManifest 
 # requires these modules to be on the host in order to run properly.
 $repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"
