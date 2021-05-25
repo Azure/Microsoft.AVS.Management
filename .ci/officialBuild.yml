@@ -108,11 +108,11 @@ stages:
       inputs:
         source: 'current'
         artifact: '${{ variables.moduleFolderName }}'
-        path: '$(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}'
+        path: '$(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}'
     - task: EsrpCodeSigning@1
       inputs:
         ConnectedServiceName: 'AVS-Automation-AdminTools-OfficialBuild'
-        FolderPath: '$(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}/${{ variables.moduleFolderName }}'
+        FolderPath: '$(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}'
         Pattern: '${{ variables.moduleFolderName }}.psd1,${{ variables.moduleFolderName }}.psm1'
         UseMinimatch: false
         signConfigType: 'inlineSignParams'
@@ -165,9 +165,9 @@ stages:
         AVS_PSGALLERY_APIKEY: $(avsPsgalleryApiKey)
       inputs:
         filePath: 'package/packageModule.ps1'
-        arguments: '$(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}/${{ variables.moduleFolderName }} official'
+        arguments: '$(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }} official'
         pwsh: true
-    - publish: $(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}
+    - publish: $(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}
       displayName: Publish Signed Files To Artifact Directory
       artifact: '${{ variables.outputFolderName }}'
 # - stage: Test
