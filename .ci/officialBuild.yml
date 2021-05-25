@@ -44,12 +44,6 @@ stages:
         filePath: 'tests/prevalidateModules.ps1'
         arguments: '${{ variables.moduleFolderName }}'
         pwsh: true
-    # - task: PowerShell@2
-    #   displayName: Copy files to Staging Directory 
-    #   inputs:
-    #     filePath: '.build-tools/copyModuleItems.ps1'
-    #     arguments: '$(System.DefaultWorkingDirectory)/${{ variables.moduleFolderName }} $(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}/${{ variables.moduleFolderName }}'
-    #     pwsh: true
     - publish: $(System.DefaultWorkingDirectory)/${{ variables.moduleFolderName }}
       artifact: ${{ variables.moduleFolderName }}
       displayName: Stage Files for Signing
@@ -176,9 +170,6 @@ stages:
     - publish: $(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}
       displayName: Publish Signed Files To Artifact Directory
       artifact: '${{ variables.outputFolderName }}'
-    # - publish: $(Build.ArtifactStagingDirectory)/LocalNugetFeed
-    #   displayName: Publish nupkg to Artifact Directory
-    #   artifact: 'nupkg'
 # - stage: Test
 #   displayName: Test
 #   dependsOn: Compliance
