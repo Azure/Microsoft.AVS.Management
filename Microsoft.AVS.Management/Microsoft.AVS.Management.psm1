@@ -203,11 +203,14 @@ function New-AvsLDAPSIdentitySource {
   
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'Array of SAS path URI to Certificates for authentication. Ensure permissions to read included. For how to generate see <Insert Helpful Link>')]
-        [string[]]
+            HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
+        [string]
         $CertificatesSAS
     )
     $Password=$Credential.GetNetworkCredential().Password
+    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries::TrimEntries
+    [string[]] $CertificatesSAS = $CertificatesSAS.Split(",", $options)
+    Write-Verbose "Number of Certs passed $($CertificatesSAS.count)"
     if ($CertificatesSAS.count -eq 0) {
         Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate" -ErrorAction Stop
         return "Failed to add LDAPS source"
@@ -220,6 +223,7 @@ function New-AvsLDAPSIdentitySource {
         $CertLocation = "$CertDir/cert$Index.cer"
         $Index = $Index + 1
         try {
+            Write-Verbose "CertSAS: $CertSAS"
             $Response = Invoke-WebRequest -Uri $CertSas -OutFile $CertLocation
             Write-Verbose -Message "Following lines will only execute if the download was successful"
             $StatusCode = $Response.StatusCode
@@ -289,20 +293,22 @@ function New-AvsDrsElevationRule {
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'List of the VMs to add to the VM group')]
+            HelpMessage = 'A comma-delimited list to add to the VM group')]
         [ValidateNotNullOrEmpty()]
-        [string[]]
+        [string]
         $VMList,
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'List of the VMHosts to add to the VMHost group')]
+            HelpMessage = 'A comma-delimited list of the VMHosts to add to the VMHost group')]
         [ValidateNotNullOrEmpty()]
-        [string[]]
+        [string]
         $VMHostList
     )
-    $ErrorActionPreference = "Stop"
 
+    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries::TrimEntrie
+    [string[]] $VMList = $VMList.Split(",", $options)
+    [string[]] $VMHostList = $VMHostList.Split(",", $options)
     $DrsVmHostGroupName = $DrsGroupName + "Host"
     Write-Host "Creating DRS Cluster group $DrsGroupName for the VMs $VMList"
     New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster -ErrorAction Stop
@@ -338,8 +344,8 @@ function Set-AvsDrsVMClusterGroup {
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'List of the VMs to add to the VM group')]
-        [string[]]
+            HelpMessage = 'A comma-delimited list of the VMs to add to the VM group')]
+        [string]
         $VMList,
 
         [Parameter(
@@ -349,6 +355,8 @@ function Set-AvsDrsVMClusterGroup {
         [string]
         $Action
     )
+    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries::TrimEntrie
+    [string[]] $VMList = $VMList.Split(",", $options)
     [string] $groupType = (Get-DrsClusterGroup -Name $DrsGroupName).GroupType.ToString()
     Write-Verbose "The group type for $DrsGroupName is $groupType"
     If ($groupType -eq "VMHostGroup") {
@@ -393,8 +401,8 @@ function Set-AvsDrsVMHostClusterGroup {
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'List of the VMHosts to add to the VMHost group')]
-        [string[]]
+            HelpMessage = 'A comma-delimited list of the VMHosts to add to the VMHost group')]
+        [string]
         $VMHostList,
 
         [Parameter(
@@ -404,6 +412,9 @@ function Set-AvsDrsVMHostClusterGroup {
         [string]
         $Action
     )
+
+    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries::TrimEntrie
+    [string[]] $VMHostList = $VMHostList.Split(",", $options)
     [string] $groupType = (Get-DrsClusterGroup -Name $DrsGroupName).GroupType.ToString()
     Write-Verbose "The group type for $DrsGroupName is $groupType"
     If ($groupType -eq "VMGroup") {
