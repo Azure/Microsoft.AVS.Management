@@ -306,7 +306,7 @@ function New-AvsDrsElevationRule {
         $VMHostList
     )
 
-    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries::TrimEntrie
+    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries::TrimEntries
     [string[]] $VMList = $VMList.Split(",", $options)
     [string[]] $VMHostList = $VMHostList.Split(",", $options)
     $DrsVmHostGroupName = $DrsGroupName + "Host"
@@ -355,7 +355,7 @@ function Set-AvsDrsVMClusterGroup {
         [string]
         $Action
     )
-    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries::TrimEntrie
+    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries::TrimEntries
     [string[]] $VMList = $VMList.Split(",", $options)
     [string] $groupType = (Get-DrsClusterGroup -Name $DrsGroupName).GroupType.ToString()
     Write-Verbose "The group type for $DrsGroupName is $groupType"
@@ -413,7 +413,7 @@ function Set-AvsDrsVMHostClusterGroup {
         $Action
     )
 
-    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries::TrimEntrie
+    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries::TrimEntries
     [string[]] $VMHostList = $VMHostList.Split(",", $options)
     [string] $groupType = (Get-DrsClusterGroup -Name $DrsGroupName).GroupType.ToString()
     Write-Verbose "The group type for $DrsGroupName is $groupType"
