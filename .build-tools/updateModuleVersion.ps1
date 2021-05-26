@@ -29,7 +29,8 @@ if (!$IsOfficial) {
 }
 Update-ModuleManifest @targetModuleParams
 if (!$?) {
-    Write-Error -Message "FAILED: Could not update module version" -ErrorAction Stop
+    Write-Error -Message "FAILED: Could not update module version"
+    Throw "Module version must be updated before proceeding with build."
     
 }else {
     Write-Output "---- SUCCEED: updated the module version to $env:BUILD_BUILDNUMBER----"

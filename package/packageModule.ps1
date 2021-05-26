@@ -29,7 +29,7 @@ if ($buildType -eq 'official') {
         Throw "Must be able to register feed before publishing to it"
     }else {
         
-        Write-Output "----SUCCEEDED: ($feedParameters).Name repository registered ----"
+        Write-Output "----SUCCEEDED: $($feedParameters.Name) repository registered ----"
     }
 }else {
     Write-Error -Message "----Error: Unsupported buildType: $buildType ----"
@@ -52,7 +52,12 @@ Get-ChildItem "$absoluteSrcFolderPath"
 Write-Host "----AVS-Automation-AdminTools: publishing $buildType build package ----"
 if ($buildType -eq 'official') {
     Publish-Module -Path "$absoluteSrcFolderPath" -NuGetApiKey "$env:AVS_PSGALLERY_APIKEY"
-    Write-Host "----AVS-Automation-AdminTools: $(Split-Path -Path "$absoluteSrcFolderPath" -Leaf) package published to PSGallery----"
+    if (!$?) {
+            Write-Error -Message "----ERROR: Unable to publish module----"
+            Throw "Could not publish $(Split-Path -Path "$absoluteSrcFolderPath" -Leaf) to PSGallery."
+    }else {
+                Write-Output "----AVS-Automation-AdminTools: $(Split-Path -Path "$absoluteSrcFolderPath" -Leaf) package published to PSGallery----"
+    }
     
     Write-Output "Contents of directory: $localFeedLocation"
     Get-ChildItem "$localFeedLocation"
@@ -61,10 +66,12 @@ if ($buildType -eq 'official') {
     Write-Output "Unofficial module published to $($feedParameters.Name)"
     Publish-Module -Path "$absoluteSrcFolderPath" -Repository ($feedParameters).Name -NuGetApiKey "valueNotUsed"
     if (!$?) {
-            Write-Error -Message "----ERROR: Unable to publish module----" -ErrorAction Stop
-        }else {
+            Write-Error -Message "----ERROR: Unable to publish module----"
+            Throw "Could not publish $(Split-Path -Path "$absoluteSrcFolderPath" -Leaf) to unofficial feed."
+
+    }else {
                 Write-Output "SUCCEEDED: module published"
-            }
+    }
 }
 
 Write-Host "----AVS-Automation-AdminTools: $(Split-Path -Path "$absoluteSrcFolderPath" -Leaf) nuget package deposited----"
