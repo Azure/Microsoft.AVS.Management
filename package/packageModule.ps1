@@ -5,30 +5,10 @@ param (
 )
     
 #### Declare all variables used
-$artifactStagingRoot = "$env:BUILD_ARTIFACTSTAGINGDIRECTORY"
-$localFeedLocation = Join-Path -Path "$artifactStagingRoot" -ChildPath "LocalNugetFeed"
-$localFeedParameters = @{}
 $feedParameters = @{}
 ##################################
 
 if ($buildType -eq 'official') {
-    New-Item -ItemType Directory -Path "$localFeedLocation"
-    $localFeedParameters = @{
-        Name = 'Local-Feed'
-        SourceLocation = "$localFeedLocation"
-        PublishLocation = "$localFeedLocation"
-        InstallationPolicy = 'Trusted'
-    }
-    
-    Write-Output "Registering $(($localFeedParameters).Name)"
-    Register-PSRepository @localFeedParameters
-    if (!$?) {
-        Write-Error -Message "----ERROR: Unable to register repository----"
-        Throw "Must be able to register feed $(($localFeedParameters).Name) before publishing to it"
-    }else {
-        
-        Write-Output "----SUCCEEDED: $(($localFeedParameters).Name) repository registered ----"
-    }
     Write-Output "Contents of directory: $absoluteSrcFolderPath"
     Get-ChildItem "$absoluteSrcFolderPath"
     Remove-Item "$absoluteSrcFolderPath\CodeSignSummary*"
@@ -71,8 +51,7 @@ Get-ChildItem "$absoluteSrcFolderPath"
 
 Write-Host "----AVS-Automation-AdminTools: publishing $buildType build package ----"
 if ($buildType -eq 'official') {
-    #Publish-Module -Path "$absoluteSrcFolderPath" -Repository $(($localFeedParameters).Name) -NuGetApiKey "valueNotUsed"
-    #Publish-Module -Path "$absoluteSrcFolderPath" -NuGetApiKey "$env:AVS_PSGALLERY_APIKEY"
+    Publish-Module -Path "$absoluteSrcFolderPath" -NuGetApiKey "$env:AVS_PSGALLERY_APIKEY"
     Write-Host "----AVS-Automation-AdminTools: $(Split-Path -Path "$absoluteSrcFolderPath" -Leaf) package published to PSGallery----"
     
     Write-Output "Contents of directory: $localFeedLocation"
