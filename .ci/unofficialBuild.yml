@@ -52,16 +52,8 @@ stages:
       displayName: Package Module
       inputs:
         filePath: 'package/packageModule.ps1'
-        arguments: '${{ variables.moduleFolderName }} ${{ variables.moduleFolderName }} unofficial'
+        arguments: '${{ variables.moduleFolderName }} unofficial'
         pwsh: true
-# - stage: Compliance
-#   displayName: Compliance
-#   dependsOn: Unofficial_Build
-#   jobs:
-#   - job: Check_Compliance
-#     steps:
-#     - pwsh: |
-#         Write-Output "---- NO COMPLIANCE TASKS----"
 # - stage: Test
 #   displayName: Test
 #   dependsOn: Compliance
@@ -70,13 +62,3 @@ stages:
 #     steps:
 #     - pwsh: |
 #         Write-Output "---- NO TEST RUNNING----"
-# - stage: Release
-#   displayName: Release
-#   dependsOn: 
-#   - Test
-#   condition: succeeded('Test')
-#   jobs:
-#   - job: Release
-#     steps:
-#     - pwsh: |
-#         Write-Output "---- NO RELEAST TASKS----"

@@ -37,7 +37,7 @@ function Get-PrevalidationResults {
                 if (!$?) {
                     $script:zeroTestScriptFileInfoErrorsFound = $false
                 }
-                Write-Output "No errors found in script: $($script:zeroTestScriptFileInfoErrorsFound)"
+                Write-Output "Errors found in script: $(!$script:zeroTestScriptFileInfoErrorsFound)"
             }
             ".psd1" {
                 Write-Output "Found extension $fileExtension. Running 'Test-ModuleManifest' on $($script.Name)"
@@ -45,7 +45,7 @@ function Get-PrevalidationResults {
                 if (!$?) {
                     $script:zeroTestScriptFileInfoErrorsFound = $false
                 }
-                Write-Output "No errors found in manifest: $($script:zeroTestModuleManifestErrorsFound)"
+                Write-Output "Errors found in manifest: $(!$script:zeroTestModuleManifestErrorsFound)"
              }
             Default {
                 Write-Output "No other pre-validation performed for $($script.Name)"
@@ -53,6 +53,7 @@ function Get-PrevalidationResults {
         }
     }
 }
+
 Write-Output "---- START: Pre-Validation----"
 
 Get-PrevalidationResults (Join-Path -Path $repoRoot -ChildPath $modulesFolderPath)
@@ -64,7 +65,8 @@ if (!$script:zeroPSAnalyzerErrorsFound) {
 }if (!$script:zeroTestModuleManifestErrorsFound) {
     Write-Error -Message "PRE-VALIDATION FAILED: Test-ModuleManifest found errors"
 }if (!$script:zeroPSAnalyzerErrorsFound -or !$script:zeroTestScriptFileInfoErrorsFound -or !$script:zeroTestModuleManifestErrorsFound) {
-    Write-Error -Message "PRE-VALIDATION FAILED: See above errors" -ErrorAction Stop
+    Write-Error -Message "PRE-VALIDATION FAILED: See above errors"
+    Throw "Prevalidation failed"
 }else {
     Write-Output "SUCCESS: completed pre-validation"
 } 
