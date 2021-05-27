@@ -310,16 +310,15 @@ function New-AvsDrsElevationRule {
     [string[]] $VMList = $VMList.Split(",", $options)
     [string[]] $VMHostList = $VMHostList.Split(",", $options)
     $DrsVmHostGroupName = $DrsGroupName + "Host"
-    Write-Host "Creating DRS Cluster group $DrsGroupName for the VMs $VMList"
+    Write-Host "Creating DRS Cluster group $DrsGroupName for the $($VMList.count) VMs $VMList"
     New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster -ErrorAction Stop
-    Write-Host "Creating DRS Cluster group $DrsVmHostGroupName for the VMHosts: $VMHostList"
+    Write-Host "Creating DRS Cluster group $DrsVmHostGroupName for the $($VMHostList.count) VMHosts: $VMHostList"
     New-DrsClusterGroup -Name $DrsVmHostGroupName -VMHost $VMHostList -Cluster $Cluster -ErrorAction Stop
     Write-Host "Creating ShouldRunOn DRS Rule $DrsRuleName on cluster $Cluster"
     Write-Verbose "New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type 'ShouldRunOn'"
-    $result = New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn" -ErrorAction Stop
+    New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn" -ErrorAction Stop
     $currentRule = Get-DrsVMHostRule -Type "ShouldRunOn" -ErrorAction Continue
     Write-Output $currentRule
-    return $result 
 }
 
 <#
@@ -367,16 +366,17 @@ function Set-AvsDrsVMClusterGroup {
 
     If ($Action -eq "add") {
         Write-Host "Adding VMs to the DrsClusterGroup..."
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -ErrorAction Stop
+        Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -ErrorAction Stop
+        Write-Output $(Get-DrsClusterGroup -Name $DrsGroupName)
     }
     ElseIf ($Action -eq "remove") {
         Write-Host "Removing VMs from the DrsClusterGroup..."
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Remove -ErrorAction Stop
+        Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Remove -ErrorAction Stop
+        Write-Output $(Get-DrsClusterGroup -Name $DrsGroupName)
     }
     Else {
-        $result = Write-Warning "Nothing done. Please select with either -Action Add or -Action Remove"
+        Write-Warning "Nothing done. Please select with either -Action Add or -Action Remove"
     }
-    return $result
 }
 
 <#
@@ -425,16 +425,17 @@ function Set-AvsDrsVMHostClusterGroup {
 
     If ($Action -eq "add") {
         Write-Host "Adding VMHosts to the DrsClusterGroup..."
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -ErrorAction Stop
+        Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -ErrorAction Stop
+        Write-Output $(Get-DrsClusterGroup -Name $DrsGroupName)
     }
     ElseIf ($Action -eq "remove") {
         Write-Host "Removing VMHosts from the DrsClusterGroup..."
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -ErrorAction Stop
+        Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -ErrorAction Stop
+        Write-Output $(Get-DrsClusterGroup -Name $DrsGroupName)
     }
     Else {
-        $result = Write-Warning "Nothing done. Please select with either -Action Add or -Action Remove"
+        Write-Warning "Nothing done. Please select with either -Action Add or -Action Remove"
     }
-    return $result
 }
 
 <#
@@ -489,7 +490,6 @@ function Set-AvsDrsElevationRule {
     Else {
         Write-Output "Nothing done."
     }
-    return
 }
   
 <#
@@ -520,8 +520,9 @@ function Set-AvsVMStoragePolicy {
         $VMName
     )
     $storagepolicy = Get-SpbmStoragePolicy -Name $StoragePolicyName -ErrorAction Stop
-    $result = Set-VM $VMName -StoragePolicy $storagepolicy -SkipHardDisks -ErrorAction Stop -Confirm:$false
-    return $result
+    Set-VM $VMName -StoragePolicy $storagepolicy -SkipHardDisks -ErrorAction Stop -Confirm:$false
+    $vm = Get-VM $VMName
+    Write-Output $vm
 }
 
 Export-ModuleMember -Function *
