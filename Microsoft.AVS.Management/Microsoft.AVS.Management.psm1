@@ -101,7 +101,6 @@ function New-AvsLDAPIdentitySource {
         $Credential
     )
     $Password=$Credential.GetNetworkCredential().Password
-    $ExternalSource = 
     Add-LDAPIdentitySource `
         -Name $Name `
         -DomainName $DomainName `
@@ -113,7 +112,6 @@ function New-AvsLDAPIdentitySource {
         -Username $Credential.UserName `
         -Password $Password `
         -ServerType 'ActiveDirectory' -ErrorAction Stop
-    Write-Verbose "PowerCLI Result: $ExternalSource"
     return (Get-IdentitySource -External -ErrorAction Continue)
 }
 
@@ -203,11 +201,14 @@ function New-AvsLDAPSIdentitySource {
   
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'Array of SAS path URI to Certificates for authentication. Ensure permissions to read included. For how to generate see <Insert Helpful Link>')]
-        [string[]]
+            HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
+        [string]
         $CertificatesSAS
     )
     $Password=$Credential.GetNetworkCredential().Password
+    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
+    [string[]] $CertificatesSAS = $CertificatesSAS.Split(",", $options)
+    Write-Host "Number of Certs passed $($CertificatesSAS.count)"
     if ($CertificatesSAS.count -eq 0) {
         Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate" -ErrorAction Stop
         return "Failed to add LDAPS source"
@@ -215,28 +216,25 @@ function New-AvsLDAPSIdentitySource {
     $DestinationFileArray = @()
     $Index = 1
     foreach ($CertSas in $CertificatesSAS) {
-        Write-Host "Downloading Cert $Index"
+        Write-Host "Downloading Cert $Index from $CertSas"
         $CertDir = $pwd.Path
         $CertLocation = "$CertDir/cert$Index.cer"
         $Index = $Index + 1
         try {
             $Response = Invoke-WebRequest -Uri $CertSas -OutFile $CertLocation
-            Write-Verbose -Message "Following lines will only execute if the download was successful"
             $StatusCode = $Response.StatusCode
             Write-Host("Certificate downloaded. $StatusCode")
             $DestinationFileArray += $CertLocation
         }
         catch {
-            Write-Verbose "Stack Trace: $($PSItem.Exception.StackTrace)"
-            Write-Verbose "InnerException: $($PSItem.Exception.InnerException)" 
+            Write-Error "Stack Trace: $($PSItem.Exception.StackTrace)"
+            Write-Error "InnerException: $($PSItem.Exception.InnerException)" 
             Write-Warning "Ensure the SAS string is still valid"
-            Write-Error $PSItem.Exception.Message -ErrorAction Stop
-            return "Failed to download certificate ($Index-1)"
+            Write-Error $PSItem.Exception.Message
+            Write-Error "Failed to download certificate ($Index-1)" -ErrorAction Stop
         }
     }
-    Write-Verbose "Certificates: $DestinationFileArray"
     Write-Host "Adding the LDAPS Identity Source..."
-    $ExternalSource = 
     Add-LDAPIdentitySource `
         -Name $Name `
         -DomainName $DomainName `
@@ -249,7 +247,6 @@ function New-AvsLDAPSIdentitySource {
         -Password $Password `
         -ServerType 'ActiveDirectory' `
         -Certificates $DestinationFileArray -ErrorAction Stop
-    Write-Verbose "PowerCLI Result: $ExternalSource"
     return (Get-IdentitySource -External -ErrorAction Continue)
 }
 
@@ -289,31 +286,33 @@ function New-AvsDrsElevationRule {
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'List of the VMs to add to the VM group')]
+            HelpMessage = 'A comma-delimited list to add to the VM group')]
         [ValidateNotNullOrEmpty()]
-        [string[]]
+        [string]
         $VMList,
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'List of the VMHosts to add to the VMHost group')]
+            HelpMessage = 'A comma-delimited list of the VMHosts to add to the VMHost group')]
         [ValidateNotNullOrEmpty()]
-        [string[]]
+        [string]
         $VMHostList
     )
-    $ErrorActionPreference = "Stop"
 
+    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
+    [string[]] $VMList = $VMList.Split(",", $options)
+    [string[]] $VMHostList = $VMHostList.Split(",", $options)
     $DrsVmHostGroupName = $DrsGroupName + "Host"
-    Write-Host "Creating DRS Cluster group $DrsGroupName for the VMs $VMList"
+    Write-Host "VMs Passed in: $($VMList.count)"
+    Write-Host "Creating DRS Cluster group $DrsGroupName for the $($VMList.count) VMs $VMList"
     New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster -ErrorAction Stop
-    Write-Host "Creating DRS Cluster group $DrsVmHostGroupName for the VMHosts: $VMHostList"
+    Write-Host "VMHosts Passed in: $($VMHostList.count)"
+    Write-Host "Creating DRS Cluster group $DrsVmHostGroupName for the $($VMHostList.count) VMHosts: $VMHostList"
     New-DrsClusterGroup -Name $DrsVmHostGroupName -VMHost $VMHostList -Cluster $Cluster -ErrorAction Stop
     Write-Host "Creating ShouldRunOn DRS Rule $DrsRuleName on cluster $Cluster"
-    Write-Verbose "New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type 'ShouldRunOn'"
-    $result = New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn" -ErrorAction Stop
+    New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn" -ErrorAction Stop
     $currentRule = Get-DrsVMHostRule -Type "ShouldRunOn" -ErrorAction Continue
     Write-Output $currentRule
-    return $result 
 }
 
 <#
@@ -338,8 +337,8 @@ function Set-AvsDrsVMClusterGroup {
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'List of the VMs to add to the VM group')]
-        [string[]]
+            HelpMessage = 'A comma-delimited list of the VMs to add to the VM group')]
+        [string]
         $VMList,
 
         [Parameter(
@@ -349,8 +348,10 @@ function Set-AvsDrsVMClusterGroup {
         [string]
         $Action
     )
+    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
+    [string[]] $VMList = $VMList.Split(",", $options)
     [string] $groupType = (Get-DrsClusterGroup -Name $DrsGroupName).GroupType.ToString()
-    Write-Verbose "The group type for $DrsGroupName is $groupType"
+    Write-Host "The group type for $DrsGroupName is $groupType"
     If ($groupType -eq "VMHostGroup") {
         Get-DrsClusterGroup
         Write-Warning "$DrsGroupName is a $groupType and cannot be modified with VMHosts. Please validate that you're using the correct cmdlet. Did you mean Set-AvsDrsVMHostClusterGroup?"
@@ -359,16 +360,17 @@ function Set-AvsDrsVMClusterGroup {
 
     If ($Action -eq "add") {
         Write-Host "Adding VMs to the DrsClusterGroup..."
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -ErrorAction Stop
+        Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -ErrorAction Stop
+        Write-Output $(Get-DrsClusterGroup -Name $DrsGroupName)
     }
     ElseIf ($Action -eq "remove") {
         Write-Host "Removing VMs from the DrsClusterGroup..."
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Remove -ErrorAction Stop
+        Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Remove -ErrorAction Stop
+        Write-Output $(Get-DrsClusterGroup -Name $DrsGroupName)
     }
     Else {
-        $result = Write-Warning "Nothing done. Please select with either -Action Add or -Action Remove"
+        Write-Warning "Nothing done. Please select with either -Action Add or -Action Remove"
     }
-    return $result
 }
 
 <#
@@ -393,8 +395,8 @@ function Set-AvsDrsVMHostClusterGroup {
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'List of the VMHosts to add to the VMHost group')]
-        [string[]]
+            HelpMessage = 'A comma-delimited list of the VMHosts to add to the VMHost group')]
+        [string]
         $VMHostList,
 
         [Parameter(
@@ -404,8 +406,11 @@ function Set-AvsDrsVMHostClusterGroup {
         [string]
         $Action
     )
+
+    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
+    [string[]] $VMHostList = $VMHostList.Split(",", $options)
     [string] $groupType = (Get-DrsClusterGroup -Name $DrsGroupName).GroupType.ToString()
-    Write-Verbose "The group type for $DrsGroupName is $groupType"
+    Write-Host "The group type for $DrsGroupName is $groupType"
     If ($groupType -eq "VMGroup") {
         Get-DrsClusterGroup
         Write-Warning "$DrsGroupName is a $groupType and cannot be modified with VMHosts. Please validate that you're using the correct cmdlet. Did you mean Set-AvsDrsVMClusterGroup?"
@@ -414,16 +419,17 @@ function Set-AvsDrsVMHostClusterGroup {
 
     If ($Action -eq "add") {
         Write-Host "Adding VMHosts to the DrsClusterGroup..."
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -ErrorAction Stop
+        Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -ErrorAction Stop
+        Write-Output $(Get-DrsClusterGroup -Name $DrsGroupName)
     }
     ElseIf ($Action -eq "remove") {
         Write-Host "Removing VMHosts from the DrsClusterGroup..."
-        $result = Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -ErrorAction Stop
+        Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -ErrorAction Stop
+        Write-Output $(Get-DrsClusterGroup -Name $DrsGroupName)
     }
     Else {
-        $result = Write-Warning "Nothing done. Please select with either -Action Add or -Action Remove"
+        Write-Warning "Nothing done. Please select with either -Action Add or -Action Remove"
     }
-    return $result
 }
 
 <#
@@ -459,26 +465,21 @@ function Set-AvsDrsElevationRule {
         [string]
         $NewName
     )
-    Write-Verbose "Enabled is ne null: ($null -ne $Enabled)"
     if (($null -ne $Enabled) -And $NewName) {
         Write-Host "Changing enabled flag to $Enabled and Name to $NewName"
-        Write-Verbose "Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $Enabled -Name $NewName"
         Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $Enabled -Name $NewName -ErrorAction Stop
     }
     ElseIf ($null -ne $Enabled) {
         Write-Host "Changing the enabled flag for $DrsRuleName to $Enabled"
-        Write-Verbose "Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $Enabled"
         Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $Enabled -ErrorAction Stop
     }
     ElseIf ($Name) {
         Write-Host "Renaming $DrsRuleName to $NewName"
-        Write-Verbose "Set-DrsVMHostRule -Rule $DrsRuleName -Name $NewName"
         Set-DrsVMHostRule -Rule $DrsRuleName -Name $NewName -ErrorAction Stop
     }
     Else {
         Write-Output "Nothing done."
     }
-    return
 }
   
 <#
@@ -509,8 +510,9 @@ function Set-AvsVMStoragePolicy {
         $VMName
     )
     $storagepolicy = Get-SpbmStoragePolicy -Name $StoragePolicyName -ErrorAction Stop
-    $result = Set-VM $VMName -StoragePolicy $storagepolicy -SkipHardDisks -ErrorAction Stop -Confirm:$false
-    return $result
+    Set-VM $VMName -StoragePolicy $storagepolicy -SkipHardDisks -ErrorAction Stop -Confirm:$false
+    $vm = Get-VM $VMName
+    Write-Output $vm
 }
 
 Export-ModuleMember -Function *
