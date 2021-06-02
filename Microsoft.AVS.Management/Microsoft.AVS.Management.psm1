@@ -3,10 +3,16 @@
 
 
 <#
-Applied to a commandlet function indicates that the SDDC should be marked as Building while the function executes.
+AVSAttribute applied to a commandlet function indicates:
+- wether the SDDC should be marked as Building while the function executes.
+- default timeout for the commandlet, maximum: 3h.
 AVS SDDC in Building state prevents other changes from being made to the SDDC until the function completes/fails. 
 #>
-Class AVSUpdatesSDDC : Attribute {}
+class AVSAttribute : Attribute {
+    [bool]$UpdatesSDDC = $false
+    [TimeSpan]$Timeout
+    AVSAttribute($timeoutMinutes) { $this.Timeout = New-TimeSpan -Minutes $timeoutMinutes }
+}
 
 <#
 =======================================================================================================
@@ -38,7 +44,7 @@ Class AVSUpdatesSDDC : Attribute {}
 #>
 function New-AvsLDAPIdentitySource {
     [CmdletBinding(PositionalBinding = $false)]
-    [AVSUpdatesSDDC()]
+    [AVSAttribute(10, UpdatesSDDC = $True)]
     Param
     (
         [Parameter(
@@ -137,7 +143,7 @@ function New-AvsLDAPIdentitySource {
 #>
 function New-AvsLDAPSIdentitySource {
     [CmdletBinding(PositionalBinding = $false)]
-    [AVSUpdatesSDDC()]
+    [AVSAttribute(10, UpdatesSDDC = $True)]
     Param
     (
         [Parameter(
@@ -260,7 +266,7 @@ function New-AvsLDAPSIdentitySource {
 #>
 function New-AvsDrsElevationRule {
     [CmdletBinding(PositionalBinding = $false)]
-    [AVSUpdatesSDDC()]
+    [AVSAttribute(10, UpdatesSDDC = $True)]
     Param
     (
         [Parameter(
@@ -325,7 +331,7 @@ function New-AvsDrsElevationRule {
 #>
 function Set-AvsDrsVMClusterGroup {
     [CmdletBinding(PositionalBinding = $false)]
-    [AVSUpdatesSDDC()]
+    [AVSAttribute(10, UpdatesSDDC = $True)]
     Param
     (   
         [Parameter(
@@ -383,7 +389,7 @@ function Set-AvsDrsVMClusterGroup {
 #>
 function Set-AvsDrsVMHostClusterGroup {
     [CmdletBinding(PositionalBinding = $false)]
-    [AVSUpdatesSDDC()]
+    [AVSAttribute(10, UpdatesSDDC = $True)]
     Param
     (   
         [Parameter(
@@ -442,7 +448,7 @@ function Set-AvsDrsVMHostClusterGroup {
 #>
 function Set-AvsDrsElevationRule {
     [CmdletBinding(PositionalBinding = $false)]
-    [AVSUpdatesSDDC()]
+    [AVSAttribute(10, UpdatesSDDC = $True)]
     Param
     (   
         [Parameter(
@@ -492,7 +498,7 @@ function Set-AvsDrsElevationRule {
 #>
 function Set-AvsVMStoragePolicy {
     [CmdletBinding(PositionalBinding = $false)]
-    [AVSUpdatesSDDC()]
+    [AVSAttribute(10, UpdatesSDDC = $True)]
     Param
     (
         [Parameter(
