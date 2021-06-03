@@ -3,7 +3,7 @@
 
 <#
 AVSAttribute applied to a commandlet function indicates:
-- wether the SDDC should be marked as Building while the function executes.
+- whether the SDDC should be marked as Building while the function executes.
 - default timeout for the commandlet, maximum: 3h.
 AVS SDDC in Building state prevents other changes from being made to the SDDC until the function completes/fails. 
 #>
@@ -236,10 +236,11 @@ function New-AvsLDAPSIdentitySource {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
-        [string]
+        [System.Security.SecureString]
         $CertificatesSAS
     )
     $Password=$Credential.GetNetworkCredential().Password
+    $CertificatesSAS = $CertificatesSAS | ConvertFrom-SecureString -AsPlainText
     [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
     [string[]] $CertificatesSAS = $CertificatesSAS.Split(",", $options)
     Write-Host "Number of Certs passed $($CertificatesSAS.count)"
