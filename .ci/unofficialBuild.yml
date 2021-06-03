@@ -54,6 +54,7 @@ stages:
         filePath: 'package/packageModule.ps1'
         arguments: '${{ variables.moduleFolderName }} unofficial'
         pwsh: true
+        
 # - stage: Test
 #   displayName: Test
 #   dependsOn: Compliance
