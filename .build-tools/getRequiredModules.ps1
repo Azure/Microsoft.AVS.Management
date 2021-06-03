@@ -16,7 +16,7 @@ foreach ($module in $requiredModules) {
     $targetModule = $($module.Name)
     $targetVersion = $($module.Version)
     Write-Host "Installing $targetModule-$targetVersion ...."
-    Install-Module $targetModule -RequiredVersion $targetVersion -Repository "$($feedParameters.Name)"
+    Install-Package "$targetModule" -RequiredVersion $targetVersion #-Repository "$($feedParameters.Name)"
     Write-Host "----COMPLETED installation of $targetModule-$targetVersion----"
 }
 
