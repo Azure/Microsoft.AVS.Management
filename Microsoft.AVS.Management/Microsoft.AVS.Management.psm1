@@ -432,7 +432,7 @@ function Set-AvsDrsVMClusterGroup {
     Write-Host "The group type for $DrsGroupName is $groupType"
     If ($groupType -eq "VMHostGroup") {
         Get-DrsClusterGroup
-        Write-Warning "$DrsGroupName is a $groupType and cannot be modified with VMHosts. Please validate that you're using the correct cmdlet. Did you mean Set-AvsDrsVMHostClusterGroup?"
+        Write-Warning "$DrsGroupName is a $groupType and cannot be modified with VMs. Please validate that you're using the correct cmdlet. Did you mean Set-AvsDrsVMHostClusterGroup?"
         return 
     }
 
