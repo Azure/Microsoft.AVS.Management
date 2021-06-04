@@ -29,6 +29,7 @@ stages:
   - job: Build_and_Publish_Job
     displayName: Build Unofficial AVS-Automation-AdminTools
     steps:
+    - task: NuGetAuthenticate@0
     - task: PowerShell@2
       displayName: Restore Dependencies
       inputs:
@@ -47,7 +48,6 @@ stages:
         filePath: 'tests/prevalidateModules.ps1'
         arguments: '${{ variables.moduleFolderName }}'
         pwsh: true
-    - task: NuGetAuthenticate@0
     - task: PowerShell@2
       displayName: Package Module
       inputs:

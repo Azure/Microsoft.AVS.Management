@@ -22,15 +22,15 @@ if ($buildType -eq 'official') {
         PublishLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v3/index.json"
         InstallationPolicy = 'Trusted'
     }
-    Write-Output "----Registering PSRepository ----"
-    Register-PSRepository @feedParameters
-    if (!$?) {
-        Write-Error -Message "----ERROR: Unable to register repository----"
-        Throw "Must be able to register feed before publishing to it"
-    }else {
+    # Write-Output "----Registering PSRepository ----"
+    # Register-PSRepository @feedParameters
+    # if (!$?) {
+    #     Write-Error -Message "----ERROR: Unable to register repository----"
+    #     Throw "Must be able to register feed before publishing to it"
+    # }else {
         
-        Write-Output "----SUCCEEDED: $($feedParameters.Name) repository registered ----"
-    }
+    #     Write-Output "----SUCCEEDED: $($feedParameters.Name) repository registered ----"
+    # }
 }else {
     Write-Error -Message "----Error: Unsupported buildType: $buildType ----"
     Throw "The -buildType provided must be valid."

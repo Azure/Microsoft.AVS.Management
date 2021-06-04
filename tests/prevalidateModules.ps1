@@ -3,15 +3,14 @@ param (
     [Parameter(Mandatory=$true)][string]$modulesFolderPath
 )
 
-Install-Module -Name "PSScriptAnalyzer" -RequiredVersion 1.19.1 -Force
-$repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"
-$fileExtList = @("*.ps1","*.psm1","*.psd1")
 $script:zeroPSAnalyzerErrorsFound = $true
 $script:zeroTestScriptFileInfoErrorsFound = $true
 $script:zeroTestModuleManifestErrorsFound = $true
+
 function Get-PrevalidationResults {
     param (
-        [string]$targetDir
+        [string]$targetDir,
+        $fileExtList
     )
     $scriptsToAnalyze = (Get-ChildItem "$targetDir\*" -Recurse -Include $fileExtList)
 
@@ -56,7 +55,11 @@ function Get-PrevalidationResults {
 
 Write-Output "---- START: Pre-Validation----"
 
-Get-PrevalidationResults (Join-Path -Path $repoRoot -ChildPath $modulesFolderPath)
+Install-Module -Name "PSScriptAnalyzer" -RequiredVersion 1.19.1 -Force
+$fileExtList = @("*.ps1","*.psm1","*.psd1")
+$repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"
+
+Get-PrevalidationResults (Join-Path -Path $repoRoot -ChildPath $modulesFolderPath) $fileExtList
 
 if (!$script:zeroPSAnalyzerErrorsFound) {
     Write-Error -Message "PRE-VALIDATION FAILED: PSScriptAnalyzer found errors"
