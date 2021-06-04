@@ -84,8 +84,12 @@ function New-AvsLDAPIdentitySource {
             Mandatory = $true,
             HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
         [ValidateScript( {
-                $_ -match 'ldap:.*((389)|(636)|(3268)(3269))'
-            })]
+            if ($_ -match 'ldap:.*((389)|(636)|(3268)(3269))') {
+                $true
+            } else {
+                Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap:" -ErrorAction Stop
+            }
+        })]
         [string]
         $PrimaryUrl,
 
@@ -93,8 +97,12 @@ function New-AvsLDAPIdentitySource {
             Mandatory = $false,
             HelpMessage = 'Optional: URL of a backup server')]
         [ValidateScript( {
-                $_ -match 'ldap:.*((389)|(636)|(3268)(3269))'
-            })]
+            if ($_ -match 'ldap:.*((389)|(636)|(3268)(3269))') {
+                $true
+            } else {
+                Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap:" -ErrorAction Stop
+            }
+        })]
         [string]
         $SecondaryUrl,
 
@@ -131,7 +139,8 @@ function New-AvsLDAPIdentitySource {
         -Username $Credential.UserName `
         -Password $Password `
         -ServerType 'ActiveDirectory' -ErrorAction Stop
-    return (Get-IdentitySource -External -ErrorAction Continue)
+    $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
+    Write-Output $ExternalIdentitySources
 }
 
 <#
@@ -198,8 +207,12 @@ function New-AvsLDAPSIdentitySource {
             Mandatory = $true,
             HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
         [ValidateScript( {
-                $_ -match 'ldaps:.*((389)|(636)|(3268)(3269))'
-            })]
+            if ($_ -match 'ldaps:.*((389)|(636)|(3268)(3269))') {
+                $true
+            } else {
+                Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps:" -ErrorAction Stop
+            }
+        })]
         [string]
         $PrimaryUrl,
   
@@ -207,8 +220,12 @@ function New-AvsLDAPSIdentitySource {
             Mandatory = $false,
             HelpMessage = 'Optional: URL of a backup server')]
         [ValidateScript( {
-                $_ -match 'ldaps:.*((389)|(636)|(3268)(3269))'
-            })]
+                if ($_ -match 'ldaps:.*((389)|(636)|(3268)(3269))') {
+                    $true
+                } else {
+                    Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps:" -ErrorAction Stop
+                }
+        })]
         [string]
         $SecondaryUrl,
   
@@ -240,17 +257,17 @@ function New-AvsLDAPSIdentitySource {
         $CertificatesSAS
     )
     $Password=$Credential.GetNetworkCredential().Password
-    $CertificatesSAS = $CertificatesSAS | ConvertFrom-SecureString -AsPlainText
+    [string] $CertificatesSASPlainString = ConvertFrom-SecureString -SecureString $CertificatesSAS -AsPlainText
     [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
-    [string[]] $CertificatesSAS = $CertificatesSAS.Split(",", $options)
-    Write-Host "Number of Certs passed $($CertificatesSAS.count)"
-    if ($CertificatesSAS.count -eq 0) {
+    [string[]] $CertificatesSASList = $CertificatesSASPlainString.Split(",", $options)
+    Write-Host "Number of Certs passed $($CertificatesSASList.count)"
+    if ($CertificatesSASList.count -eq 0) {
         Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate" -ErrorAction Stop
         return "Failed to add LDAPS source"
     }
     $DestinationFileArray = @()
     $Index = 1
-    foreach ($CertSas in $CertificatesSAS) {
+    foreach ($CertSas in $CertificatesSASList) {
         Write-Host "Downloading Cert $Index from $CertSas"
         $CertDir = $pwd.Path
         $CertLocation = "$CertDir/cert$Index.cer"
@@ -269,6 +286,7 @@ function New-AvsLDAPSIdentitySource {
             Write-Error "Failed to download certificate ($Index-1)" -ErrorAction Stop
         }
     }
+    Write-Host "Number of certificates downloaded: $($DestinationFileArray.count)"
     Write-Host "Adding the LDAPS Identity Source..."
     Add-LDAPIdentitySource `
         -Name $Name `
@@ -282,7 +300,8 @@ function New-AvsLDAPSIdentitySource {
         -Password $Password `
         -ServerType 'ActiveDirectory' `
         -Certificates $DestinationFileArray -ErrorAction Stop
-    return (Get-IdentitySource -External -ErrorAction Continue)
+    $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
+    Write-Output $ExternalIdentitySources
 }
 
 <#
@@ -413,7 +432,7 @@ function Set-AvsDrsVMClusterGroup {
     Write-Host "The group type for $DrsGroupName is $groupType"
     If ($groupType -eq "VMHostGroup") {
         Get-DrsClusterGroup
-        Write-Warning "$DrsGroupName is a $groupType and cannot be modified with VMHosts. Please validate that you're using the correct cmdlet. Did you mean Set-AvsDrsVMHostClusterGroup?"
+        Write-Warning "$DrsGroupName is a $groupType and cannot be modified with VMs. Please validate that you're using the correct cmdlet. Did you mean Set-AvsDrsVMHostClusterGroup?"
         return 
     }
 
