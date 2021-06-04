@@ -18,8 +18,8 @@ if ($buildType -eq 'official') {
 }elseif ($buildType -eq 'unofficial') {
     $feedParameters = @{
         Name = "Unofficial-AVS-Automation-AdminTools"
-        SourceLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v3/index.json"
-        PublishLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v3/index.json"
+        SourceLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
+        PublishLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
         InstallationPolicy = 'Trusted'
     }
     Write-Output "----Registering PSRepository ----"
