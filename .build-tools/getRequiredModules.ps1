@@ -9,7 +9,7 @@ $feedParameters = @{
     InstallationPolicy = 'Trusted'
 }
 Write-Output "Running Get-PackageProviders:"
-Get-PackageProvider | Format-Table *
+Get-PackageProvider
 
 $requiredModules = (Test-ModuleManifest "$psdPath" -ErrorAction SilentlyContinue).RequiredModules
 Register-PSRepository @feedParameters
