@@ -240,17 +240,17 @@ function New-AvsLDAPSIdentitySource {
         $CertificatesSAS
     )
     $Password=$Credential.GetNetworkCredential().Password
-    $CertificatesSAS = $CertificatesSAS | ConvertFrom-SecureString -AsPlainText
+    [string] $CertificatesSASPlainString = ConvertFrom-SecureString -SecureString $CertificatesSAS -AsPlainText
     [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
-    [string[]] $CertificatesSAS = $CertificatesSAS.Split(",", $options)
-    Write-Host "Number of Certs passed $($CertificatesSAS.count)"
-    if ($CertificatesSAS.count -eq 0) {
+    [string[]] $CertificatesSASList = $CertificatesSASPlainString.Split(",", $options)
+    Write-Host "Number of Certs passed $($CertificatesSASList.count)"
+    if ($CertificatesSASList.count -eq 0) {
         Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate" -ErrorAction Stop
         return "Failed to add LDAPS source"
     }
     $DestinationFileArray = @()
     $Index = 1
-    foreach ($CertSas in $CertificatesSAS) {
+    foreach ($CertSas in $CertificatesSASList) {
         Write-Host "Downloading Cert $Index from $CertSas"
         $CertDir = $pwd.Path
         $CertLocation = "$CertDir/cert$Index.cer"
