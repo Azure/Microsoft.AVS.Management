@@ -306,16 +306,16 @@ function New-AvsLDAPSIdentitySource {
 
 <#
     .Synopsis
-     Add an external identity group to the cloud admin group, allowing all users in the external group CloudAdmin privileges
+     Add an external identity group from the external identity to the CloudAdmins group
 
     .Parameter GroupName
-     Name of the group to be added to CloudAdmin. 
+     Name of the group to be added to CloudAdmins. 
 
     .Example 
-    # Add the domain server named "myserver.local" to vCenter
-    Add-AvsLDAPSIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local' -Username 'myserver@myserver.local' -Password 'PlaceholderPassword' -CertificatesSAS 'https://sharedaccessstring.path/accesskey' -Protocol LDAPS
+    # Add the group named vsphere-admins to CloudAdmins
+     Add-GroupToCloudAdmins -GroupName 'vpshere-admins'
 #>
-function Add-GroupToCloudAdmin {
+function Add-GroupToCloudAdmins {
     [CmdletBinding(PositionalBinding = $false)]
     [AVSAttribute(10, UpdatesSDDC = $True)]
     Param
@@ -364,9 +364,72 @@ function Add-GroupToCloudAdmin {
     }
 
     Add-GroupToSsoGroup -Group $GroupToAdd -TargetGroup $CloudAdmins -ErrorAction Stop
-    $CloudAdminMemebrs = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
-    Write-Host "Cloud Admins: $CloudAdminMembers"
+    $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
+    Write-Host "Cloud Admin Members: $CloudAdminMembers"
+}
+
+<#
+    .Synopsis
+     Remove a previously added external identity group from the cloud admin group
+
+    .Parameter GroupName
+     Name of the group to be removed from CloudAdmins. 
+
+    .Example 
+    # Remove the group named vsphere-admins from CloudAdmins
+     Remove-GroupFromCloudAdmins -GroupName 'vpshere-admins'
+#>
+function Remove-GroupFromCloudAdmins {
+    [CmdletBinding(PositionalBinding = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $True)]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Name of the group to remove from CloudAdmin')]
+        [ValidateNotNull()]
+        [string]
+        $GroupName
+    )
+    $ExternalSource
+    $Domain 
+    $GroupToRemove
+
+    try {
+        $ExternalSource = Get-IdentitySource -External -ErrorAction Stop
+        $Domain = $ExternalSource.Name
+    } catch {
+        Write-Error $PSItem.Exception.Message
+        Write-Error "Unable to get external identity source" -ErrorAction Stop
+    }
     
+    if ($null -eq $ExternalSource -or $null -eq $Domain) {
+        Write-Error "No external identity source found $Domain. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
+    } else {
+        Write-Host "Searching $($ExternalSource.Name) for $GroupName...."
+    }
+    
+    try {
+        $GroupToRemove = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop 
+    } catch {
+        Write-Error $PSItem.Exception.Message
+        Write-Error "Unable to get group $GroupName from $Domain" -ErrorAction Stop
+    }
+
+    if ($null -eq $GroupToRemove) {
+        Write-Error "$GroupName was not found. Please ensure that the group is spelled correctly" -ErrorAction Stop
+    } else {
+        Write-Host "Adding $GroupToRemove to CloudAdmins...."
+    }
+
+    $CloudAdmins = Get-SsoGroup -Name 'CloudAdmins' -Domain 'vsphere.local'
+    if ($null -eq $CloudAdmins) {
+        Write-Error "Internal Error fetching CloudAdmins group. Contact support" -ErrorAction Stop
+    }
+
+    Remove-GroupFromSsoGroup -Group $GroupToRemove -TargetGroup $CloudAdmins -ErrorAction Stop
+    $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
+    Write-Host "Cloud Admin Members: $CloudAdminMembers"
 }
 
 <#
