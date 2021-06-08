@@ -306,6 +306,71 @@ function New-AvsLDAPSIdentitySource {
 
 <#
     .Synopsis
+     Add an external identity group to the cloud admin group, allowing all users in the external group CloudAdmin privileges
+
+    .Parameter GroupName
+     Name of the group to be added to CloudAdmin. 
+
+    .Example 
+    # Add the domain server named "myserver.local" to vCenter
+    Add-AvsLDAPSIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local' -Username 'myserver@myserver.local' -Password 'PlaceholderPassword' -CertificatesSAS 'https://sharedaccessstring.path/accesskey' -Protocol LDAPS
+#>
+function Add-GroupToCloudAdmin {
+    [CmdletBinding(PositionalBinding = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $True)]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Name of the group to add to CloudAdmin')]
+        [ValidateNotNull()]
+        [string]
+        $GroupName
+    )
+    $ExternalSource
+    $Domain 
+    $GroupToAdd
+
+    try {
+        $ExternalSource = Get-IdentitySource -External -ErrorAction Stop
+        $Domain = $ExternalSource.Name
+    } catch {
+        Write-Error $PSItem.Exception.Message
+        Write-Error "Unable to get external identity source" -ErrorAction Stop
+    }
+    
+    if ($null -eq $ExternalSource -or $null -eq $Domain) {
+        Write-Error "No external identity source found $Domain. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
+    } else {
+        Write-Host "Searching $($ExternalSource.Name) for $GroupName...."
+    }
+    
+    try {
+        $GroupToAdd = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop 
+    } catch {
+        Write-Error $PSItem.Exception.Message
+        Write-Error "Unable to get group $GroupName from $Domain" -ErrorAction Stop
+    }
+
+    if ($null -eq $GroupToAdd) {
+        Write-Error "$GroupName was not found. Please ensure that the group is spelled correctly" -ErrorAction Stop
+    } else {
+        Write-Host "Adding $GroupToAdd to CloudAdmins...."
+    }
+
+    $CloudAdmins = Get-SsoGroup -Name 'CloudAdmins' -Domain 'vsphere.local'
+    if ($null -eq $CloudAdmins) {
+        Write-Error "Internal Error fetching CloudAdmins group. Contact support" -ErrorAction Stop
+    }
+
+    Add-GroupToSsoGroup -Group $GroupToAdd -TargetGroup $CloudAdmins -ErrorAction Stop
+    $CloudAdminMemebrs = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
+    Write-Host "Cloud Admins: $CloudAdminMembers"
+    
+}
+
+<#
+    .Synopsis
      Creates a Drs Cluster Host Group, a Drs Cluster VM Group, and a Drs Cluster Virtual Machine to Host Rule between the two
 
     .Parameter DrsRuleName
