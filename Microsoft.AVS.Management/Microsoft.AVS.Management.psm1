@@ -57,7 +57,7 @@ class AVSAttribute : Attribute {
 #>
 function New-AvsLDAPIdentitySource {
     [CmdletBinding(PositionalBinding = $false)]
-    [AVSAttribute(10, UpdatesSDDC = $True)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
     Param
     (
         [Parameter(
@@ -180,7 +180,7 @@ function New-AvsLDAPIdentitySource {
 #>
 function New-AvsLDAPSIdentitySource {
     [CmdletBinding(PositionalBinding = $false)]
-    [AVSAttribute(10, UpdatesSDDC = $True)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
     Param
     (
         [Parameter(
@@ -317,7 +317,7 @@ function New-AvsLDAPSIdentitySource {
 #>
 function Add-GroupToCloudAdmins {
     [CmdletBinding(PositionalBinding = $false)]
-    [AVSAttribute(10, UpdatesSDDC = $True)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
     Param
     (
         [Parameter(
@@ -381,7 +381,7 @@ function Add-GroupToCloudAdmins {
 #>
 function Remove-GroupFromCloudAdmins {
     [CmdletBinding(PositionalBinding = $false)]
-    [AVSAttribute(10, UpdatesSDDC = $True)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
     Param
     (
         [Parameter(
