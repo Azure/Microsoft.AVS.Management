@@ -51,6 +51,9 @@ class AVSAttribute : Attribute {
     .Parameter Credential 
      Credential to login to the LDAP server (NOT cloudAdmin) in the form of a username/password credential
 
+    .Parameter GroupName
+     A group in the external identity source to give CloudAdmins access to
+
     .Example 
     # Add the domain server named "myserver.local" to vCenter
     Add-AvsLDAPIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldap://10.40.0.5:389' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local'
@@ -84,12 +87,13 @@ function New-AvsLDAPIdentitySource {
             Mandatory = $true,
             HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
         [ValidateScript( {
-            if ($_ -match 'ldap:.*((389)|(636)|(3268)(3269))') {
-                $true
-            } else {
-                Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap:" -ErrorAction Stop
-            }
-        })]
+                if ($_ -match 'ldap:.*((389)|(636)|(3268)(3269))') {
+                    $true
+                }
+                else {
+                    Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap:" -ErrorAction Stop
+                }
+            })]
         [string]
         $PrimaryUrl,
 
@@ -97,12 +101,13 @@ function New-AvsLDAPIdentitySource {
             Mandatory = $false,
             HelpMessage = 'Optional: URL of a backup server')]
         [ValidateScript( {
-            if ($_ -match 'ldap:.*((389)|(636)|(3268)(3269))') {
-                $true
-            } else {
-                Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap:" -ErrorAction Stop
-            }
-        })]
+                if ($_ -match 'ldap:.*((389)|(636)|(3268)(3269))') {
+                    $true
+                }
+                else {
+                    Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap:" -ErrorAction Stop
+                }
+            })]
         [string]
         $SecondaryUrl,
 
@@ -120,14 +125,21 @@ function New-AvsLDAPIdentitySource {
         [string]
         $BaseDNGroups,
 
-        [Parameter(Mandatory = $true,
+        [Parameter(
+            Mandatory = $true,
             HelpMessage = "Credential for the LDAP server")]
         [ValidateNotNull()]
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
-        $Credential
+        $Credential,
+
+        [Parameter (
+            Mandatory = $false,
+            HelpMessage = 'A group in the external identity source to give CloudAdmins access')]
+        [string]
+        $GroupName
     )
-    $Password=$Credential.GetNetworkCredential().Password
+    $Password = $Credential.GetNetworkCredential().Password
     Add-LDAPIdentitySource `
         -Name $Name `
         -DomainName $DomainName `
@@ -141,6 +153,11 @@ function New-AvsLDAPIdentitySource {
         -ServerType 'ActiveDirectory' -ErrorAction Stop
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     Write-Output $ExternalIdentitySources
+
+    if ($PSBoundParameters.ContainsKey('GroupName')) {
+        Write-Host "GroupName passed in: $GroupName"
+        Add-GroupToCloudAdmins $GroupName -ErrorAction Stop
+    }
 }
 
 <#
@@ -173,6 +190,9 @@ function New-AvsLDAPIdentitySource {
 
     .Parameter CertificatesSAS
      An array of Shared Access Signature strings to the certificates required to connect to the external active directory, if using LDAPS
+
+    .Parameter GroupName
+     A group in the external identity source to give CloudAdmins access to
 
     .Example 
     # Add the domain server named "myserver.local" to vCenter
@@ -207,12 +227,13 @@ function New-AvsLDAPSIdentitySource {
             Mandatory = $true,
             HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
         [ValidateScript( {
-            if ($_ -match 'ldaps:.*((389)|(636)|(3268)(3269))') {
-                $true
-            } else {
-                Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps:" -ErrorAction Stop
-            }
-        })]
+                if ($_ -match 'ldaps:.*((389)|(636)|(3268)(3269))') {
+                    $true
+                }
+                else {
+                    Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps:" -ErrorAction Stop
+                }
+            })]
         [string]
         $PrimaryUrl,
   
@@ -222,10 +243,11 @@ function New-AvsLDAPSIdentitySource {
         [ValidateScript( {
                 if ($_ -match 'ldaps:.*((389)|(636)|(3268)(3269))') {
                     $true
-                } else {
+                }
+                else {
                     Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps:" -ErrorAction Stop
                 }
-        })]
+            })]
         [string]
         $SecondaryUrl,
   
@@ -254,9 +276,16 @@ function New-AvsLDAPSIdentitySource {
             Mandatory = $true,
             HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
         [System.Security.SecureString]
-        $CertificatesSAS
+        $CertificatesSAS,
+
+        [Parameter (
+            Mandatory = $false,
+            HelpMessage = 'A group in the external identity source to give CloudAdmins access')]
+        [string]
+        $GroupName
+        
     )
-    $Password=$Credential.GetNetworkCredential().Password
+    $Password = $Credential.GetNetworkCredential().Password
     [string] $CertificatesSASPlainString = ConvertFrom-SecureString -SecureString $CertificatesSAS -AsPlainText
     [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
     [string[]] $CertificatesSASList = $CertificatesSASPlainString.Split(",", $options)
@@ -302,6 +331,11 @@ function New-AvsLDAPSIdentitySource {
         -Certificates $DestinationFileArray -ErrorAction Stop
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     Write-Output $ExternalIdentitySources
+
+    if ($PSBoundParameters.ContainsKey('GroupName')) {
+        Write-Host "GroupName passed in: $GroupName"
+        Add-GroupToCloudAdmins $GroupName -ErrorAction Stop
+    }
 }
 
 <#
@@ -334,27 +368,31 @@ function Add-GroupToCloudAdmins {
     try {
         $ExternalSource = Get-IdentitySource -External -ErrorAction Stop
         $Domain = $ExternalSource.Name
-    } catch {
+    }
+    catch {
         Write-Error $PSItem.Exception.Message
         Write-Error "Unable to get external identity source" -ErrorAction Stop
     }
     
     if ($null -eq $ExternalSource -or $null -eq $Domain) {
         Write-Error "No external identity source found $Domain. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
-    } else {
+    }
+    else {
         Write-Host "Searching $($ExternalSource.Name) for $GroupName...."
     }
     
     try {
         $GroupToAdd = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop 
-    } catch {
+    }
+    catch {
         Write-Error $PSItem.Exception.Message
         Write-Error "Unable to get group $GroupName from $Domain" -ErrorAction Stop
     }
 
     if ($null -eq $GroupToAdd) {
         Write-Error "$GroupName was not found. Please ensure that the group is spelled correctly" -ErrorAction Stop
-    } else {
+    }
+    else {
         Write-Host "Adding $GroupToAdd to CloudAdmins...."
     }
 
@@ -398,27 +436,31 @@ function Remove-GroupFromCloudAdmins {
     try {
         $ExternalSource = Get-IdentitySource -External -ErrorAction Stop
         $Domain = $ExternalSource.Name
-    } catch {
+    }
+    catch {
         Write-Error $PSItem.Exception.Message
         Write-Error "Unable to get external identity source" -ErrorAction Stop
     }
     
     if ($null -eq $ExternalSource -or $null -eq $Domain) {
         Write-Error "No external identity source found $Domain. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
-    } else {
+    }
+    else {
         Write-Host "Searching $($ExternalSource.Name) for $GroupName...."
     }
     
     try {
         $GroupToRemove = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop 
-    } catch {
+    }
+    catch {
         Write-Error $PSItem.Exception.Message
         Write-Error "Unable to get group $GroupName from $Domain" -ErrorAction Stop
     }
 
     if ($null -eq $GroupToRemove) {
         Write-Error "$GroupName was not found. Please ensure that the group is spelled correctly" -ErrorAction Stop
-    } else {
+    }
+    else {
         Write-Host "Adding $GroupToRemove to CloudAdmins...."
     }
 
@@ -689,20 +731,20 @@ function Set-AvsDrsElevationRule {
         [string]
         $NewName
     )
-    if (($null -ne $Enabled) -And $NewName) {
+    if ($PSBoundParameters.ContainsKey('Enabled') -And $PSBoundParameters.ContainsKey('NewName')) {
         Write-Host "Changing enabled flag to $Enabled and Name to $NewName"
         Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $Enabled -Name $NewName -ErrorAction Stop
     }
-    ElseIf ($null -ne $Enabled) {
+    ElseIf ($PSBoundParameters.ContainsKey('Enabled')) {
         Write-Host "Changing the enabled flag for $DrsRuleName to $Enabled"
         Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $Enabled -ErrorAction Stop
     }
-    ElseIf ($Name) {
+    ElseIf ($PSBoundParameters.ContainsKey('NewName')) {
         Write-Host "Renaming $DrsRuleName to $NewName"
         Set-DrsVMHostRule -Rule $DrsRuleName -Name $NewName -ErrorAction Stop
     }
     Else {
-        Write-Output "Nothing done."
+        Write-Output "No parameters passed. Nothing done. Possible configuration parameters include -Enabled and -NewName"
     }
 }
   
