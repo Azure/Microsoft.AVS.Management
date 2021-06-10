@@ -343,7 +343,7 @@ function New-AvsLDAPSIdentitySource {
      Removes all external identity sources 
 #>
 function Get-ExternalIdentitySources {
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(3, UpdatesSDDC = $false)]
 
     $ExternalSource = Get-IdentitySource -External
     if ($null -eq $ExternalSource) {
@@ -359,7 +359,7 @@ function Get-ExternalIdentitySources {
      Removes all external identity sources 
 #>
 function Remove-ExternalIdentitySources {
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(5, UpdatesSDDC = $false)]
 
     $ExternalSource = Get-IdentitySource -External
     if ($null -eq $ExternalSource) {
