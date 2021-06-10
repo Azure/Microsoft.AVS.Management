@@ -340,6 +340,39 @@ function New-AvsLDAPSIdentitySource {
 
 <#
     .Synopsis
+     Removes all external identity sources 
+#>
+function Get-ExternalIdentitySources {
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+
+    $ExternalSource = Get-IdentitySource -External
+    if ($null -eq $ExternalSource) {
+        Write-Host "No external identity sources found."
+        return
+    } else {
+        Write-Output $ExternalSource
+    }
+}
+
+<#
+    .Synopsis
+     Removes all external identity sources 
+#>
+function Remove-ExternalIdentitySources {
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+
+    $ExternalSource = Get-IdentitySource -External
+    if ($null -eq $ExternalSource) {
+        Write-Host "No external identity sources found to remove. Nothing done"
+        return
+    } else {
+        Remove-IdentitySource -IdentitySource $ExternalSource -ErrorAction Stop
+        Write-Output "Identity source $($ExternalIdentity.Name) removed."
+    }
+}
+
+<#
+    .Synopsis
      Add an external identity group from the external identity to the CloudAdmins group
 
     .Parameter GroupName
