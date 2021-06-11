@@ -350,7 +350,20 @@ function Get-ExternalIdentitySources {
         Write-Host "No external identity sources found."
         return
     } else {
-        Write-Output $ExternalSource
+        Write-Information 'Write-Information $ExternalSource'
+        Write-Information $ExternalSource
+        Write-Information 'Write-Information "External Source: $ExternalSource"'
+        Write-Information "External Source: $ExternalSource"
+        Write-Information '$ExternalSource | Format-Table'
+        $ExternalSource | Format-Table
+        Write-Information '$ExternalSource | Format-Table | Out-String'
+        $ExternalSource | Format-Table | Out-String 
+        Write-Information '$ExternalSource | Format-List'
+        $ExternalSource | Format-List
+        Write-Information '$ExternalSource | Format-List | Out-String'
+        $ExternalSource | Format-List | Out-String 
+        Write-Information 'Identity Source {0}@{1}, $ExternalSource.Name, $ExternalSource.DomainName'
+        Write-Information "Identity Source {0}@{1}", $ExternalSource.Name, $ExternalSource.DomainName
     }
 }
 
@@ -367,7 +380,7 @@ function Remove-ExternalIdentitySources {
         return
     } else {
         Remove-IdentitySource -IdentitySource $ExternalSource -ErrorAction Stop
-        Write-Output "Identity source $($ExternalIdentity.Name) removed."
+        Write-Output "Identity source $($ExternalSource.Name) removed."
     }
 }
 
@@ -423,7 +436,7 @@ function Add-GroupToCloudAdmins {
     }
 
     if ($null -eq $GroupToAdd) {
-        Write-Error "$GroupName was not found. Please ensure that the group is spelled correctly" -ErrorAction Stop
+        Write-Error "$GroupName was not found in $Domain. Please ensure that the group is spelled correctly" -ErrorAction Stop
     }
     else {
         Write-Host "Adding $GroupToAdd to CloudAdmins...."
@@ -434,9 +447,17 @@ function Add-GroupToCloudAdmins {
         Write-Error "Internal Error fetching CloudAdmins group. Contact support" -ErrorAction Stop
     }
 
-    Add-GroupToSsoGroup -Group $GroupToAdd -TargetGroup $CloudAdmins -ErrorAction Stop
+    try {
+        Add-GroupToSsoGroup -Group $GroupToAdd -TargetGroup $CloudAdmins
+    } catch {
+        $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
+        Write-Error "Unable to add group to CloudAdmins. It may already have been added. Error: $($PSItem.Exception.Message)"
+        Write-Error "Cloud Admin Members: $CloudAdminMembers" -ErrorAction Stop
+    }
+   
+    Write-Host "Successfully added $GroupName to CloudAdmins."
     $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
-    Write-Host "Cloud Admin Members: $CloudAdminMembers"
+    Write-Output "Cloud Admin Members: $CloudAdminMembers"
 }
 
 <#
@@ -491,10 +512,10 @@ function Remove-GroupFromCloudAdmins {
     }
 
     if ($null -eq $GroupToRemove) {
-        Write-Error "$GroupName was not found. Please ensure that the group is spelled correctly" -ErrorAction Stop
+        Write-Error "$GroupName was not found in $Domain. Please ensure that the group is spelled correctly" -ErrorAction Stop
     }
     else {
-        Write-Host "Adding $GroupToRemove to CloudAdmins...."
+        Write-Host "Removing $GroupToRemove from CloudAdmins...."
     }
 
     $CloudAdmins = Get-SsoGroup -Name 'CloudAdmins' -Domain 'vsphere.local'
@@ -502,10 +523,19 @@ function Remove-GroupFromCloudAdmins {
         Write-Error "Internal Error fetching CloudAdmins group. Contact support" -ErrorAction Stop
     }
 
-    Remove-GroupFromSsoGroup -Group $GroupToRemove -TargetGroup $CloudAdmins -ErrorAction Stop
+    try {
+        Remove-GroupFromSsoGroup -Group $GroupToRemove -TargetGroup $CloudAdmins 
+    } catch {
+        $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
+        Write-Error "Unable to remove group from CloudAdmins. Is it currently there?. Error: $($PSItem.Exception.Message)"
+        Write-Error "Cloud Admin Members: $CloudAdminMembers" -ErrorAction Stop
+    }
+    
+    Write-Information "Group $GroupName successfully removed from CloudAdmins."
     $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
-    Write-Host "Cloud Admin Members: $CloudAdminMembers"
+    Write-Output "Cloud Admin Members: $CloudAdminMembers"
 }
+
 
 <#
     .Synopsis
@@ -814,10 +844,18 @@ function Set-AvsVMStoragePolicy {
         [string]
         $VMName
     )
-    $storagepolicy = Get-SpbmStoragePolicy -Name $StoragePolicyName -ErrorAction Stop
+    Write-Host "Getting Storage Policy $StoragePolicyName"
+    $StoragePolicy = Get-SpbmStoragePolicy -Name $StoragePolicyName -ErrorAction Stop
+    if ($null -eq $StoragePolicy) {
+        Write-Error "Could not find Storage Policy with the name $StoragePolicyName" -ErrorAction Stop 
+    } 
+    $VM = Get-VM $VMName
+    if ($null -eq $VM) {
+        Write-Error "Could not find VM with the name: $VMName" -ErrorAction Stop
+    }
+    Write-Host "Setting VM $VMName's storage policy to $StoragePolicyName..."
     Set-VM $VMName -StoragePolicy $storagepolicy -SkipHardDisks -ErrorAction Stop -Confirm:$false
-    $vm = Get-VM $VMName
-    Write-Output $vm
+    Write-Output "Successfully set the storage policy on VM $VMName"
 }
 
 Export-ModuleMember -Function *
