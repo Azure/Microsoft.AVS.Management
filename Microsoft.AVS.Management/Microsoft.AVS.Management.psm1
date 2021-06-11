@@ -156,7 +156,7 @@ function New-AvsLDAPIdentitySource {
 
     if ($PSBoundParameters.ContainsKey('GroupName')) {
         Write-Host "GroupName passed in: $GroupName"
-        Add-GroupToCloudAdmins $GroupName -ErrorAction Stop
+        Add-GroupToCloudAdmins -GroupName $GroupName -ErrorAction Stop
     }
 }
 
@@ -334,7 +334,7 @@ function New-AvsLDAPSIdentitySource {
 
     if ($PSBoundParameters.ContainsKey('GroupName')) {
         Write-Host "GroupName passed in: $GroupName"
-        Add-GroupToCloudAdmins $GroupName -ErrorAction Stop
+        Add-GroupToCloudAdmins -GroupName $GroupName -ErrorAction Stop
     }
 }
 
@@ -349,21 +349,9 @@ function Get-ExternalIdentitySources {
     if ($null -eq $ExternalSource) {
         Write-Host "No external identity sources found."
         return
-    } else {
-        Write-Information 'Write-Information $ExternalSource'
-        Write-Information $ExternalSource
-        Write-Information 'Write-Information "External Source: $ExternalSource"'
-        Write-Information "External Source: $ExternalSource"
-        Write-Information '$ExternalSource | Format-Table'
-        $ExternalSource | Format-Table
-        Write-Information '$ExternalSource | Format-Table | Out-String'
-        $ExternalSource | Format-Table | Out-String 
-        Write-Information '$ExternalSource | Format-List'
-        $ExternalSource | Format-List
-        Write-Information '$ExternalSource | Format-List | Out-String'
+    }
+    else {
         $ExternalSource | Format-List | Out-String 
-        Write-Information 'Identity Source {0}@{1}, $ExternalSource.Name, $ExternalSource.DomainName'
-        Write-Information "Identity Source {0}@{1}", $ExternalSource.Name, $ExternalSource.DomainName
     }
 }
 
@@ -378,7 +366,8 @@ function Remove-ExternalIdentitySources {
     if ($null -eq $ExternalSource) {
         Write-Host "No external identity sources found to remove. Nothing done"
         return
-    } else {
+    }
+    else {
         Remove-IdentitySource -IdentitySource $ExternalSource -ErrorAction Stop
         Write-Output "Identity source $($ExternalSource.Name) removed."
     }
@@ -448,8 +437,9 @@ function Add-GroupToCloudAdmins {
     }
 
     try {
-        Add-GroupToSsoGroup -Group $GroupToAdd -TargetGroup $CloudAdmins
-    } catch {
+        Add-GroupToSsoGroup -Group $GroupToAdd -TargetGroup $CloudAdmins -ErrorAction Stop
+    }
+    catch {
         $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
         Write-Error "Unable to add group to CloudAdmins. It may already have been added. Error: $($PSItem.Exception.Message)"
         Write-Error "Cloud Admin Members: $CloudAdminMembers" -ErrorAction Stop
@@ -524,10 +514,11 @@ function Remove-GroupFromCloudAdmins {
     }
 
     try {
-        Remove-GroupFromSsoGroup -Group $GroupToRemove -TargetGroup $CloudAdmins 
-    } catch {
+        Remove-GroupFromSsoGroup -Group $GroupToRemove -TargetGroup $CloudAdmins -ErrorAction Stop
+    }
+    catch {
         $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
-        Write-Error "Unable to remove group from CloudAdmins. Is it currently there?. Error: $($PSItem.Exception.Message)"
+        Write-Error "Unable to remove group from CloudAdmins. Error: $($PSItem.Exception.Message)"
         Write-Error "Cloud Admin Members: $CloudAdminMembers" -ErrorAction Stop
     }
     
@@ -853,8 +844,8 @@ function Set-AvsVMStoragePolicy {
     if ($null -eq $VM) {
         Write-Error "Could not find VM with the name: $VMName" -ErrorAction Stop
     }
-    Write-Host "Setting VM $VMName's storage policy to $StoragePolicyName..."
-    Set-VM $VMName -StoragePolicy $storagepolicy -SkipHardDisks -ErrorAction Stop -Confirm:$false
+    Write-Host "Setting VM $VMName storage policy to $StoragePolicyName..."
+    Set-VM -VM $VM -StoragePolicy $StoragePolicy -SkipHardDisks -ErrorAction Stop -Confirm:$false
     Write-Output "Successfully set the storage policy on VM $VMName"
 }
 
