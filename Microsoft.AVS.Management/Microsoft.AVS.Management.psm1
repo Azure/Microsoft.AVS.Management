@@ -152,7 +152,7 @@ function New-AvsLDAPIdentitySource {
         -Password $Password `
         -ServerType 'ActiveDirectory' -ErrorAction Stop
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
-    Write-Output $ExternalIdentitySources
+    $ExternalIdentitySources | Format-List | Out-String
 
     if ($PSBoundParameters.ContainsKey('GroupName')) {
         Write-Host "GroupName passed in: $GroupName"
@@ -330,7 +330,7 @@ function New-AvsLDAPSIdentitySource {
         -ServerType 'ActiveDirectory' `
         -Certificates $DestinationFileArray -ErrorAction Stop
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
-    Write-Output $ExternalIdentitySources
+    $ExternalIdentitySources | Format-List | Out-String
 
     if ($PSBoundParameters.ContainsKey('GroupName')) {
         Write-Host "GroupName passed in: $GroupName"
@@ -441,8 +441,8 @@ function Add-GroupToCloudAdmins {
     }
     catch {
         $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
-        Write-Error "Unable to add group to CloudAdmins. It may already have been added. Error: $($PSItem.Exception.Message)"
-        Write-Error "Cloud Admin Members: $CloudAdminMembers" -ErrorAction Stop
+        Write-Warning "Cloud Admin Members: $CloudAdminMembers"
+        Write-Error "Unable to add group to CloudAdmins. It may already have been added. Error: $($PSItem.Exception.Message)" -ErrorAction Stop
     }
    
     Write-Host "Successfully added $GroupName to CloudAdmins."
@@ -518,8 +518,8 @@ function Remove-GroupFromCloudAdmins {
     }
     catch {
         $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
-        Write-Error "Unable to remove group from CloudAdmins. Error: $($PSItem.Exception.Message)"
-        Write-Error "Cloud Admin Members: $CloudAdminMembers" -ErrorAction Stop
+        Write-Warning "Cloud Admin Members: $CloudAdminMembers" 
+        Write-Error "Unable to remove group from CloudAdmins. Error: $($PSItem.Exception.Message)" -ErrorAction Stop
     }
     
     Write-Information "Group $GroupName successfully removed from CloudAdmins."
@@ -846,7 +846,7 @@ function Set-AvsVMStoragePolicy {
     }
     Write-Host "Setting VM $VMName storage policy to $StoragePolicyName..."
     Set-VM -VM $VM -StoragePolicy $StoragePolicy -SkipHardDisks -ErrorAction Stop -Confirm:$false
-    Write-Output "Successfully set the storage policy on VM $VMName"
+    Write-Output "Successfully set the storage policy on VM $VMName to $StoragePolicyName"
 }
 
 Export-ModuleMember -Function *
