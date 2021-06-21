@@ -141,11 +141,16 @@ function New-AvsLDAPIdentitySource {
     )
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     if ($null -ne $ExternalIdentitySources) {
-        Write-Host "$DomainName -eq $($ExternalIdentitySources.Name)"
+        Write-Host "Checking to see if identity source already exists..."
         if ($DomainName -eq $($ExternalIdentitySource.Name)) {
-            Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If trying to add a group, use Add-GroupToCloudAdmins" -ErrorAction Continue
+            Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Continue
             Write-Error $($ExternalIdentitySources | Format-List | Out-String) -ErrorAction Stop
+        } else {
+            Write-Warning "Identity source already exists, but has a different name. Continuing..."
+            Write-Warning "$($ExternalIdentitySources | Format-List | Out-String)"
         }
+    } else {
+        Write-Host "No existing external identity sources found."
     }
 
     $Password = $Credential.GetNetworkCredential().Password
@@ -297,11 +302,16 @@ function New-AvsLDAPSIdentitySource {
     )
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     if ($null -ne $ExternalIdentitySources) {
-        Write-Host "$DomainName -eq $($ExternalIdentitySources.Name)"
+        Write-Host "Checking to see if identity source already exists..."
         if ($DomainName -eq $($ExternalIdentitySource.Name)) {
-            Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If trying to add a group, use Add-GroupToCloudAdmins" -ErrorAction Continue
+            Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Continue
             Write-Error $($ExternalIdentitySources | Format-List | Out-String) -ErrorAction Stop
+        } else {
+            Write-Warning "Identity source already exists, but has a different name. Continuing..."
+            Write-Warning "$($ExternalIdentitySources | Format-List | Out-String)"
         }
+    } else {
+        Write-Host "No existing external identity sources found."
     }
 
     $Password = $Credential.GetNetworkCredential().Password
@@ -311,7 +321,6 @@ function New-AvsLDAPSIdentitySource {
     Write-Host "Number of Certs passed $($CertificatesSASList.count)"
     if ($CertificatesSASList.count -eq 0) {
         Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate" -ErrorAction Stop
-        return "Failed to add LDAPS source"
     }
     $DestinationFileArray = @()
     $Index = 1
@@ -329,7 +338,7 @@ function New-AvsLDAPSIdentitySource {
         catch {
             Write-Error "Stack Trace: $($PSItem.Exception.StackTrace)" -ErrorAction Continue
             Write-Error "InnerException: $($PSItem.Exception.InnerException)" -ErrorAction Continue
-            Write-Warning "Ensure the SAS string is still valid" -ErrorAction Continue
+            Write-Error "Ensure the SAS string is still valid" -ErrorAction Continue
             Write-Error $PSItem.Exception.Message -ErrorAction Continue
             Write-Error "Failed to download certificate ($Index-1)" -ErrorAction Stop
         }
@@ -508,7 +517,7 @@ function Remove-GroupFromCloudAdmins {
     }
     
     if ($null -eq $ExternalSource -or $null -eq $Domain) {
-        Write-Error "No external identity source found $Domain. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
+        Write-Error "No external identity source found: $Domain. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
     }
     else {
         Write-Host "Searching $($ExternalSource.Name) for $GroupName...."
