@@ -139,6 +139,15 @@ function New-AvsLDAPIdentitySource {
         [string]
         $GroupName
     )
+    $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
+    if ($null -ne $ExternalIdentitySources) {
+        Write-Host "$DomainName -eq $($ExternalIdentitySources.Name)"
+        if ($DomainName -eq $($ExternalIdentitySource.Name)) {
+            Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If trying to add a group, use Add-GroupToCloudAdmins" -ErrorAction Continue
+            Write-Error $($ExternalIdentitySources | Format-List | Out-String) -ErrorAction Stop
+        }
+    }
+
     $Password = $Credential.GetNetworkCredential().Password
     Add-LDAPIdentitySource `
         -Name $Name `
@@ -156,6 +165,7 @@ function New-AvsLDAPIdentitySource {
 
     if ($PSBoundParameters.ContainsKey('GroupName')) {
         Write-Host "GroupName passed in: $GroupName"
+        Write-Host "Attempting to add group $GroupName to CloudAdmins..."
         Add-GroupToCloudAdmins -GroupName $GroupName -ErrorAction Stop
     }
 }
@@ -285,6 +295,15 @@ function New-AvsLDAPSIdentitySource {
         $GroupName
         
     )
+    $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
+    if ($null -ne $ExternalIdentitySources) {
+        Write-Host "$DomainName -eq $($ExternalIdentitySources.Name)"
+        if ($DomainName -eq $($ExternalIdentitySource.Name)) {
+            Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If trying to add a group, use Add-GroupToCloudAdmins" -ErrorAction Continue
+            Write-Error $($ExternalIdentitySources | Format-List | Out-String) -ErrorAction Stop
+        }
+    }
+
     $Password = $Credential.GetNetworkCredential().Password
     [string] $CertificatesSASPlainString = ConvertFrom-SecureString -SecureString $CertificatesSAS -AsPlainText
     [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
@@ -308,10 +327,10 @@ function New-AvsLDAPSIdentitySource {
             $DestinationFileArray += $CertLocation
         }
         catch {
-            Write-Error "Stack Trace: $($PSItem.Exception.StackTrace)"
-            Write-Error "InnerException: $($PSItem.Exception.InnerException)" 
-            Write-Warning "Ensure the SAS string is still valid"
-            Write-Error $PSItem.Exception.Message
+            Write-Error "Stack Trace: $($PSItem.Exception.StackTrace)" -ErrorAction Continue
+            Write-Error "InnerException: $($PSItem.Exception.InnerException)" -ErrorAction Continue
+            Write-Warning "Ensure the SAS string is still valid" -ErrorAction Continue
+            Write-Error $PSItem.Exception.Message -ErrorAction Continue
             Write-Error "Failed to download certificate ($Index-1)" -ErrorAction Stop
         }
     }
@@ -334,6 +353,7 @@ function New-AvsLDAPSIdentitySource {
 
     if ($PSBoundParameters.ContainsKey('GroupName')) {
         Write-Host "GroupName passed in: $GroupName"
+        Write-Host "Attempting to add group $GroupName to CloudAdmins..."
         Add-GroupToCloudAdmins -GroupName $GroupName -ErrorAction Stop
     }
 }
@@ -405,7 +425,7 @@ function Add-GroupToCloudAdmins {
         $Domain = $ExternalSource.Name
     }
     catch {
-        Write-Error $PSItem.Exception.Message
+        Write-Error $PSItem.Exception.Message -ErrorAction Continue
         Write-Error "Unable to get external identity source" -ErrorAction Stop
     }
     
@@ -420,7 +440,7 @@ function Add-GroupToCloudAdmins {
         $GroupToAdd = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop 
     }
     catch {
-        Write-Error $PSItem.Exception.Message
+        Write-Error $PSItem.Exception.Message -ErrorAction Continue
         Write-Error "Unable to get group $GroupName from $Domain" -ErrorAction Stop
     }
 
@@ -437,11 +457,12 @@ function Add-GroupToCloudAdmins {
     }
 
     try {
+        Write-Host "Adding group $GroupName to CloudAdmins..."
         Add-GroupToSsoGroup -Group $GroupToAdd -TargetGroup $CloudAdmins -ErrorAction Stop
     }
     catch {
         $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
-        Write-Warning "Cloud Admin Members: $CloudAdminMembers"
+        Write-Error "Cloud Admin Members: $CloudAdminMembers" -ErrorAction Continue
         Write-Error "Unable to add group to CloudAdmins. It may already have been added. Error: $($PSItem.Exception.Message)" -ErrorAction Stop
     }
    
@@ -482,7 +503,7 @@ function Remove-GroupFromCloudAdmins {
         $Domain = $ExternalSource.Name
     }
     catch {
-        Write-Error $PSItem.Exception.Message
+        Write-Error $PSItem.Exception.Message -ErrorAction Continue
         Write-Error "Unable to get external identity source" -ErrorAction Stop
     }
     
@@ -497,7 +518,7 @@ function Remove-GroupFromCloudAdmins {
         $GroupToRemove = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop 
     }
     catch {
-        Write-Error $PSItem.Exception.Message
+        Write-Error $PSItem.Exception.Message -ErrorAction Continue
         Write-Error "Unable to get group $GroupName from $Domain" -ErrorAction Stop
     }
 
@@ -518,13 +539,13 @@ function Remove-GroupFromCloudAdmins {
     }
     catch {
         $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
-        Write-Warning "Cloud Admin Members: $CloudAdminMembers" 
-        Write-Error "Unable to remove group from CloudAdmins. Error: $($PSItem.Exception.Message)" -ErrorAction Stop
+        Write-Error "Current Cloud Admin Members: $CloudAdminMembers" -ErrorAction Continue
+        Write-Error "Unable to remove group from CloudAdmins. Is it already there? Error: $($PSItem.Exception.Message)" -ErrorAction Stop
     }
     
     Write-Information "Group $GroupName successfully removed from CloudAdmins."
     $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
-    Write-Output "Cloud Admin Members: $CloudAdminMembers"
+    Write-Output "Current Cloud Admin Members: $CloudAdminMembers"
 }
 
 
