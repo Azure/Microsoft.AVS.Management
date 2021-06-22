@@ -145,11 +145,13 @@ function New-AvsLDAPIdentitySource {
         if ($DomainName -eq $($ExternalIdentitySource.Name)) {
             Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Continue
             Write-Error $($ExternalIdentitySources | Format-List | Out-String) -ErrorAction Stop
-        } else {
+        }
+        else {
             Write-Warning "Identity source already exists, but has a different name. Continuing..."
             Write-Warning "$($ExternalIdentitySources | Format-List | Out-String)"
         }
-    } else {
+    }
+    else {
         Write-Host "No existing external identity sources found."
     }
 
@@ -306,11 +308,13 @@ function New-AvsLDAPSIdentitySource {
         if ($DomainName -eq $($ExternalIdentitySource.Name)) {
             Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Continue
             Write-Error $($ExternalIdentitySources | Format-List | Out-String) -ErrorAction Stop
-        } else {
+        }
+        else {
             Write-Warning "Identity source already exists, but has a different name. Continuing..."
             Write-Warning "$($ExternalIdentitySources | Format-List | Out-String)"
         }
-    } else {
+    }
+    else {
         Write-Host "No existing external identity sources found."
     }
 
@@ -829,6 +833,30 @@ function Set-AvsDrsElevationRule {
     }
     Else {
         Write-Output "No parameters passed. Nothing done. Possible configuration parameters include -Enabled and -NewName"
+    }
+}
+
+<#
+    .Synopsis
+     Gets all the storage policies available to set on a VM 
+#>
+function Get-StoragePolicies {
+    [AVSAttribute(3, UpdatesSDDC = $False)]
+    
+    $StoragePolicies
+    try {
+        $StoragePolicies = Get-SpbmStoragePolicy -ErrorAction Stop
+    }
+    catch {
+        Write-Error $PSItem.Exception.Message -ErrorAction Continue
+        Write-Error "Unable to get storage policies" -ErrorAction Stop
+    }
+    if ($null -eq $StoragePolicies) {
+        Write-Host "Could not find any storage policies." 
+    }
+    else {
+        Write-Output "Available Storage Policies:"
+        $StoragePolicies | Format-List | Out-String
     }
 }
   
