@@ -380,7 +380,7 @@ function Get-ExternalIdentitySources {
 
     $ExternalSource = Get-IdentitySource -External
     if ($null -eq $ExternalSource) {
-        Write-Host "No external identity sources found."
+        Write-Output "No external identity sources found."
         return
     }
     else {
@@ -397,7 +397,7 @@ function Remove-ExternalIdentitySources {
 
     $ExternalSource = Get-IdentitySource -External
     if ($null -eq $ExternalSource) {
-        Write-Host "No external identity sources found to remove. Nothing done"
+        Write-Output "No external identity sources found to remove. Nothing done"
         return
     }
     else {
@@ -900,10 +900,16 @@ function Set-AvsVMStoragePolicy {
     } 
     $VM = Get-VM $VMName
     if ($null -eq $VM) {
-        Write-Error "Could not find VM with the name: $VMName" -ErrorAction Stop
+        Write-Error "Was not able to set the storage policy on the VM. Could not find VM with the name: $VMName" -ErrorAction Stop
     }
     Write-Host "Setting VM $VMName storage policy to $StoragePolicyName..."
-    Set-VM -VM $VM -StoragePolicy $StoragePolicy -SkipHardDisks -ErrorAction Stop -Confirm:$false
+    try {
+        Set-VM -VM $VM -StoragePolicy $StoragePolicy -SkipHardDisks -ErrorAction Stop -Confirm:$false
+    } catch [VMware.VimAutomation.ViCore.Types.V1.ErrorHandling.InvalidVmConfig] {
+        Write-Error "The selected storage policy $($StoragePolicy.Name) is not compatible with this VM. You may need more hosts: $($PSItem.Exception.Message)" -ErrorAction Stop
+    } catch {
+        Write-Error "Was not able to set the storage policy on the VM: $($PSItem.Exception.Message)" -ErrorAction Stop
+    }
     Write-Output "Successfully set the storage policy on VM $VMName to $StoragePolicyName"
 }
 
