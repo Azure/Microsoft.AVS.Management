@@ -326,6 +326,9 @@ function New-AvsLDAPSIdentitySource {
     if ($CertificatesSASList.count -eq 0) {
         Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate" -ErrorAction Stop
     }
+    if ($null -ne $SecondaryUrl -and $CertificatesSASList.count -lt 2) {
+        Write-Error "If passing in a secondary/fallback URL, ensure that at least two certificates are passed." -ErrorAction Stop
+    }
     $DestinationFileArray = @()
     $Index = 1
     foreach ($CertSas in $CertificatesSASList) {
@@ -441,7 +444,7 @@ function Add-GroupToCloudAdmins {
     }
     
     if ($null -eq $ExternalSource -or $null -eq $Domain) {
-        Write-Error "No external identity source found $Domain. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
+        Write-Error "No external identity source found: $Domain. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
     }
     else {
         Write-Host "Searching $($ExternalSource.Name) for $GroupName...."
