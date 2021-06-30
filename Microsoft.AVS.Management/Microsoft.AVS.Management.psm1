@@ -52,7 +52,7 @@ class AVSAttribute : Attribute {
      Credential to login to the LDAP server (NOT cloudAdmin) in the form of a username/password credential
 
     .Parameter GroupName
-     A group in the external identity source to give CloudAdmins access to
+     A group in the external identity source to give CloudAdmins access to formatted in the short version - i.e. group-to-give-access
 
     .Example 
     # Add the domain server named "myserver.local" to vCenter
@@ -142,13 +142,13 @@ function New-AvsLDAPIdentitySource {
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     if ($null -ne $ExternalIdentitySources) {
         Write-Host "Checking to see if identity source already exists..."
-        if ($DomainName -eq $($ExternalIdentitySource.Name)) {
+        if ($DomainName.trim() -eq $($ExternalIdentitySources.Name.trim())) {
             Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Continue
             Write-Error $($ExternalIdentitySources | Format-List | Out-String) -ErrorAction Stop
         }
         else {
-            Write-Warning "Identity source already exists, but has a different name. Continuing..."
             Write-Warning "$($ExternalIdentitySources | Format-List | Out-String)"
+            Write-Warning "Identity source already exists, but has a different name. Continuing..."
         }
     }
     else {
@@ -209,7 +209,7 @@ function New-AvsLDAPIdentitySource {
      An array of Shared Access Signature strings to the certificates required to connect to the external active directory, if using LDAPS
 
     .Parameter GroupName
-     A group in the external identity source to give CloudAdmins access to
+     A group in the external identity source to give CloudAdmins access to formatted in the short version - i.e. group-to-give-access
 
     .Example 
     # Add the domain server named "myserver.local" to vCenter
@@ -305,13 +305,13 @@ function New-AvsLDAPSIdentitySource {
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     if ($null -ne $ExternalIdentitySources) {
         Write-Host "Checking to see if identity source already exists..."
-        if ($DomainName -eq $($ExternalIdentitySource.Name)) {
+        if ($DomainName.trim() -eq $($ExternalIdentitySources.Name.trim())) {
             Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Continue
             Write-Error $($ExternalIdentitySources | Format-List | Out-String) -ErrorAction Stop
         }
         else {
-            Write-Warning "Identity source already exists, but has a different name. Continuing..."
             Write-Warning "$($ExternalIdentitySources | Format-List | Out-String)"
+            Write-Warning "Identity source already exists, but has a different name. Continuing..."
         }
     }
     else {
