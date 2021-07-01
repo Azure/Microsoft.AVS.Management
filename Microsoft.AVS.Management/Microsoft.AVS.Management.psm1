@@ -52,7 +52,7 @@ class AVSAttribute : Attribute {
      Credential to login to the LDAP server (NOT cloudAdmin) in the form of a username/password credential
 
     .Parameter GroupName
-     A group in the external identity source to give CloudAdmins access to
+     A group in the external identity source to give CloudAdmins access to formatted in the short version - i.e. group-to-give-access
 
     .Example 
     # Add the domain server named "myserver.local" to vCenter
@@ -139,6 +139,22 @@ function New-AvsLDAPIdentitySource {
         [string]
         $GroupName
     )
+    $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
+    if ($null -ne $ExternalIdentitySources) {
+        Write-Host "Checking to see if identity source already exists..."
+        if ($DomainName.trim() -eq $($ExternalIdentitySources.Name.trim())) {
+            Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Continue
+            Write-Error $($ExternalIdentitySources | Format-List | Out-String) -ErrorAction Stop
+        }
+        else {
+            Write-Warning "$($ExternalIdentitySources | Format-List | Out-String)"
+            Write-Warning "Identity source already exists, but has a different name. Continuing..."
+        }
+    }
+    else {
+        Write-Host "No existing external identity sources found."
+    }
+
     $Password = $Credential.GetNetworkCredential().Password
     Add-LDAPIdentitySource `
         -Name $Name `
@@ -156,6 +172,7 @@ function New-AvsLDAPIdentitySource {
 
     if ($PSBoundParameters.ContainsKey('GroupName')) {
         Write-Host "GroupName passed in: $GroupName"
+        Write-Host "Attempting to add group $GroupName to CloudAdmins..."
         Add-GroupToCloudAdmins -GroupName $GroupName -ErrorAction Stop
     }
 }
@@ -192,7 +209,7 @@ function New-AvsLDAPIdentitySource {
      An array of Shared Access Signature strings to the certificates required to connect to the external active directory, if using LDAPS
 
     .Parameter GroupName
-     A group in the external identity source to give CloudAdmins access to
+     A group in the external identity source to give CloudAdmins access to formatted in the short version - i.e. group-to-give-access
 
     .Example 
     # Add the domain server named "myserver.local" to vCenter
@@ -285,6 +302,22 @@ function New-AvsLDAPSIdentitySource {
         $GroupName
         
     )
+    $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
+    if ($null -ne $ExternalIdentitySources) {
+        Write-Host "Checking to see if identity source already exists..."
+        if ($DomainName.trim() -eq $($ExternalIdentitySources.Name.trim())) {
+            Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Continue
+            Write-Error $($ExternalIdentitySources | Format-List | Out-String) -ErrorAction Stop
+        }
+        else {
+            Write-Warning "$($ExternalIdentitySources | Format-List | Out-String)"
+            Write-Warning "Identity source already exists, but has a different name. Continuing..."
+        }
+    }
+    else {
+        Write-Host "No existing external identity sources found."
+    }
+
     $Password = $Credential.GetNetworkCredential().Password
     [string] $CertificatesSASPlainString = ConvertFrom-SecureString -SecureString $CertificatesSAS -AsPlainText
     [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
@@ -292,7 +325,9 @@ function New-AvsLDAPSIdentitySource {
     Write-Host "Number of Certs passed $($CertificatesSASList.count)"
     if ($CertificatesSASList.count -eq 0) {
         Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate" -ErrorAction Stop
-        return "Failed to add LDAPS source"
+    }
+    if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and $CertificatesSASList.count -lt 2) {
+        Write-Error "If passing in a secondary/fallback URL, ensure that at least two certificates are passed." -ErrorAction Stop
     }
     $DestinationFileArray = @()
     $Index = 1
@@ -308,10 +343,8 @@ function New-AvsLDAPSIdentitySource {
             $DestinationFileArray += $CertLocation
         }
         catch {
-            Write-Error "Stack Trace: $($PSItem.Exception.StackTrace)"
-            Write-Error "InnerException: $($PSItem.Exception.InnerException)" 
-            Write-Warning "Ensure the SAS string is still valid"
-            Write-Error $PSItem.Exception.Message
+            Write-Error "Ensure the SAS string [$CertSAS] is still valid" -ErrorAction Continue
+            Write-Error $PSItem.Exception.Message -ErrorAction Continue
             Write-Error "Failed to download certificate ($Index-1)" -ErrorAction Stop
         }
     }
@@ -334,6 +367,7 @@ function New-AvsLDAPSIdentitySource {
 
     if ($PSBoundParameters.ContainsKey('GroupName')) {
         Write-Host "GroupName passed in: $GroupName"
+        Write-Host "Attempting to add group $GroupName to CloudAdmins..."
         Add-GroupToCloudAdmins -GroupName $GroupName -ErrorAction Stop
     }
 }
@@ -347,7 +381,7 @@ function Get-ExternalIdentitySources {
 
     $ExternalSource = Get-IdentitySource -External
     if ($null -eq $ExternalSource) {
-        Write-Host "No external identity sources found."
+        Write-Output "No external identity sources found."
         return
     }
     else {
@@ -364,7 +398,7 @@ function Remove-ExternalIdentitySources {
 
     $ExternalSource = Get-IdentitySource -External
     if ($null -eq $ExternalSource) {
-        Write-Host "No external identity sources found to remove. Nothing done"
+        Write-Output "No external identity sources found to remove. Nothing done"
         return
     }
     else {
@@ -405,12 +439,12 @@ function Add-GroupToCloudAdmins {
         $Domain = $ExternalSource.Name
     }
     catch {
-        Write-Error $PSItem.Exception.Message
+        Write-Error $PSItem.Exception.Message -ErrorAction Continue
         Write-Error "Unable to get external identity source" -ErrorAction Stop
     }
     
     if ($null -eq $ExternalSource -or $null -eq $Domain) {
-        Write-Error "No external identity source found $Domain. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
+        Write-Error "No external identity source found: $Domain. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
     }
     else {
         Write-Host "Searching $($ExternalSource.Name) for $GroupName...."
@@ -420,7 +454,7 @@ function Add-GroupToCloudAdmins {
         $GroupToAdd = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop 
     }
     catch {
-        Write-Error $PSItem.Exception.Message
+        Write-Error $PSItem.Exception.Message -ErrorAction Continue
         Write-Error "Unable to get group $GroupName from $Domain" -ErrorAction Stop
     }
 
@@ -437,11 +471,12 @@ function Add-GroupToCloudAdmins {
     }
 
     try {
+        Write-Host "Adding group $GroupName to CloudAdmins..."
         Add-GroupToSsoGroup -Group $GroupToAdd -TargetGroup $CloudAdmins -ErrorAction Stop
     }
     catch {
         $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
-        Write-Warning "Cloud Admin Members: $CloudAdminMembers"
+        Write-Error "Cloud Admin Members: $CloudAdminMembers" -ErrorAction Continue
         Write-Error "Unable to add group to CloudAdmins. It may already have been added. Error: $($PSItem.Exception.Message)" -ErrorAction Stop
     }
    
@@ -482,12 +517,12 @@ function Remove-GroupFromCloudAdmins {
         $Domain = $ExternalSource.Name
     }
     catch {
-        Write-Error $PSItem.Exception.Message
+        Write-Error $PSItem.Exception.Message -ErrorAction Continue
         Write-Error "Unable to get external identity source" -ErrorAction Stop
     }
     
     if ($null -eq $ExternalSource -or $null -eq $Domain) {
-        Write-Error "No external identity source found $Domain. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
+        Write-Error "No external identity source found: $Domain. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
     }
     else {
         Write-Host "Searching $($ExternalSource.Name) for $GroupName...."
@@ -497,7 +532,7 @@ function Remove-GroupFromCloudAdmins {
         $GroupToRemove = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop 
     }
     catch {
-        Write-Error $PSItem.Exception.Message
+        Write-Error $PSItem.Exception.Message -ErrorAction Continue
         Write-Error "Unable to get group $GroupName from $Domain" -ErrorAction Stop
     }
 
@@ -518,13 +553,13 @@ function Remove-GroupFromCloudAdmins {
     }
     catch {
         $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
-        Write-Warning "Cloud Admin Members: $CloudAdminMembers" 
-        Write-Error "Unable to remove group from CloudAdmins. Error: $($PSItem.Exception.Message)" -ErrorAction Stop
+        Write-Error "Current Cloud Admin Members: $CloudAdminMembers" -ErrorAction Continue
+        Write-Error "Unable to remove group from CloudAdmins. Is it already there? Error: $($PSItem.Exception.Message)" -ErrorAction Stop
     }
     
     Write-Information "Group $GroupName successfully removed from CloudAdmins."
     $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
-    Write-Output "Cloud Admin Members: $CloudAdminMembers"
+    Write-Output "Current Cloud Admin Members: $CloudAdminMembers"
 }
 
 
@@ -801,6 +836,30 @@ function Set-AvsDrsElevationRule {
         Write-Output "No parameters passed. Nothing done. Possible configuration parameters include -Enabled and -NewName"
     }
 }
+
+<#
+    .Synopsis
+     Gets all the storage policies available to set on a VM 
+#>
+function Get-StoragePolicies {
+    [AVSAttribute(3, UpdatesSDDC = $False)]
+    
+    $StoragePolicies
+    try {
+        $StoragePolicies = Get-SpbmStoragePolicy -ErrorAction Stop
+    }
+    catch {
+        Write-Error $PSItem.Exception.Message -ErrorAction Continue
+        Write-Error "Unable to get storage policies" -ErrorAction Stop
+    }
+    if ($null -eq $StoragePolicies) {
+        Write-Host "Could not find any storage policies." 
+    }
+    else {
+        Write-Output "Available Storage Policies:"
+        $StoragePolicies | Format-List | Out-String
+    }
+}
   
 <#
     .Synopsis
@@ -842,10 +901,16 @@ function Set-AvsVMStoragePolicy {
     } 
     $VM = Get-VM $VMName
     if ($null -eq $VM) {
-        Write-Error "Could not find VM with the name: $VMName" -ErrorAction Stop
+        Write-Error "Was not able to set the storage policy on the VM. Could not find VM with the name: $VMName" -ErrorAction Stop
     }
     Write-Host "Setting VM $VMName storage policy to $StoragePolicyName..."
-    Set-VM -VM $VM -StoragePolicy $StoragePolicy -SkipHardDisks -ErrorAction Stop -Confirm:$false
+    try {
+        Set-VM -VM $VM -StoragePolicy $StoragePolicy -SkipHardDisks -ErrorAction Stop -Confirm:$false
+    } catch [VMware.VimAutomation.ViCore.Types.V1.ErrorHandling.InvalidVmConfig] {
+        Write-Error "The selected storage policy $($StoragePolicy.Name) is not compatible with this VM. You may need more hosts: $($PSItem.Exception.Message)" -ErrorAction Stop
+    } catch {
+        Write-Error "Was not able to set the storage policy on the VM: $($PSItem.Exception.Message)" -ErrorAction Stop
+    }
     Write-Output "Successfully set the storage policy on VM $VMName to $StoragePolicyName"
 }
 
