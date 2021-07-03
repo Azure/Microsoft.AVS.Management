@@ -156,6 +156,7 @@ function New-AvsLDAPIdentitySource {
     }
 
     $Password = $Credential.GetNetworkCredential().Password
+    Write-Host "Adding $DomainName..."
     Add-LDAPIdentitySource `
         -Name $Name `
         -DomainName $DomainName `
