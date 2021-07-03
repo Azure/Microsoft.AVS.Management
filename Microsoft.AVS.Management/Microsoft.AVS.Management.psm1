@@ -701,7 +701,7 @@ function Remove-GroupFromCloudAdmins {
     catch {
         $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
         Write-Error "Current Cloud Admin Members: $CloudAdminMembers" -ErrorAction Continue
-        Write-Error "Unable to remove group from CloudAdmins. Is it already there? Error: $($PSItem.Exception.Message)" -ErrorAction Stop
+        Write-Error "Unable to remove group from CloudAdmins. Is it there at all? Error: $($PSItem.Exception.Message)" -ErrorAction Stop
     }
     
     Write-Information "Group $GroupName successfully removed from CloudAdmins."
