@@ -86,28 +86,22 @@ function New-AvsLDAPIdentitySource {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
-        [ValidateScript( {
-                if ($_ -match 'ldap:.*((389)|(636)|(3268)(3269))') {
-                    $true
-                }
-                else {
-                    Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap:" -ErrorAction Stop
-                }
-            })]
+            [ValidateScript({
+                $_ -match 'ldap://.*((389)|(636)|(3268)(3269))'
+            },
+            ErrorMessage = "{0} is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap://"
+            )]
         [string]
         $PrimaryUrl,
 
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'Optional: URL of a backup server')]
-        [ValidateScript( {
-                if ($_ -match 'ldap:.*((389)|(636)|(3268)(3269))') {
-                    $true
-                }
-                else {
-                    Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap:" -ErrorAction Stop
-                }
-            })]
+            [ValidateScript({
+                $_ -match 'ldap://.*((389)|(636)|(3268)(3269))'
+            },
+            ErrorMessage = "{0} is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap://"
+            )]
         [string]
         $SecondaryUrl,
 
@@ -244,28 +238,22 @@ function New-AvsLDAPSIdentitySource {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
-        [ValidateScript( {
-                if ($_ -match 'ldaps:.*((389)|(636)|(3268)(3269))') {
-                    $true
-                }
-                else {
-                    Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps:" -ErrorAction Stop
-                }
-            })]
+            [ValidateScript({
+                $_ -match 'ldaps://.*((389)|(636)|(3268)(3269))'
+            },
+            ErrorMessage = "{0} is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps://"
+            )]
         [string]
         $PrimaryUrl,
-  
+
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'Optional: URL of a backup server')]
-        [ValidateScript( {
-                if ($_ -match 'ldaps:.*((389)|(636)|(3268)(3269))') {
-                    $true
-                }
-                else {
-                    Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps:" -ErrorAction Stop
-                }
-            })]
+            [ValidateScript({
+                $_ -match 'ldaps://.*((389)|(636)|(3268)(3269))'
+            },
+            ErrorMessage = "{0} is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps://"
+            )]
         [string]
         $SecondaryUrl,
   
