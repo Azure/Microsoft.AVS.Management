@@ -156,6 +156,7 @@ function New-AvsLDAPIdentitySource {
     }
 
     $Password = $Credential.GetNetworkCredential().Password
+    Write-Host "Adding $DomainName..."
     Add-LDAPIdentitySource `
         -Name $Name `
         -DomainName $DomainName `
@@ -173,7 +174,7 @@ function New-AvsLDAPIdentitySource {
     if ($PSBoundParameters.ContainsKey('GroupName')) {
         Write-Host "GroupName passed in: $GroupName"
         Write-Host "Attempting to add group $GroupName to CloudAdmins..."
-        Add-GroupToCloudAdmins -GroupName $GroupName -ErrorAction Stop
+        Add-GroupToCloudAdmins -GroupName $GroupName -Domain $DomainName -ErrorAction Stop
     }
 }
 
@@ -368,13 +369,13 @@ function New-AvsLDAPSIdentitySource {
     if ($PSBoundParameters.ContainsKey('GroupName')) {
         Write-Host "GroupName passed in: $GroupName"
         Write-Host "Attempting to add group $GroupName to CloudAdmins..."
-        Add-GroupToCloudAdmins -GroupName $GroupName -ErrorAction Stop
+        Add-GroupToCloudAdmins -GroupName $GroupName -Domain $DomainName -ErrorAction Stop
     }
 }
 
 <#
     .Synopsis
-     Removes all external identity sources 
+     Gets all external identity sources 
 #>
 function Get-ExternalIdentitySources {
     [AVSAttribute(3, UpdatesSDDC = $false)]
@@ -391,10 +392,19 @@ function Get-ExternalIdentitySources {
 
 <#
     .Synopsis
-     Removes all external identity sources 
+     Removes all external identity sources
+    
+    .Parameter Name
+     The name of the external identity source to remove. If none provided, will attempt to remove all external identity sources.
 #>
 function Remove-ExternalIdentitySources {
     [AVSAttribute(5, UpdatesSDDC = $false)]
+    Param
+    (
+        [Parameter(Mandatory = $false)]
+        [string]
+        $Name
+    )
 
     $ExternalSource = Get-IdentitySource -External
     if ($null -eq $ExternalSource) {
@@ -402,8 +412,23 @@ function Remove-ExternalIdentitySources {
         return
     }
     else {
-        Remove-IdentitySource -IdentitySource $ExternalSource -ErrorAction Stop
-        Write-Output "Identity source $($ExternalSource.Name) removed."
+        if (-Not ($PSBoundParameters.ContainsKey('Name'))) {
+            foreach ($AD in $ExternalSource) {
+                Remove-IdentitySource -IdentitySource $AD -ErrorAction Stop
+                Write-Output "Identity source $($AD.Name) removed."
+            }
+        }
+        else {
+            $FoundMatch = $false
+            foreach ($AD in $ExternalSource) {
+                if ($AD.Name -eq $Name) {
+                    Remove-IdentitySource -IdentitySource $AD -ErrorAction Stop
+                    Write-Output "Identity source $($AD.Name) removed."
+                    $FoundMatch = $true
+                }
+            }
+            if (-Not $FoundMatch) { Write-Output "No external identity source found that matches $Name. Nothing done." }
+        }
     }
 }
 
@@ -414,9 +439,12 @@ function Remove-ExternalIdentitySources {
     .Parameter GroupName
      Name of the group to be added to CloudAdmins. 
 
+    .Parameter Domain
+     Name of the domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories
+
     .Example 
     # Add the group named vsphere-admins to CloudAdmins
-     Add-GroupToCloudAdmins -GroupName 'vpshere-admins'
+     Add-GroupToCloudAdmins -GroupName 'vsphere-admins'
 #>
 function Add-GroupToCloudAdmins {
     [CmdletBinding(PositionalBinding = $false)]
@@ -428,38 +456,96 @@ function Add-GroupToCloudAdmins {
             HelpMessage = 'Name of the group to add to CloudAdmin')]
         [ValidateNotNull()]
         [string]
-        $GroupName
+        $GroupName,
+
+        [Parameter(Mandatory = $false)]
+        [string]
+        $Domain
     )
-    $ExternalSource
-    $Domain 
+
+    $ExternalSources
     $GroupToAdd
+    $Domain
 
     try {
-        $ExternalSource = Get-IdentitySource -External -ErrorAction Stop
-        $Domain = $ExternalSource.Name
+        $ExternalSources = Get-IdentitySource -External -ErrorAction Stop
     }
     catch {
         Write-Error $PSItem.Exception.Message -ErrorAction Continue
         Write-Error "Unable to get external identity source" -ErrorAction Stop
     }
+
+    # Searching the external identities for the domain
+    if ($null -eq $ExternalSources -or 0 -eq $ExternalSources.count) {
+        Write-Error "No external identity source found. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
+    }
+    elseif ($ExternalSources.count -eq 1) {
+        if ($PSBoundParameters.ContainsKey('Domain')) {
+            if ($Domain -ne $ExternalSources.Name) {
+                Write-Error "The Domain passed in ($Domain) does not match the external directory: $($ExternalSources.Name)" -ErrorAction Stop
+            } 
+        }
+    }
+    elseif ($ExternalSources.count -gt 1) {
+        if (-Not ($PSBoundParameters.ContainsKey('Domain'))) {
+            Write-Host "Multiple external identites exist and domain not suplied. Will attempt to search all ADs attached for $GroupName"
+        }
+        else {
+            $FoundDomainMatch = $false
+            foreach ($AD in $ExternalSources) {
+                if ($AD.Name -eq $Domain) {
+                    $FoundDomainMatch = $true
+                    break
+                }
+            }
+            if (-Not $FoundDomainMatch) {
+                Write-Warning "Searched the External Directories: $($ExternalSources | Format-List | Out-String) for $Domain and did not find a match"
+                Write-Error "Was not able to find $Domain in any of the External Directories" -ErrorAction Stop
+            }
+        }
+    }
     
-    if ($null -eq $ExternalSource -or $null -eq $Domain) {
-        Write-Error "No external identity source found: $Domain. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
+    # Searching for the group in the specified domain, if provided, or all domains, if none provided
+    if ($null -eq $Domain -or -Not ($PSBoundParameters.ContainsKey('Domain'))) {
+        $FoundMatch = $false
+        foreach ($AD in $ExternalSources) {
+            Write-Host "Searching $($AD.Name) for $GroupName"
+            try {
+                $GroupFound = Get-SsoGroup -Name $GroupName -Domain $AD.Name -ErrorAction Stop 
+            } catch {
+                Write-Host "Could not find $GroupName in $($AD.Name). Continuing.."
+            }
+            if ($null -ne $GroupFound -and -Not $FoundMatch) { 
+                Write-Host "Found $GroupName in $($AD.Name)." 
+                $Domain = $AD.Name
+                $GroupToAdd = $GroupFound
+                $FoundMatch = $true
+            }
+            elseif ($null -ne $GroupFound -and $FoundMatch) { 
+                Write-Host "Found $GroupName in $($AD.Name) as well."
+                Write-Error "Group $GroupName exists in multiple domains . Please re-run and specify domain" -ErrorAction Stop
+                return
+            }
+            elseif ($null -eq $GroupFound) {
+                Write-Host "$GroupName not found in $($AD.Name)"
+            }
+        }
+        if ($null -eq $GroupToAdd) {
+            Write-Error "$GroupName was not found in any external identity that has been configured. Please ensure that the group name is typed correctly." -ErrorAction Stop
+        }
     }
     else {
-        Write-Host "Searching $($ExternalSource.Name) for $GroupName...."
-    }
-    
-    try {
-        $GroupToAdd = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop 
-    }
-    catch {
-        Write-Error $PSItem.Exception.Message -ErrorAction Continue
-        Write-Error "Unable to get group $GroupName from $Domain" -ErrorAction Stop
+        try {
+            Write-Host "Searching $Domain for $GroupName..."
+            $GroupToAdd = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop 
+        }
+        catch {
+            Write-Error "Exception $($PSItem.Exception.Message): Unable to get group $GroupName from $Domain" -ErrorAction Stop
+        }
     }
 
     if ($null -eq $GroupToAdd) {
-        Write-Error "$GroupName was not found in $Domain. Please ensure that the group is spelled correctly" -ErrorAction Stop
+        Write-Error "$GroupName was not found in the domain. Please ensure that the group is spelled correctly" -ErrorAction Stop
     }
     else {
         Write-Host "Adding $GroupToAdd to CloudAdmins...."
@@ -476,7 +562,7 @@ function Add-GroupToCloudAdmins {
     }
     catch {
         $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
-        Write-Error "Cloud Admin Members: $CloudAdminMembers" -ErrorAction Continue
+        Write-Warning "Cloud Admin Members: $CloudAdminMembers" -ErrorAction Continue
         Write-Error "Unable to add group to CloudAdmins. It may already have been added. Error: $($PSItem.Exception.Message)" -ErrorAction Stop
     }
    
@@ -492,9 +578,12 @@ function Add-GroupToCloudAdmins {
     .Parameter GroupName
      Name of the group to be removed from CloudAdmins. 
 
+    .Parameter Domain
+     Name of the domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories
+
     .Example 
     # Remove the group named vsphere-admins from CloudAdmins
-     Remove-GroupFromCloudAdmins -GroupName 'vpshere-admins'
+     Remove-GroupFromCloudAdmins -GroupName 'vsphere-admins'
 #>
 function Remove-GroupFromCloudAdmins {
     [CmdletBinding(PositionalBinding = $false)]
@@ -506,34 +595,92 @@ function Remove-GroupFromCloudAdmins {
             HelpMessage = 'Name of the group to remove from CloudAdmin')]
         [ValidateNotNull()]
         [string]
-        $GroupName
+        $GroupName,
+
+        [Parameter(Mandatory = $false)]
+        [string]
+        $Domain
     )
-    $ExternalSource
-    $Domain 
+
+    $ExternalSources
     $GroupToRemove
+    $Domain
 
     try {
-        $ExternalSource = Get-IdentitySource -External -ErrorAction Stop
-        $Domain = $ExternalSource.Name
+        $ExternalSources = Get-IdentitySource -External -ErrorAction Stop
     }
     catch {
         Write-Error $PSItem.Exception.Message -ErrorAction Continue
         Write-Error "Unable to get external identity source" -ErrorAction Stop
     }
+
+    # Searching the external identities for the domain
+    if ($null -eq $ExternalSources -or 0 -eq $ExternalSources.count) {
+        Write-Error "No external identity source found. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
+    }
+    elseif ($ExternalSources.count -eq 1) {
+        if ($PSBoundParameters.ContainsKey('Domain')) {
+            if ($Domain -ne $ExternalSources.Name) {
+                Write-Error "The Domain passed in ($Domain) does not match the external directory: $($ExternalSources.Name)" -ErrorAction Stop
+            } 
+        }
+    }
+    elseif ($ExternalSources.count -gt 1) {
+        if (-Not ($PSBoundParameters.ContainsKey('Domain'))) {
+            Write-Host "Multiple external identites exist and domain not suplied. Will attempt to search all ADs attached for $GroupName"
+        }
+        else {
+            $FoundDomainMatch = $false
+            foreach ($AD in $ExternalSources) {
+                if ($AD.Name -eq $Domain) {
+                    $FoundDomainMatch = $true
+                    break
+                }
+            }
+            if (-Not $FoundDomainMatch) {
+                Write-Warning "Searched the External Directories: $($ExternalSources | Format-List | Out-String) for $Domain and did not find a match"
+                Write-Error "Was not able to find $Domain in any of the External Directories" -ErrorAction Stop
+            }
+        }
+    }
     
-    if ($null -eq $ExternalSource -or $null -eq $Domain) {
-        Write-Error "No external identity source found: $Domain. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
+    # Searching for the group in the specified domain, if provided, or all domains, if none provided
+    if ($null -eq $Domain -or -Not ($PSBoundParameters.ContainsKey('Domain'))) {
+        $FoundMatch = $false
+        foreach ($AD in $ExternalSources) {
+            Write-Host "Searching $($AD.Name) for $GroupName"
+            try {
+                $GroupFound = Get-SsoGroup -Name $GroupName -Domain $AD.Name -ErrorAction Stop 
+            } catch {
+                Write-Host "Could not find $GroupName in $($AD.Name). Continuing.."
+            }
+            if ($null -ne $GroupFound -and -Not $FoundMatch) { 
+                Write-Host "Found $GroupName in $($AD.Name)." 
+                $Domain = $AD.Name
+                $GroupToRemove = $GroupFound
+                $FoundMatch = $true
+            }
+            elseif ($null -ne $GroupFound -and $FoundMatch) { 
+                Write-Host "Found $GroupName in $($AD.Name) as well."
+                Write-Error "Group $GroupName exists in multiple domains . Please re-run and specify domain" -ErrorAction Stop
+                return
+            }
+            elseif ($null -eq $GroupFound) {
+                Write-Host "$GroupName not found in $($AD.Name)"
+            }
+        }
+        if ($null -eq $GroupToRemove) {
+            Write-Error "$GroupName was not found in any external identity that has been configured. Please ensure that the group name is typed correctly." -ErrorAction Stop
+        }
     }
     else {
-        Write-Host "Searching $($ExternalSource.Name) for $GroupName...."
-    }
-    
-    try {
-        $GroupToRemove = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop 
-    }
-    catch {
-        Write-Error $PSItem.Exception.Message -ErrorAction Continue
-        Write-Error "Unable to get group $GroupName from $Domain" -ErrorAction Stop
+        try {
+            Write-Host "Searching $Domain for $GroupName..."
+            $GroupToRemove = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop 
+        }
+        catch {
+            Write-Error "Exception $($PSItem.Exception.Message): Unable to get group $GroupName from $Domain" -ErrorAction Stop
+        }
     }
 
     if ($null -eq $GroupToRemove) {
@@ -554,7 +701,7 @@ function Remove-GroupFromCloudAdmins {
     catch {
         $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
         Write-Error "Current Cloud Admin Members: $CloudAdminMembers" -ErrorAction Continue
-        Write-Error "Unable to remove group from CloudAdmins. Is it already there? Error: $($PSItem.Exception.Message)" -ErrorAction Stop
+        Write-Error "Unable to remove group from CloudAdmins. Is it there at all? Error: $($PSItem.Exception.Message)" -ErrorAction Stop
     }
     
     Write-Information "Group $GroupName successfully removed from CloudAdmins."
@@ -906,9 +1053,11 @@ function Set-AvsVMStoragePolicy {
     Write-Host "Setting VM $VMName storage policy to $StoragePolicyName..."
     try {
         Set-VM -VM $VM -StoragePolicy $StoragePolicy -SkipHardDisks -ErrorAction Stop -Confirm:$false
-    } catch [VMware.VimAutomation.ViCore.Types.V1.ErrorHandling.InvalidVmConfig] {
+    }
+    catch [VMware.VimAutomation.ViCore.Types.V1.ErrorHandling.InvalidVmConfig] {
         Write-Error "The selected storage policy $($StoragePolicy.Name) is not compatible with this VM. You may need more hosts: $($PSItem.Exception.Message)" -ErrorAction Stop
-    } catch {
+    }
+    catch {
         Write-Error "Was not able to set the storage policy on the VM: $($PSItem.Exception.Message)" -ErrorAction Stop
     }
     Write-Output "Successfully set the storage policy on VM $VMName to $StoragePolicyName"
