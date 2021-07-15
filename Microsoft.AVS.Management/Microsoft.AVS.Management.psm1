@@ -23,6 +23,14 @@ class AVSAttribute : Attribute {
 ========================================================================================================
 #>
 
+<# Helper Functions #>
+function Get-ProtectedVMs {
+    $ParentPool =  Get-ResourcePool -Name Resources | Where-Object {$_.ParentId -match 'ClusterComputeResource*.'}
+    $MGMTPool = Get-ResourcePool -Name MGMT-ResourcePool | Where-Object {$_.Parent -eq $ParentPool}
+    $ProtectedVMs = $MGMTPool | Get-VM | Where-Object {$_.Name -match "TNT*."}
+    return $ProtectedVMs
+}
+
 <#
     .Synopsis
      (NOT RECOMMENDED -> Use New-AvsLDAPSIdentitySource) Allow customers to add an external identity source (Active Directory over LDAP) for use with single sign on to vCenter. Prefaced by Connect-SsoAdminServer
@@ -1046,6 +1054,10 @@ function Set-AvsVMStoragePolicy {
     if ($null -eq $StoragePolicy) {
         Write-Error "Could not find Storage Policy with the name $StoragePolicyName" -ErrorAction Stop 
     } 
+    $ProtectedVMs = Get-ProtectedVMs 
+    if ($ProtectedVMs.Name.Contains($VMName)) {
+        Write-Error "Access denied to this VM." -ErrorAction Stop
+    }
     $VM = Get-VM $VMName
     if ($null -eq $VM) {
         Write-Error "Was not able to set the storage policy on the VM. Could not find VM with the name: $VMName" -ErrorAction Stop
