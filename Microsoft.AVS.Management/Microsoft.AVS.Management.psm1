@@ -23,14 +23,15 @@ class AVSAttribute : Attribute {
 ========================================================================================================
 #>
 
-<# Helper Functions #>
+<# List of internal AVS management VMs that should not be touched by customer-facing scripts #>
 function Get-ProtectedVMs {
-    $ParentPool =  Get-ResourcePool -Name Resources | Where-Object {$_.ParentId -match 'ClusterComputeResource*.'}
+    $ParentPool =  Get-ResourcePool -Name Resources | Where-Object {$_.ParentId -match 'ClusterComputeResource.+'}
     $MGMTPool = Get-ResourcePool -Name MGMT-ResourcePool | Where-Object {$_.Parent -eq $ParentPool}
-    $ProtectedVMs = $MGMTPool | Get-VM | Where-Object {$_.Name -match "TNT*."}
+    $ProtectedVMs = $MGMTPool | Get-VM | Where-Object {$_.Name -match "^TNT.+"}
     return $ProtectedVMs
 }
 
+<# List of internal AVS management networks that should not be touched by customer-facing scripts #>
 function Get-ProtectedNetworks {
     Get-VirtualNetwork | Where-Object {$_.Name -imatch "^((TNT.+?)|((HCX_|ESX_)?Mgmt)|(Replication)|(vMotion)|(vSAN))$"}
 }
