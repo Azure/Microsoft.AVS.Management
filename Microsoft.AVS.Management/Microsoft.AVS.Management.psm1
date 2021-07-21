@@ -31,6 +31,10 @@ function Get-ProtectedVMs {
     return $ProtectedVMs
 }
 
+function Get-ProtectedNetworks {
+    Get-VirtualNetwork | Where-Object {$_.Name -imatch "^((TNT.+?)|((HCX_|ESX_)?Mgmt)|(Replication)|(vMotion)|(vSAN))$"}
+}
+
 <#
     .Synopsis
      (NOT RECOMMENDED -> Use New-AvsLDAPSIdentitySource) Allow customers to add an external identity source (Active Directory over LDAP) for use with single sign on to vCenter. Prefaced by Connect-SsoAdminServer
