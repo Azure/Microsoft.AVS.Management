@@ -38,7 +38,7 @@ function Get-ProtectedNetworks {
 
 <#
     .Synopsis
-     (NOT RECOMMENDED -> Use New-AvsLDAPSIdentitySource) Allow customers to add an external identity source (Active Directory over LDAP) for use with single sign on to vCenter. Prefaced by Connect-SsoAdminServer
+     (NOT RECOMMENDED -> Use New-AvsLDAPSIdentitySource) Allow customers to add an external identity source (Active Directory over LDAP) for use with single sign on to vCenter.
 
     .Parameter Name
      The user-friendly name the external AD will be given in vCenter
@@ -193,7 +193,7 @@ function New-AvsLDAPIdentitySource {
 
 <#
     .Synopsis
-     Allow customers to add an LDAPS Secure external identity source (Active Directory over LDAP) for use with single sign on to vCenter. Prefaced by Connect-SsoAdminServer
+     Recommended: Allow customers to add an LDAPS Secure external identity source (Active Directory over LDAPS) for use with single sign on to vCenter. Prefaced by Connect-SsoAdminServer
 
     .Parameter Name
      The user-friendly name the external AD will be given in vCenter
@@ -447,10 +447,10 @@ function Remove-ExternalIdentitySources {
 
 <#
     .Synopsis
-     Add an external identity group from the external identity to the CloudAdmins group
+     Add a group from the external identity to the CloudAdmins group
 
     .Parameter GroupName
-     Name of the group to be added to CloudAdmins. 
+     Name of the group to be added to CloudAdmins. For example, `vsphere-admins`, without the domain appended
 
     .Parameter Domain
      Name of the domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories
@@ -586,10 +586,10 @@ function Add-GroupToCloudAdmins {
 
 <#
     .Synopsis
-     Remove a previously added external identity group from the cloud admin group
+     Remove a previously added group from an external identity from the vsphere CloudAdmins group
 
     .Parameter GroupName
-     Name of the group to be removed from CloudAdmins. 
+     Short name of the external identity group to be removed from CloudAdmins. For example, vsphere-admins, without the domain appended
 
     .Parameter Domain
      Name of the domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories
@@ -999,14 +999,15 @@ function Set-AvsDrsElevationRule {
 
 <#
     .Synopsis
-     Gets all the storage policies available to set on a VM 
+     Gets all the storage policies available to set on a VM.
 #>
 function Get-StoragePolicies {
     [AVSAttribute(3, UpdatesSDDC = $False)]
     
     $StoragePolicies
     try {
-        $StoragePolicies = Get-SpbmStoragePolicy -ErrorAction Stop
+        $JetstreamStoragePolicies = Get-SpbmStoragePolicy -ErrorAction Stop | Where-Object {$_.CommonRule -match '^jetdr.*'} | Select-Object Name
+        $StoragePolicies = Get-SpbmStoragePolicy -ErrorAction Stop | Select-Object Name, AnyOfRuleSets | Where-Object {$JetstreamStoragePolicies.Name -notcontains $_.Name}
     }
     catch {
         Write-Error $PSItem.Exception.Message -ErrorAction Continue
@@ -1026,7 +1027,7 @@ function Get-StoragePolicies {
      Sets the storage policy on the VM to a predefined storage policy
 
     .Parameter StoragePolicyName
-     Name of a storage policy to set on the specified VM. Options can be seen in vCenter.
+     Name of a storage policy to set on the specified VM. Options can be seen in vCenter or using the Get-StoragePolicies command.
 
     .Parameter VMName
      Name of the VM to set the storage policy on.
