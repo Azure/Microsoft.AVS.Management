@@ -193,7 +193,7 @@ function New-AvsLDAPIdentitySource {
 
 <#
     .Synopsis
-     Recommended: Allow customers to add an LDAPS Secure external identity source (Active Directory over LDAPS) for use with single sign on to vCenter. Prefaced by Connect-SsoAdminServer
+     Recommended: Allow customers to add an LDAPS Secure external identity source (Active Directory over LDAPS) for use with single sign on to vCenter.
 
     .Parameter Name
      The user-friendly name the external AD will be given in vCenter
