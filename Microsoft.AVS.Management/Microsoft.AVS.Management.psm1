@@ -1006,8 +1006,7 @@ function Get-StoragePolicies {
     
     $StoragePolicies
     try {
-        $JetstreamStoragePolicies = Get-SpbmStoragePolicy -ErrorAction Stop | Where-Object {$_.CommonRule -match '^jetdr.*'} | Select-Object Name
-        $StoragePolicies = Get-SpbmStoragePolicy -ErrorAction Stop | Select-Object Name, AnyOfRuleSets | Where-Object {$JetstreamStoragePolicies.Name -notcontains $_.Name}
+        $StoragePolicies = Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop | Select-Object Name, AnyOfRuleSets
     }
     catch {
         Write-Error $PSItem.Exception.Message -ErrorAction Continue
@@ -1056,10 +1055,12 @@ function Set-AvsVMStoragePolicy {
         $VMName
     )
     Write-Host "Getting Storage Policy $StoragePolicyName"
-    $StoragePolicy = Get-SpbmStoragePolicy -Name $StoragePolicyName -ErrorAction Stop
+    $StoragePolicy =  Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop | Where-Object {$_.Name -eq $StoragePolicyName}
     if ($null -eq $StoragePolicy) {
-        Write-Error "Could not find Storage Policy with the name $StoragePolicyName" -ErrorAction Stop 
+        Write-Error "Could not find Storage Policy with the name $StoragePolicyName. It either does not exist or is not available." -ErrorAction Continue
+        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
     } 
+
     $ProtectedVMs = Get-ProtectedVMs 
     if ($ProtectedVMs.Name.Contains($VMName)) {
         Write-Error "Access denied to this VM." -ErrorAction Stop
