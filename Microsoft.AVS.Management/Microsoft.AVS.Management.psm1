@@ -38,7 +38,7 @@ function Get-ProtectedNetworks {
 
 <#
     .Synopsis
-     (NOT RECOMMENDED -> Use New-AvsLDAPSIdentitySource) Allow customers to add an external identity source (Active Directory over LDAP) for use with single sign on to vCenter.
+     (NOT RECOMMENDED -> Use New-AvsLDAPSIdentitySource). Not secure. Allow customers to add an external identity source (Active Directory over LDAP) for use with single sign on to vCenter.
 
     .Parameter Name
      The user-friendly name the external AD will be given in vCenter
@@ -193,7 +193,7 @@ function New-AvsLDAPIdentitySource {
 
 <#
     .Synopsis
-     Recommended: Allow customers to add an LDAPS Secure external identity source (Active Directory over LDAPS) for use with single sign on to vCenter.
+     Recommended and Secure: Allow customers to add an LDAPS Secure external identity source (Active Directory over LDAPS) for use with single sign on to vCenter.
 
     .Parameter Name
      The user-friendly name the external AD will be given in vCenter
