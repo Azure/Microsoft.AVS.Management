@@ -722,6 +722,26 @@ function Remove-GroupFromCloudAdmins {
     Write-Output "Current Cloud Admin Members: $CloudAdminMembers"
 }
 
+<#
+    .Synopsis
+     Get all users added to the cloud admin group
+
+    .Example 
+    # Get all users in CloudAdmins
+     Get-CloudAdminUsers
+#>
+function Get-CloudAdminUsers {
+    [CmdletBinding(PositionalBinding = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+
+    $CloudAdmins = Get-SsoGroup -Name 'CloudAdmins' -Domain 'vsphere.local'
+    if ($null -eq $CloudAdmins) {
+        Write-Error "Internal Error fetching CloudAdmins group. Contact support" -ErrorAction Stop
+    }
+
+    $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Stop 
+    $CloudAdminMembers | Format-List | Out-String
+}
 
 <#
     .Synopsis
