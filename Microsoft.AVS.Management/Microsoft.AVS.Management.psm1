@@ -732,7 +732,7 @@ function Remove-GroupFromCloudAdmins {
 #>
 function Get-CloudAdminUsers {
     [CmdletBinding(PositionalBinding = $false)]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(3, UpdatesSDDC = $false)]
 
     $CloudAdmins = Get-SsoGroup -Name 'CloudAdmins' -Domain 'vsphere.local'
     if ($null -eq $CloudAdmins) {
