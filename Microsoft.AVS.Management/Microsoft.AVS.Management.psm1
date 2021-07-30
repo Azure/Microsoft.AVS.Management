@@ -38,7 +38,7 @@ function Get-ProtectedNetworks {
 
 <#
     .Synopsis
-     Not Recommended (use New-AvsLDAPSIdentitySource): Allow customers to add a not secure external identity source (Active Directory over LDAP) for use with vCenter Single Sign-On.
+     Not Recommended (use New-AvsLDAPSIdentitySource): Add a not secure external identity source (Active Directory over LDAP) for use with vCenter Single Sign-On.
 
     .Parameter Name
      The user-friendly name the external AD will be given in vCenter
@@ -193,7 +193,7 @@ function New-AvsLDAPIdentitySource {
 
 <#
     .Synopsis
-     Recommended: Allow customers to add a secure external identity source (Active Directory over LDAPS) for use with vCenter Single Sign-On.
+     Recommended: Add a secure external identity source (Active Directory over LDAPS) for use with vCenter Single Sign-On.
 
     .Parameter Name
      The user-friendly name the external AD will be given in vCenter
@@ -745,280 +745,6 @@ function Get-CloudAdminUsers {
 
 <#
     .Synopsis
-     Creates a Drs Cluster Host Group, a Drs Cluster VM Group, and a Drs Cluster Virtual Machine to Host Rule between the two
-
-    .Parameter DrsRuleName
-     User-Friendly Name of the Drs VMHost Rule to be created. 
-    
-    .Parameter DrsGroupName
-     User-Friendly prefix of the two Drs Cluster Groups to be created. For example, -DrsGroupName "mygroup" will create a VM group called "mygroup" and a VMHost group called "mygrouphost" 
-
-    .Parameter Cluster
-     Name of the cluster to create the two groups and rule on. The VMs and VMHosts' must be on this cluster
-
-    .Parameter VMList
-     A comma delimited list with the names of the VMs to put in the Drs group 
-
-    .Parameter VMHostList
-     A comma delimited list with the names of the VMHosts' to put in the Drs group 
-
-    .Example 
-    # Create a should run rule named MyDrsRule on Cluster-1 Hosts using the listed VM's and VMHosts
-    New-AvsDrsElevationRule -DrsGroupName "MyDrsGroup" -DrsRuleName "MyDrsRule" -Cluster "Cluster-1" -VMList "vm1", "vm2" -VMHostList "esx01", "esx02"
-#>
-function New-AvsDrsElevationRule {
-    [CmdletBinding(PositionalBinding = $false)]
-    [AVSAttribute(10, UpdatesSDDC = $True)]
-    Param
-    (
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'User-Friendly name of the Drs rule to create')]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $DrsRuleName,
-    
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'User-Friendly name of the Drs group to create')]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $DrsGroupName,
-
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Cluster to create the rule and group on')]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $Cluster,
-
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'A comma-delimited list to add to the VM group')]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $VMList,
-
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'A comma-delimited list of the VMHosts to add to the VMHost group')]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $VMHostList
-    )
-
-    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
-    [string[]] $VMList = $VMList.Split(",", $options)
-    [string[]] $VMHostList = $VMHostList.Split(",", $options)
-    $DrsVmHostGroupName = $DrsGroupName + "Host"
-    Write-Host "VMs Passed in: $($VMList.count)"
-    Write-Host "Creating DRS Cluster group $DrsGroupName for the $($VMList.count) VMs $VMList"
-    New-DrsClusterGroup -Name $DrsGroupName -VM $VMList -Cluster $Cluster -ErrorAction Stop
-    Write-Host "VMHosts Passed in: $($VMHostList.count)"
-    Write-Host "Creating DRS Cluster group $DrsVmHostGroupName for the $($VMHostList.count) VMHosts: $VMHostList"
-    New-DrsClusterGroup -Name $DrsVmHostGroupName -VMHost $VMHostList -Cluster $Cluster -ErrorAction Stop
-    Write-Host "Creating ShouldRunOn DRS Rule $DrsRuleName on cluster $Cluster"
-    New-DrsVMHostRule -Name $DrsRuleName -Cluster $Cluster -VMGroup $DrsGroupName -VMHostGroup $DrsVmHostGroupName -Type "ShouldRunOn" -ErrorAction Stop
-    $currentRule = Get-DrsVMHostRule -Type "ShouldRunOn" -ErrorAction Continue
-    Write-Output $currentRule
-}
-
-<#
-    .Synopsis
-     Edits a VM Drs Cluster Group by adding or removing VMs to or from the group
-
-    .Parameter DrsGroupName
-     Existing VM Drs Cluster Group to edit
-
-    .Parameter VMList
-     A comma delimited list with the names of the VMs to add or remove to/from the Drs group 
-
-    .Parameter Action
-     The action to perform, either "add" or "remove" the VMHosts specified to/from the DrsGroup
-
-    .Example 
-    # Edit an existing drs group named "MyDrsGroup" on Cluster-1 Hosts adding the listed VM's '
-    Set-AvsDrsVMClusterGroup -DrsGroupName "MyDrsGroup" -Cluster "Cluster-1" -VMList "vm1", "vm2"  -Action "add"
-#>
-function Set-AvsDrsVMClusterGroup {
-    [CmdletBinding(PositionalBinding = $false)]
-    [AVSAttribute(10, UpdatesSDDC = $True)]
-    Param
-    (   
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Name of the Drs group to edit')]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $DrsGroupName,
-
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'A comma-delimited list of the VMs to add to the VM group')]
-        [string]
-        $VMList,
-
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Action to perform: Either "add" or "remove"')]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $Action
-    )
-    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
-    [string[]] $VMList = $VMList.Split(",", $options)
-    [string] $groupType = (Get-DrsClusterGroup -Name $DrsGroupName).GroupType.ToString()
-    Write-Host "The group type for $DrsGroupName is $groupType"
-    If ($groupType -eq "VMHostGroup") {
-        Get-DrsClusterGroup
-        Write-Warning "$DrsGroupName is a $groupType and cannot be modified with VMs. Please validate that you're using the correct cmdlet. Did you mean Set-AvsDrsVMHostClusterGroup?"
-        return 
-    }
-
-    If ($Action -eq "add") {
-        Write-Host "Adding VMs to the DrsClusterGroup..."
-        Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Add -ErrorAction Stop
-        Write-Output $(Get-DrsClusterGroup -Name $DrsGroupName)
-    }
-    ElseIf ($Action -eq "remove") {
-        Write-Host "Removing VMs from the DrsClusterGroup..."
-        Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VM $VMList -Remove -ErrorAction Stop
-        Write-Output $(Get-DrsClusterGroup -Name $DrsGroupName)
-    }
-    Else {
-        Write-Warning "Nothing done. Please select with either -Action Add or -Action Remove"
-    }
-}
-
-<#
-    .Synopsis
-     Edits a VMHost Drs Cluster Group by adding or removing VMHosts to or from the group
-
-    .Parameter DrsGroupName
-     Existing VMHost Drs Cluster Group to edit
-
-    .Parameter VMHostList
-     A comma delimited list with the names of the VMHosts' to add or remove to/from the Drs group 
-
-    .Parameter Action
-     The action to perform, either "add" or "remove" the VMHosts' specified to/from the DrsGroup
-
-    .Example 
-    # Edit an existing drs group named "MyDrsGroup" on Cluster-1 Hosts removing the listed VM Hosts '
-    Set-AvsDrsVMHostClusterGroup -DrsGroupName "MyDrsGroup" -Cluster "Cluster-1" -VMHostList "vmHost1", "vmHost2"  -Action "remove"
-#>
-function Set-AvsDrsVMHostClusterGroup {
-    [CmdletBinding(PositionalBinding = $false)]
-    [AVSAttribute(10, UpdatesSDDC = $True)]
-    Param
-    (   
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Name of the Drs group to edit')]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $DrsGroupName,
-
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'A comma-delimited list of the VMHosts to add to the VMHost group')]
-        [string]
-        $VMHostList,
-
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Action to perform: Either "add" or "remove"')]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $Action
-    )
-
-    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
-    [string[]] $VMHostList = $VMHostList.Split(",", $options)
-    [string] $groupType = (Get-DrsClusterGroup -Name $DrsGroupName).GroupType.ToString()
-    Write-Host "The group type for $DrsGroupName is $groupType"
-    If ($groupType -eq "VMGroup") {
-        Get-DrsClusterGroup
-        Write-Warning "$DrsGroupName is a $groupType and cannot be modified with VMHosts. Please validate that you're using the correct cmdlet. Did you mean Set-AvsDrsVMClusterGroup?"
-        return 
-    }
-
-    If ($Action -eq "add") {
-        Write-Host "Adding VMHosts to the DrsClusterGroup..."
-        Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Add -ErrorAction Stop
-        Write-Output $(Get-DrsClusterGroup -Name $DrsGroupName)
-    }
-    ElseIf ($Action -eq "remove") {
-        Write-Host "Removing VMHosts from the DrsClusterGroup..."
-        Set-DrsClusterGroup -DrsClusterGroup $DrsGroupName -VMHost $VMHostList -Remove -ErrorAction Stop
-        Write-Output $(Get-DrsClusterGroup -Name $DrsGroupName)
-    }
-    Else {
-        Write-Warning "Nothing done. Please select with either -Action Add or -Action Remove"
-    }
-}
-
-<#
-    .Synopsis
-     Edits a Drs Elevation Rule. Allowed operations are enable/disable and renaming.
-
-    .Parameter DrsRuleName
-     Name of an exisitng Drs Rule to edit
-
-    .Parameter Enabled
-     Set to $true to enable the Drs Rule, $false to disable it
-
-    .Parameter NewName
-     If specified, the name to change the DrsRule to
-
-    .Example 
-    # Enable and change the name of a drs rule named "myDrsRule"
-    Set-AvsDrsElevationRule -DrsRuleName "myDrsRule"  -Enabled $true -NewName "mynewDrsRule"
-#>
-function Set-AvsDrsElevationRule {
-    [CmdletBinding(PositionalBinding = $false)]
-    [AVSAttribute(10, UpdatesSDDC = $True)]
-    Param
-    (   
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Name of the Drs rule to edit')]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $DrsRuleName,
-  
-        [Parameter(
-            Mandatory = $false,
-            HelpMessage = 'Enabled switch: $true or $false')]
-        [Nullable[boolean]]
-        $Enabled,
-  
-        [Parameter(
-            Mandatory = $false,
-            HelpMessage = 'New name for the Drs rule')]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $NewName
-    )
-    if ($PSBoundParameters.ContainsKey('Enabled') -And $PSBoundParameters.ContainsKey('NewName')) {
-        Write-Host "Changing enabled flag to $Enabled and Name to $NewName"
-        Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $Enabled -Name $NewName -ErrorAction Stop
-    }
-    ElseIf ($PSBoundParameters.ContainsKey('Enabled')) {
-        Write-Host "Changing the enabled flag for $DrsRuleName to $Enabled"
-        Set-DrsVMHostRule -Rule $DrsRuleName -Enabled $Enabled -ErrorAction Stop
-    }
-    ElseIf ($PSBoundParameters.ContainsKey('NewName')) {
-        Write-Host "Renaming $DrsRuleName to $NewName"
-        Set-DrsVMHostRule -Rule $DrsRuleName -Name $NewName -ErrorAction Stop
-    }
-    Else {
-        Write-Output "No parameters passed. Nothing done. Possible configuration parameters include -Enabled and -NewName"
-    }
-}
-
-<#
-    .Synopsis
      Gets all the vSAN based storage policies available to set on a VM.
 #>
 function Get-StoragePolicies {
@@ -1043,7 +769,7 @@ function Get-StoragePolicies {
   
 <#
     .Synopsis
-     Support modifying vSAN based storage policies on individual VMs
+     Modify vSAN based storage policies on an individual VM
 
     .Parameter StoragePolicyName
      Name of a vSAN based storage policy to set on the specified VM. Options can be seen in vCenter or using the Get-StoragePolicies command.
