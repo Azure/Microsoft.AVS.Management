@@ -841,7 +841,7 @@ function Set-AvsVMStoragePolicy {
     .Parameter StoragePolicyName
      Name of a vSAN based storage policy to set on the specified VM. Options can be seen in vCenter or using the Get-StoragePolicies command.
 
-    .Parameter Cluster
+    .Parameter ClusterName
      Name of the cluster to set the default on.
 
     .Example 
