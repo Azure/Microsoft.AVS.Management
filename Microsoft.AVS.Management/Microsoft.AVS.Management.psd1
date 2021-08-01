@@ -75,7 +75,7 @@
     # NestedModules = @()
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-    FunctionsToExport = @("Set-AvsVMStoragePolicy", "Get-StoragePolicies", "New-AvsLDAPIdentitySource", "New-AvsLDAPSIdentitySource", "Get-ExternalIdentitySources", "Remove-ExternalIdentitySources", "Add-GroupToCloudAdmins", "Remove-GroupFromCloudAdmins", "Get-CloudAdminUsers")
+    FunctionsToExport = @("Set-AvsVMStoragePolicy", "Set-ClusterDefaultStoragePolicy", "Get-StoragePolicies", "New-AvsLDAPIdentitySource", "New-AvsLDAPSIdentitySource", "Get-ExternalIdentitySources", "Remove-ExternalIdentitySources", "Add-GroupToCloudAdmins", "Remove-GroupFromCloudAdmins", "Get-CloudAdminUsers")
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
     CmdletsToExport   = @()
