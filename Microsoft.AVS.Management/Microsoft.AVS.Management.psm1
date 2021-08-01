@@ -224,7 +224,7 @@ function New-AvsLDAPIdentitySource {
     .Parameter Credential 
      Credential to login to the LDAP server (NOT cloudAdmin) in the form of a username/password credential
 
-    .Parameter CertificatesSAS
+    .Parameter SSLCertificatesSasUrl
      An array of Shared Access Signature strings to the certificates required to connect to the external active directory, if using LDAPS
 
     .Parameter GroupName
@@ -312,7 +312,7 @@ function New-AvsLDAPSIdentitySource {
             Mandatory = $true,
             HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
         [System.Security.SecureString]
-        $CertificatesSAS,
+        $SSLCertificatesSasUrl,
 
         [Parameter (
             Mandatory = $false,
@@ -338,7 +338,7 @@ function New-AvsLDAPSIdentitySource {
     }
 
     $Password = $Credential.GetNetworkCredential().Password
-    [string] $CertificatesSASPlainString = ConvertFrom-SecureString -SecureString $CertificatesSAS -AsPlainText
+    [string] $CertificatesSASPlainString = ConvertFrom-SecureString -SecureString $SSLCertificatesSasUrl -AsPlainText
     [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
     [string[]] $CertificatesSASList = $CertificatesSASPlainString.Split(",", $options)
     Write-Host "Number of Certs passed $($CertificatesSASList.count)"
