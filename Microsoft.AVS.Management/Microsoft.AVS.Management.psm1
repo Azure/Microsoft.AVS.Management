@@ -33,7 +33,7 @@ function Get-ProtectedVMs {
 
 function Get-ProtectedClusters {
     $ProtectedVMs = Get-ProtectedVMs
-    return $ProtectedVMs | Get-Cluster 
+    return $ProtectedVMs | Get-Cluster | Select-Object Name -Unique
 }
 
 <# List of internal AVS management networks that should not be touched by customer-facing scripts #>
@@ -839,7 +839,7 @@ function Set-AvsVMStoragePolicy {
      Specify default storage policy for a cluster
 
     .Parameter StoragePolicyName
-     Name of a vSAN based storage policy to set on the specified VM. Options can be seen in vCenter or using the Get-StoragePolicies command.
+     Name of a vSAN based storage policy to set to be the default for VMs on this cluster. Options can be seen in vCenter or using the Get-StoragePolicies command.
 
     .Parameter ClusterName
      Name of the cluster to set the default on.
@@ -874,9 +874,9 @@ function Set-ClusterDefaultStoragePolicy {
         Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
     } 
 
-    $ProtectedClusters = Get-ProtectedClusters  
-    if ($ProtectedClusters.Name.Contains($ClusterName)) {
-        Write-Error "Access denied to this Cluster." -ErrorAction Stop
+    $ProtectedClusterNames = Get-ProtectedClusters  
+    if ($ProtectedClusterNames.Contains($ClusterName)) {
+        Write-Error "Changing the default storage policy is not supported on this cluster." -ErrorAction Stop
     }
     $ClusterDatastore = Get-Cluster $ClusterName | Get-VMHost | Get-Datastore
     if ($null -eq $ClusterDatastore) {
