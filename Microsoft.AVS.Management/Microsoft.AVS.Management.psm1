@@ -225,7 +225,7 @@ function New-AvsLDAPIdentitySource {
      Credential to login to the LDAP server (NOT cloudAdmin) in the form of a username/password credential
 
     .Parameter SSLCertificatesSasUrl
-     An array of Shared Access Signature strings to the certificates required to connect to the external active directory, if using LDAPS
+     An comma-delimeted list of Blob Shared Access Signature strings to the certificates required to connect to the external active directory
 
     .Parameter GroupName
      A group in the external identity source to give CloudAdmins access to formatted in the short version - i.e. group-to-give-access
