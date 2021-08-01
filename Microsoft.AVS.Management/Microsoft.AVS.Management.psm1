@@ -26,9 +26,14 @@ class AVSAttribute : Attribute {
 <# List of internal AVS management VMs that should not be touched by customer-facing scripts #>
 function Get-ProtectedVMs {
     $ParentPool =  Get-ResourcePool -Name Resources | Where-Object {$_.ParentId -match 'ClusterComputeResource.+'}
-    $MGMTPool = Get-ResourcePool -Name MGMT-ResourcePool | Where-Object {$_.Parent -eq $ParentPool}
+    $MGMTPool = Get-ResourcePool -Name MGMT-ResourcePool | Where-Object {$_.Parent -in $ParentPool}
     $ProtectedVMs = $MGMTPool | Get-VM | Where-Object {$_.Name -match "^TNT.+"}
     return $ProtectedVMs
+}
+
+function Get-ProtectedClusters {
+    $ProtectedVMs = Get-ProtectedVMs
+    return $ProtectedVMs | Get-Cluster 
 }
 
 <# List of internal AVS management networks that should not be touched by customer-facing scripts #>
@@ -826,6 +831,65 @@ function Set-AvsVMStoragePolicy {
         Write-Error "Was not able to set the storage policy on the VM: $($PSItem.Exception.Message)" -ErrorAction Stop
     }
     Write-Output "Successfully set the storage policy on VM $VMName to $StoragePolicyName"
+}
+
+
+<#
+    .Synopsis
+     Specify default storage policy for a cluster
+
+    .Parameter StoragePolicyName
+     Name of a vSAN based storage policy to set on the specified VM. Options can be seen in vCenter or using the Get-StoragePolicies command.
+
+    .Parameter Cluster
+     Name of the cluster to set the default on.
+
+    .Example 
+    # Set the default vSAN based storage policy on MyCluster to RAID-1 FTT-1
+    Set-ClusterDefaultStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -ClusterName "MyCluster"
+#>
+function Set-ClusterDefaultStoragePolicy {
+    [CmdletBinding(PositionalBinding = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $True)]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Name of the storage policy to set')]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $StoragePolicyName,
+  
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Name of the Cluster to set the storage policy on')]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ClusterName
+    )
+    Write-Host "Getting Storage Policy $StoragePolicyName"
+    $StoragePolicy =  Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop | Where-Object {$_.Name -eq $StoragePolicyName}
+    if ($null -eq $StoragePolicy) {
+        Write-Error "Could not find Storage Policy with the name $StoragePolicyName. It either does not exist or is not available." -ErrorAction Continue
+        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
+    } 
+
+    $ProtectedClusters = Get-ProtectedClusters  
+    if ($ProtectedClusters.Name.Contains($ClusterName)) {
+        Write-Error "Access denied to this Cluster." -ErrorAction Stop
+    }
+    $ClusterDatastore = Get-Cluster $ClusterName | Get-VMHost | Get-Datastore
+    if ($null -eq $ClusterDatastore) {
+        Write-Error "Was not able to set the storage policy on the Cluster. Could not find cluster with the name: $ClusterName" -ErrorAction Stop
+    }
+    Write-Host "Setting Cluster $ClusterName storage policy to $StoragePolicyName..."
+    try {
+        Set-SpbmEntityConfiguration -Configuration (Get-SpbmEntityConfiguration $ClusterDatastore) -storagePolicy $StoragePolicy -ErrorAction Stop -Confirm:$false
+    }
+    catch {
+        Write-Error "Was not able to set the storage policy on the Cluster Datastore: $($PSItem.Exception.Message)" -ErrorAction Stop
+    }
+    Write-Output "Successfully set the storage policy on Cluster $ClusterName to $StoragePolicyName"
 }
 
 Export-ModuleMember -Function *
