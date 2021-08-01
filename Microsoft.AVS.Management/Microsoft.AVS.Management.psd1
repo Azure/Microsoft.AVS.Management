@@ -52,7 +52,7 @@
 
     # Modules that must be imported into the global environment prior to importing this module
     RequiredModules   = @(
-        @{"ModuleName" = "VMware.vSphere.SsoAdmin"; "ModuleVersion" = "1.3.0" },
+        @{"ModuleName" = "VMware.vSphere.SsoAdmin"; "ModuleVersion" = "1.3.4" },
         @{"ModuleName" = "VMware.VimAutomation.Core"; "ModuleVersion" = "12.3.0.17839688" }
         @{"ModuleName" = "VMware.VimAutomation.Storage"; "ModuleVersion" = "12.3.0.17855705"}
     )
@@ -75,7 +75,7 @@
     # NestedModules = @()
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-    FunctionsToExport = @("Set-AvsVMStoragePolicy", "Get-StoragePolicies", "New-AvsLDAPIdentitySource", "New-AvsLDAPSIdentitySource", "Get-ExternalIdentitySources", "Remove-ExternalIdentitySources", "Add-GroupToCloudAdmins", "Remove-GroupFromCloudAdmins", "Get-CloudAdminUsers")
+    FunctionsToExport = @("Set-AvsVMStoragePolicy", "Get-StoragePolicies", "New-AvsLDAPIdentitySource", "New-AvsLDAPSIdentitySource", "Update-IdentitySourceCertificates", "Get-ExternalIdentitySources", "Remove-ExternalIdentitySources", "Add-GroupToCloudAdmins", "Remove-GroupFromCloudAdmins", "Get-CloudAdminUsers")
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
     CmdletsToExport   = @()

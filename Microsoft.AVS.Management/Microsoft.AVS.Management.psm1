@@ -388,6 +388,82 @@ function New-AvsLDAPSIdentitySource {
 
 <#
     .Synopsis
+     Update the SSL Certificates used for Authenticating to an Active Directory over LDAPS
+
+    .Parameter DomainName
+     Domain name of the external active directory, e.g. myactivedirectory.local
+
+    .Parameter CertificatesSAS
+     An array of Shared Access Signature strings to the certificates required to connect to the external active directory, if using LDAPS
+#>
+function Update-IdentitySourceCertificates {
+    [CmdletBinding(PositionalBinding = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Name of the Identity source')]
+        [ValidateNotNull()]
+        [string]
+        $DomainName,
+  
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
+        [System.Security.SecureString]
+        $CertificatesSAS
+    )
+    
+    $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Stop
+    if ($null -ne $ExternalIdentitySources) {
+        $IdentitySource = $ExternalIdentitySources | Where-Object {$_.Name -eq $DomainName}
+        if ($null -ne $IdentitySource) {
+            [string] $CertificatesSASPlainString = ConvertFrom-SecureString -SecureString $CertificatesSAS -AsPlainText
+            [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
+            [string[]] $CertificatesSASList = $CertificatesSASPlainString.Split(",", $options)
+            Write-Host "Number of Certs passed $($CertificatesSASList.count)"
+            if ($CertificatesSASList.count -eq 0) {
+                Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate" -ErrorAction Stop
+            }
+            if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and $CertificatesSASList.count -lt 2) {
+                Write-Error "If passing in a secondary/fallback URL, ensure that at least two certificates are passed." -ErrorAction Stop
+            }
+            $DestinationFileArray = @()
+            $Index = 1
+            foreach ($CertSas in $CertificatesSASList) {
+                Write-Host "Downloading Cert $Index from $CertSas"
+                $CertDir = $pwd.Path
+                $CertLocation = "$CertDir/cert$Index.cer"
+                $Index = $Index + 1
+                try {
+                    $Response = Invoke-WebRequest -Uri $CertSas -OutFile $CertLocation
+                    $StatusCode = $Response.StatusCode
+                    Write-Host("Certificate downloaded. $StatusCode")
+                    $DestinationFileArray += $CertLocation
+                }
+                catch {
+                    Write-Error "Ensure the SAS string [$CertSAS] is still valid" -ErrorAction Continue
+                    Write-Error $PSItem.Exception.Message -ErrorAction Continue
+                    Write-Error "Failed to download certificate ($Index-1)" -ErrorAction Stop
+                }
+            }
+            Write-Host "Number of certificates downloaded: $($DestinationFileArray.count)"
+            Write-Host "Updating the LDAPS Identity Source..."
+            Set-LDAPIdentitySource -IdentitySource $IdentitySource -Certificates $DestinationFileArray -ErrorAction Stop
+            $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
+            $ExternalIdentitySources | Format-List | Out-String
+        } else {
+            Write-Error "Could not find Identity Source with name: $DomainName." -ErrorAction Stop
+        }
+    }
+    else {
+        Write-Host "No existing external identity sources found."
+    }
+}
+
+<#
+    .Synopsis
      Gets all external identity sources 
 #>
 function Get-ExternalIdentitySources {
