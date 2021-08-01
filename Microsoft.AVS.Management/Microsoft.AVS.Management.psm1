@@ -41,6 +41,51 @@ function Get-ProtectedNetworks {
     Get-VirtualNetwork | Where-Object {$_.Name -imatch "^((TNT.+?)|((HCX_|ESX_)?Mgmt)|(Replication)|(vMotion)|(vSAN))$"}
 }
 
+<# Download certificate from SAS token url #>
+function Get-Certificates {
+    Param
+    (
+        [Parameter(
+            Mandatory = $true)]
+        [System.Security.SecureString]
+        $SSLCertificatesSasUrl
+    )
+
+    [string] $CertificatesSASPlainString = ConvertFrom-SecureString -SecureString $SSLCertificatesSasUrl -AsPlainText
+    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
+    [string[]] $CertificatesSASList = $CertificatesSASPlainString.Split(",", $options)
+    Write-Host "Number of Certs passed $($CertificatesSASList.count)"
+    if ($CertificatesSASList.count -eq 0) {
+        Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate" -ErrorAction Stop
+    }
+    if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and $CertificatesSASList.count -lt 2) {
+        Write-Error "If passing in a secondary/fallback URL, ensure that at least two certificates are passed." -ErrorAction Stop
+    }
+    $DestinationFileArray = @()
+    $Index = 1
+    foreach ($CertSas in $CertificatesSASList) {
+        Write-Host "Downloading Cert $Index from $CertSas"
+        $CertDir = $pwd.Path
+        $CertLocation = "$CertDir/cert$Index.cer"
+        $Index = $Index + 1
+        try {
+            $Response = Invoke-WebRequest -Uri $CertSas -OutFile $CertLocation
+            $StatusCode = $Response.StatusCode
+            Write-Host("Certificate downloaded. $StatusCode")
+            $DestinationFileArray += $CertLocation
+        }
+        catch {
+            Write-Error "Ensure the SAS string [$CertSAS] is still valid" -ErrorAction Continue
+            Write-Error $PSItem.Exception.Message -ErrorAction Continue
+            Write-Error "Failed to download certificate ($Index-1)" -ErrorAction Stop
+        }
+    }
+    Write-Host "Number of certificates downloaded: $($DestinationFileArray.count)"
+    return $DestinationFileArray
+}
+
+
+
 <#
     .Synopsis
      Not Recommended (use New-AvsLDAPSIdentitySource): Add a not secure external identity source (Active Directory over LDAP) for use with vCenter Single Sign-On.
@@ -338,36 +383,7 @@ function New-AvsLDAPSIdentitySource {
     }
 
     $Password = $Credential.GetNetworkCredential().Password
-    [string] $CertificatesSASPlainString = ConvertFrom-SecureString -SecureString $SSLCertificatesSasUrl -AsPlainText
-    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
-    [string[]] $CertificatesSASList = $CertificatesSASPlainString.Split(",", $options)
-    Write-Host "Number of Certs passed $($CertificatesSASList.count)"
-    if ($CertificatesSASList.count -eq 0) {
-        Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate" -ErrorAction Stop
-    }
-    if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and $CertificatesSASList.count -lt 2) {
-        Write-Error "If passing in a secondary/fallback URL, ensure that at least two certificates are passed." -ErrorAction Stop
-    }
-    $DestinationFileArray = @()
-    $Index = 1
-    foreach ($CertSas in $CertificatesSASList) {
-        Write-Host "Downloading Cert $Index from $CertSas"
-        $CertDir = $pwd.Path
-        $CertLocation = "$CertDir/cert$Index.cer"
-        $Index = $Index + 1
-        try {
-            $Response = Invoke-WebRequest -Uri $CertSas -OutFile $CertLocation
-            $StatusCode = $Response.StatusCode
-            Write-Host("Certificate downloaded. $StatusCode")
-            $DestinationFileArray += $CertLocation
-        }
-        catch {
-            Write-Error "Ensure the SAS string [$CertSAS] is still valid" -ErrorAction Continue
-            Write-Error $PSItem.Exception.Message -ErrorAction Continue
-            Write-Error "Failed to download certificate ($Index-1)" -ErrorAction Stop
-        }
-    }
-    Write-Host "Number of certificates downloaded: $($DestinationFileArray.count)"
+    $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl
     Write-Host "Adding the LDAPS Identity Source..."
     Add-LDAPIdentitySource `
         -Name $Name `
@@ -417,43 +433,14 @@ function Update-IdentitySourceCertificates {
             Mandatory = $true,
             HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
         [System.Security.SecureString]
-        $CertificatesSAS
+        $SSLCertificatesSasUrl
     )
     
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Stop
     if ($null -ne $ExternalIdentitySources) {
         $IdentitySource = $ExternalIdentitySources | Where-Object {$_.Name -eq $DomainName}
         if ($null -ne $IdentitySource) {
-            [string] $CertificatesSASPlainString = ConvertFrom-SecureString -SecureString $CertificatesSAS -AsPlainText
-            [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
-            [string[]] $CertificatesSASList = $CertificatesSASPlainString.Split(",", $options)
-            Write-Host "Number of Certs passed $($CertificatesSASList.count)"
-            if ($CertificatesSASList.count -eq 0) {
-                Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate" -ErrorAction Stop
-            }
-            if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and $CertificatesSASList.count -lt 2) {
-                Write-Error "If passing in a secondary/fallback URL, ensure that at least two certificates are passed." -ErrorAction Stop
-            }
-            $DestinationFileArray = @()
-            $Index = 1
-            foreach ($CertSas in $CertificatesSASList) {
-                Write-Host "Downloading Cert $Index from $CertSas"
-                $CertDir = $pwd.Path
-                $CertLocation = "$CertDir/cert$Index.cer"
-                $Index = $Index + 1
-                try {
-                    $Response = Invoke-WebRequest -Uri $CertSas -OutFile $CertLocation
-                    $StatusCode = $Response.StatusCode
-                    Write-Host("Certificate downloaded. $StatusCode")
-                    $DestinationFileArray += $CertLocation
-                }
-                catch {
-                    Write-Error "Ensure the SAS string [$CertSAS] is still valid" -ErrorAction Continue
-                    Write-Error $PSItem.Exception.Message -ErrorAction Continue
-                    Write-Error "Failed to download certificate ($Index-1)" -ErrorAction Stop
-                }
-            }
-            Write-Host "Number of certificates downloaded: $($DestinationFileArray.count)"
+            $DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl
             Write-Host "Updating the LDAPS Identity Source..."
             Set-LDAPIdentitySource -IdentitySource $IdentitySource -Certificates $DestinationFileArray -ErrorAction Stop
             $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
