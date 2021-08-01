@@ -874,8 +874,8 @@ function Set-ClusterDefaultStoragePolicy {
         Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
     } 
 
-    $ProtectedClusterNames = Get-ProtectedClusters  
-    if ($ProtectedClusterNames.Contains($ClusterName)) {
+    $ProtectedClusters = Get-ProtectedClusters  
+    if ($ClusterName -in $ProtectedClusters.Name) {
         Write-Error "Changing the default storage policy is not supported on this cluster." -ErrorAction Stop
     }
     $ClusterDatastore = Get-Cluster $ClusterName | Get-VMHost | Get-Datastore
