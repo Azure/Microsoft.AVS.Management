@@ -397,6 +397,7 @@ function New-AvsLDAPSIdentitySource {
 #>
 function Get-ExternalIdentitySources {
     [AVSAttribute(3, UpdatesSDDC = $false)]
+    Param()
 
     $ExternalSource = Get-IdentitySource -External
     if ($null -eq $ExternalSource) {
@@ -738,6 +739,7 @@ function Remove-GroupFromCloudAdmins {
 function Get-CloudAdminUsers {
     [CmdletBinding(PositionalBinding = $false)]
     [AVSAttribute(3, UpdatesSDDC = $false)]
+    Param()
 
     $CloudAdmins = Get-SsoGroup -Name 'CloudAdmins' -Domain 'vsphere.local'
     if ($null -eq $CloudAdmins) {
@@ -754,6 +756,7 @@ function Get-CloudAdminUsers {
 #>
 function Get-StoragePolicies {
     [AVSAttribute(3, UpdatesSDDC = $False)]
+    Param()
     
     $StoragePolicies
     try {
