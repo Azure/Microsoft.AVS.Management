@@ -14,7 +14,7 @@ Get-Content "$absolutePathToManifest"
 Write-Output "---- Updating the module version to $env:BUILD_BUILDNUMBER-$prereleaseString ----"
 
 Set-Location "$absolutePathToManifestFolder"
-$targetModuleParams = @{ModuleVersion = "$env:BUILD_BUILDNUMBER"; Prerelease = "$prereleaseString"; Path = "$manifestAbsolutePath"}
+$targetModuleParams = @{ModuleVersion = "$env:BUILD_BUILDNUMBER"; Prerelease = "$prereleaseString"; Path = "$absolutePathToManifest"}
 Update-ModuleManifest @targetModuleParams
 
 if (!$?) {
@@ -51,9 +51,10 @@ if (!$?) {
 }else {
     
     Write-Output "----SUCCEEDED: $($feedParameters.Name) repository registered ----"
+}
 
 Write-Output "Unofficial module published to $($feedParameters.Name)"
-Publish-Module -Path "$absolutePathToManifestFolder" -Repository ($feedParameters).Name -NuGetApiKey "valueNotUsed"
+Publish-Module -Path "$absolutePathToManifestFolder" -Repository ($feedParameters).Name -NuGetApiKey "$env:MICROSOFT_AVS_MANAGEMENT_OFFICIAL_FEED_AND_RELEASES_PAT"
 
 if (!$?) {
         Write-Error -Message "----ERROR: Unable to publish module----"

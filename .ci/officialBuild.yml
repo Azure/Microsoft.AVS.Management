@@ -159,19 +159,21 @@ stages:
     - task: NuGetAuthenticate@0
       inputs:
         nuGetServiceConnections: Unofficial-AVS-Automation-AdminTools
-    - task: PowerShell@2
-      displayName: Package Module
-      env:
-        AVS_PSGALLERY_APIKEY: $(avsPsgalleryApiKey)
-      inputs:
-        filePath: 'package/packageModule.ps1'
-        arguments: '$(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }} official'
-        pwsh: true
+    # - task: PowerShell@2
+    #   displayName: Package Module
+    #   env:
+    #     AVS_PSGALLERY_APIKEY: $(avsPsgalleryApiKey)
+    #   inputs:
+    #     filePath: 'package/packageModule.ps1'
+    #     arguments: '$(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }} official'
+    #     pwsh: true
     - publish: $(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}
       displayName: Publish Signed Files To Artifact Directory
       artifact: '${{ variables.outputFolderName }}'
     - task: PowerShell@2
-      displayName: Publish Preview Version to Unofficial Feed
+      displayName: Publish Preview Version to Official Feed
+      env:
+        MICROSOFT_AVS_MANAGEMENT_OFFICIAL_FEED_AND_RELEASES_PAT: $(Microsoft-AVS-Management-OfficialFeed-And-ReleasesPAT)
       inputs:
         filePath: 'package/publishPreviewVersionToUnofficialFeed.ps1'
         arguments: '$(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
