@@ -169,12 +169,10 @@ stages:
         pwsh: true
     - publish: $(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}
       displayName: Publish Signed Files To Artifact Directory
-      artifact: '${{ variables.outputFolderName }}'
-# - stage: Test
-#   displayName: Test
-#   dependsOn: Compliance
-#   jobs:
-#   - job: Run_Tests
-#     steps:
-#     - pwsh: |
-#         Write-Output "---- NO TEST RUNNING----"
+      artifact: '${{ variables.outputFolderName }}/${{ variables.moduleFolderName }}'
+    - task: PowerShell@2
+      displayName: Publish Preview Version to Unofficial Feed
+      inputs:
+        filePath: 'package/publishPreviewVersionToUnofficialFeed.ps1'
+        arguments: '$(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
+        pwsh: true

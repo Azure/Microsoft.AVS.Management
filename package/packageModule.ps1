@@ -51,7 +51,8 @@ Get-ChildItem "$absoluteSrcFolderPath"
 
 Write-Host "----AVS-Automation-AdminTools: publishing $buildType build package ----"
 if ($buildType -eq 'official') {
-    Publish-Module -Path "$absoluteSrcFolderPath" -NuGetApiKey "$env:AVS_PSGALLERY_APIKEY"
+    Write-Output "----- PAUSED PUBLISHING TO PSGALLERY-----"
+    #Publish-Module -Path "$absoluteSrcFolderPath" -NuGetApiKey "$env:AVS_PSGALLERY_APIKEY"
     if (!$?) {
             Write-Error -Message "----ERROR: Unable to publish module----"
             Throw "Could not publish $(Split-Path -Path "$absoluteSrcFolderPath" -Leaf) to PSGallery."
