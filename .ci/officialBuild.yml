@@ -169,7 +169,7 @@ stages:
         pwsh: true
     - publish: $(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}
       displayName: Publish Signed Files To Artifact Directory
-      artifact: '${{ variables.outputFolderName }}/${{ variables.moduleFolderName }}'
+      artifact: '${{ variables.outputFolderName }}'
     - task: PowerShell@2
       displayName: Publish Preview Version to Unofficial Feed
       inputs:
