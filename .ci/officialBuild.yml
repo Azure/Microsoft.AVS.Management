@@ -8,8 +8,9 @@ variables:
   MAJOR: 1
   minor: 0
   moduleFolderName: 'Microsoft.AVS.Management'
-  outputFolderName: 'signed'
-  GDN_CODESIGN_TARGETDIRECTORY: '$(Build.ArtifactStagingDirectory)/${{ variables.outputFolderName }}'
+  GDN_CODESIGN_TARGETDIRECTORY: '$(Build.ArtifactStagingDirectory)'
+  stageForUnsignedFolder: 'unsigned'
+  stageForSigningFolder: 'forSigning'
 
 #Versioning
 name: $(MAJOR).$(minor).$(Rev:r)
@@ -45,8 +46,11 @@ stages:
         arguments: '${{ variables.moduleFolderName }}'
         pwsh: true
     - publish: $(System.DefaultWorkingDirectory)/${{ variables.moduleFolderName }}
-      artifact: ${{ variables.moduleFolderName }}
+      artifact: ${{ variables.stageForSigningFolder }}
       displayName: Stage Files for Signing
+    - publish: $(System.DefaultWorkingDirectory)
+      artifact: ${{ variables.stageForUnsignedFolder }}
+      displayName: Stage Unsigned Module
   ## Compliance
   ###########################################################################################
   - job: Check_Compliance
@@ -107,8 +111,13 @@ stages:
     - task: DownloadPipelineArtifact@2
       inputs:
         source: 'current'
-        artifact: '${{ variables.moduleFolderName }}'
+        artifact: '${{ variables.stageForSigningFolder }}'
         path: '$(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}'
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        source: 'current'
+        artifact: '${{ variables.stageForUnsignedFolder }}'
+        path: '$(Build.ArtifactStagingDirectory)/${{ variables.stageForUnsignedFolder }}'
     - task: EsrpCodeSigning@1
       inputs:
         ConnectedServiceName: 'AVS-Automation-AdminTools-OfficialBuild'
@@ -169,12 +178,12 @@ stages:
     #     pwsh: true
     - publish: $(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}
       displayName: Publish Signed Files To Artifact Directory
-      artifact: '${{ variables.outputFolderName }}'
+      artifact: '${{ variables.moduleFolderName }}'
     - task: PowerShell@2
       displayName: Publish Preview Version to Official Feed
       env:
         MICROSOFT_AVS_MANAGEMENT_OFFICIAL_FEED_AND_RELEASES_PAT: $(Microsoft-AVS-Management-OfficialFeed-And-ReleasesPAT)
       inputs:
         filePath: 'package/publishPreviewVersionToUnofficialFeed.ps1'
-        arguments: '$(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
+        arguments: '$(Build.ArtifactStagingDirectory)/${{ variables.stageForUnsignedFolder }}/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
         pwsh: true

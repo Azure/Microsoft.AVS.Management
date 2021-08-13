@@ -7,7 +7,7 @@ param (
 Write-Output "----START: publishPreviewVersionToUnofficialFeed----"
 
 #Append part of commit hash to Prerelease string
-$prereleaseString = @( "-", "Preview", ((git log --pretty=oneline origin/main -1)[0..10] -join '')) | Join-String -Separator ''
+$prereleaseString = @( "-", "PREVIEW", ((git log --pretty=oneline origin/main -1)[0..10] -join '')) | Join-String -Separator ''
 $absolutePathToManifestFolder = (Split-Path "$absolutePathToManifest")
 
 Get-Content "$absolutePathToManifest"
@@ -24,7 +24,7 @@ if (!$?) {
     
 }else {
 
-    Write-Output "---- SUCCEED: updated the module version to $env:BUILD_BUILDNUMBER-$prereleaseString ----"
+    Write-Output "---- SUCCEED: updated the module version to $env:BUILD_BUILDNUMBER$prereleaseString ----"
     Get-Content "$absolutePathToManifest"
 
 }
