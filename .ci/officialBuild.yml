@@ -1,5 +1,5 @@
 trigger:
-- none
+- main
 
 pr:
 - none
@@ -169,9 +169,7 @@ stages:
       inputs:
         nuGetServiceConnections: Unofficial-AVS-Automation-AdminTools
     - pwsh: |
-        Get-ChildItem "$(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}"
         Remove-Item "$(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}/CodeSignSummary*"
-        Get-ChildItem "$(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}"
       displayName: Remove CodeSign Summary before packaging
     # - task: PowerShell@2
     #   displayName: Package Module
@@ -187,7 +185,7 @@ stages:
     - task: PowerShell@2
       displayName: Publish Preview Version to Official Feed
       env:
-        MICROSOFT_AVS_MANAGEMENT_OFFICIAL_FEED_AND_RELEASES_PAT: $(Microsoft-AVS-Management-OfficialFeed-And-ReleasesPAT)
+        UNOFFICIAL_FEED_NUGET_APIKEY: $(unofficialFeedNugetApiKey)
       inputs:
         filePath: 'package/publishPreviewVersionToUnofficialFeed.ps1'
         arguments: '$(Build.ArtifactStagingDirectory)/${{ variables.stageForUnsignedFolder }}/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
