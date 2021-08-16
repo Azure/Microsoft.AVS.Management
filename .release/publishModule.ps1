@@ -1,7 +1,8 @@
 #!/usr/bin/pwsh
 
 param (
-    [Parameter(Mandatory=$true)][string]$pathToPSD1File #Expected module dir/leaf format: ModuleName/ModuleName.psd1
+    [Parameter(Mandatory=$true)][string]$pathToPSD1File, #Expected module dir/leaf format: ModuleName/ModuleName.psd1
+    [Parameter(Mandatory=$true)][string]$apiKey
 )
 
 Function Build-RequiredModuleFiles {
@@ -43,5 +44,5 @@ Write-Output "modulePath: $moduleParentFolder"
 Write-Output "Publishing to $($feedParameters.Name)"
 
 # Path includes release pipeline variables. NugetApiKey is a secret pipeline variable.
-Publish-Module -Path "$moduleParentFolder" -Repository ($feedParameters).Name -NuGetApiKey $(Microsoft-AVS-Management-OfficialFeed-And-ReleasesPAT)
+Publish-Module -Path "$moduleParentFolder" -Repository ($feedParameters).Name -NuGetApiKey "$apiKey")
 Write-Output "---- FINISH: Publish Module----"
