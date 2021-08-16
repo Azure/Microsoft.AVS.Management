@@ -14,10 +14,11 @@ pr:
 variables:
   MAJOR: 0
   minor: 1
+  patch: $[counter(variables['minor'], 95)]
   moduleFolderName: 'Microsoft.AVS.Management'
 
 #Versioning
-name: $(MAJOR).$(minor).$(Rev:r)
+name: $(MAJOR).$(minor).$(patch)
 ######################################
 
 stages:
