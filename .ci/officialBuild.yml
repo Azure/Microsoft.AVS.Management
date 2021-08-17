@@ -5,11 +5,7 @@ pr:
 - none
 ########################################
 variables:
-  moduleFolderName: 'Microsoft.AVS.Management'
-  GDN_CODESIGN_TARGETDIRECTORY: '$(Build.ArtifactStagingDirectory)'
-  stageForUnsignedFolder: 'unsigned'
-  stageForSigningFolder: 'forSigning'
-  template: setBuildVersion.yml
+- template: vars.yml
 #######################################
 
 stages:
