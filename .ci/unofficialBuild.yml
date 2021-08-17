@@ -25,6 +25,7 @@ stages:
   - job: Build_and_Publish_Job
     displayName: Build Unofficial AVS-Automation-AdminTools
     steps:
+    - template: setBuildVersion.yml
     - task: PowerShell@2
       displayName: Restore Dependencies
       inputs:
