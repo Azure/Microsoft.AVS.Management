@@ -1,5 +1,5 @@
 steps:
-- pwsh: |
+- powershell: |
       $psdFileObj = Import-PowerShellDataFile ${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1
       $manifestVersionAsArray = $psdFileObj.ModuleVersion -split "\."
       $MAJOR = $manifestVersionAsArray[0]
