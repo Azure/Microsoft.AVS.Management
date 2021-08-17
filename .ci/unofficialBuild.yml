@@ -12,13 +12,8 @@ pr:
 ######################################
 
 variables:
-  MAJOR: 0
-  minor: 1
-  #patch: $[counter(variables['minor'], 95)]
   moduleFolderName: 'Microsoft.AVS.Management'
-
-#Versioning
-name: $(MAJOR).$(minor).$(Rev:r)
+- template: setBuildVersion.yml
 ######################################
 
 stages:
@@ -48,18 +43,3 @@ stages:
         filePath: 'tests/prevalidateModules.ps1'
         arguments: '${{ variables.moduleFolderName }}'
         pwsh: true
-    - task: NuGetAuthenticate@0
-    - task: PowerShell@2
-      displayName: Package Module
-      inputs:
-        filePath: 'package/packageModule.ps1'
-        arguments: '${{ variables.moduleFolderName }} unofficial'
-        pwsh: true
-# - stage: Test
-#   displayName: Test
-#   dependsOn: Compliance
-#   jobs:
-#   - job: Run_Tests
-#     steps:
-#     - pwsh: |
-#         Write-Output "---- NO TEST RUNNING----"

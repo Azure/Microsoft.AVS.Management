@@ -26,13 +26,19 @@ $moduleParentFolder = (Get-Item "$pathToPSD1File").Directory.FullName
 Build-RequiredModuleFiles
 
 # Write-Output "---- START: Register repository----"
-# $feedParameters = @{
+# $adoUnofficialFeedParameters = @{
+#         Name = "Unofficial-AVS-Automation-AdminTools"
+#         SourceLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
+#         PublishLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
+#         InstallationPolicy = 'Trusted'
+#     }
+# $adoOfficialFeedParameters = @{
 #         Name = "AVS-Automation-AdminTools"
 #         SourceLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v2"
 #         PublishLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v2"
 #         InstallationPolicy = 'Trusted'
 # }
-# Register-PSRepository @feedParameters
+# Register-PSRepository @adoUnofficialFeedParameters
 Write-Output "---- FINISH: Register repository----"
 
 Write-Output "---- START: List Available PSRepositories----"
