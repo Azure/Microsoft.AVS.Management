@@ -13,7 +13,7 @@ pr:
 
 variables:
   moduleFolderName: 'Microsoft.AVS.Management'
-- template: setBuildVersion.yml
+  template: setBuildVersion.yml
 ######################################
 
 stages:

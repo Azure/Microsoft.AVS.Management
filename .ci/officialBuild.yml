@@ -9,7 +9,7 @@ variables:
   GDN_CODESIGN_TARGETDIRECTORY: '$(Build.ArtifactStagingDirectory)'
   stageForUnsignedFolder: 'unsigned'
   stageForSigningFolder: 'forSigning'
-- template: setBuildVersion.yml
+  template: setBuildVersion.yml
 #######################################
 
 stages:
