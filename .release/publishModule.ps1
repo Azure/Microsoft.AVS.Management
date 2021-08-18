@@ -32,13 +32,13 @@ Build-RequiredModuleFiles
 #         PublishLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
 #         InstallationPolicy = 'Trusted'
 #     }
-# $adoOfficialFeedParameters = @{
-#         Name = "AVS-Automation-AdminTools"
-#         SourceLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v2"
-#         PublishLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v2"
-#         InstallationPolicy = 'Trusted'
-# }
-# Register-PSRepository @adoUnofficialFeedParameters
+$adoOfficialFeedParameters = @{
+        Name = "AVS-Automation-AdminTools"
+        SourceLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v2"
+        PublishLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v2"
+        InstallationPolicy = 'Trusted'
+}
+Register-PSRepository @adoOfficialFeedParameters
 Write-Output "---- FINISH: Register repository----"
 
 Write-Output "---- START: List Available PSRepositories----"
@@ -50,5 +50,6 @@ Write-Output "modulePath: $moduleParentFolder"
 Write-Output "Publishing to PSGallery"
 
 # Path includes release pipeline variables. NugetApiKey is a secret pipeline variable.
-Publish-Module -Path "$moduleParentFolder" -Repository PSGallery -NuGetApiKey "$apiKey"
+# Publish-Module -Path "$moduleParentFolder" -Repository PSGallery -NuGetApiKey "$apiKey"
+Publish-Module -Path "$moduleParentFolder" -Repository ($adoOfficialFeedParameters).Name -NuGetApiKey "$apiKey"
 Write-Output "---- FINISH: Publish Module----"
