@@ -7,7 +7,7 @@ pr:
 variables:
 - template: vars.yml
 
-name: $(Rev:r)
+name: $(Rev:r) # Provide build run number (i.e., Build.BuildNumber) that is used as patch for build version and ultimately module version
 #######################################
 
 stages:
@@ -33,12 +33,12 @@ stages:
         filePath: '.build-tools/getRequiredModules.ps1'
         arguments: '${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
         pwsh: true
-    # - task: PowerShell@2
-    #   displayName: Versioning Module
-    #   inputs:
-    #     filePath: '.build-tools/updateModuleVersion.ps1'
-    #     arguments: '${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1  -IsOfficial'
-    #     pwsh: true
+    - task: PowerShell@2
+      displayName: Versioning Module
+      inputs:
+        filePath: '.build-tools/updateModuleVersion.ps1'
+        arguments: '$(System.DefaultWorkingDirectory)/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
+        pwsh: true
     - task: PowerShell@2
       displayName: Pre-Validate Module and Scripts #PSGallery publishing guidelines: https://docs.microsoft.com/en-us/powershell/scripting/gallery/how-to/publishing-packages/publishing-a-package?view=powershell-7.1#pre-validate-your-item
       inputs:
@@ -171,21 +171,14 @@ stages:
     - pwsh: |
         Remove-Item "$(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}/CodeSignSummary*"
       displayName: Remove CodeSign Summary before packaging
-    # - task: PowerShell@2
-    #   displayName: Package Module
-    #   env:
-    #     AVS_PSGALLERY_APIKEY: $(avsPsgalleryApiKey)
-    #   inputs:
-    #     filePath: 'package/packageModule.ps1'
-    #     arguments: '$(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }} official'
-    #     pwsh: true
     - publish: $(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}
       displayName: Publish Signed Files To Artifact Directory
       artifact: '${{ variables.moduleFolderName }}'
     - task: PowerShell@2
       displayName: Publish Preview Version to Official Feed
       env:
-        UNOFFICIAL_FEED_NUGET_APIKEY: $(unofficialFeedNugetApiKey)
+        #UNOFFICIAL_FEED_NUGET_APIKEY: $(unofficialFeedNugetApiKey)
+        MICROSOFT_AVS_MANAGEMENT_OFFICIAL_FEED_AND_RELEASES_PAT: $(Microsoft-AVS-Management-OfficialFeed-And-ReleasesPAT)
       inputs:
         filePath: 'package/publishPreviewVersionToUnofficialFeed.ps1'
         arguments: '$(Build.ArtifactStagingDirectory)/${{ variables.stageForUnsignedFolder }}/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
