@@ -3,5 +3,3 @@ variables:
   GDN_CODESIGN_TARGETDIRECTORY: '$(Build.ArtifactStagingDirectory)'
   stageForUnsignedFolder: 'unsigned'
   stageForSigningFolder: 'forSigning'
-  patchIteration: 0 # Bump up this value to reset patch to 0
-  patch: $[counter(variables['patchIteration'], 0)]
