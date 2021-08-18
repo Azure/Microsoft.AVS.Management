@@ -6,6 +6,8 @@ pr:
 ########################################
 variables:
 - template: vars.yml
+
+name: $(Rev:r)
 #######################################
 
 stages:
@@ -23,7 +25,7 @@ stages:
       displayName: Set Build Version
       inputs:
         filePath: '.build-tools/setBuildVersion.ps1'
-        arguments: '$(System.DefaultWorkingDirectory)/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1 ${{ variables.patch }}'
+        arguments: '$(System.DefaultWorkingDirectory)/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1 $(Build.BuildNumber)'
         pwsh: true
     - task: PowerShell@2
       displayName: Restore Dependencies
