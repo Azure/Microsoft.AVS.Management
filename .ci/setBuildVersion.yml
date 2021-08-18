@@ -1,13 +1,16 @@
-variables:
-- template: vars.yml
+parameters:
+- name: moduleName
+  default: 'Microsoft.AVS.Management'
+- name: modulePatch
+  default: '000'
 
 steps:
 - pwsh: |
-      $psdFileObj = Import-PowerShellDataFile ${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1
+      $psdFileObj = Import-PowerShellDataFile ../${{ parameters.moduleName }}/${{ parameters.moduleName }}.psd1
       $manifestVersionAsArray = $psdFileObj.ModuleVersion -split "\."
       $MAJOR = $manifestVersionAsArray[0]
       $minor = $manifestVersionAsArray[1]
-      $updatedBuildVersion = $MAJOR.$minor.${{ variables.patch }}
+      $updatedBuildVersion = $MAJOR.$minor.${{ parameters.modulePatch }}
       echo "Setting Build Version to $updatedBuildVersion"
       echo "##vso[build.updatebuildnumber]$updatedBuildVersion"
   displayName: Set Build Version from Module Manifest

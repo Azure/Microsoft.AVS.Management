@@ -25,6 +25,9 @@ stages:
     displayName: Build Unofficial AVS-Automation-AdminTools
     steps:
     - template: setBuildVersion.yml
+      parameters:
+        moduleName: ${{ variables.moduleFolderName }}
+        modulePatch: ${{ variables.patch }}
     - task: PowerShell@2
       displayName: Restore Dependencies
       inputs:
