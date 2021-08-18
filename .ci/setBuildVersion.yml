@@ -1,10 +1,13 @@
+variables:
+- template: vars.yml
+
 steps:
-- powershell: |
+- pwsh: |
       $psdFileObj = Import-PowerShellDataFile ${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1
       $manifestVersionAsArray = $psdFileObj.ModuleVersion -split "\."
       $MAJOR = $manifestVersionAsArray[0]
       $minor = $manifestVersionAsArray[1]
       $updatedBuildVersion = $MAJOR.$minor.${{ variables.patch }}
-      Write-Host "---- Setting Build Version to $updatedBuildVersion ----"
-      Write-Host "##vso[build.updatebuildnumber]$updatedBuildVersion"
+      echo "Setting Build Version to $updatedBuildVersion"
+      echo "##vso[build.updatebuildnumber]$updatedBuildVersion"
   displayName: Set Build Version from Module Manifest
