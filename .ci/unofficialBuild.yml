@@ -12,12 +12,9 @@ pr:
 ######################################
 
 variables:
-  MAJOR: 0
-  minor: 1
-  moduleFolderName: 'Microsoft.AVS.Management'
+- template: vars.yml
 
-#Versioning
-name: $(MAJOR).$(minor).$(Rev:r)
+name: $(Rev:r) # Provide build run number (i.e., Build.BuildNumber) that is used as patch for build version and ultimately module version
 ######################################
 
 stages:
@@ -30,6 +27,12 @@ stages:
     displayName: Build Unofficial AVS-Automation-AdminTools
     steps:
     - task: PowerShell@2
+      displayName: Set Build Version
+      inputs:
+        filePath: '.build-tools/setBuildVersion.ps1'
+        arguments: '$(System.DefaultWorkingDirectory)/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1 $(Build.BuildNumber)'
+        pwsh: true
+    - task: PowerShell@2
       displayName: Restore Dependencies
       inputs:
         filePath: '.build-tools/getRequiredModules.ps1'
@@ -39,7 +42,7 @@ stages:
       displayName: Versioning Module
       inputs:
         filePath: '.build-tools/updateModuleVersion.ps1'
-        arguments: '${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
+        arguments: '$(System.DefaultWorkingDirectory)\${{ variables.moduleFolderName }}\${{ variables.moduleFolderName }}.psd1 -IsPR'
         pwsh: true
     - task: PowerShell@2
       displayName: Pre-Validate Module and Scripts #PSGallery publishing guidelines: https://docs.microsoft.com/en-us/powershell/scripting/gallery/how-to/publishing-packages/publishing-a-package?view=powershell-7.1#pre-validate-your-item
@@ -47,18 +50,3 @@ stages:
         filePath: 'tests/prevalidateModules.ps1'
         arguments: '${{ variables.moduleFolderName }}'
         pwsh: true
-    - task: NuGetAuthenticate@0
-    - task: PowerShell@2
-      displayName: Package Module
-      inputs:
-        filePath: 'package/packageModule.ps1'
-        arguments: '${{ variables.moduleFolderName }} unofficial'
-        pwsh: true
-# - stage: Test
-#   displayName: Test
-#   dependsOn: Compliance
-#   jobs:
-#   - job: Run_Tests
-#     steps:
-#     - pwsh: |
-#         Write-Output "---- NO TEST RUNNING----"
