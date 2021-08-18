@@ -177,9 +177,9 @@ stages:
     - task: PowerShell@2
       displayName: Publish Preview Version to Official Feed
       env:
-        #UNOFFICIAL_FEED_NUGET_APIKEY: $(unofficialFeedNugetApiKey)
-        MICROSOFT_AVS_MANAGEMENT_OFFICIAL_FEED_AND_RELEASES_PAT: $(Microsoft-AVS-Management-OfficialFeed-And-ReleasesPAT)
+        UNOFFICIAL_FEED_NUGET_APIKEY: $(unofficialFeedNugetApiKey)
+        # MICROSOFT_AVS_MANAGEMENT_OFFICIAL_FEED_AND_RELEASES_PAT: $(Microsoft-AVS-Management-OfficialFeed-And-ReleasesPAT)
       inputs:
-        filePath: 'package/publishPreviewVersionToUnofficialFeed.ps1'
+        filePath: '.build-tools/publishPreviewVersionToUnofficialFeed.ps1'
         arguments: '$(Build.ArtifactStagingDirectory)/${{ variables.stageForUnsignedFolder }}/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
         pwsh: true

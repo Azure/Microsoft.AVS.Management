@@ -30,18 +30,18 @@ if (!$?) {
 
 Write-Output "----END: updateModuleVersion----"
 
-# $feedParameters = @{
-#         Name = "Unofficial-AVS-Automation-AdminTools"
-#         SourceLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
-#         PublishLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
-#         InstallationPolicy = 'Trusted'
-# }
 $feedParameters = @{
-        Name = "AVS-Automation-AdminTools"
-        SourceLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v2"
-        PublishLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v2"
+        Name = "Unofficial-AVS-Automation-AdminTools"
+        SourceLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
+        PublishLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
         InstallationPolicy = 'Trusted'
 }
+# $feedParameters = @{
+#         Name = "AVS-Automation-AdminTools"
+#         SourceLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v2"
+#         PublishLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v2"
+#         InstallationPolicy = 'Trusted'
+# }
 
 Write-Output "----Registering PSRepository ----"
 Register-PSRepository @feedParameters
@@ -54,8 +54,8 @@ if (!$?) {
 }
 
 Write-Output "Unofficial module published to $($feedParameters.Name)"
-# Publish-Module -Path "$absolutePathToManifestFolder" -Repository ($feedParameters).Name -NuGetApiKey "$env:UNOFFICIAL_FEED_NUGET_APIKEY"
-Publish-Module -Path "$absolutePathToManifestFolder" -Repository ($feedParameters).Name -NuGetApiKey "$env:MICROSOFT_AVS_MANAGEMENT_OFFICIAL_FEED_AND_RELEASES_PAT"
+Publish-Module -Path "$absolutePathToManifestFolder" -Repository ($feedParameters).Name -NuGetApiKey "$env:UNOFFICIAL_FEED_NUGET_APIKEY"
+# Publish-Module -Path "$absolutePathToManifestFolder" -Repository ($feedParameters).Name -NuGetApiKey "$env:MICROSOFT_AVS_MANAGEMENT_OFFICIAL_FEED_AND_RELEASES_PAT"
 
 if (!$?) {
         Write-Error -Message "----ERROR: Unable to publish module----"

@@ -2,13 +2,15 @@
 
 param (
     [Parameter(Mandatory=$true)][string]$pathToPSD1File, #Expected module dir/leaf format: ModuleName/ModuleName.psd1
-    [Parameter(Mandatory=$true)][string]$apiKey
+    [Parameter(Mandatory=$true)][string]$apiKey,
+    [switch]$ForPSGallery = $false
+
 )
 
 Function Build-RequiredModuleFiles {
 
     # Get .psd1 data
-    $Data = Import-PowerShellDataFile "$pathToPSD1File"
+    $data = Import-PowerShellDataFile "$pathToPSD1File"
 
     # Get the RequiredModules
     [array]$RequiredModules = $data.RequiredModules
@@ -22,34 +24,35 @@ Function Build-RequiredModuleFiles {
 
 }
 
-$moduleParentFolder = (Get-Item "$pathToPSD1File").Directory.FullName
 Build-RequiredModuleFiles
 
-# Write-Output "---- START: Register repository----"
-# $adoUnofficialFeedParameters = @{
-#         Name = "Unofficial-AVS-Automation-AdminTools"
-#         SourceLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
-#         PublishLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
-#         InstallationPolicy = 'Trusted'
-#     }
-$adoOfficialFeedParameters = @{
-        Name = "AVS-Automation-AdminTools"
-        SourceLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v2"
-        PublishLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v2"
+$script:adoUnofficialFeedParameters = @{
+        Name = "Unofficial-AVS-Automation-AdminTools"
+        SourceLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
+        PublishLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
         InstallationPolicy = 'Trusted'
 }
-Register-PSRepository @adoOfficialFeedParameters
-Write-Output "---- FINISH: Register repository----"
-
-Write-Output "---- START: List Available PSRepositories----"
-Get-PSRepository
-Write-Output "---- FINISH: List Available PSRepositories----"
+# $script:adoOfficialFeedParameters = @{
+#         Name = "AVS-Automation-AdminTools"
+#         SourceLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v2"
+#         PublishLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v2"
+#         InstallationPolicy = 'Trusted'
+# }
 
 Write-Output "---- START: Publish Module----"
+$moduleParentFolder = (Get-Item "$pathToPSD1File").Directory.FullName
 Write-Output "modulePath: $moduleParentFolder"
-Write-Output "Publishing to PSGallery"
+if($ForPSGallery){
+    Write-Host "Publishing to PSGallery"
+    Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
+    Publish-Module -Path "$moduleParentFolder" -Repository "PSGallery" -NuGetApiKey "$apiKey"
 
-# Path includes release pipeline variables. NugetApiKey is a secret pipeline variable.
-# Publish-Module -Path "$moduleParentFolder" -Repository PSGallery -NuGetApiKey "$apiKey"
-Publish-Module -Path "$moduleParentFolder" -Repository ($adoOfficialFeedParameters).Name -NuGetApiKey "$apiKey"
+}else{
+    Write-Host "Publishing to  $($adoUnofficialFeedParameters.Name)"
+    # Register-PSRepository @adoOfficialFeedParameters
+    Register-PSRepository @adoUnofficialFeedParameters
+    # Publish-Module -Path "$moduleParentFolder" -Repository ($adoOfficialFeedParameters).Name -NuGetApiKey "$apiKey"
+    Publish-Module -Path "$moduleParentFolder" -Repository ($adoUnofficialFeedParameters).Name -NuGetApiKey "$apiKey"
+}
+
 Write-Output "---- FINISH: Publish Module----"
