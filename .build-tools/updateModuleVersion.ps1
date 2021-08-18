@@ -6,15 +6,17 @@ param (
 )
 
 Write-Output "----START: updateModuleVersion----"
-$manifestFolder = (Split-Path "$manifestAbsolutePath")
+Write-Output "Given path to manifest: $manifestAbsolutePath"
 Get-Content "$manifestAbsolutePath"
 Write-Output "---- Updating the module version to $env:BUILD_BUILDNUMBER----"
-$targetModuleParams = @{}
+$script:targetModuleParams = @{}
 
 if($IsPR){
+    Write-Host "Executing PR versioning"
     $targetModuleParams = @{ModuleVersion = "$env:BUILD_BUILDNUMBER"; Prerelease = "-aPR"; Path = "$manifestAbsolutePath"}
 
 }else{
+    Write-Host "Executing official versioning"
     $targetModuleParams = @{ModuleVersion = "$env:BUILD_BUILDNUMBER"; Path = "$manifestAbsolutePath"}
 
 }
@@ -26,7 +28,7 @@ if (!$?) {
     Throw "Module version must be updated before proceeding with build."
     
 }else {
-    Write-Output "---- SUCCEED: updated the module version to $((Import-PowerShellDataFile $absolutePathToManifest).ModuleVersion)----"
+    Write-Output "---- SUCCEED: updated the module version to $((Import-PowerShellDataFile $manifestAbsolutePath).ModuleVersion)----"
     Get-Content "$manifestAbsolutePath"
 
 }
