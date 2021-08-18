@@ -24,10 +24,12 @@ stages:
   - job: Build_and_Publish_Job
     displayName: Build Unofficial AVS-Automation-AdminTools
     steps:
-    - template: setBuildVersion.yml
-      parameters:
-        moduleName: ${{ variables.moduleFolderName }}
-        modulePatch: ${{ variables.patch }}
+    - task: PowerShell@2
+      displayName: Set Build Version
+      inputs:
+        filePath: '.build-tools/setBuildVersion.ps1'
+        arguments: '$(System.DefaultWorkingDirectory)/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1 ${{ variables.patch }}'
+        pwsh: true
     - task: PowerShell@2
       displayName: Restore Dependencies
       inputs:
