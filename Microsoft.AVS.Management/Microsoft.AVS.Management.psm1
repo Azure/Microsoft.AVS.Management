@@ -474,7 +474,7 @@ function Get-ExternalIdentitySources {
 
 <#
     .Synopsis
-     Removes all external identity sources
+     Removes supplied identity source, or, if no specific identity source is provided, will remove all identity sources.
     
     .Parameter DomainName
      The domain name of the external identity source to remove i.e. `mydomain.com`. If none provided, will attempt to remove all external identity sources.
