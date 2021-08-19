@@ -476,8 +476,8 @@ function Get-ExternalIdentitySources {
     .Synopsis
      Removes all external identity sources
     
-    .Parameter Name
-     The name of the external identity source to remove. If none provided, will attempt to remove all external identity sources.
+    .Parameter DomainName
+     The domain name of the external identity source to remove i.e. `mydomain.com`. If none provided, will attempt to remove all external identity sources.
 #>
 function Remove-ExternalIdentitySources {
     [AVSAttribute(5, UpdatesSDDC = $false)]
@@ -485,7 +485,7 @@ function Remove-ExternalIdentitySources {
     (
         [Parameter(Mandatory = $false)]
         [string]
-        $Name
+        $DomainName
     )
 
     $ExternalSource = Get-IdentitySource -External
@@ -503,13 +503,13 @@ function Remove-ExternalIdentitySources {
         else {
             $FoundMatch = $false
             foreach ($AD in $ExternalSource) {
-                if ($AD.Name -eq $Name) {
+                if ($AD.Name -eq $DomainName) {
                     Remove-IdentitySource -IdentitySource $AD -ErrorAction Stop
                     Write-Output "Identity source $($AD.Name) removed."
                     $FoundMatch = $true
                 }
             }
-            if (-Not $FoundMatch) { Write-Output "No external identity source found that matches $Name. Nothing done." }
+            if (-Not $FoundMatch) { Write-Output "No external identity source found that matches $DomainName. Nothing done." }
         }
     }
 }
