@@ -494,7 +494,7 @@ function Remove-ExternalIdentitySources {
         return
     }
     else {
-        if (-Not ($PSBoundParameters.ContainsKey('Name'))) {
+        if (-Not ($PSBoundParameters.ContainsKey('DomainName'))) {
             foreach ($AD in $ExternalSource) {
                 Remove-IdentitySource -IdentitySource $AD -ErrorAction Stop
                 Write-Output "Identity source $($AD.Name) removed."
