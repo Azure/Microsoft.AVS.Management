@@ -103,7 +103,7 @@ function Get-Certificates {
      Url of the primary ldap server to attempt to connect to, e.g. ldap://myadserver.local:389
     
     .Parameter SecondaryUrl 
-     Url of the fallback ldap server to attempt to connect to, e.g. ldap://myadserver.local:389
+     Optional: Url of the fallback ldap server to attempt to connect to, e.g. ldap://myadserver.local:389
 
     .Parameter BaseDNUsers 
      Base Distinguished Name for users, e.g. "dc=myadserver,dc=local"
@@ -112,10 +112,10 @@ function Get-Certificates {
      Base Distinguished Name for groups, e.g. "dc=myadserver,dc=local"
 
     .Parameter Credential 
-     Credential to login to the LDAP server (NOT cloudAdmin) in the form of a username/password credential
+     Credential to login to the LDAP server (NOT cloudadmin) in the form of a username/password credential. Usernames often look like prodAdmins@domainname.com or if the AD is a Microsoft Active Directory server, usernames may need to be prefixed with the NetBIOS domain name, such as prod\AD_Admin
 
     .Parameter GroupName
-     A group in the external identity source to give CloudAdmins access to formatted in the short version - i.e. group-to-give-access
+     Optional: A group in the customer external identity source to be added to CloudAdmins. Users in this group will have CloudAdmin access. Group name should be formatted without the domain name, e.g. group-to-give-access
 
     .Example 
     # Add the domain server named "myserver.local" to vCenter
@@ -255,10 +255,10 @@ function New-AvsLDAPIdentitySource {
      Domain alias of the external active directory, e.g. myactivedirectory
 
     .Parameter PrimaryUrl
-     Url of the primary ldap server to attempt to connect to, e.g. ldap://myadserver.local:389
+     Url of the primary ldaps server to attempt to connect to, e.g. ldaps://myadserver.local:636
     
     .Parameter SecondaryUrl 
-     Url of the fallback ldap server to attempt to connect to, e.g. ldap://myadserver.local:389
+     Optional: Url of the fallback ldaps server to attempt to connect to, e.g. ldaps://myadserver.local:636
 
     .Parameter BaseDNUsers 
      Base Distinguished Name for users, e.g. "dc=myadserver,dc=local"
@@ -267,13 +267,13 @@ function New-AvsLDAPIdentitySource {
      Base Distinguished Name for groups, e.g. "dc=myadserver,dc=local"
 
     .Parameter Credential 
-     Credential to login to the LDAP server (NOT cloudAdmin) in the form of a username/password credential
+     Credential to login to the LDAP server (NOT cloudadmin) in the form of a username/password credential. Usernames often look like prodAdmins@domainname.com or if the AD is a Microsoft Active Directory server, usernames may need to be prefixed with the NetBIOS domain name, such as prod\AD_Admin
 
     .Parameter SSLCertificatesSasUrl
      An comma-delimeted list of Blob Shared Access Signature strings to the certificates required to connect to the external active directory
 
     .Parameter GroupName
-     A group in the external identity source to give CloudAdmins access to formatted in the short version - i.e. group-to-give-access
+     Optional: A group in the customer external identity source to be added to CloudAdmins. Users in this group will have CloudAdmin access. Group name should be formatted without the domain name, e.g. group-to-give-access
 
     .Example 
     # Add the domain server named "myserver.local" to vCenter
@@ -409,13 +409,13 @@ function New-AvsLDAPSIdentitySource {
 
 <#
     .Synopsis
-     Update the SSL Certificates used for Authenticating to an Active Directory over LDAPS
+     Update the SSL Certificates used for authenticating to an Active Directory over LDAPS
 
     .Parameter DomainName
      Domain name of the external active directory, e.g. myactivedirectory.local
 
-    .Parameter CertificatesSAS
-     An array of Shared Access Signature strings to the certificates required to connect to the external active directory, if using LDAPS
+    .Parameter SSLCertificatesSasUrl
+     A comma-delimeted string of the shared access signature (SAS) URLs linking to the certificates required to connect to the external active directory. If more than one, separate each SAS URL by a comma `,`.
 #>
 function Update-IdentitySourceCertificates {
     [CmdletBinding(PositionalBinding = $false)]
@@ -519,10 +519,10 @@ function Remove-ExternalIdentitySources {
      Add a group from the external identity to the CloudAdmins group
 
     .Parameter GroupName
-     Name of the group to be added to the CloudAdmins group. For example, `vsphere-admins`, without the domain appended
+     The group in the customer external identity source to be added to CloudAdmins. Users in this group will have CloudAdmin access. Group name should be formatted without the domain name, e.g. group-to-give-access
 
     .Parameter Domain
-     Name of the domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories
+     Name of the external domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories. For example, MyActiveDirectory.Com
 
     .Example 
     # Add the group named vsphere-admins to CloudAdmins
@@ -658,10 +658,10 @@ function Add-GroupToCloudAdmins {
      Remove a previously added group from an external identity from the CloudAdmins group
 
     .Parameter GroupName
-     Short name of the external identity group to be removed from the CloudAdmins group. For example, vsphere-admins, without the domain appended
+     The group in the customer external identity source to be removed from CloudAdmins. Group name should be formatted without the domain name, e.g. group-to-give-access
 
     .Parameter Domain
-     Name of the domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories
+     Name of the external domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories. For example, MyActiveDirectory.Com
 
     .Example 
     # Remove the group named vsphere-admins from CloudAdmins
