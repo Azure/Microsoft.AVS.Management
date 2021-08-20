@@ -3,7 +3,7 @@
 
 ## Contributing
 
-Before submitting a new function, ensure it follows the guidelines as defined in: [Scripting Guidelines](https://github.com/Azure/azure-avs-automation-admintools/blob/main/docs)
+Before submitting a new function, ensure it follows the guidelines as defined in: [Scripting Guidelines](https://github.com/Azure/Microsoft.AVS.Management/blob/main/docs/README.md)
 
 This project welcomes contributions and suggestions.  Most contributions require you to agree to a
 Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us
