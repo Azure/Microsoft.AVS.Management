@@ -30,7 +30,7 @@ The script shall assume the directory it is executed in is temporary and can use
 
 ## Script Termination
 
-AVS will terminate the script if it runs beyond the established AVS scripting timeout period.  Timeout will be defaulted to 30 minutes unless one is provided by the script author (see `AVSAttribute` bellow).
+AVS will terminate the script if it runs beyond the established AVS scripting timeout period. Timeout will be defaulted to 30 minutes unless one is provided by the script author (see `AVSAttribute` bellow).
 
 ## Script Review
 
