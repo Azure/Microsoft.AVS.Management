@@ -41,6 +41,51 @@ function Get-ProtectedNetworks {
     Get-VirtualNetwork | Where-Object {$_.Name -imatch "^((TNT.+?)|((HCX_|ESX_)?Mgmt)|(Replication)|(vMotion)|(vSAN))$"}
 }
 
+<# Download certificate from SAS token url #>
+function Get-Certificates {
+    Param
+    (
+        [Parameter(
+            Mandatory = $true)]
+        [System.Security.SecureString]
+        $SSLCertificatesSasUrl
+    )
+
+    [string] $CertificatesSASPlainString = ConvertFrom-SecureString -SecureString $SSLCertificatesSasUrl -AsPlainText
+    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
+    [string[]] $CertificatesSASList = $CertificatesSASPlainString.Split(",", $options)
+    Write-Host "Number of Certs passed $($CertificatesSASList.count)"
+    if ($CertificatesSASList.count -eq 0) {
+        Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate" -ErrorAction Stop
+    }
+    if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and $CertificatesSASList.count -lt 2) {
+        Write-Error "If passing in a secondary/fallback URL, ensure that at least two certificates are passed." -ErrorAction Stop
+    }
+    $DestinationFileArray = @()
+    $Index = 1
+    foreach ($CertSas in $CertificatesSASList) {
+        Write-Host "Downloading Cert $Index from $CertSas"
+        $CertDir = $pwd.Path
+        $CertLocation = "$CertDir/cert$Index.cer"
+        $Index = $Index + 1
+        try {
+            $Response = Invoke-WebRequest -Uri $CertSas -OutFile $CertLocation
+            $StatusCode = $Response.StatusCode
+            Write-Host("Certificate downloaded. $StatusCode")
+            $DestinationFileArray += $CertLocation
+        }
+        catch {
+            Write-Error "Ensure the SAS string [$CertSAS] is still valid" -ErrorAction Continue
+            Write-Error $PSItem.Exception.Message -ErrorAction Continue
+            Write-Error "Failed to download certificate ($Index-1)" -ErrorAction Stop
+        }
+    }
+    Write-Host "Number of certificates downloaded: $($DestinationFileArray.count)"
+    return $DestinationFileArray
+}
+
+
+
 <#
     .Synopsis
      Not Recommended (use New-AvsLDAPSIdentitySource): Add a not secure external identity source (Active Directory over LDAP) for use with vCenter Single Sign-On.
@@ -58,7 +103,7 @@ function Get-ProtectedNetworks {
      Url of the primary ldap server to attempt to connect to, e.g. ldap://myadserver.local:389
     
     .Parameter SecondaryUrl 
-     Url of the fallback ldap server to attempt to connect to, e.g. ldap://myadserver.local:389
+     Optional: Url of the fallback ldap server to attempt to connect to, e.g. ldap://myadserver.local:389
 
     .Parameter BaseDNUsers 
      Base Distinguished Name for users, e.g. "dc=myadserver,dc=local"
@@ -67,10 +112,10 @@ function Get-ProtectedNetworks {
      Base Distinguished Name for groups, e.g. "dc=myadserver,dc=local"
 
     .Parameter Credential 
-     Credential to login to the LDAP server (NOT cloudAdmin) in the form of a username/password credential
+     Credential to login to the LDAP server (NOT cloudadmin) in the form of a username/password credential. Usernames often look like prodAdmins@domainname.com or if the AD is a Microsoft Active Directory server, usernames may need to be prefixed with the NetBIOS domain name, such as prod\AD_Admin
 
     .Parameter GroupName
-     A group in the external identity source to give CloudAdmins access to formatted in the short version - i.e. group-to-give-access
+     Optional: A group in the customer external identity source to be added to CloudAdmins. Users in this group will have CloudAdmin access. Group name should be formatted without the domain name, e.g. group-to-give-access
 
     .Example 
     # Add the domain server named "myserver.local" to vCenter
@@ -210,10 +255,10 @@ function New-AvsLDAPIdentitySource {
      Domain alias of the external active directory, e.g. myactivedirectory
 
     .Parameter PrimaryUrl
-     Url of the primary ldap server to attempt to connect to, e.g. ldap://myadserver.local:389
+     Url of the primary ldaps server to attempt to connect to, e.g. ldaps://myadserver.local:636
     
     .Parameter SecondaryUrl 
-     Url of the fallback ldap server to attempt to connect to, e.g. ldap://myadserver.local:389
+     Optional: Url of the fallback ldaps server to attempt to connect to, e.g. ldaps://myadserver.local:636
 
     .Parameter BaseDNUsers 
      Base Distinguished Name for users, e.g. "dc=myadserver,dc=local"
@@ -222,13 +267,13 @@ function New-AvsLDAPIdentitySource {
      Base Distinguished Name for groups, e.g. "dc=myadserver,dc=local"
 
     .Parameter Credential 
-     Credential to login to the LDAP server (NOT cloudAdmin) in the form of a username/password credential
+     Credential to login to the LDAP server (NOT cloudadmin) in the form of a username/password credential. Usernames often look like prodAdmins@domainname.com or if the AD is a Microsoft Active Directory server, usernames may need to be prefixed with the NetBIOS domain name, such as prod\AD_Admin
 
     .Parameter SSLCertificatesSasUrl
      An comma-delimeted list of Blob Shared Access Signature strings to the certificates required to connect to the external active directory
 
     .Parameter GroupName
-     A group in the external identity source to give CloudAdmins access to formatted in the short version - i.e. group-to-give-access
+     Optional: A group in the customer external identity source to be added to CloudAdmins. Users in this group will have CloudAdmin access. Group name should be formatted without the domain name, e.g. group-to-give-access
 
     .Example 
     # Add the domain server named "myserver.local" to vCenter
@@ -338,36 +383,7 @@ function New-AvsLDAPSIdentitySource {
     }
 
     $Password = $Credential.GetNetworkCredential().Password
-    [string] $CertificatesSASPlainString = ConvertFrom-SecureString -SecureString $SSLCertificatesSasUrl -AsPlainText
-    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
-    [string[]] $CertificatesSASList = $CertificatesSASPlainString.Split(",", $options)
-    Write-Host "Number of Certs passed $($CertificatesSASList.count)"
-    if ($CertificatesSASList.count -eq 0) {
-        Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate" -ErrorAction Stop
-    }
-    if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and $CertificatesSASList.count -lt 2) {
-        Write-Error "If passing in a secondary/fallback URL, ensure that at least two certificates are passed." -ErrorAction Stop
-    }
-    $DestinationFileArray = @()
-    $Index = 1
-    foreach ($CertSas in $CertificatesSASList) {
-        Write-Host "Downloading Cert $Index from $CertSas"
-        $CertDir = $pwd.Path
-        $CertLocation = "$CertDir/cert$Index.cer"
-        $Index = $Index + 1
-        try {
-            $Response = Invoke-WebRequest -Uri $CertSas -OutFile $CertLocation
-            $StatusCode = $Response.StatusCode
-            Write-Host("Certificate downloaded. $StatusCode")
-            $DestinationFileArray += $CertLocation
-        }
-        catch {
-            Write-Error "Ensure the SAS string [$CertSAS] is still valid" -ErrorAction Continue
-            Write-Error $PSItem.Exception.Message -ErrorAction Continue
-            Write-Error "Failed to download certificate ($Index-1)" -ErrorAction Stop
-        }
-    }
-    Write-Host "Number of certificates downloaded: $($DestinationFileArray.count)"
+    $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl
     Write-Host "Adding the LDAPS Identity Source..."
     Add-LDAPIdentitySource `
         -Name $Name `
@@ -393,6 +409,53 @@ function New-AvsLDAPSIdentitySource {
 
 <#
     .Synopsis
+     Update the SSL Certificates used for authenticating to an Active Directory over LDAPS
+
+    .Parameter DomainName
+     Domain name of the external active directory, e.g. myactivedirectory.local
+
+    .Parameter SSLCertificatesSasUrl
+     A comma-delimeted string of the shared access signature (SAS) URLs linking to the certificates required to connect to the external active directory. If more than one, separate each SAS URL by a comma `,`.
+#>
+function Update-IdentitySourceCertificates {
+    [CmdletBinding(PositionalBinding = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Name of the Identity source')]
+        [ValidateNotNull()]
+        [string]
+        $DomainName,
+  
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
+        [System.Security.SecureString]
+        $SSLCertificatesSasUrl
+    )
+    
+    $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Stop
+    if ($null -ne $ExternalIdentitySources) {
+        $IdentitySource = $ExternalIdentitySources | Where-Object {$_.Name -eq $DomainName}
+        if ($null -ne $IdentitySource) {
+            $DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl
+            Write-Host "Updating the LDAPS Identity Source..."
+            Set-LDAPIdentitySource -IdentitySource $IdentitySource -Certificates $DestinationFileArray -ErrorAction Stop
+            $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
+            $ExternalIdentitySources | Format-List | Out-String
+        } else {
+            Write-Error "Could not find Identity Source with name: $DomainName." -ErrorAction Stop
+        }
+    }
+    else {
+        Write-Host "No existing external identity sources found."
+    }
+}
+
+<#
+    .Synopsis
      Gets all external identity sources 
 #>
 function Get-ExternalIdentitySources {
@@ -411,10 +474,10 @@ function Get-ExternalIdentitySources {
 
 <#
     .Synopsis
-     Removes all external identity sources
+     Removes supplied identity source, or, if no specific identity source is provided, will remove all identity sources.
     
-    .Parameter Name
-     The name of the external identity source to remove. If none provided, will attempt to remove all external identity sources.
+    .Parameter DomainName
+     The domain name of the external identity source to remove i.e. `mydomain.com`. If none provided, will attempt to remove all external identity sources.
 #>
 function Remove-ExternalIdentitySources {
     [AVSAttribute(5, UpdatesSDDC = $false)]
@@ -422,7 +485,7 @@ function Remove-ExternalIdentitySources {
     (
         [Parameter(Mandatory = $false)]
         [string]
-        $Name
+        $DomainName
     )
 
     $ExternalSource = Get-IdentitySource -External
@@ -431,7 +494,7 @@ function Remove-ExternalIdentitySources {
         return
     }
     else {
-        if (-Not ($PSBoundParameters.ContainsKey('Name'))) {
+        if (-Not ($PSBoundParameters.ContainsKey('DomainName'))) {
             foreach ($AD in $ExternalSource) {
                 Remove-IdentitySource -IdentitySource $AD -ErrorAction Stop
                 Write-Output "Identity source $($AD.Name) removed."
@@ -440,13 +503,13 @@ function Remove-ExternalIdentitySources {
         else {
             $FoundMatch = $false
             foreach ($AD in $ExternalSource) {
-                if ($AD.Name -eq $Name) {
+                if ($AD.Name -eq $DomainName) {
                     Remove-IdentitySource -IdentitySource $AD -ErrorAction Stop
                     Write-Output "Identity source $($AD.Name) removed."
                     $FoundMatch = $true
                 }
             }
-            if (-Not $FoundMatch) { Write-Output "No external identity source found that matches $Name. Nothing done." }
+            if (-Not $FoundMatch) { Write-Output "No external identity source found that matches $DomainName. Nothing done." }
         }
     }
 }
@@ -456,10 +519,10 @@ function Remove-ExternalIdentitySources {
      Add a group from the external identity to the CloudAdmins group
 
     .Parameter GroupName
-     Name of the group to be added to the CloudAdmins group. For example, `vsphere-admins`, without the domain appended
+     The group in the customer external identity source to be added to CloudAdmins. Users in this group will have CloudAdmin access. Group name should be formatted without the domain name, e.g. group-to-give-access
 
     .Parameter Domain
-     Name of the domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories
+     Name of the external domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories. For example, MyActiveDirectory.Com
 
     .Example 
     # Add the group named vsphere-admins to CloudAdmins
@@ -595,10 +658,10 @@ function Add-GroupToCloudAdmins {
      Remove a previously added group from an external identity from the CloudAdmins group
 
     .Parameter GroupName
-     Short name of the external identity group to be removed from the CloudAdmins group. For example, vsphere-admins, without the domain appended
+     The group in the customer external identity source to be removed from CloudAdmins. Group name should be formatted without the domain name, e.g. group-to-give-access
 
     .Parameter Domain
-     Name of the domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories
+     Name of the external domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories. For example, MyActiveDirectory.Com
 
     .Example 
     # Remove the group named vsphere-admins from CloudAdmins
