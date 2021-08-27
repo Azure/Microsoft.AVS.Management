@@ -872,7 +872,8 @@ function Set-AvsVMStoragePolicy {
         $VMName
     )
     Write-Host "Getting Storage Policy $StoragePolicyName"
-    $StoragePolicy =  Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop | Where-Object {$_.Name -eq $StoragePolicyName}
+    $VSANStoragePolicies = Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop
+    $StoragePolicy =  $VSANStoragePolicies | Where-Object {$_.Name -eq $StoragePolicyName}
     if ($null -eq $StoragePolicy) {
         Write-Error "Could not find Storage Policy with the name $StoragePolicyName. It either does not exist or is not available." -ErrorAction Continue
         Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
@@ -885,6 +886,9 @@ function Set-AvsVMStoragePolicy {
     $VM = Get-VM $VMName
     if ($null -eq $VM) {
         Write-Error "Was not able to set the storage policy on the VM. Could not find VM with the name: $VMName" -ErrorAction Stop
+    }
+    if (-not $(Get-SpbmEntityConfiguration $VM).StoragePolicy -in $VSANStoragePolicies) {
+        Write-Error "Modifying Storage policy on this VM is not supported" -ErrorAction Stop
     }
     Write-Host "Setting VM $VMName storage policy to $StoragePolicyName..."
     try {
