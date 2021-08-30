@@ -108,7 +108,7 @@
             # LicenseUri = ''
 
             # A URL to the main website for this project.
-            ProjectUri                 = 'https://github.com/Azure/azure-avs-automation-admintools'
+            ProjectUri                 = 'https://github.com/Azure/Microsoft.AVS.Management'
 
             # A URL to an icon representing this module.
             # IconUri = ''
