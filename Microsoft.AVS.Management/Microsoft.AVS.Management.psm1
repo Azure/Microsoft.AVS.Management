@@ -75,7 +75,7 @@ function Get-Certificates {
             $DestinationFileArray += $CertLocation
         }
         catch {
-            Write-Error "Ensure the SAS string [$CertSAS] is still valid" -ErrorAction Continue
+            Write-Error "Ensure the SAS string is still valid" -ErrorAction Continue
             Write-Error $PSItem.Exception.Message -ErrorAction Continue
             Write-Error "Failed to download certificate ($Index-1)" -ErrorAction Stop
         }
