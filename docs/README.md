@@ -109,9 +109,9 @@ For the purpose of testing and review consider publishing to [PowerShell Gallery
 > IMPORTANT: Vendors must test their package using a Linux [PowerShell container](https://hub.docker.com/_/microsoft-powershell), connecting to their on-prem datacenter.
 
 ## Versioning and Module manifest
-AVS scripting modules are expected to follow [semver guidelines](https://semver.org/) when publishing a new version. 
+AVS scripting modules are expected to follow [semver guidelines](https://semver.org/) when publishing a new version. Adhering to the guidelines will ensure that any automation built around the ARM resources representing the commandlets will keep working while benefiting from the patch fixes.
 
-Until there's an agreement with the AVS about the general availability, publish the package with `-preview` version suffix. Adhering to the guidelines will ensure that any automation build around the ARM resources representing the commandlets will keep working while benefiting from the patch fixes.
+Until there's an agreement with the AVS about the general availability, publish the package with `-preview` version suffix. This would allow the consumer to opt-in into the experience before it is generally available.
 
 To direct the customers to the information about the module make sure to include `ProjectUri` in the module manifest, supplying the address of the product support landing page designed for AVS customers. 
 
