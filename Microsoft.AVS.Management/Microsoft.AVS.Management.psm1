@@ -64,7 +64,7 @@ function Get-Certificates {
     $DestinationFileArray = @()
     $Index = 1
     foreach ($CertSas in $CertificatesSASList) {
-        Write-Host "Downloading Cert $Index from $CertSas"
+        Write-Host "Downloading Cert $Index..."
         $CertDir = $pwd.Path
         $CertLocation = "$CertDir/cert$Index.cer"
         $Index = $Index + 1
