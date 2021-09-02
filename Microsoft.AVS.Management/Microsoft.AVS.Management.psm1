@@ -880,16 +880,13 @@ function Set-AvsVMStoragePolicy {
     } 
 
     $ProtectedVMs = Get-ProtectedVMs 
-    $VMList = Get-VM $VMName
+    $VMList = Get-VM $VMName | Where-Object {-not $_.Name -in $ProtectedVMs.Name}
 
     if ($null -eq $VMList) {
         Write-Error "Was not able to set the storage policy on the VM. Could not find VM with the name: $VMName" -ErrorAction Stop
     }
     foreach ($VM in $VMList) {
         if (-not $(Get-SpbmEntityConfiguration $VM).StoragePolicy -in $VSANStoragePolicies) {
-            Write-Error "Modifying Storage policy on this VM is not supported" -ErrorAction Stop
-        }
-        if ($ProtectedVMs.Name.Contains($VM.Name)) {
             Write-Error "Modifying Storage policy on this VM is not supported" -ErrorAction Stop
         }
         Write-Host "Setting VM $($VM.Name) storage policy to $StoragePolicyName..."
