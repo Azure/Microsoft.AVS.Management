@@ -880,27 +880,30 @@ function Set-AvsVMStoragePolicy {
     } 
 
     $ProtectedVMs = Get-ProtectedVMs 
-    if ($ProtectedVMs.Name.Contains($VMName)) {
-        Write-Error "Access denied to this VM." -ErrorAction Stop
-    }
-    $VM = Get-VM $VMName
-    if ($null -eq $VM) {
+    $VMList = Get-VM $VMName
+
+    if ($null -eq $VMList) {
         Write-Error "Was not able to set the storage policy on the VM. Could not find VM with the name: $VMName" -ErrorAction Stop
     }
-    if (-not $(Get-SpbmEntityConfiguration $VM).StoragePolicy -in $VSANStoragePolicies) {
-        Write-Error "Modifying Storage policy on this VM is not supported" -ErrorAction Stop
+    foreach ($VM in $VMList) {
+        if (-not $(Get-SpbmEntityConfiguration $VM).StoragePolicy -in $VSANStoragePolicies) {
+            Write-Error "Modifying Storage policy on this VM is not supported" -ErrorAction Stop
+        }
+        if ($ProtectedVMs.Name.Contains($VM.Name)) {
+            Write-Error "Modifying Storage policy on this VM is not supported" -ErrorAction Stop
+        }
+        Write-Host "Setting VM $($VM.Name) storage policy to $StoragePolicyName..."
+        try {
+            Set-VM -VM $VM -StoragePolicy $StoragePolicy -ErrorAction Stop -Confirm:$false
+        }
+        catch [VMware.VimAutomation.ViCore.Types.V1.ErrorHandling.InvalidVmConfig] {
+            Write-Error "The selected storage policy $($StoragePolicy.Name) is not compatible with this VM. You may need more hosts: $($PSItem.Exception.Message)" -ErrorAction Stop
+        }
+        catch {
+            Write-Error "Was not able to set the storage policy on the VM: $($PSItem.Exception.Message)" -ErrorAction Stop
+        }
+        Write-Output "Successfully set the storage policy on VM $($VM.Name) to $StoragePolicyName"
     }
-    Write-Host "Setting VM $VMName storage policy to $StoragePolicyName..."
-    try {
-        Set-VM -VM $VM -StoragePolicy $StoragePolicy -ErrorAction Stop -Confirm:$false
-    }
-    catch [VMware.VimAutomation.ViCore.Types.V1.ErrorHandling.InvalidVmConfig] {
-        Write-Error "The selected storage policy $($StoragePolicy.Name) is not compatible with this VM. You may need more hosts: $($PSItem.Exception.Message)" -ErrorAction Stop
-    }
-    catch {
-        Write-Error "Was not able to set the storage policy on the VM: $($PSItem.Exception.Message)" -ErrorAction Stop
-    }
-    Write-Output "Successfully set the storage policy on VM $VMName to $StoragePolicyName"
 }
 
 
