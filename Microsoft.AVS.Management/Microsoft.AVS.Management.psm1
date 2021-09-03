@@ -98,7 +98,7 @@ function Set-StoragePolicyOnVM {
         $StoragePolicy
     )
     if (-not $(Get-SpbmEntityConfiguration $VM).StoragePolicy -in $VSANStoragePolicies) {
-        Write-Error "Modifying storage policy on $($VM.Name) is not supported" -ErrorAction Stop
+        Write-Error "Modifying storage policy on $($VM.Name) is not supported"
     }
     Write-Host "Setting VM $($VM.Name) storage policy to $($StoragePolicy.Name)..."
     try {
@@ -106,10 +106,10 @@ function Set-StoragePolicyOnVM {
         Write-Output "Successfully set the storage policy on VM $($VM.Name) to $($StoragePolicy.Name)"
     }
     catch [VMware.VimAutomation.ViCore.Types.V1.ErrorHandling.InvalidVmConfig] {
-        Write-Error "The selected storage policy $($StoragePolicy.Name) is not compatible with $($VM.Name). You may need more hosts: $($PSItem.Exception.Message)" -ErrorAction Stop
+        Write-Error "The selected storage policy $($StoragePolicy.Name) is not compatible with $($VM.Name). You may need more hosts: $($PSItem.Exception.Message)"
     }
     catch {
-        Write-Error "Was not able to set the storage policy on $($VM.Name): $($PSItem.Exception.Message)" -ErrorAction Stop
+        Write-Error "Was not able to set the storage policy on $($VM.Name): $($PSItem.Exception.Message)"
     }
 }
 
@@ -912,13 +912,11 @@ function Set-AvsVMStoragePolicy {
     if ($null -eq $VMList) {
         Write-Error "Was not able to set the storage policy on the VM. Could not find VM(s) with the name: $VMName" -ErrorAction Stop
     } elseif ($VMList.count -eq 1) {
-        $ErrorActionPreference = "Stop"
         $VM = $VMList[0]
-        Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Continue
+        Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Stop
     } else {
-        $ErrorActionPreference = "Continue"
         foreach ($VM in $VMList) {
-            Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Stop
+            Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Continue
         }
     }   
 }
