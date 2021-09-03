@@ -84,7 +84,34 @@ function Get-Certificates {
     return $DestinationFileArray
 }
 
-
+function Set-StoragePolicyOnVM {
+    Param
+    (
+        [Parameter(
+            Mandatory = $true)]
+        $VM,
+        [Parameter(
+            Mandatory = $true)]
+        $VSANStoragePolicies,
+        [Parameter(
+            Mandatory = $true)]
+        $StoragePolicy
+    )
+    if (-not $(Get-SpbmEntityConfiguration $VM).StoragePolicy -in $VSANStoragePolicies) {
+        Write-Error "Modifying storage policy on $($VM.Name) is not supported" -ErrorAction Stop
+    }
+    Write-Host "Setting VM $($VM.Name) storage policy to $($StoragePolicy.Name)..."
+    try {
+        Set-VM -VM $VM -StoragePolicy $StoragePolicy -ErrorAction Stop -Confirm:$false
+        Write-Output "Successfully set the storage policy on VM $($VM.Name) to $($StoragePolicy.Name)"
+    }
+    catch [VMware.VimAutomation.ViCore.Types.V1.ErrorHandling.InvalidVmConfig] {
+        Write-Error "The selected storage policy $($StoragePolicy.Name) is not compatible with $($VM.Name). You may need more hosts: $($PSItem.Exception.Message)" -ErrorAction Stop
+    }
+    catch {
+        Write-Error "Was not able to set the storage policy on $($VM.Name): $($PSItem.Exception.Message)" -ErrorAction Stop
+    }
+}
 
 <#
     .Synopsis
@@ -883,25 +910,17 @@ function Set-AvsVMStoragePolicy {
     $VMList = Get-VM $VMName | Where-Object {-not $_.Name -in $ProtectedVMs.Name}
 
     if ($null -eq $VMList) {
-        Write-Error "Was not able to set the storage policy on the VM. Could not find VM with the name: $VMName" -ErrorAction Stop
-    }
-    foreach ($VM in $VMList) {
-        if (-not $(Get-SpbmEntityConfiguration $VM).StoragePolicy -in $VSANStoragePolicies) {
-            Write-Error "Modifying storage policy on $($VM.Name) is not supported" -ErrorAction Continue
-            continue
+        Write-Error "Was not able to set the storage policy on the VM. Could not find VM(s) with the name: $VMName" -ErrorAction Stop
+    } elseif ($VMList.count -eq 1) {
+        $ErrorActionPreference = “Stop"
+        $VM = $VMList[0]
+        Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Continue
+    } else {
+        $ErrorActionPreference = "Continue”
+        foreach ($VM in $VMList) {
+            Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Stop
         }
-        Write-Host "Setting VM $($VM.Name) storage policy to $StoragePolicyName..."
-        try {
-            Set-VM -VM $VM -StoragePolicy $StoragePolicy -ErrorAction Stop -Confirm:$false
-        }
-        catch [VMware.VimAutomation.ViCore.Types.V1.ErrorHandling.InvalidVmConfig] {
-            Write-Error "The selected storage policy $($StoragePolicy.Name) is not compatible with this VM. You may need more hosts: $($PSItem.Exception.Message)" -ErrorAction Stop
-        }
-        catch {
-            Write-Error "Was not able to set the storage policy on the VM: $($PSItem.Exception.Message)" -ErrorAction Stop
-        }
-        Write-Output "Successfully set the storage policy on VM $($VM.Name) to $StoragePolicyName"
-    }
+    }   
 }
 
 
@@ -944,7 +963,8 @@ function Set-ClusterDefaultStoragePolicy {
         Write-Error "Could not find Storage Policy with the name $StoragePolicyName. It either does not exist or is not available." -ErrorAction Continue
         Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
     } 
-
+    
+    $CompatibleDatastores = Get-SpbmCompatibleStorage -StoragePolicy $StoragePolicy
     $ProtectedClusters = Get-ProtectedClusters  
     if ($ClusterName -in $ProtectedClusters.Name) {
         Write-Error "Changing the default storage policy is not supported on this cluster." -ErrorAction Stop
@@ -952,7 +972,10 @@ function Set-ClusterDefaultStoragePolicy {
     $ClusterDatastore = Get-Cluster $ClusterName | Get-VMHost | Get-Datastore
     if ($null -eq $ClusterDatastore) {
         Write-Error "Was not able to set the storage policy on the Cluster. Could not find cluster with the name: $ClusterName" -ErrorAction Stop
+    } elseif (-not $ClusterDatastore -in $CompatibleDatastores) {
+        Write-Error "Was not able to set the storage policy on the cluster: You may need more hosts to support $($StoragePolicy.Name)" -ErrorAction Stop
     }
+    
     Write-Host "Setting Cluster $ClusterName storage policy to $StoragePolicyName..."
     try {
         Set-SpbmEntityConfiguration -Configuration (Get-SpbmEntityConfiguration $ClusterDatastore) -storagePolicy $StoragePolicy -ErrorAction Stop -Confirm:$false
