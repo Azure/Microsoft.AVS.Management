@@ -912,11 +912,11 @@ function Set-AvsVMStoragePolicy {
     if ($null -eq $VMList) {
         Write-Error "Was not able to set the storage policy on the VM. Could not find VM(s) with the name: $VMName" -ErrorAction Stop
     } elseif ($VMList.count -eq 1) {
-        $ErrorActionPreference = “Stop"
+        $ErrorActionPreference = "Stop"
         $VM = $VMList[0]
         Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Continue
     } else {
-        $ErrorActionPreference = "Continue”
+        $ErrorActionPreference = "Continue"
         foreach ($VM in $VMList) {
             Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Stop
         }
@@ -975,7 +975,7 @@ function Set-ClusterDefaultStoragePolicy {
     } elseif (-not $ClusterDatastore -in $CompatibleDatastores) {
         Write-Error "Was not able to set the storage policy on the cluster: You may need more hosts to support $($StoragePolicy.Name)" -ErrorAction Stop
     }
-    
+
     Write-Host "Setting Cluster $ClusterName storage policy to $StoragePolicyName..."
     try {
         Set-SpbmEntityConfiguration -Configuration (Get-SpbmEntityConfiguration $ClusterDatastore) -storagePolicy $StoragePolicy -ErrorAction Stop -Confirm:$false
