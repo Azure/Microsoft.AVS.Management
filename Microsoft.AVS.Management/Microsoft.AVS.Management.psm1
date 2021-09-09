@@ -975,18 +975,18 @@ function Set-ClusterDefaultStoragePolicy {
     if ($null -eq $ClusterDatastores) {
 	$hosts = $ClusterList | Get-VMHost
         if ($null -eq $hosts) { 
-             Write-Error "Was not able to set the storage policy on the cluster $ClusterList. The cluster does not appear to have VM Hosts. Please add VMHosts before setting storage policy" -ErrorAction Stop
+             Write-Error "Was not able to set the Storage policy on $ClusterList. The Cluster does not appear to have VM Hosts. Please add VM Hosts before setting storage policy" -ErrorAction Stop
         } else {
-	     Write-Error "Setting the storage policy on this cluster is not supported." -ErrorAction Stop
+	     Write-Error "Setting the Storage Policy on this Cluster is not supported." -ErrorAction Stop
         }
     } elseif ($ClusterDatastores.count -eq 1) {
         if ($ClusterDatastores[0] -in $CompatibleDatastores) {
             try {
-                Write-Host "Setting storage policy on cluster $ClusterName to $StoragePolicyName..."
+                Write-Host "Setting Storage Policy on $ClusterList to $StoragePolicyName..."
                 Set-SpbmEntityConfiguration -Configuration (Get-SpbmEntityConfiguration $ClusterDatastores[0]) -storagePolicy $StoragePolicy -ErrorAction Stop -Confirm:$false
-                Write-Output "Successfully set the storage policy on Cluster $ClusterName to $StoragePolicyName"
+                Write-Output "Successfully set the Storage Policy on $ClusterList to $StoragePolicyName"
             } catch {
-                Write-Error "Was not able to set the storage policy on the Cluster Datastore: $($PSItem.Exception.Message)" -ErrorAction Stop
+                Write-Error "Was not able to set the Storage Policy on the Cluster Datastore: $($PSItem.Exception.Message)" -ErrorAction Stop
             }
         } else {
             Write-Error "Modifying the default storage policy on this cluster is not supported" -ErrorAction Stop
@@ -995,14 +995,14 @@ function Set-ClusterDefaultStoragePolicy {
         foreach ($Datastore in $ClusterDatastores) {
             if ($Datastore -in $CompatibleDatastores) {
                 try {
-                    Write-Host "Setting storage policy on cluster $ClusterName to $StoragePolicyName..."
+                    Write-Host "Setting Storage Policy on $Datastore to $StoragePolicyName..."
                     Set-SpbmEntityConfiguration -Configuration (Get-SpbmEntityConfiguration $Datastore) -storagePolicy $StoragePolicy -ErrorAction Stop -Confirm:$false
-                    Write-Output "Successfully set the storage policy on Cluster $ClusterName to $StoragePolicyName"
+                    Write-Output "Successfully set the storage policy on $Datastore to $StoragePolicyName"
                 } catch {
                     Write-Error "Was not able to set the storage policy on the Cluster Datastore: $($PSItem.Exception.Message)" -ErrorAction Stop
                 }
             } else {
-                Write-Error "Modifying the default storage policy on cluster $Datastore is not supported" -ErrorAction Continue
+                Write-Error "Modifying the default storage policy on $Datastore is not supported" -ErrorAction Continue
                 continue
             }
         }
