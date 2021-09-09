@@ -902,7 +902,7 @@ function Set-AvsVMStoragePolicy {
     $VSANStoragePolicies = Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop
     $StoragePolicy =  $VSANStoragePolicies | Where-Object {$_.Name -eq $StoragePolicyName}
     if ($null -eq $StoragePolicy) {
-        Write-Error "Could not find Storage Policy with the name $StoragePolicyName. It either does not exist or is not available." -ErrorAction Continue
+        Write-Error "Could not find Storage Policy with the name $StoragePolicyName. It either does not exist or is not supported." -ErrorAction Continue
         Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
     } 
 
@@ -958,7 +958,7 @@ function Set-ClusterDefaultStoragePolicy {
     Write-Host "Getting Storage Policy $StoragePolicyName"
     $StoragePolicy =  Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop | Where-Object {$_.Name -eq $StoragePolicyName}
     if ($null -eq $StoragePolicy) {
-        Write-Error "Could not find Storage Policy with the name $StoragePolicyName. It either does not exist or is not available." -ErrorAction Continue
+        Write-Error "Could not find Storage Policy with the name $StoragePolicyName. It either does not exist or is not supported." -ErrorAction Continue
         Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
     } elseif ($StoragePolicy.count -gt 1) {
         Write-Error "Please select just one storage policy." -ErrorAction Stop
@@ -968,7 +968,7 @@ function Set-ClusterDefaultStoragePolicy {
     $ProtectedClusters = Get-ProtectedClusters  
     $ClusterList = Get-Cluster $ClusterName | Where-Object {-not ($_.Name -in $ProtectedClusters.Name)}
     if ($null -eq $ClusterList) {
-        Write-Error "Could not find Cluster with the name $ClusterName. It either does not exist or is not available." -ErrorAction Stop
+        Write-Error "Could not find Cluster with the name $ClusterName. It either does not exist or is not supported." -ErrorAction Stop
     }
     $ClusterDatastores = $ClusterList | Get-VMHost | Get-Datastore
 
