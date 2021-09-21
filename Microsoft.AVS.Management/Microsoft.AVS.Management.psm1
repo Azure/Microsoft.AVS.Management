@@ -128,7 +128,7 @@ function Set-StoragePolicyOnCluster {
     )
     $ClusterDatastores = $Cluster | Get-VMHost | Get-Datastore
     if ($null -eq $ClusterDatastores) {
-        $hosts = $ClusterList[0] | Get-VMHost
+        $hosts = $Cluster | Get-VMHost
         if ($null -eq $hosts) { 
             Write-Error "Was not able to set the Storage policy on $ClusterList. The Cluster does not appear to have VM Hosts. Please add VM Hosts before setting storage policy"
         }
