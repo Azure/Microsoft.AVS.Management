@@ -118,7 +118,7 @@ function Set-StoragePolicyOnCluster {
     (
         [Parameter(
             Mandatory = $true)]
-        $ClusterDatastore,
+        $Cluster,
         [Parameter(
             Mandatory = $true)]
         $CompatibleDatastores,
@@ -126,16 +126,27 @@ function Set-StoragePolicyOnCluster {
             Mandatory = $true)]
         $StoragePolicy
     )
-    if ($Datastore -in $CompatibleDatastores) {
-        try {
-            Write-Host "Setting Storage Policy on $($ClusterDatastore.Name) to $($StoragePolicy.Name)..."
-            Set-SpbmEntityConfiguration -Configuration (Get-SpbmEntityConfiguration $Datastore) -storagePolicy $StoragePolicy -Confirm:$false
-            Write-Output "Successfully set the storage policy on $($ClusterDatastore.Name) to $($StoragePolicy.Name)"
-        } catch {
-            Write-Error "Was not able to set the storage policy on the Cluster Datastore: $($PSItem.Exception.Message)"
+    $ClusterDatastores = $Cluster | Get-VMHost | Get-Datastore
+    if ($null -eq $ClusterDatastores) {
+        $hosts = $ClusterList[0] | Get-VMHost
+        if ($null -eq $hosts) { 
+            Write-Error "Was not able to set the Storage policy on $ClusterList. The Cluster does not appear to have VM Hosts. Please add VM Hosts before setting storage policy"
         }
-    } else {
-        Write-Error "Modifying the default storage policy on $($ClusterDatastore.Name) is not supported"
+    } else { 
+        foreach ($ClusterDatastore in $ClusterDatastores) {
+            Write-Host "Setting storage policy on $ClusterDatastore..."
+            if ($Datastore -in $CompatibleDatastores) {
+                try {
+                    Write-Host "Setting Storage Policy on $($ClusterDatastore.Name) to $($StoragePolicy.Name)..."
+                    Set-SpbmEntityConfiguration -Configuration (Get-SpbmEntityConfiguration $Datastore) -storagePolicy $StoragePolicy -Confirm:$false
+                    Write-Output "Successfully set the storage policy on $($ClusterDatastore.Name) to $($StoragePolicy.Name)"
+                } catch {
+                    Write-Error "Was not able to set the storage policy on the Cluster Datastore: $($PSItem.Exception.Message)"
+                }
+            } else {
+                Write-Error "Modifying the default storage policy on $($ClusterDatastore.Name) is not supported"
+            }
+        }
     }
 }
 
@@ -850,9 +861,9 @@ function Remove-GroupFromCloudAdmins {
 
     .Example 
     # Get all users in CloudAdmins
-     Get-CloudAdminUsers
+     Get-CloudAdminGroups
 #>
-function Get-CloudAdminUsers {
+function Get-CloudAdminGroups {
     [CmdletBinding(PositionalBinding = $false)]
     [AVSAttribute(3, UpdatesSDDC = $false)]
     Param()
@@ -863,7 +874,11 @@ function Get-CloudAdminUsers {
     }
 
     $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Stop 
-    $CloudAdminMembers | Format-List | Out-String
+    if ($null -eq $CloudAdminMembers) {
+        Write-Host "No groups yet added to CloudAdmin."
+    } else {
+        $CloudAdminMembers | Format-List | Out-String
+    }
 }
 
 <#
@@ -1009,30 +1024,23 @@ function Set-ClusterDefaultStoragePolicy {
     $ProtectedClusters = Get-ProtectedClusters
     
     if ($ClusterNameList.count -eq 1) {
+        Write-Host "DABECHER passed in one cluster name"
         $ClusterList = Get-Cluster $ClusterNameList[0] | Where-Object {-not ($_.Name -in $ProtectedClusters.Name)}
         if ($null -eq $ClusterList) {
             Write-Error "Could not find Cluster with the name $ClusterName. It either does not exist or is not supported." -ErrorAction Stop
-        }
-        $ClusterDatastores = $ClusterNameList[0] | Get-VMHost | Get-Datastore
-        if ($null -eq $ClusterDatastores) {
-            $hosts = $ClusterNameList[0] | Get-VMHost
-            if ($null -eq $hosts) { 
-                 Write-Error "Was not able to set the Storage policy on $ClusterList. The Cluster does not appear to have VM Hosts. Please add VM Hosts before setting storage policy" -ErrorAction Stop
-            } else {
-             Write-Error "Setting the Storage Policy on this Cluster is not supported." -ErrorAction Stop
-            }
-        } elseif ($ClusterDatastores.count -eq 1) {
-            Set-StoragePolicyOnCluster $ClusterDatastores[0] $CompatibleDatastores $StoragePolicy -ErrorAction Stop
+        } elseif($ClusterList.count -eq 1) {
+            Set-StoragePolicyOnCluster $ClusterList[0] $CompatibleDatastores $StoragePolicy -ErrorAction Stop
+            return
         }
     }
     foreach ($ClusterName in $ClusterNameList) {
         $ClusterList = Get-Cluster $ClusterName | Where-Object {-not ($_.Name -in $ProtectedClusters.Name)}
         if ($null -eq $ClusterList) {
             Write-Error "Could not find Cluster with the name $ClusterName. It either does not exist or is not supported." -ErrorAction Continue
+            continue
         }
-        $ClusterDatastores = $ClusterList | Get-VMHost | Get-Datastore
-        foreach ($Datastore in $ClusterDatastores) {
-            Set-StoragePolicyOnCluster $Datastore $CompatibleDatastores $StoragePolicy -ErrorAction Continue
+        foreach ($Cluster in $ClusterList) {
+            Set-StoragePolicyOnCluster $Cluster $CompatibleDatastores $StoragePolicy -ErrorAction Continue
         }
     }
 }
