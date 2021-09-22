@@ -822,7 +822,7 @@ function Get-CloudAdminGroups {
 
     $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Stop 
     if ($null -eq $CloudAdminMembers) {
-        Write-Host "No groups yet added to CloudAdmin."
+        Write-Output "No groups yet added to CloudAdmin."
     } else {
         $CloudAdminMembers | Format-List | Out-String
     }
