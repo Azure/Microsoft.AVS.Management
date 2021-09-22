@@ -176,28 +176,13 @@ function New-AvsLDAPIdentitySource {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
-        [ValidateScript( {
-                if ($_ -match 'ldap:.*((389)|(636)|(3268)(3269))') {
-                    $true
-                }
-                else {
-                    Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap:" -ErrorAction Stop
-                }
-            })]
+        [ValidateNotNullOrEmpty()]
         [string]
         $PrimaryUrl,
 
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'Optional: URL of a backup server')]
-        [ValidateScript( {
-                if ($_ -match 'ldap:.*((389)|(636)|(3268)(3269))') {
-                    $true
-                }
-                else {
-                    Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap:" -ErrorAction Stop
-                }
-            })]
         [string]
         $SecondaryUrl,
 
@@ -229,6 +214,14 @@ function New-AvsLDAPIdentitySource {
         [string]
         $GroupName
     )
+
+    if (-not ($PrimaryUrl -match 'ldaps:.*((389)|(636)|(3268)(3269))')) {
+        Write-Error "$PrimaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps:" -ErrorAction Stop
+    }
+    if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and (-not ($SecondaryUrl -match 'ldaps:.*((389)|(636)|(3268)(3269))'))) {
+        Write-Error "$SecondaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps:" -ErrorAction Stop
+    }
+
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     if ($null -ne $ExternalIdentitySources) {
         Write-Host "Checking to see if identity source already exists..."
@@ -334,28 +327,13 @@ function New-AvsLDAPSIdentitySource {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
-        [ValidateScript( {
-                if ($_ -match 'ldaps:.*((389)|(636)|(3268)(3269))') {
-                    $true
-                }
-                else {
-                    Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps:" -ErrorAction Stop
-                }
-            })]
+        [ValidateNotNullOrEmpty()]
         [string]
         $PrimaryUrl,
   
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'Optional: URL of a backup server')]
-        [ValidateScript( {
-                if ($_ -match 'ldaps:.*((389)|(636)|(3268)(3269))') {
-                    $true
-                }
-                else {
-                    Write-Error "$_ is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps:" -ErrorAction Stop
-                }
-            })]
         [string]
         $SecondaryUrl,
   
@@ -393,6 +371,13 @@ function New-AvsLDAPSIdentitySource {
         $GroupName
         
     )
+    if (-not ($PrimaryUrl -match 'ldaps:.*((389)|(636)|(3268)(3269))')) {
+        Write-Error "$PrimaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps:" -ErrorAction Stop
+    }
+    if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and (-not ($SecondaryUrl -match 'ldaps:.*((389)|(636)|(3268)(3269))'))) {
+        Write-Error "$SecondaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps:" -ErrorAction Stop
+    }
+
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     if ($null -ne $ExternalIdentitySources) {
         Write-Host "Checking to see if identity source already exists..."
@@ -820,13 +805,12 @@ function Remove-GroupFromCloudAdmins {
 
 <#
     .Synopsis
-     Get all users added to the cloud admin group
-
+     Get all groups that have been added to the cloud admin group
     .Example 
     # Get all users in CloudAdmins
-     Get-CloudAdminUsers
+     Get-CloudAdminGroups
 #>
-function Get-CloudAdminUsers {
+function Get-CloudAdminGroups {
     [CmdletBinding(PositionalBinding = $false)]
     [AVSAttribute(3, UpdatesSDDC = $false)]
     Param()
@@ -837,7 +821,11 @@ function Get-CloudAdminUsers {
     }
 
     $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Stop 
-    $CloudAdminMembers | Format-List | Out-String
+    if ($null -eq $CloudAdminMembers) {
+        Write-Host "No groups yet added to CloudAdmin."
+    } else {
+        $CloudAdminMembers | Format-List | Out-String
+    }
 }
 
 <#
