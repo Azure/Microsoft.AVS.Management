@@ -55,7 +55,7 @@
         @{"ModuleName" = "VMware.vSphere.SsoAdmin"; "ModuleVersion" = "1.3.4" },
         @{"ModuleName" = "VMware.VimAutomation.Core"; "ModuleVersion" = "12.3.0.17839688" }
         @{"ModuleName" = "VMware.VimAutomation.Storage"; "ModuleVersion" = "12.3.0.17855705"}
-        @{"ModuleName" = "posh-ssh"; "ModuleVersion" = "2.3.0"}
+        @{"ModuleName" = "posh-ssh"; "ModuleVersion" = "3.0.0"}
     )
 
     # @(@{ModuleName="myDependentModule"; ModuleVersion="2.0"; Guid="cfc45206-1e49-459d-a8ad-5b571ef94857"})
