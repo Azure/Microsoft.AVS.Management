@@ -898,18 +898,24 @@ function Set-AvsVMStoragePolicy {
     }
 
     $ProtectedVMs = Get-ProtectedVMs 
-    $VMList = Get-VM $VMName | Where-Object {-not ($_.Name -in $ProtectedVMs.Name)}
+    $VMList = Get-VM $VMName
 
     if ($null -eq $VMList) {
         Write-Error "Was not able to set the storage policy on the VM. Could not find VM(s) with the name: $VMName" -ErrorAction Stop
-    } elseif ($VMList.count -eq 1) {
+    } elseif (($VMList.count -eq 1) -and ($VMList[0].Name -in $ProtectedVMs.Name)) {
+        Write-Error "Was not able to set the storage policy on the VM. Modifying $($VMList[0].Name) is not supported." -ErrorAction Stop
+    } elseif (($VMList.count -eq 1) -and (-not ($VMList[0].Name -in $ProtectedVMs.Name))) {
         $VM = $VMList[0]
         Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Stop
     } else {
+        $VMList = $VMList | Where-Object {-not ($_.Name -in $ProtectedVMs.Name)}
+        if ($null -eq $VMList) {
+            Write-Error "Modifying these VMs is not supported" -ErrorAction Stop
+        }
         foreach ($VM in $VMList) {
             Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Continue
         }
-    }   
+    }
 }
 
 
@@ -964,11 +970,11 @@ function Set-ClusterDefaultStoragePolicy {
     $ClusterList = Get-Cluster $ClusterName 
     if ($null -eq $ClusterList) {
         Write-Error "Could not find Cluster with the name $ClusterName." -ErrorAction Stop
-    } elseif (($ClusterList.count -eq 1) -and ($ClusterList[0] -in $ProtectedClusters)) {
+    } elseif (($ClusterList.count -eq 1) -and ($($ClusterList[0].Name) -in $($ProtectedClusters.Name))) {
         Write-Error "Modifying $($ClusterList[0].Name) is not supported" -ErrorAction Stop
     }  
     # Ignore protected cluster if wild card was passed in
-    $ClusterList = $ClusterList | Where-Object {-not ($_.Name -in $ProtectedClusters.Name)}
+    $ClusterList = $ClusterList | Where-Object {-not ($_.Name -in $($ProtectedClusters.Name))}
     $ClusterDatastores = $ClusterList | Get-VMHost | Get-Datastore
 
     if ($null -eq $ClusterDatastores) {
