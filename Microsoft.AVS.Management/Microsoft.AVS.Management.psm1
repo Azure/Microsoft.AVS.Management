@@ -888,25 +888,34 @@ function Set-AvsVMStoragePolicy {
     )
     Write-Host "Getting Storage Policy $StoragePolicyName"
     $VSANStoragePolicies = Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop
-    $StoragePolicy =  $VSANStoragePolicies | Where-Object {$_.Name -eq $StoragePolicyName}
+    $StoragePolicy = Get-SpbmStoragePolicy $StoragePolicyName -ErrorAction Stop
     if ($null -eq $StoragePolicy) {
-        Write-Error "Could not find Storage Policy with the name $StoragePolicyName. It either does not exist or is not supported." -ErrorAction Continue
+        Write-Error "Could not find Storage Policy with the name $StoragePolicyName." -ErrorAction Continue
         Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
-    } 
+    } elseif (-not ($StoragePolicy -in $VSANStoragePolicies)) {
+        Write-Error "Storage policy $StoragePolicyName is not supported. Storage policies must be in the VSAN namespace" -ErrorAction Continue
+        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
+    }
 
     $ProtectedVMs = Get-ProtectedVMs 
-    $VMList = Get-VM $VMName | Where-Object {-not ($_.Name -in $ProtectedVMs.Name)}
+    $VMList = Get-VM $VMName
 
     if ($null -eq $VMList) {
         Write-Error "Was not able to set the storage policy on the VM. Could not find VM(s) with the name: $VMName" -ErrorAction Stop
-    } elseif ($VMList.count -eq 1) {
+    } elseif (($VMList.count -eq 1) -and ($VMList[0].Name -in $ProtectedVMs.Name)) {
+        Write-Error "Was not able to set the storage policy on the VM. Modifying $($VMList[0].Name) is not supported." -ErrorAction Stop
+    } elseif (($VMList.count -eq 1) -and (-not ($VMList[0].Name -in $ProtectedVMs.Name))) {
         $VM = $VMList[0]
         Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Stop
     } else {
+        $VMList = $VMList | Where-Object {-not ($_.Name -in $ProtectedVMs.Name)}
+        if ($null -eq $VMList) {
+            Write-Error "Modifying these VMs is not supported" -ErrorAction Stop
+        }
         foreach ($VM in $VMList) {
             Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Continue
         }
-    }   
+    }
 }
 
 
@@ -944,24 +953,32 @@ function Set-ClusterDefaultStoragePolicy {
         $ClusterName
     )
     Write-Host "Getting Storage Policy $StoragePolicyName"
-    $StoragePolicy =  Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop | Where-Object {$_.Name -eq $StoragePolicyName}
+    $VSANStoragePolicies = Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop
+    $StoragePolicy = Get-SpbmStoragePolicy $StoragePolicyName -ErrorAction Stop
     if ($null -eq $StoragePolicy) {
-        Write-Error "Could not find Storage Policy with the name $StoragePolicyName. It either does not exist or is not supported." -ErrorAction Continue
+        Write-Error "Could not find Storage Policy with the name $StoragePolicyName." -ErrorAction Continue
         Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
     } elseif ($StoragePolicy.count -gt 1) {
         Write-Error "Please select just one storage policy." -ErrorAction Stop
+    } elseif (-not ($StoragePolicy -in $VSANStoragePolicies)) {
+        Write-Error "Storage policy $StoragePolicyName is not supported. Storage policies must be in the VSAN namespace" -ErrorAction Continue
+        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
     }
     
     $CompatibleDatastores = Get-SpbmCompatibleStorage -StoragePolicy $StoragePolicy
     $ProtectedClusters = Get-ProtectedClusters  
-    $ClusterList = Get-Cluster $ClusterName | Where-Object {-not ($_.Name -in $ProtectedClusters.Name)}
+    $ClusterList = Get-Cluster $ClusterName 
     if ($null -eq $ClusterList) {
-        Write-Error "Could not find Cluster with the name $ClusterName. It either does not exist or is not supported." -ErrorAction Stop
-    }
+        Write-Error "Could not find Cluster with the name $ClusterName." -ErrorAction Stop
+    } elseif (($ClusterList.count -eq 1) -and ($($ClusterList[0].Name) -in $($ProtectedClusters.Name))) {
+        Write-Error "Modifying $($ClusterList[0].Name) is not supported" -ErrorAction Stop
+    }  
+    # Ignore protected cluster if wild card was passed in
+    $ClusterList = $ClusterList | Where-Object {-not ($_.Name -in $($ProtectedClusters.Name))}
     $ClusterDatastores = $ClusterList | Get-VMHost | Get-Datastore
 
     if ($null -eq $ClusterDatastores) {
-	$hosts = $ClusterList | Get-VMHost
+        $hosts = $ClusterList | Get-VMHost
         if ($null -eq $hosts) { 
              Write-Error "Was not able to set the Storage policy on $ClusterList. The Cluster does not appear to have VM Hosts. Please add VM Hosts before setting storage policy" -ErrorAction Stop
         } else {
@@ -977,7 +994,7 @@ function Set-ClusterDefaultStoragePolicy {
                 Write-Error "Was not able to set the Storage Policy on the Cluster Datastore: $($PSItem.Exception.Message)" -ErrorAction Stop
             }
         } else {
-            Write-Error "Modifying the default storage policy on this cluster is not supported" -ErrorAction Stop
+            Write-Error "Modifying the default storage policy on this cluster: $($ClusterDatastores[0]) is not supported" -ErrorAction Stop
         }
     } else {
         foreach ($Datastore in $ClusterDatastores) {
