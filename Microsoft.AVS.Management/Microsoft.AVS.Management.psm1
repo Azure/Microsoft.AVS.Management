@@ -372,7 +372,7 @@ function New-AvsLDAPSIdentitySource {
         
     )
     if (-not ($PrimaryUrl -match '^(ldaps:).+((:389)|(:636)|(:3268)|(:3269))$')) {
-        Write-Error "$PrimaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap: and not ldap:" -ErrorAction Stop
+        Write-Error "$PrimaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps: and not ldap:" -ErrorAction Stop
     }
     if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and (-not ($SecondaryUrl -match '^(ldaps:).+((:389)|(:636)|(:3268)|(:3269))$'))) {
         Write-Error "$SecondaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps: and not ldap:" -ErrorAction Stop
