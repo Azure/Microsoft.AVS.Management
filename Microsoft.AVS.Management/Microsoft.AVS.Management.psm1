@@ -216,10 +216,16 @@ function New-AvsLDAPIdentitySource {
     )
 
     if (-not ($PrimaryUrl -match '^(ldap:).+((:389)|(:636)|(:3268)|(:3269))$')) {
-        Write-Error "$PrimaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap: and not ldaps:" -ErrorAction Stop
+        Write-Error "PrimaryUrl $PrimaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap: and not ldaps:" -ErrorAction Stop
+    }
+    if (($PrimaryUrl -match '^(ldap:).+((:636)|(:3269))$')) {
+        Write-Warning "PrimaryUrl $PrimaryUrl is nonstandard. Are you sure you meant to use the 636/3269 port and not the standard ports for LDAP, 389 or 3268? Continuing anyway.."
     }
     if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and (-not ($SecondaryUrl -match '^(ldap:).+((:389)|(:636)|(:3268)|(:3269))$'))) {
-        Write-Error "$SecondaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap: and not ldaps:" -ErrorAction Stop
+        Write-Error "SecondaryUrl $SecondaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap: and not ldaps:" -ErrorAction Stop
+    }
+    if (($SecondaryUrl -match '^(ldap:).+((:636)|(:3269))$')) {
+        Write-Warning "SecondaryUrl $SecondaryUrl is nonstandard. Are you sure you meant to use the 636/3269 port and not the standard ports for LDAP, 389 or 3268? Continuing anyway.."
     }
 
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
@@ -372,11 +378,18 @@ function New-AvsLDAPSIdentitySource {
         
     )
     if (-not ($PrimaryUrl -match '^(ldaps:).+((:389)|(:636)|(:3268)|(:3269))$')) {
-        Write-Error "$PrimaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps: and not ldap:" -ErrorAction Stop
+        Write-Error "PrimaryUrl $PrimaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps: and not ldap:" -ErrorAction Stop
+    }
+    if (($PrimaryUrl -match '^(ldaps:).+((:389)|(:3268))$')) {
+        Write-Warning "PrimaryUrl $PrimaryUrl is nonstandard. Are you sure you meant to use the 389/3268 port and not the standard ports for LDAPS, 636 or 3269? Continuing anyway.."
     }
     if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and (-not ($SecondaryUrl -match '^(ldaps:).+((:389)|(:636)|(:3268)|(:3269))$'))) {
-        Write-Error "$SecondaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps: and not ldap:" -ErrorAction Stop
+        Write-Error "SecondaryUrl $SecondaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps: and not ldap:" -ErrorAction Stop
     }
+    if (($SecondaryUrl -match '^(ldaps:).+((:389)|(:3268))$')) {
+        Write-Warning "SecondaryUrl $SecondaryUrl is nonstandard. Are you sure you meant to use the 389/3268 port and not the standard ports for LDAPS, 636 or 3269? Continuing anyway.."
+    }
+    
 
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     if ($null -ne $ExternalIdentitySources) {
