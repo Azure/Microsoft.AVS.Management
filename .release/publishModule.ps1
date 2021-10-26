@@ -7,7 +7,17 @@ param (
 
 )
 
-Function Build-RequiredModuleFiles {
+$script:adoUnofficialFeedParameters = @{
+        Name = "Unofficial-AVS-Automation-AdminTools"
+        SourceLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
+        PublishLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
+        InstallationPolicy = 'Trusted'
+}
+
+Function Install-RequiredModules {
+    param (
+        [Parameter(Mandatory=$true)]$sourceFeedParams
+    )
 
     # Get .psd1 data
     $data = Import-PowerShellDataFile "$pathToPSD1File"
@@ -18,26 +28,22 @@ Function Build-RequiredModuleFiles {
     foreach ($module in $RequiredModules ) {
         $targetModule = $($module.ModuleName)
         Write-Host "Installing $targetModule"
-        Install-Module -Force -AllowClobber $targetModule
+        Install-Module $targetModule -Repository ($sourceFeedParams).Name -Force -AllowClobber
         Write-Host "----COMPLETED installation of $targetModule----"
     }
 
 }
 
-Build-RequiredModuleFiles
-
-$script:adoUnofficialFeedParameters = @{
-        Name = "Unofficial-AVS-Automation-AdminTools"
-        SourceLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
-        PublishLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
-        InstallationPolicy = 'Trusted'
+try {
+    Write-Host "Attempting to register Powershell repository '$($adoUnofficialFeedParameters.Name)'."
+    Register-PSRepository @adoUnofficialFeedParameters -ErrorAction Stop
 }
-# $script:adoOfficialFeedParameters = @{
-#         Name = "AVS-Automation-AdminTools"
-#         SourceLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v2"
-#         PublishLocation = "https://pkgs.dev.azure.com/mseng/AzureDevOps/_packaging/AVS-Automation-AdminTools/nuget/v2"
-#         InstallationPolicy = 'Trusted'
-# }
+catch {
+    Write-Host "The Powershell repository '$($adoUnofficialFeedParameters.Name)' is already registered?"
+}
+
+#Install required modules on agent. Necessary for PS publishing.
+Install-RequiredModules($adoUnofficialFeedParameters)
 
 Write-Output "---- START: Publish Module----"
 $moduleParentFolder = (Get-Item "$pathToPSD1File").Directory.FullName
@@ -49,9 +55,6 @@ if($ForPSGallery){
 
 }else{
     Write-Host "Publishing to  $($adoUnofficialFeedParameters.Name)"
-    # Register-PSRepository @adoOfficialFeedParameters
-    Register-PSRepository @adoUnofficialFeedParameters
-    # Publish-Module -Path "$moduleParentFolder" -Repository ($adoOfficialFeedParameters).Name -NuGetApiKey "$apiKey"
     Publish-Module -Path "$moduleParentFolder" -Repository ($adoUnofficialFeedParameters).Name -NuGetApiKey "$apiKey"
 }
 
