@@ -22,9 +22,10 @@ The 3rd Party script will not have access to administrator password.  Prior to e
 
 AVS will expose some standard runtime options via PowerShell variables.  See below table for current list.
 
-| Var | Description |
-| ------- | ----------- |
-| VC_ADDRESS | IP Address of VCenter |
+| Var | Description | Usage example |
+| ------- | ----------- |--|
+| VC_ADDRESS | IP Address of VCenter | |
+| SSH_Sessions | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SSHSession.md) | `Invoke-SSHCommand -Command "uname -a" -SSHSession $SSH_Sessions["esx.hostname.fqdn"].Value`
 
 The script shall assume the directory it is executed in is temporary and can use it as needed, assuming 25GB is available.  This environment including any files will be torn down after the script execution.
 
@@ -150,3 +151,46 @@ The uninstall script from the most recent package version should be able to unin
 
 Any user credentials created for the 3rd party software installation, should be kept secret.   
 
+# Suggested script vendor development flow
+For the general script development the vendor should setup an on-prem vCenter. 
+Then using a Linux dev box with PowerShell:
+- Checkout your module repository
+- Edit your module files
+- Start `pwsh`
+- Setup the context: login via PowerCLI and set the variables, like $VC_ADDRESS and $SSH_Sessions
+- Import the module from your checked out directory
+- Test
+- Make changes to your module as necessary
+- Restart the `pwsh` or remove and re-import your module
+- Repeat
+
+This should get the scripts to 99% ready for testing on AVS.
+
+> Note: example of a script that sets up `SSH_Sessions`:
+```ps
+function sshLogin([PSCredential]$c) {
+    $xs = [System.Collections.Generic.Dictionary[string,object]]::new()
+    foreach($h in Get-VMHost) {
+        $xs[$h.Name] = [Lazy[object]]::new([System.Func[object]] { New-SSHSession -ComputerName $h.Name -AcceptKey -Credential $c }.GetNewClosure())
+    }
+}
+$c = Get-PSCredential
+$SSH_Sessions = sshLogin $c
+```
+
+The final QA cycle would be:
+- Publish the package with `-preview` suffix
+- Get on the Linux jumpbox connected to your SDDC vnet
+- install docker and spin up an instance of this image: mcr.microsoft.com/powershell:7.1.4-alpine-3.12-20210819
+- In the PowerShell container:
+    - Install only your package from PS Gallery – this is to ensure that your package has correctly specified all the dependencies
+    - Setup the context
+    - Test
+
+## Testing via Run Command
+At this point you can tell us that it’s ready to be reviewed.
+- We’ll review and if it looks OK we’ll import it into our private repository and list it for via Run Command/ARM API. The preview package will only be visible to subscriptions with certain feature flag and won't show up for general public.
+- Assuming everything works re-publish the package w/o `-preview` suffix.
+- We make your package available to general public.
+ 
+After this initial onboarding we require that the vendor sets up CI testing that executes the commandlets via AVS SDK to make sure future packages pass the lifecycle test and to shield you from any possible changes on the AVS side. Promotion from `-preview` to generally available package will be conditional on the test report that shows that all commandlets perform as expected.
