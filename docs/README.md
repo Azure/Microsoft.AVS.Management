@@ -166,16 +166,22 @@ Then using a Linux dev box with PowerShell:
 
 This should get the scripts to 99% ready for testing on AVS.
 
-> Note: example of a script that sets up `SSH_Sessions`:
+> Note: example of a script that sets up the context for your dev loop:
 ```ps
+Set-PowerCLIConfiguration -InvalidCertificateAction:Ignore
+$VC_ADDRESS = "10.0.0.2"
+$VC_Credentials = Get-Credential
+Connect-VIServer -Server $VC_ADDRESS -Credential $VC_Credentials
+Connect-SsoAdminServer -Server $VC_ADDRESS -User $VC_Credentials.Username -Password $VC_Credentials.Password -SkipCertificateCheck
 function sshLogin([PSCredential]$c) {
     $xs = [System.Collections.Generic.Dictionary[string,object]]::new()
     foreach($h in Get-VMHost) {
         $xs[$h.Name] = [Lazy[object]]::new([System.Func[object]] { New-SSHSession -ComputerName $h.Name -AcceptKey -Credential $c }.GetNewClosure())
     }
+    return $xs
 }
-$c = Get-PSCredential
-$SSH_Sessions = sshLogin $c
+$ESX_Credentials = Get-Credential
+$SSH_Sessions = sshLogin $ESX_Credentials
 ```
 
 The final QA cycle would be:
