@@ -26,6 +26,7 @@ AVS will expose some standard runtime options via PowerShell variables.  See bel
 | ------- | ----------- |--|
 | VC_ADDRESS | IP Address of VCenter | |
 | SSH_Sessions | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SSHSession.md) | `Invoke-SSHCommand -Command "uname -a" -SSHSession $SSH_Sessions["esx.hostname.fqdn"].Value`
+| SFTP_Sessions | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh sftp session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SFTPSession.md) | `New-SFTPItem -ItemType Directory -Path "/tmp/zzz" -SFTPSession $SSH_Sessions[esx.hostname.fqdn].Value`
 
 The script shall assume the directory it is executed in is temporary and can use it as needed, assuming 25GB is available.  This environment including any files will be torn down after the script execution.
 
@@ -154,6 +155,7 @@ Any user credentials created for the 3rd party software installation, should be 
 # Suggested script vendor development flow
 For the general script development the vendor should setup an on-prem vCenter. 
 Then using a Linux dev box with PowerShell:
+- Create a non-root user and login as that user
 - Checkout your module repository
 - Edit your module files
 - Start `pwsh`
@@ -174,20 +176,23 @@ $VC_Credentials = Get-Credential
 Connect-VIServer -Server $VC_ADDRESS -Credential $VC_Credentials
 Connect-SsoAdminServer -Server $VC_ADDRESS -User $VC_Credentials.Username -Password $VC_Credentials.Password -SkipCertificateCheck
 function sshLogin([PSCredential]$c) {
-    $xs = [System.Collections.Generic.Dictionary[string,object]]::new()
+    $sshs = [System.Collections.Generic.Dictionary[string,object]]::new()
+    $sftps = [System.Collections.Generic.Dictionary[string,object]]::new()
     foreach($h in Get-VMHost) {
-        $xs[$h.Name] = [Lazy[object]]::new([System.Func[object]] { New-SSHSession -ComputerName $h.Name -AcceptKey -Credential $c }.GetNewClosure())
+        $sshs[$h.Name] = [Lazy[object]]::new([System.Func[object]] { New-SSHSession -ComputerName $h.Name -AcceptKey -Credential $c }.GetNewClosure())
+        $sftps[$h.Name] = [Lazy[object]]::new([System.Func[object]] { New-SFTPSession -Computer $h.Name -AcceptKey -Credential $c }.GetNewClosure())
     }
-    return $xs
+    Set-Variable -Name SSH_Sessions -Value $sshs -Scope Global
+    Set-Variable -Name SFTP_Sessions -Value $sftps -Scope Global
 }
 $ESX_Credentials = Get-Credential
-$SSH_Sessions = sshLogin $ESX_Credentials
+sshLogin $ESX_Credentials
 ```
 
 The final QA cycle would be:
 - Publish the package with `-preview` suffix
 - Get on the Linux jumpbox connected to your SDDC vnet
-- install docker and spin up an instance of this image: mcr.microsoft.com/powershell:7.1.4-alpine-3.12-20210819
+- install docker and spin up an instance of this image: mcr.microsoft.com/powershell:7.2.0-alpine-3.12-20211116
 - In the PowerShell container:
     - Install only your package from PS Gallery – this is to ensure that your package has correctly specified all the dependencies
     - Setup the context
