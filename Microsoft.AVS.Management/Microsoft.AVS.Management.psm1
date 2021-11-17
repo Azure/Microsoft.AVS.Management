@@ -868,13 +868,13 @@ function Get-StoragePolicies {
   
 <#
     .Synopsis
-     Modify vSAN based storage policies on an individual VM
+     Modify vSAN based storage policies on a VM(s)
 
     .Parameter StoragePolicyName
      Name of a vSAN based storage policy to set on the specified VM. Options can be seen in vCenter or using the Get-StoragePolicies command.
 
     .Parameter VMName
-     Name of the VM to set the vSAN based storage policy on.
+     Name of the VM to set the vSAN based storage policy on. This supports wildcards for bulk operations. For example, MyVM* would attempt to change the storage policy on MyVM1, MyVM2, MyVM3, etc.
 
     .Example 
     # Set the vSAN based storage policy on MyVM to RAID-1 FTT-1
@@ -934,13 +934,13 @@ function Set-AvsVMStoragePolicy {
 
 <#
     .Synopsis
-     Specify default storage policy for a cluster
+     Specify default storage policy for a cluster(s)
 
     .Parameter StoragePolicyName
      Name of a vSAN based storage policy to set to be the default for VMs on this cluster. Options can be seen in vCenter or using the Get-StoragePolicies command.
 
     .Parameter ClusterName
-     Name of the cluster to set the default on.
+     Name of the cluster to set the default on. This supports wildcards for bulk operations. For example, MyCluster* would attempt to change the storage policy on MyCluster1, MyCluster2, etc.
 
     .Example 
     # Set the default vSAN based storage policy on MyCluster to RAID-1 FTT-1
