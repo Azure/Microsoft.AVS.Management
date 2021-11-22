@@ -175,7 +175,7 @@ function New-AvsLDAPIdentitySource {
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
+            HelpMessage = 'URL of your AD Server: ldap://yourserver:389')]
         [ValidateNotNullOrEmpty()]
         [string]
         $PrimaryUrl,
@@ -296,7 +296,7 @@ function New-AvsLDAPIdentitySource {
      Credential to login to the LDAP server (NOT cloudadmin) in the form of a username/password credential. Usernames often look like prodAdmins@domainname.com or if the AD is a Microsoft Active Directory server, usernames may need to be prefixed with the NetBIOS domain name, such as prod\AD_Admin
 
     .Parameter SSLCertificatesSasUrl
-     An comma-delimeted list of Blob Shared Access Signature strings to the certificates required to connect to the external active directory
+     A comma-delimeted list of Blob Shared Access Signature strings to the certificates required to connect to the external active directory
 
     .Parameter GroupName
      Optional: A group in the customer external identity source to be added to CloudAdmins. Users in this group will have CloudAdmin access. Group name should be formatted without the domain name, e.g. group-to-give-access
