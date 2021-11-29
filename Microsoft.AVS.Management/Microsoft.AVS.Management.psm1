@@ -493,6 +493,7 @@ function Get-ExternalIdentitySources {
         return
     }
     else {
+        Write-Output "LDAPs Certificate(s) valid until the [Not After] parameter"
         $ExternalSource | Format-List | Out-String 
     }
 }
