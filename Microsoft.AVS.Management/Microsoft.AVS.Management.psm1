@@ -1028,18 +1028,7 @@ function Set-ClusterDefaultStoragePolicy {
         [string]
         $ClusterName
     )
-    Write-Host "Getting Storage Policy $StoragePolicyName"
-    $VSANStoragePolicies = Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop
-    $StoragePolicy = Get-SpbmStoragePolicy $StoragePolicyName -ErrorAction Stop
-    if ($null -eq $StoragePolicy) {
-        Write-Error "Could not find Storage Policy with the name $StoragePolicyName." -ErrorAction Continue
-        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
-    } elseif ($StoragePolicy.count -gt 1) {
-        Write-Error "Please select just one storage policy." -ErrorAction Stop
-    } elseif (-not ($StoragePolicy -in $VSANStoragePolicies)) {
-        Write-Error "Storage policy $StoragePolicyName is not supported. Storage policies must be in the VSAN namespace" -ErrorAction Continue
-        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
-    }
+    $StoragePolicy, $VSANStoragePolicies = Get-StoragePolicyInternal $StoragePolicyName
     
     $CompatibleDatastores = Get-SpbmCompatibleStorage -StoragePolicy $StoragePolicy
     $ProtectedClusters = Get-ProtectedClusters  
