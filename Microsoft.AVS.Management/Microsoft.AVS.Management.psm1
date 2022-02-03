@@ -1029,7 +1029,6 @@ function Set-ClusterDefaultStoragePolicy {
         $ClusterName
     )
     $StoragePolicy, $VSANStoragePolicies = Get-StoragePolicyInternal $StoragePolicyName
-    
     $CompatibleDatastores = Get-SpbmCompatibleStorage -StoragePolicy $StoragePolicy
     $ProtectedClusters = Get-ProtectedClusters  
     $ClusterList = Get-Cluster $ClusterName 
