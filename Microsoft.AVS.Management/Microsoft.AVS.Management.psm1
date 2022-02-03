@@ -25,7 +25,7 @@ class AVSAttribute : Attribute {
 
 <# List of internal AVS management VMs that should not be touched by customer-facing scripts #>
 function Get-ProtectedVMs {
-    $ParentPool =  Get-ResourcePool -Name Resources | Where-Object {$_.ParentId -match 'ClusterComputeResource.+'}
+    $ParentPool = Get-ResourcePool -Name Resources | Where-Object {$_.ParentId -match 'ClusterComputeResource.+'}
     $MGMTPool = Get-ResourcePool -Name MGMT-ResourcePool | Where-Object {$_.Parent -in $ParentPool}
     $ProtectedVMs = $MGMTPool | Get-VM | Where-Object {$_.Name -match "^TNT.+"}
     return $ProtectedVMs
@@ -899,7 +899,7 @@ function Get-StoragePolicies {
 
     .Example 
     # Set the vSAN based storage policy on MyVM to RAID-1 FTT-1
-    Set-StoragePolicyOnVM -StoragePolicyName "RAID-1 FTT-1" -VMName "MyVM"
+    Set-StoragePolicyForVM -StoragePolicyName "RAID-1 FTT-1" -VMName "MyVM"
 #>
 function Set-StoragePolicyForVM {
     [CmdletBinding(PositionalBinding = $false)]
@@ -956,7 +956,7 @@ function Set-StoragePolicyForVM {
 
     .Example 
     # Set the vSAN based storage policy on all VMs in MyVMs to RAID-1 FTT-1
-    Set-AvsVMStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -VIContainerName "MyVMs"
+    Set-StoragePolicyForVMsInContainer -StoragePolicyName "RAID-1 FTT-1" -VIContainerName "MyVMs"
 #>
 function Set-StoragePolicyForVMsInContainer {
     [CmdletBinding(PositionalBinding = $false)]
