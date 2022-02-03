@@ -956,9 +956,9 @@ function Set-StoragePolicyForVM {
 
     .Example 
     # Set the vSAN based storage policy on all VMs in MyVMs to RAID-1 FTT-1
-    Set-StoragePolicyForVMsInContainer -StoragePolicyName "RAID-1 FTT-1" -VIContainerName "MyVMs"
+    Set-LocationStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -VIContainerName "MyVMs"
 #>
-function Set-StoragePolicyForVMsInContainer {
+function Set-LocationStoragePolicy {
     [CmdletBinding(PositionalBinding = $false)]
     [AVSAttribute(10, UpdatesSDDC = $True)]
     Param
