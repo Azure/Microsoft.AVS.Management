@@ -25,7 +25,7 @@ class AVSAttribute : Attribute {
 
 <# List of internal AVS management VMs that should not be touched by customer-facing scripts #>
 function Get-ProtectedVMs {
-    $ParentPool =  Get-ResourcePool -Name Resources | Where-Object {$_.ParentId -match 'ClusterComputeResource.+'}
+    $ParentPool =  Get-ResourcePool -Name Resources | Where-Object {$_.ParentId -match 'ClusterComputeResource.+'}
     $MGMTPool = Get-ResourcePool -Name MGMT-ResourcePool | Where-Object {$_.Parent -in $ParentPool}
     $ProtectedVMs = $MGMTPool | Get-VM | Where-Object {$_.Name -match "^TNT.+"}
     return $ProtectedVMs
@@ -82,6 +82,26 @@ function Get-Certificates {
     }
     Write-Host "Number of certificates downloaded: $($DestinationFileArray.count)"
     return $DestinationFileArray
+}
+
+function Get-StoragePolicyInternal {
+    Param 
+    (
+        [Parameter(
+            Mandatory = $true)]
+        $StoragePolicyName
+    )
+    Write-Host "Getting Storage Policy $StoragePolicyName"
+    $VSANStoragePolicies = Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop
+    $StoragePolicy = Get-SpbmStoragePolicy $StoragePolicyName -ErrorAction Stop
+    if ($null -eq $StoragePolicy) {
+        Write-Error "Could not find Storage Policy with the name $StoragePolicyName." -ErrorAction Continue
+        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
+    } elseif (-not ($StoragePolicy -in $VSANStoragePolicies)) {
+        Write-Error "Storage policy $StoragePolicyName is not supported. Storage policies must be in the VSAN namespace" -ErrorAction Continue
+        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
+    }
+    return $StoragePolicy, $VSANStoragePolicies
 }
 
 function Set-StoragePolicyOnVM {
@@ -879,9 +899,9 @@ function Get-StoragePolicies {
 
     .Example 
     # Set the vSAN based storage policy on MyVM to RAID-1 FTT-1
-    Set-AvsVMStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -VMName "MyVM"
+    Set-StoragePolicyOnVM -StoragePolicyName "RAID-1 FTT-1" -VMName "MyVM"
 #>
-function Set-AvsVMStoragePolicy {
+function Set-StoragePolicyForVM {
     [CmdletBinding(PositionalBinding = $false)]
     [AVSAttribute(10, UpdatesSDDC = $True)]
     Param
@@ -900,17 +920,7 @@ function Set-AvsVMStoragePolicy {
         [string]
         $VMName
     )
-    Write-Host "Getting Storage Policy $StoragePolicyName"
-    $VSANStoragePolicies = Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop
-    $StoragePolicy = Get-SpbmStoragePolicy $StoragePolicyName -ErrorAction Stop
-    if ($null -eq $StoragePolicy) {
-        Write-Error "Could not find Storage Policy with the name $StoragePolicyName." -ErrorAction Continue
-        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
-    } elseif (-not ($StoragePolicy -in $VSANStoragePolicies)) {
-        Write-Error "Storage policy $StoragePolicyName is not supported. Storage policies must be in the VSAN namespace" -ErrorAction Continue
-        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
-    }
-
+    $StoragePolicy, $VSANStoragePolicies = Get-StoragePolicyInternal $StoragePolicyName -ErrorAction Stop
     $ProtectedVMs = Get-ProtectedVMs 
     $VMList = Get-VM $VMName
 
@@ -925,6 +935,58 @@ function Set-AvsVMStoragePolicy {
         $VMList = $VMList | Where-Object {-not ($_.Name -in $ProtectedVMs.Name)}
         if ($null -eq $VMList) {
             Write-Error "Modifying these VMs is not supported" -ErrorAction Stop
+        }
+        foreach ($VM in $VMList) {
+            Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Continue
+        }
+    }
+}
+
+<#
+    .Synopsis
+     Modify vSAN based storage policies on all VMs in a Container
+
+    .Parameter StoragePolicyName
+     Name of a vSAN based storage policy to set on the specified VM. Options can be seen in vCenter or using the Get-StoragePolicies command.
+
+    .Parameter VIContainerName
+     Name of the Folder, ResourcePool, or Cluster containing the VMs to set the storage policy on. 
+     For example, if you would like to change the storage policy of all the VMs in the cluster "Cluster-2", then supply "Cluster-2". 
+     Similarly, if you would like to change the storage policy of all the VMs in a folder called "MyFolder", supply "MyFolder"
+
+    .Example 
+    # Set the vSAN based storage policy on all VMs in MyVMs to RAID-1 FTT-1
+    Set-AvsVMStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -VIContainerName "MyVMs"
+#>
+function Set-StoragePolicyForVMsInContainer {
+    [CmdletBinding(PositionalBinding = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $True)]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Name of the storage policy to set')]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $StoragePolicyName,
+  
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Name of the Folder, ResourcePool, or Cluster containing the VMs to set the storage policy on.')]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $VIContainerName
+    )
+    $StoragePolicy, $VSANStoragePolicies = Get-StoragePolicyInternal $StoragePolicyName -ErrorAction Stop
+    $ProtectedVMs = Get-ProtectedVMs 
+    $VMList = Get-VM -Location $VIContainerName
+
+    if ($null -eq $VMList) {
+        Write-Error "Was not able to set storage policies. Could not find VM(s) in the container: $VIContainerName" -ErrorAction Stop
+    } else {
+        $VMList = $VMList | Where-Object {-not ($_.Name -in $ProtectedVMs.Name)}
+        if ($null -eq $VMList) {
+            Write-Error "Modifying the VMs in this container is not supported" -ErrorAction Stop
         }
         foreach ($VM in $VMList) {
             Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Continue
