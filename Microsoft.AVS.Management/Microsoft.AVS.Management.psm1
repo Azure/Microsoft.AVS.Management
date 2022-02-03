@@ -949,14 +949,14 @@ function Set-StoragePolicyForVM {
     .Parameter StoragePolicyName
      Name of a vSAN based storage policy to set on the specified VM. Options can be seen in vCenter or using the Get-StoragePolicies command.
 
-    .Parameter VIContainerName
+    .Parameter Location
      Name of the Folder, ResourcePool, or Cluster containing the VMs to set the storage policy on. 
      For example, if you would like to change the storage policy of all the VMs in the cluster "Cluster-2", then supply "Cluster-2". 
      Similarly, if you would like to change the storage policy of all the VMs in a folder called "MyFolder", supply "MyFolder"
 
     .Example 
     # Set the vSAN based storage policy on all VMs in MyVMs to RAID-1 FTT-1
-    Set-LocationStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -VIContainerName "MyVMs"
+    Set-LocationStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -Location "MyVMs"
 #>
 function Set-LocationStoragePolicy {
     [CmdletBinding(PositionalBinding = $false)]
@@ -975,14 +975,14 @@ function Set-LocationStoragePolicy {
             HelpMessage = 'Name of the Folder, ResourcePool, or Cluster containing the VMs to set the storage policy on.')]
         [ValidateNotNullOrEmpty()]
         [string]
-        $VIContainerName
+        $Location
     )
     $StoragePolicy, $VSANStoragePolicies = Get-StoragePolicyInternal $StoragePolicyName -ErrorAction Stop
     $ProtectedVMs = Get-ProtectedVMs 
-    $VMList = Get-VM -Location $VIContainerName
+    $VMList = Get-VM -Location $Location
 
     if ($null -eq $VMList) {
-        Write-Error "Was not able to set storage policies. Could not find VM(s) in the container: $VIContainerName" -ErrorAction Stop
+        Write-Error "Was not able to set storage policies. Could not find VM(s) in the container: $Location" -ErrorAction Stop
     } else {
         $VMList = $VMList | Where-Object {-not ($_.Name -in $ProtectedVMs.Name)}
         if ($null -eq $VMList) {
