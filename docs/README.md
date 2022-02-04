@@ -15,7 +15,8 @@ The 3rd Party script will not have access to administrator password.  Prior to e
 
 - The first login will be done with PowerCLI's [Connect-VIServer](https://developer.vmware.com/docs/powercli/latest/vmware.vimautomation.core/commands/connect-viserver/#Default) cmdlet.  
 - The second login will be done with VMware's [Connect-SsoAdminServer](https://github.com/vmware/PowerCLI-Example-Scripts/tree/master/Modules/VMware.vSphere.SsoAdmin).
-> When publishing the package, please ensure [Microsoft.AVS.Management](https://www.powershellgallery.com/packages/Microsoft.AVS.Management) is a listed [dependency](https://docs.microsoft.com/en-us/nuget/reference/nuspec#dependencies) of the package.
+
+> <b>IMPORTANT:</b> When publishing the package, please ensure [Microsoft.AVS.Management](https://www.powershellgallery.com/packages/Microsoft.AVS.Management) is a listed [dependency](https://docs.microsoft.com/en-us/nuget/reference/nuspec#dependencies) of the package.
 > Please add any additional dependencies as required.
 
 ## Environment
@@ -24,9 +25,13 @@ AVS will expose some standard runtime options via PowerShell variables.  See bel
 
 | Var | Description | Usage example |
 | ------- | ----------- |--|
-| VC_ADDRESS | IP Address of VCenter | |
-| SSH_Sessions | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SSHSession.md) | `Invoke-SSHCommand -Command "uname -a" -SSHSession $SSH_Sessions["esx.hostname.fqdn"].Value`
-| SFTP_Sessions | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh sftp session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SFTPSession.md) | `New-SFTPItem -ItemType Directory -Path "/tmp/zzz" -SFTPSession $SSH_Sessions[esx.hostname.fqdn].Value`
+| `VC_ADDRESS` | IP Address of VCenter | Script authors now can also use `"vc"` - hostname instead of the address |
+| `PersistentSecrets` | Hashtable for keeping secrets across package script executions | `$PersistentSecrets.ManagementAppliancePassword = '***'` |
+| `SSH_Sessions` | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SSHSession.md) | `Invoke-SSHCommand -Command "uname -a" -SSHSession $SSH_Sessions["esx.hostname.fqdn"].Value`
+| `SFTP_Sessions` | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh sftp session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SFTPSession.md) | `New-SFTPItem -ItemType Directory -Path "/tmp/zzz" -SFTPSession $SSH_Sessions[esx.hostname.fqdn].Value`
+
+> <b>Persistent secrets</b>: 
+The scecrets are kept in a Keyvault, they are isloated on package name basis, shared across all versions of your package and made available for each of your package scripts. Delete a secrets by setting a property to an empty string or `$null`.
 
 The script shall assume the directory it is executed in is temporary and can use it as needed, assuming 25GB is available.  This environment including any files will be torn down after the script execution.
 
@@ -108,7 +113,7 @@ Spawning child processes is not supported at this time and must be avoided. Plea
 Private AVS package repository will be used to install the modules.
 For the purpose of testing and review consider publishing to [PowerShell Gallery](https://www.powershellgallery.com/), alternatively the package can be made available to us privately.
 
-> IMPORTANT: Vendors must test their package using a Linux [PowerShell container](https://hub.docker.com/_/microsoft-powershell), connecting to their on-prem datacenter.
+> <b>IMPORTANT</b>: Vendors must test their package using a Linux [PowerShell container](https://hub.docker.com/_/microsoft-powershell), connecting to their on-prem datacenter.
 
 ## Versioning and Module manifest
 AVS scripting modules are expected to follow [semver guidelines](https://semver.org/) when publishing a new version. Adhering to the guidelines will ensure that any automation built around the ARM resources representing the commandlets will keep working while benefiting from the patch fixes.
@@ -172,6 +177,7 @@ This should get the scripts to 99% ready for testing on AVS.
 ```ps
 Set-PowerCLIConfiguration -InvalidCertificateAction:Ignore
 $VC_ADDRESS = "10.0.0.2"
+$PersistentSecrets = @{}
 $VC_Credentials = Get-Credential
 Connect-VIServer -Server $VC_ADDRESS -Credential $VC_Credentials
 Connect-SsoAdminServer -Server $VC_ADDRESS -User $VC_Credentials.Username -Password $VC_Credentials.Password -SkipCertificateCheck
