@@ -232,8 +232,8 @@ function New-AvsLDAPIdentitySource {
     if ($null -ne $ExternalIdentitySources) {
         Write-Host "Checking to see if identity source already exists..."
         if ($DomainName.trim() -eq $($ExternalIdentitySources.Name.trim())) {
-            Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Continue
-            Write-Error $($ExternalIdentitySources | Format-List | Out-String) -ErrorAction Stop
+            Write-Error $($ExternalIdentitySources | Format-List | Out-String) -ErrorAction Continue
+            Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Stop
         }
         else {
             Write-Warning "$($ExternalIdentitySources | Format-List | Out-String)"
@@ -395,8 +395,8 @@ function New-AvsLDAPSIdentitySource {
     if ($null -ne $ExternalIdentitySources) {
         Write-Host "Checking to see if identity source already exists..."
         if ($DomainName.trim() -eq $($ExternalIdentitySources.Name.trim())) {
-            Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Continue
-            Write-Error $($ExternalIdentitySources | Format-List | Out-String) -ErrorAction Stop
+            Write-Error $($ExternalIdentitySources | Format-List | Out-String) -ErrorAction Continue
+            Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Stop
         }
         else {
             Write-Warning "$($ExternalIdentitySources | Format-List | Out-String)"
