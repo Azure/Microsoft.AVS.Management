@@ -135,7 +135,7 @@ function Set-StoragePolicyOnVM {
 
 <#
     .Synopsis
-     Not Recommended (use New-AvsLDAPSIdentitySource): Add a not secure external identity source (Active Directory over LDAP) for use with vCenter Single Sign-On.
+     Not Recommended (use New-LDAPSIdentitySource): Add a not secure external identity source (Active Directory over LDAP) for use with vCenter Single Sign-On.
 
     .Parameter Name
      The user-friendly name the external AD will be given in vCenter
@@ -166,9 +166,9 @@ function Set-StoragePolicyOnVM {
 
     .Example 
     # Add the domain server named "myserver.local" to vCenter
-    Add-AvsLDAPIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldap://10.40.0.5:389' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local'
+    Add-LDAPIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldap://10.40.0.5:389' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local'
 #>
-function New-AvsLDAPIdentitySource {
+function New-LDAPIdentitySource {
     [CmdletBinding(PositionalBinding = $false)]
     [AVSAttribute(10, UpdatesSDDC = $false)]
     Param
@@ -323,9 +323,9 @@ function New-AvsLDAPIdentitySource {
 
     .Example 
     # Add the domain server named "myserver.local" to vCenter
-    Add-AvsLDAPSIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local' -Username 'myserver@myserver.local' -Password 'PlaceholderPassword' -CertificatesSAS 'https://sharedaccessstring.path/accesskey' -Protocol LDAPS
+    Add-LDAPSIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local' -Username 'myserver@myserver.local' -Password 'PlaceholderPassword' -CertificatesSAS 'https://sharedaccessstring.path/accesskey' -Protocol LDAPS
 #>
-function New-AvsLDAPSIdentitySource {
+function New-LDAPSIdentitySource {
     [CmdletBinding(PositionalBinding = $false)]
     [AVSAttribute(10, UpdatesSDDC = $false)]
     Param
@@ -605,7 +605,7 @@ function Add-GroupToCloudAdmins {
 
     # Searching the external identities for the domain
     if ($null -eq $ExternalSources -or 0 -eq $ExternalSources.count) {
-        Write-Error "No external identity source found. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
+        Write-Error "No external identity source found. Please run New-LDAPSIdentitySource first" -ErrorAction Stop
     }
     elseif ($ExternalSources.count -eq 1) {
         if ($PSBoundParameters.ContainsKey('Domain')) {
@@ -744,7 +744,7 @@ function Remove-GroupFromCloudAdmins {
 
     # Searching the external identities for the domain
     if ($null -eq $ExternalSources -or 0 -eq $ExternalSources.count) {
-        Write-Error "No external identity source found. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
+        Write-Error "No external identity source found. Please run New-LDAPSIdentitySource first" -ErrorAction Stop
     }
     elseif ($ExternalSources.count -eq 1) {
         if ($PSBoundParameters.ContainsKey('Domain')) {
@@ -899,9 +899,9 @@ function Get-StoragePolicies {
 
     .Example 
     # Set the vSAN based storage policy on MyVM to RAID-1 FTT-1
-    Set-StoragePolicyForVM -StoragePolicyName "RAID-1 FTT-1" -VMName "MyVM"
+    Set-VMStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -VMName "MyVM"
 #>
-function Set-StoragePolicyForVM {
+function Set-VMStoragePolicy {
     [CmdletBinding(PositionalBinding = $false)]
     [AVSAttribute(10, UpdatesSDDC = $True)]
     Param
