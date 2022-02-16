@@ -12,7 +12,7 @@
     RootModule        = 'Microsoft.AVS.Management.psm1'
 
     # Version number of this module.
-    ModuleVersion     = '3.0.0'
+    ModuleVersion     = '4.0.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -76,7 +76,7 @@
     # NestedModules = @()
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-    FunctionsToExport = @("Set-AvsVMStoragePolicy", "Set-ClusterDefaultStoragePolicy", "Get-StoragePolicies", "New-AvsLDAPIdentitySource", "New-AvsLDAPSIdentitySource", "Update-IdentitySourceCertificates", "Get-ExternalIdentitySources", "Remove-ExternalIdentitySources", "Add-GroupToCloudAdmins", "Remove-GroupFromCloudAdmins", "Get-CloudAdminGroups")
+    FunctionsToExport = @("Set-VMStoragePolicy", "Set-LocationStoragePolicy", "Set-ClusterDefaultStoragePolicy", "Get-StoragePolicies", "New-LDAPIdentitySource", "New-LDAPSIdentitySource", "Update-IdentitySourceCertificates", "Get-ExternalIdentitySources", "Remove-ExternalIdentitySources", "Add-GroupToCloudAdmins", "Remove-GroupFromCloudAdmins", "Get-CloudAdminGroups")
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
     CmdletsToExport   = @()

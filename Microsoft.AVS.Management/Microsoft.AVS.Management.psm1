@@ -25,7 +25,7 @@ class AVSAttribute : Attribute {
 
 <# List of internal AVS management VMs that should not be touched by customer-facing scripts #>
 function Get-ProtectedVMs {
-    $ParentPool =  Get-ResourcePool -Name Resources | Where-Object {$_.ParentId -match 'ClusterComputeResource.+'}
+    $ParentPool = Get-ResourcePool -Name Resources | Where-Object {$_.ParentId -match 'ClusterComputeResource.+'}
     $MGMTPool = Get-ResourcePool -Name MGMT-ResourcePool | Where-Object {$_.Parent -in $ParentPool}
     $ProtectedVMs = $MGMTPool | Get-VM | Where-Object {$_.Name -match "^TNT.+"}
     return $ProtectedVMs
@@ -84,6 +84,26 @@ function Get-Certificates {
     return $DestinationFileArray
 }
 
+function Get-StoragePolicyInternal {
+    Param 
+    (
+        [Parameter(
+            Mandatory = $true)]
+        $StoragePolicyName
+    )
+    Write-Host "Getting Storage Policy $StoragePolicyName"
+    $VSANStoragePolicies = Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop
+    $StoragePolicy = Get-SpbmStoragePolicy $StoragePolicyName -ErrorAction Stop
+    if ($null -eq $StoragePolicy) {
+        Write-Error "Could not find Storage Policy with the name $StoragePolicyName." -ErrorAction Continue
+        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
+    } elseif (-not ($StoragePolicy -in $VSANStoragePolicies)) {
+        Write-Error "Storage policy $StoragePolicyName is not supported. Storage policies must be in the VSAN namespace" -ErrorAction Continue
+        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
+    }
+    return $StoragePolicy, $VSANStoragePolicies
+}
+
 function Set-StoragePolicyOnVM {
     Param
     (
@@ -115,7 +135,7 @@ function Set-StoragePolicyOnVM {
 
 <#
     .Synopsis
-     Not Recommended (use New-AvsLDAPSIdentitySource): Add a not secure external identity source (Active Directory over LDAP) for use with vCenter Single Sign-On.
+     Not Recommended (use New-LDAPSIdentitySource): Add a not secure external identity source (Active Directory over LDAP) for use with vCenter Single Sign-On.
 
     .Parameter Name
      The user-friendly name the external AD will be given in vCenter
@@ -146,9 +166,9 @@ function Set-StoragePolicyOnVM {
 
     .Example 
     # Add the domain server named "myserver.local" to vCenter
-    Add-AvsLDAPIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldap://10.40.0.5:389' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local'
+    Add-LDAPIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldap://10.40.0.5:389' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local'
 #>
-function New-AvsLDAPIdentitySource {
+function New-LDAPIdentitySource {
     [CmdletBinding(PositionalBinding = $false)]
     [AVSAttribute(10, UpdatesSDDC = $false)]
     Param
@@ -303,9 +323,9 @@ function New-AvsLDAPIdentitySource {
 
     .Example 
     # Add the domain server named "myserver.local" to vCenter
-    Add-AvsLDAPSIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local' -Username 'myserver@myserver.local' -Password 'PlaceholderPassword' -CertificatesSAS 'https://sharedaccessstring.path/accesskey' -Protocol LDAPS
+    Add-LDAPSIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local' -Username 'myserver@myserver.local' -Password 'PlaceholderPassword' -CertificatesSAS 'https://sharedaccessstring.path/accesskey' -Protocol LDAPS
 #>
-function New-AvsLDAPSIdentitySource {
+function New-LDAPSIdentitySource {
     [CmdletBinding(PositionalBinding = $false)]
     [AVSAttribute(10, UpdatesSDDC = $false)]
     Param
@@ -585,7 +605,7 @@ function Add-GroupToCloudAdmins {
 
     # Searching the external identities for the domain
     if ($null -eq $ExternalSources -or 0 -eq $ExternalSources.count) {
-        Write-Error "No external identity source found. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
+        Write-Error "No external identity source found. Please run New-LDAPSIdentitySource first" -ErrorAction Stop
     }
     elseif ($ExternalSources.count -eq 1) {
         if ($PSBoundParameters.ContainsKey('Domain')) {
@@ -724,7 +744,7 @@ function Remove-GroupFromCloudAdmins {
 
     # Searching the external identities for the domain
     if ($null -eq $ExternalSources -or 0 -eq $ExternalSources.count) {
-        Write-Error "No external identity source found. Please run New-AvsLDAPSIdentitySource first" -ErrorAction Stop
+        Write-Error "No external identity source found. Please run New-LDAPSIdentitySource first" -ErrorAction Stop
     }
     elseif ($ExternalSources.count -eq 1) {
         if ($PSBoundParameters.ContainsKey('Domain')) {
@@ -879,9 +899,9 @@ function Get-StoragePolicies {
 
     .Example 
     # Set the vSAN based storage policy on MyVM to RAID-1 FTT-1
-    Set-AvsVMStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -VMName "MyVM"
+    Set-VMStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -VMName "MyVM"
 #>
-function Set-AvsVMStoragePolicy {
+function Set-VMStoragePolicy {
     [CmdletBinding(PositionalBinding = $false)]
     [AVSAttribute(10, UpdatesSDDC = $True)]
     Param
@@ -900,17 +920,7 @@ function Set-AvsVMStoragePolicy {
         [string]
         $VMName
     )
-    Write-Host "Getting Storage Policy $StoragePolicyName"
-    $VSANStoragePolicies = Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop
-    $StoragePolicy = Get-SpbmStoragePolicy $StoragePolicyName -ErrorAction Stop
-    if ($null -eq $StoragePolicy) {
-        Write-Error "Could not find Storage Policy with the name $StoragePolicyName." -ErrorAction Continue
-        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
-    } elseif (-not ($StoragePolicy -in $VSANStoragePolicies)) {
-        Write-Error "Storage policy $StoragePolicyName is not supported. Storage policies must be in the VSAN namespace" -ErrorAction Continue
-        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
-    }
-
+    $StoragePolicy, $VSANStoragePolicies = Get-StoragePolicyInternal $StoragePolicyName -ErrorAction Stop
     $ProtectedVMs = Get-ProtectedVMs 
     $VMList = Get-VM $VMName
 
@@ -925,6 +935,58 @@ function Set-AvsVMStoragePolicy {
         $VMList = $VMList | Where-Object {-not ($_.Name -in $ProtectedVMs.Name)}
         if ($null -eq $VMList) {
             Write-Error "Modifying these VMs is not supported" -ErrorAction Stop
+        }
+        foreach ($VM in $VMList) {
+            Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Continue
+        }
+    }
+}
+
+<#
+    .Synopsis
+     Modify vSAN based storage policies on all VMs in a Container
+
+    .Parameter StoragePolicyName
+     Name of a vSAN based storage policy to set on the specified VM. Options can be seen in vCenter or using the Get-StoragePolicies command.
+
+    .Parameter Location
+     Name of the Folder, ResourcePool, or Cluster containing the VMs to set the storage policy on. 
+     For example, if you would like to change the storage policy of all the VMs in the cluster "Cluster-2", then supply "Cluster-2". 
+     Similarly, if you would like to change the storage policy of all the VMs in a folder called "MyFolder", supply "MyFolder"
+
+    .Example 
+    # Set the vSAN based storage policy on all VMs in MyVMs to RAID-1 FTT-1
+    Set-LocationStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -Location "MyVMs"
+#>
+function Set-LocationStoragePolicy {
+    [CmdletBinding(PositionalBinding = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $True)]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Name of the storage policy to set')]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $StoragePolicyName,
+  
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Name of the Folder, ResourcePool, or Cluster containing the VMs to set the storage policy on.')]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $Location
+    )
+    $StoragePolicy, $VSANStoragePolicies = Get-StoragePolicyInternal $StoragePolicyName -ErrorAction Stop
+    $ProtectedVMs = Get-ProtectedVMs 
+    $VMList = Get-VM -Location $Location
+
+    if ($null -eq $VMList) {
+        Write-Error "Was not able to set storage policies. Could not find VM(s) in the container: $Location" -ErrorAction Stop
+    } else {
+        $VMList = $VMList | Where-Object {-not ($_.Name -in $ProtectedVMs.Name)}
+        if ($null -eq $VMList) {
+            Write-Error "Modifying the VMs in this container is not supported" -ErrorAction Stop
         }
         foreach ($VM in $VMList) {
             Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Continue
@@ -966,19 +1028,7 @@ function Set-ClusterDefaultStoragePolicy {
         [string]
         $ClusterName
     )
-    Write-Host "Getting Storage Policy $StoragePolicyName"
-    $VSANStoragePolicies = Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop
-    $StoragePolicy = Get-SpbmStoragePolicy $StoragePolicyName -ErrorAction Stop
-    if ($null -eq $StoragePolicy) {
-        Write-Error "Could not find Storage Policy with the name $StoragePolicyName." -ErrorAction Continue
-        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
-    } elseif ($StoragePolicy.count -gt 1) {
-        Write-Error "Please select just one storage policy." -ErrorAction Stop
-    } elseif (-not ($StoragePolicy -in $VSANStoragePolicies)) {
-        Write-Error "Storage policy $StoragePolicyName is not supported. Storage policies must be in the VSAN namespace" -ErrorAction Continue
-        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
-    }
-    
+    $StoragePolicy, $VSANStoragePolicies = Get-StoragePolicyInternal $StoragePolicyName
     $CompatibleDatastores = Get-SpbmCompatibleStorage -StoragePolicy $StoragePolicy
     $ProtectedClusters = Get-ProtectedClusters  
     $ClusterList = Get-Cluster $ClusterName 
