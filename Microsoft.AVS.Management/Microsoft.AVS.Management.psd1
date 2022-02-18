@@ -52,7 +52,7 @@
 
     # Modules that must be imported into the global environment prior to importing this module
     RequiredModules   = @(
-        @{"ModuleName" = "VMware.vSphere.SsoAdmin"; "RequiredVersion" = "1.3.7" },
+        @{"ModuleName" = "VMware.vSphere.SsoAdmin"; "RequiredVersion" = "1.3.5" },
         @{"ModuleName" = "VMware.VimAutomation.Core"; "RequiredVersion" = "12.5.0.19093566" }
         @{"ModuleName" = "VMware.VimAutomation.Storage"; "RequiredVersion" = "12.5.0.19106817"}
         @{"ModuleName" = "posh-ssh"; "RequiredVersion" = "3.0.0"}
