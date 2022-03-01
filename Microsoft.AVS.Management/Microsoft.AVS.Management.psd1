@@ -30,7 +30,7 @@
     Copyright         = '(c) Microsoft. All rights reserved.'
 
     # Description of the functionality provided by this module
-    Description       = 'Various cmdlets for adminstrator level tasks in managing Azure VMWare Solutions'
+    Description       = 'Various cmdlets for adminstrator level tasks in managing Azure VMware Solutions'
 
     # Minimum version of the PowerShell engine required by this module
     # PowerShellVersion = ''
