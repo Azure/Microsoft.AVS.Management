@@ -97,7 +97,9 @@ On successful execution a script may assign `NamedOutputs` hashmap/dictionary to
 ```powershell
 $NamedOutputs = @{}
 $NamedOutputs['k1'] = 'v1'
-$NamedOutputs['k2'] = 2
+$NamedOutputs['k2'] = 2 # the value will be converted to string, convert it yourself if need to return complex types
+
+Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
 
 ```
 
