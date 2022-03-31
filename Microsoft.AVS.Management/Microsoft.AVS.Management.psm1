@@ -31,11 +31,6 @@ function Get-ProtectedVMs {
     return $ProtectedVMs
 }
 
-function Get-ProtectedClusters {
-    $ProtectedVMs = Get-ProtectedVMs
-    return $ProtectedVMs | Get-Cluster | Select-Object Name -Unique
-}
-
 <# List of internal AVS management networks that should not be touched by customer-facing scripts #>
 function Get-ProtectedNetworks {
     Get-VirtualNetwork | Where-Object {$_.Name -imatch "^((TNT.+?)|((HCX_|ESX_)?Mgmt)|(Replication)|(vMotion)|(vSAN))$"}
@@ -1030,7 +1025,6 @@ function Set-ClusterDefaultStoragePolicy {
     )
     $StoragePolicy, $VSANStoragePolicies = Get-StoragePolicyInternal $StoragePolicyName
     $CompatibleDatastores = Get-SpbmCompatibleStorage -StoragePolicy $StoragePolicy
-    $ProtectedClusters = Get-ProtectedClusters  
     $ClusterList = Get-Cluster $ClusterName 
     if ($null -eq $ClusterList) {
         Write-Error "Could not find Cluster with the name $ClusterName." -ErrorAction Stop
