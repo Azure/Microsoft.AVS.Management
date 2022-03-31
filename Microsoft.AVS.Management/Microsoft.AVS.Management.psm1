@@ -1028,11 +1028,8 @@ function Set-ClusterDefaultStoragePolicy {
     $ClusterList = Get-Cluster $ClusterName 
     if ($null -eq $ClusterList) {
         Write-Error "Could not find Cluster with the name $ClusterName." -ErrorAction Stop
-    } elseif (($ClusterList.count -eq 1) -and ($($ClusterList[0].Name) -in $($ProtectedClusters.Name))) {
-        Write-Error "Modifying $($ClusterList[0].Name) is not supported" -ErrorAction Stop
-    }  
-    # Ignore protected cluster if wild card was passed in
-    $ClusterList = $ClusterList | Where-Object {-not ($_.Name -in $($ProtectedClusters.Name))}
+    }
+
     $ClusterDatastores = $ClusterList | Get-VMHost | Get-Datastore
 
     if ($null -eq $ClusterDatastores) {
