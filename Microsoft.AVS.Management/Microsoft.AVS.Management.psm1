@@ -251,8 +251,8 @@ function New-LDAPIdentitySource {
             Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Stop
         }
         else {
-            Write-Warning "$($ExternalIdentitySources | Format-List | Out-String)"
-            Write-Warning "An Identity source already exists, but it's different. Continuing to add this one..."
+            Write-Information "$($ExternalIdentitySources | Format-List | Out-String)"
+            Write-Information "An identity source already exists, but not for this domain. Continuing to add this one..."
         }
     }
     else {
@@ -414,8 +414,8 @@ function New-LDAPSIdentitySource {
             Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Stop
         }
         else {
-            Write-Warning "$($ExternalIdentitySources | Format-List | Out-String)"
-            Write-Warning "An Identity source already exists, but it's different. Continuing to add this one..."
+            Write-Information "$($ExternalIdentitySources | Format-List | Out-String)"
+            Write-Information "An identity source already exists, but not for this domain. Continuing to add this one..."
         }
     }
     else {
