@@ -252,7 +252,7 @@ function New-LDAPIdentitySource {
         }
         else {
             Write-Warning "$($ExternalIdentitySources | Format-List | Out-String)"
-            Write-Warning "Identity source already exists, but has a different name. Continuing..."
+            Write-Warning "An Identity source already exists, but it's different. Continuing to add this one..."
         }
     }
     else {
@@ -415,7 +415,7 @@ function New-LDAPSIdentitySource {
         }
         else {
             Write-Warning "$($ExternalIdentitySources | Format-List | Out-String)"
-            Write-Warning "Identity source already exists, but has a different name. Continuing..."
+            Write-Warning "An Identity source already exists, but it's different. Continuing to add this one..."
         }
     }
     else {
@@ -423,7 +423,7 @@ function New-LDAPSIdentitySource {
     }
 
     $Password = $Credential.GetNetworkCredential().Password
-    $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl
+    $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl -ErrorAction Stop
     Write-Host "Adding the LDAPS Identity Source..."
     Add-LDAPIdentitySource `
         -Name $Name `
@@ -480,7 +480,7 @@ function Update-IdentitySourceCertificates {
     if ($null -ne $ExternalIdentitySources) {
         $IdentitySource = $ExternalIdentitySources | Where-Object {$_.Name -eq $DomainName}
         if ($null -ne $IdentitySource) {
-            $DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl
+            $DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl -ErrorAction Stop
             Write-Host "Updating the LDAPS Identity Source..."
             Set-LDAPIdentitySource -IdentitySource $IdentitySource -Certificates $DestinationFileArray -ErrorAction Stop
             $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
@@ -605,7 +605,7 @@ function Add-GroupToCloudAdmins {
     elseif ($ExternalSources.count -eq 1) {
         if ($PSBoundParameters.ContainsKey('Domain')) {
             if ($Domain -ne $ExternalSources.Name) {
-                Write-Error "The Domain passed in ($Domain) does not match the external directory: $($ExternalSources.Name)" -ErrorAction Stop
+                Write-Error "The Domain passed in ($Domain) does not match the external directory: $($ExternalSources.Name). Try again with -Domain $($ExternalSources.Name)" -ErrorAction Stop
             } 
         }
     }
