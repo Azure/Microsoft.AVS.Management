@@ -424,6 +424,15 @@ function New-LDAPSIdentitySource {
 
     $Password = $Credential.GetNetworkCredential().Password
     $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl -ErrorAction Stop
+    [System.Array]$Certificates = 
+        foreach($CertFile in $DestinationFileArray) {
+            try {
+                [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
+            } catch {
+                Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
+                throw "File to certificate conversion failed. See error message for more details"
+            }
+        }
     Write-Host "Adding the LDAPS Identity Source..."
     Add-LDAPIdentitySource `
         -Name $Name `
@@ -436,7 +445,7 @@ function New-LDAPSIdentitySource {
         -Username $Credential.UserName `
         -Password $Password `
         -ServerType 'ActiveDirectory' `
-        -Certificates $DestinationFileArray -ErrorAction Stop
+        -Certificates $Certificates -ErrorAction Stop
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     $ExternalIdentitySources | Format-List | Out-String
 
@@ -481,8 +490,17 @@ function Update-IdentitySourceCertificates {
         $IdentitySource = $ExternalIdentitySources | Where-Object {$_.Name -eq $DomainName}
         if ($null -ne $IdentitySource) {
             $DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl -ErrorAction Stop
+            [System.Array]$Certificates = 
+                foreach($CertFile in $DestinationFileArray) {
+                    try {
+                        [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
+                    } catch {
+                        Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
+                        throw "File to certificate conversion failed. See error message for more details"
+                    }
+                }
             Write-Host "Updating the LDAPS Identity Source..."
-            Set-LDAPIdentitySource -IdentitySource $IdentitySource -Certificates $DestinationFileArray -ErrorAction Stop
+            Set-LDAPIdentitySource -IdentitySource $IdentitySource -Certificates $Certificates -ErrorAction Stop
             $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
             $ExternalIdentitySources | Format-List | Out-String
         } else {
