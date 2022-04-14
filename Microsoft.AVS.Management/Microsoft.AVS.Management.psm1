@@ -251,8 +251,8 @@ function New-LDAPIdentitySource {
             Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Stop
         }
         else {
-            Write-Warning "$($ExternalIdentitySources | Format-List | Out-String)"
-            Write-Warning "Identity source already exists, but has a different name. Continuing..."
+            Write-Information "$($ExternalIdentitySources | Format-List | Out-String)"
+            Write-Information "An identity source already exists, but not for this domain. Continuing to add this one..."
         }
     }
     else {
@@ -414,8 +414,8 @@ function New-LDAPSIdentitySource {
             Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Stop
         }
         else {
-            Write-Warning "$($ExternalIdentitySources | Format-List | Out-String)"
-            Write-Warning "Identity source already exists, but has a different name. Continuing..."
+            Write-Information "$($ExternalIdentitySources | Format-List | Out-String)"
+            Write-Information "An identity source already exists, but not for this domain. Continuing to add this one..."
         }
     }
     else {
@@ -423,7 +423,16 @@ function New-LDAPSIdentitySource {
     }
 
     $Password = $Credential.GetNetworkCredential().Password
-    $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl
+    $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl -ErrorAction Stop
+    [System.Array]$Certificates = 
+        foreach($CertFile in $DestinationFileArray) {
+            try {
+                [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
+            } catch {
+                Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
+                throw "File to certificate conversion failed. See error message for more details"
+            }
+        }
     Write-Host "Adding the LDAPS Identity Source..."
     Add-LDAPIdentitySource `
         -Name $Name `
@@ -436,7 +445,7 @@ function New-LDAPSIdentitySource {
         -Username $Credential.UserName `
         -Password $Password `
         -ServerType 'ActiveDirectory' `
-        -Certificates $DestinationFileArray -ErrorAction Stop
+        -Certificates $Certificates -ErrorAction Stop
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     $ExternalIdentitySources | Format-List | Out-String
 
@@ -480,9 +489,18 @@ function Update-IdentitySourceCertificates {
     if ($null -ne $ExternalIdentitySources) {
         $IdentitySource = $ExternalIdentitySources | Where-Object {$_.Name -eq $DomainName}
         if ($null -ne $IdentitySource) {
-            $DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl
+            $DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl -ErrorAction Stop
+            [System.Array]$Certificates = 
+                foreach($CertFile in $DestinationFileArray) {
+                    try {
+                        [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
+                    } catch {
+                        Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
+                        throw "File to certificate conversion failed. See error message for more details"
+                    }
+                }
             Write-Host "Updating the LDAPS Identity Source..."
-            Set-LDAPIdentitySource -IdentitySource $IdentitySource -Certificates $DestinationFileArray -ErrorAction Stop
+            Set-LDAPIdentitySource -IdentitySource $IdentitySource -Certificates $Certificates -ErrorAction Stop
             $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
             $ExternalIdentitySources | Format-List | Out-String
         } else {
@@ -605,7 +623,7 @@ function Add-GroupToCloudAdmins {
     elseif ($ExternalSources.count -eq 1) {
         if ($PSBoundParameters.ContainsKey('Domain')) {
             if ($Domain -ne $ExternalSources.Name) {
-                Write-Error "The Domain passed in ($Domain) does not match the external directory: $($ExternalSources.Name)" -ErrorAction Stop
+                Write-Error "The Domain passed in ($Domain) does not match the external directory: $($ExternalSources.Name). Try again with -Domain $($ExternalSources.Name)" -ErrorAction Stop
             } 
         }
     }
