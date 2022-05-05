@@ -23,19 +23,6 @@ class AVSAttribute : Attribute {
 ========================================================================================================
 #>
 
-<# List of internal AVS management VMs that should not be touched by customer-facing scripts #>
-function Get-ProtectedVMs {
-    $ParentPool = Get-ResourcePool -Name Resources | Where-Object {$_.ParentId -match 'ClusterComputeResource.+'}
-    $MGMTPool = Get-ResourcePool -Name MGMT-ResourcePool | Where-Object {$_.Parent -in $ParentPool}
-    $ProtectedVMs = $MGMTPool | Get-VM | Where-Object {$_.Name -match "^TNT.+"}
-    return $ProtectedVMs
-}
-
-<# List of internal AVS management networks that should not be touched by customer-facing scripts #>
-function Get-ProtectedNetworks {
-    Get-VirtualNetwork | Where-Object {$_.Name -imatch "^((TNT.+?)|((HCX_|ESX_)?Mgmt)|(Replication)|(vMotion)|(vSAN))$"}
-}
-
 <# Download certificate from SAS token url #>
 function Get-Certificates {
     Param
@@ -934,21 +921,14 @@ function Set-VMStoragePolicy {
         $VMName
     )
     $StoragePolicy, $VSANStoragePolicies = Get-StoragePolicyInternal $StoragePolicyName -ErrorAction Stop
-    $ProtectedVMs = Get-ProtectedVMs 
     $VMList = Get-VM $VMName
 
     if ($null -eq $VMList) {
         Write-Error "Was not able to set the storage policy on the VM. Could not find VM(s) with the name: $VMName" -ErrorAction Stop
-    } elseif (($VMList.count -eq 1) -and ($VMList[0].Name -in $ProtectedVMs.Name)) {
-        Write-Error "Was not able to set the storage policy on the VM. Modifying $($VMList[0].Name) is not supported." -ErrorAction Stop
-    } elseif (($VMList.count -eq 1) -and (-not ($VMList[0].Name -in $ProtectedVMs.Name))) {
+    } elseif ($VMList.count -eq 1) {
         $VM = $VMList[0]
         Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Stop
     } else {
-        $VMList = $VMList | Where-Object {-not ($_.Name -in $ProtectedVMs.Name)}
-        if ($null -eq $VMList) {
-            Write-Error "Modifying these VMs is not supported" -ErrorAction Stop
-        }
         foreach ($VM in $VMList) {
             Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Continue
         }
@@ -990,17 +970,12 @@ function Set-LocationStoragePolicy {
         [string]
         $Location
     )
-    $StoragePolicy, $VSANStoragePolicies = Get-StoragePolicyInternal $StoragePolicyName -ErrorAction Stop
-    $ProtectedVMs = Get-ProtectedVMs 
+    $StoragePolicy, $VSANStoragePolicies = Get-StoragePolicyInternal $StoragePolicyName -ErrorAction 
     $VMList = Get-VM -Location $Location
 
     if ($null -eq $VMList) {
         Write-Error "Was not able to set storage policies. Could not find VM(s) in the container: $Location" -ErrorAction Stop
     } else {
-        $VMList = $VMList | Where-Object {-not ($_.Name -in $ProtectedVMs.Name)}
-        if ($null -eq $VMList) {
-            Write-Error "Modifying the VMs in this container is not supported" -ErrorAction Stop
-        }
         foreach ($VM in $VMList) {
             Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Continue
         }
