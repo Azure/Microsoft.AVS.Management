@@ -117,7 +117,7 @@ function Set-StoragePolicyOnVM {
 
 <#
     .Synopsis
-     Not Recommended (use New-LDAPSIdentitySource): Add a not secure external identity source (Active Directory over LDAP) for use with vCenter Single Sign-On.
+     Not Recommended (use New-LDAPSIdentitySource): Add a not secure external identity source (Active Directory over LDAP) for use with vCenter Server Single Sign-On.
 
     .Parameter Name
      The user-friendly name the external AD will be given in vCenter
@@ -271,7 +271,7 @@ function New-LDAPIdentitySource {
 
 <#
     .Synopsis
-     Recommended: Add a secure external identity source (Active Directory over LDAPS) for use with vCenter Single Sign-On.
+     Recommended: Add a secure external identity source (Active Directory over LDAPS) for use with vCenter Server Single Sign-On.
 
     .Parameter Name
      The user-friendly name the external AD will be given in vCenter
