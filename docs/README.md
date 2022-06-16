@@ -16,8 +16,6 @@ The 3rd Party script will not have access to administrator password.  Prior to e
 - The first login will be done with PowerCLI's [Connect-VIServer](https://developer.vmware.com/docs/powercli/latest/vmware.vimautomation.core/commands/connect-viserver/#Default) cmdlet.  
 - The second login will be done with VMware's [Connect-SsoAdminServer](https://github.com/vmware/PowerCLI-Example-Scripts/tree/master/Modules/VMware.vSphere.SsoAdmin).
 
-> <b>IMPORTANT:</b> When publishing the package, please ensure [Microsoft.AVS.Management](https://www.powershellgallery.com/packages/Microsoft.AVS.Management) is a listed [dependency](https://docs.microsoft.com/en-us/nuget/reference/nuspec#dependencies) of the package.
-> Please add any additional dependencies as required.
 
 ## Environment
 
@@ -49,9 +47,6 @@ AVS will review the scripts and attempt to run them.  Where necessary it is expe
 
 These guidelines are expected to help scripts be more robust and supportable.  The guidelines are also to help avoid negative impact to the AVS customer's Private Cloud.
 
-## Never touch internal AVS management resources
-Not the installation/management scripts nor a vCenter appliance/plugin once installed must make the AVS management resource available to the user - networks, VMs, resource pools, etc that are provisioned to facilitate AVS own operations must not be accessible to the user.
-
 ## Never login with cloudadmins through script
 
 A Module should not attempt to login to vCenter with the AVS provided `cloudadmins` or any other role. Scripts that use `Connect-VIServer` or `Connect-SsoAdminServer` will not be allowed to run against an AVS Private Cloud.
@@ -62,7 +57,10 @@ A Module should not attempt to elevate privileges for the AVS provided `cloudadm
 
 ## Never use cloudadmin as the user for any installed software
 
-If necessary, use the installation script to create a separate vCenter user and role to give it.  Recommendation is to use the `cloudadmins` role as a base by duplicating it, then add necessary elevated privileges to the new role.  The privileges required for the new role will need to be reviewed by Microsoft.
+If necessary, use the installation script to create a separate vCenter user and role to give it.  Recommendation is to use the `cloudadmins` role as a base by duplicating it, then add necessary elevated privileges to the new role.  The privileges required for the new role will need to be reviewed by Microsoft. 
+> Always add the created account to `CloudAdmins` SSO group.
+> Provide a commandlet to rotate the service account password.
+> Do not expose the credentials in any way, use `PersistentSecrets` if access to the password may be required later.
 
 ## Top-level functionality should be exposed as functions with [CmdletBinding](https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_functions_cmdletbindingattribute?view=powershell-7.1) taking all the inputs as the named parameters.
 
@@ -112,10 +110,11 @@ Spawning child processes is not supported at this time and must be avoided. Plea
 
 ## Scripts should be packaged as a module and published as a nuget package.
 
-Private AVS package repository will be used to install the modules.
-For the purpose of testing and review consider publishing to [PowerShell Gallery](https://www.powershellgallery.com/), alternatively the package can be made available to us privately.
+Private AVS package repository will be used to install the modules. For the purpose of testing and review publish the package to [PowerShell Gallery](https://www.powershellgallery.com/).
 
 > <b>IMPORTANT</b>: Vendors must test their package using a Linux [PowerShell container](https://hub.docker.com/_/microsoft-powershell), connecting to their on-prem datacenter.
+> <b>IMPORTANT:</b> When publishing the package, please ensure latest version of [Microsoft.AVS.Management](https://www.powershellgallery.com/packages/Microsoft.AVS.Management) is a listed [dependency](https://docs.microsoft.com/en-us/nuget/reference/nuspec#dependencies) of the package.
+> Please add any other additional dependencies as required.
 
 ## Versioning and Module manifest
 AVS scripting modules are expected to follow [semver guidelines](https://semver.org/) when publishing a new version. Adhering to the guidelines will ensure that any automation built around the ARM resources representing the commandlets will keep working while benefiting from the patch fixes.
@@ -134,6 +133,7 @@ It is strongly recommended that the package includes the commandlets to manage a
 | install | This script should call the pre-flight script and only continue if there are no errors in pre-flight.  The script should be able to skip install steps already completed.  Possibly from a previous install attempt.|
 | preflight-upgrade | Customer should be able to run this script prior to upgrade.  It should report on any current state that the install script will depend on.  If there are no errors it should be safe to upgrade.|
 | upgrade | This script should call the pre-flight script and only continue if there are no errors in pre-flight.  The script should be able to skip upgrade steps already completed.|
+| rotate-credentials | If a service account was created during installation this commandlet should generate new password for the account.|
 | preflight-uninstall | It should report on current state that the uninstall script will be working on.|
 | uninstall | This script should be able to skip uninstall steps that were already completed. |
 | diagnostics | This customer should be able to run this to get the most verbose state of the system. The intent is to have a tool to aid troubleshooting if install and/or uninstall do not run successfully|
@@ -141,13 +141,6 @@ It is strongly recommended that the package includes the commandlets to manage a
 ## Scripts should be able to check if a step was already done and skip to next step
 
 Things can go wrong and an initial installation attempt may partially complete before failure.   In the interest of reducing operational support, the script should be smart enough to know what state the previous attempt is in and be able to either redo the steps leading up to it or skip past them if it can.
-
-## Private AVS resources
-Certain datacenter resources currently accessible in the scripting context are private AVS management objects and should not be made available to the user. Currently we provide following functions the script should use to filter out such resources:
-- `Get-ProtectedVMs` list internal AVS VMs.
-- `Get-ProtectedNetworks` list internal AVS networks.
-
-In the future AVS will make the internal resources inaccessible to the scripts, in the meantime the author must use these functions to filter them out as part of inputs validation.
 
 ## Uninstall script requirements
 
