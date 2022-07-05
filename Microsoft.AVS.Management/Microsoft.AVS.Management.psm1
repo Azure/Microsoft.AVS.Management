@@ -38,10 +38,10 @@ function Get-Certificates {
     [string[]] $CertificatesSASList = $CertificatesSASPlainString.Split(",", $options)
     Write-Host "Number of Certs passed $($CertificatesSASList.count)"
     if ($CertificatesSASList.count -eq 0) {
-        Write-Error "If adding an LDAPS identity source, please ensure you pass in at least one certificate" -ErrorAction Stop
+        throw "If adding an LDAPS identity source, please ensure you pass in at least one certificate"
     }
     if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and $CertificatesSASList.count -lt 2) {
-        Write-Error "If passing in a secondary/fallback URL, ensure that at least two certificates are passed." -ErrorAction Stop
+        throw "If passing in a secondary/fallback URL, ensure that at least two certificates are passed."
     }
     $DestinationFileArray = @()
     $Index = 1
@@ -49,7 +49,6 @@ function Get-Certificates {
         Write-Host "Downloading Cert $Index..."
         $CertDir = $pwd.Path
         $CertLocation = "$CertDir/cert$Index.cer"
-        $Index = $Index + 1
         try {
             $Response = Invoke-WebRequest -Uri $CertSas -OutFile $CertLocation
             $StatusCode = $Response.StatusCode
@@ -57,10 +56,9 @@ function Get-Certificates {
             $DestinationFileArray += $CertLocation
         }
         catch {
-            Write-Error "Ensure the SAS string is still valid" -ErrorAction Continue
-            Write-Error $PSItem.Exception.Message -ErrorAction Continue
-            Write-Error "Failed to download certificate ($Index-1)" -ErrorAction Stop
+            throw "Failed to download certificate #$($Index): $($PSItem.Exception.Message). Ensure the SAS string is still valid"
         }
+        $Index = $Index + 1
     }
     Write-Host "Number of certificates downloaded: $($DestinationFileArray.count)"
     return $DestinationFileArray
