@@ -968,7 +968,7 @@ function Set-LocationStoragePolicy {
         [string]
         $Location
     )
-    $StoragePolicy, $VSANStoragePolicies = Get-StoragePolicyInternal $StoragePolicyName -ErrorAction 
+    $StoragePolicy, $VSANStoragePolicies = Get-StoragePolicyInternal $StoragePolicyName -ErrorAction Stop
     $VMList = Get-VM -Location $Location
 
     if ($null -eq $VMList) {
