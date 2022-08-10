@@ -686,7 +686,8 @@ function Add-GroupToCloudAdmins {
     $CloudAdminMembers = @()
     foreach ($a in $(Get-SsoGroup -Group $CloudAdmins)) { $tuple = [System.Tuple]::Create(“$($a.Name)”,”$($a.Domain)”); $CloudAdminMembers += $tuple }
     if ($GroupToAddTuple -in $CloudAdminMembers) {
-        Write-Error "Group $($GroupToAddTuple.Item1)@$($($GroupToAddTuple.Item2)) has already been added to CloudAdmins." -ErrorAction Stop
+        Write-Host "Group $($GroupToAddTuple.Item1)@$($($GroupToAddTuple.Item2)) has already been added to CloudAdmins."
+        return
     }
 
     try {
