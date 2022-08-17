@@ -20,7 +20,7 @@ function upload-package ([string]$name, [string]$version, [string]$feed, [string
         if($? -eq $false) { throw "Unable to publish the package." } 
         else { Write-Output "Successfully published the dependency of $name@$version" }
     } else { Write-Output "$name@$version already in the feed"}
-}
+
 
 Write-Output "----START: findAndPublishDependencies-----"
 $requiredModules = (Test-ModuleManifest "$absolutePathToManifest" -ErrorAction SilentlyContinue).RequiredModules
