@@ -175,6 +175,14 @@ stages:
       displayName: Publish Signed Files To Artifact Directory
       artifact: '${{ variables.moduleFolderName }}'
     - task: PowerShell@2
+      displayName: Publish version dependencies to Official feed
+      env: 
+        UNOFFICIAL_FEED_NUGET_APIKEY: $(unofficialFeedNugetApiKey)
+      inputs:
+        filePath: '.build-tools/findAndPublishDependencies.ps1'
+        arguments: '$(Build.ArtifactStagingDirectory)/${{ variables.stageForUnsignedFolder }}/${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
+        pwsh: true
+    - task: PowerShell@2
       displayName: Publish Preview Version to Official Feed
       env:
         UNOFFICIAL_FEED_NUGET_APIKEY: $(unofficialFeedNugetApiKey)
