@@ -44,6 +44,7 @@ $feedParameters = @{
 # }
 
 Write-Output "----Registering PSRepository ----"
+Unregister-PSRepository -Name $feedParameters.Name -ErrorAction SilentlyContinue
 Register-PSRepository @feedParameters
 if (!$?) {
     Write-Error -Message "----ERROR: Unable to register repository----"
