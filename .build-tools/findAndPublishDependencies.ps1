@@ -5,7 +5,8 @@ param (
 )
 
 function upload-package ([string]$name, [string]$version, [string]$feed, [string]$key) {
-    Install-Module -Name $name -RequiredVersion $version -Repository PSGallery
+    Write-Output "upload package $name@$version"
+    # Install-Module -Name $name -RequiredVersion $version -Repository PSGallery
     Import-Module -Name $name -RequiredVersion $version
     $m = Get-Module -Name $name 
     if($null -eq $m) { throw "Was not able to find the dependency $name" }
@@ -18,8 +19,7 @@ function upload-package ([string]$name, [string]$version, [string]$feed, [string
         Publish-Module -Name $m.Name -RequiredVersion $version -NuGetApiKey $key -Repository $feed
         if($? -eq $false) { throw "Unable to publish the package." } 
         else { Write-Output "Successfully published the dependency of $name@$version" }
-    } else { Write-Information "$name@$version already in the feed"}
-
+    } else { Write-Output "$name@$version already in the feed"}
 }
 
 Write-Output "----START: findAndPublishDependencies-----"
@@ -44,6 +44,7 @@ $feedParameters = @{
 }
 
 Write-Output "----Registering PSRepository ----"
+Unregister-PSRepository -Name $feedParameters.Name -ErrorAction SilentlyContinue
 Register-PSRepository @feedParameters
 if (!$?) {
     Write-Error -Message "----ERROR: Unable to register repository----"
