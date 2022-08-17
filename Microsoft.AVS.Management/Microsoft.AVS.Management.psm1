@@ -682,6 +682,14 @@ function Add-GroupToCloudAdmins {
         Write-Error "Internal Error fetching CloudAdmins group. Contact support" -ErrorAction Stop
     }
 
+    $GroupToAddTuple = [System.Tuple]::Create(“$($GroupToAdd.Name)”,”$($GroupToAdd.Domain)”)
+    $CloudAdminMembers = @()
+    foreach ($a in $(Get-SsoGroup -Group $CloudAdmins)) { $tuple = [System.Tuple]::Create(“$($a.Name)”,”$($a.Domain)”); $CloudAdminMembers += $tuple }
+    if ($GroupToAddTuple -in $CloudAdminMembers) {
+        Write-Host "Group $($GroupToAddTuple.Item1)@$($($GroupToAddTuple.Item2)) has already been added to CloudAdmins."
+        return
+    }
+
     try {
         Write-Host "Adding group $GroupName to CloudAdmins..."
         Add-GroupToSsoGroup -Group $GroupToAdd -TargetGroup $CloudAdmins -ErrorAction Stop
@@ -689,7 +697,7 @@ function Add-GroupToCloudAdmins {
     catch {
         $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
         Write-Warning "Cloud Admin Members: $CloudAdminMembers" -ErrorAction Continue
-        Write-Error "Unable to add group to CloudAdmins. It may already have been added. Error: $($PSItem.Exception.Message)" -ErrorAction Stop
+        Write-Error "Unable to add group to CloudAdmins. Error: $($PSItem.Exception.Message)" -ErrorAction Stop
     }
    
     Write-Host "Successfully added $GroupName to CloudAdmins."
