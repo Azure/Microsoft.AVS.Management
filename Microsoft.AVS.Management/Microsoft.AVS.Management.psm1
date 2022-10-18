@@ -531,18 +531,6 @@ function Update-IdentitySourceCredentialPassword {
     if ($null -ne $ExternalIdentitySources) {
         $IdentitySource = $ExternalIdentitySources | Where-Object {$_.Name -eq $DomainName}
         if ($null -ne $IdentitySource) {
-            <#$DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl -ErrorAction Stop
-            [System.Array]$Certificates =
-            foreach($CertFile in $DestinationFileArray) {
-                try {
-                    [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
-                } catch {
-                    Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
-                    throw "File to certificate conversion failed. See error message for more details"
-                }
-            }
-            
-             #>
             Write-Host "Updating the LDAPS Identity Source..."
             Set-LDAPIdentitySource -IdentitySource $IdentitySource -Credential $Credential -ErrorAction Stop
             $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
@@ -741,9 +729,9 @@ function Add-GroupToCloudAdmins {
         Write-Error "Internal Error fetching CloudAdmins group. Contact support" -ErrorAction Stop
     }
 
-    $GroupToAddTuple = [System.Tuple]::Create(“$($GroupToAdd.Name)”,”$($GroupToAdd.Domain)”)
+    $GroupToAddTuple = [System.Tuple]::Create("$($GroupToAdd.Name)","$($GroupToAdd.Domain)")
     $CloudAdminMembers = @()
-    foreach ($a in $(Get-SsoGroup -Group $CloudAdmins)) { $tuple = [System.Tuple]::Create(“$($a.Name)”,”$($a.Domain)”); $CloudAdminMembers += $tuple }
+    foreach ($a in $(Get-SsoGroup -Group $CloudAdmins)) { $tuple = [System.Tuple]::Create("$($a.Name)","$($a.Domain)"); $CloudAdminMembers += $tuple }
     if ($GroupToAddTuple -in $CloudAdminMembers) {
         Write-Host "Group $($GroupToAddTuple.Item1)@$($($GroupToAddTuple.Item2)) has already been added to CloudAdmins."
         return
