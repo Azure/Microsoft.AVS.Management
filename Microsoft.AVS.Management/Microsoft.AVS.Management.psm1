@@ -28,7 +28,7 @@ function Get-Certificates {
     Param
     (
         [Parameter(
-            Mandatory = $true)]
+                Mandatory = $true)]
         [System.Security.SecureString]
         $SSLCertificatesSasUrl
     )
@@ -65,10 +65,10 @@ function Get-Certificates {
 }
 
 function Get-StoragePolicyInternal {
-    Param 
+    Param
     (
         [Parameter(
-            Mandatory = $true)]
+                Mandatory = $true)]
         $StoragePolicyName
     )
     Write-Host "Getting Storage Policy $StoragePolicyName"
@@ -88,13 +88,13 @@ function Set-StoragePolicyOnVM {
     Param
     (
         [Parameter(
-            Mandatory = $true)]
+                Mandatory = $true)]
         $VM,
         [Parameter(
-            Mandatory = $true)]
+                Mandatory = $true)]
         $VSANStoragePolicies,
         [Parameter(
-            Mandatory = $true)]
+                Mandatory = $true)]
         $StoragePolicy
     )
     if (-not $(Get-SpbmEntityConfiguration $VM).StoragePolicy -in $VSANStoragePolicies) {
@@ -154,63 +154,63 @@ function New-LDAPIdentitySource {
     Param
     (
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'User-Friendly name to store in vCenter')]
+                Mandatory = $true,
+                HelpMessage = 'User-Friendly name to store in vCenter')]
         [ValidateNotNull()]
         [string]
         $Name,
 
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Full DomainName: adserver.local')]
+                Mandatory = $true,
+                HelpMessage = 'Full DomainName: adserver.local')]
         [ValidateNotNull()]
         [string]
         $DomainName,
 
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'DomainAlias: adserver')]
+                Mandatory = $true,
+                HelpMessage = 'DomainAlias: adserver')]
         [string]
         $DomainAlias,
 
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
+                Mandatory = $true,
+                HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
         [ValidateNotNullOrEmpty()]
         [string]
         $PrimaryUrl,
 
         [Parameter(
-            Mandatory = $false,
-            HelpMessage = 'Optional: URL of a backup server')]
+                Mandatory = $false,
+                HelpMessage = 'Optional: URL of a backup server')]
         [string]
         $SecondaryUrl,
 
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
+                Mandatory = $true,
+                HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
         [ValidateNotNull()]
         [string]
         $BaseDNUsers,
 
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
+                Mandatory = $true,
+                HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
         [ValidateNotNull()]
         [string]
         $BaseDNGroups,
 
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = "Credential for the LDAP server")]
+                Mandatory = $true,
+                HelpMessage = "Credential for the LDAP server")]
         [ValidateNotNull()]
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
         $Credential,
 
         [Parameter (
-            Mandatory = $false,
-            HelpMessage = 'A group in the external identity source to give CloudAdmins access')]
+                Mandatory = $false,
+                HelpMessage = 'A group in the external identity source to give CloudAdmins access')]
         [string]
         $GroupName
     )
@@ -311,71 +311,71 @@ function New-LDAPSIdentitySource {
     Param
     (
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'User-Friendly name to store in vCenter')]
+                Mandatory = $true,
+                HelpMessage = 'User-Friendly name to store in vCenter')]
         [ValidateNotNull()]
         [string]
         $Name,
-  
+
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Full DomainName: adserver.local')]
+                Mandatory = $true,
+                HelpMessage = 'Full DomainName: adserver.local')]
         [ValidateNotNull()]
         [string]
         $DomainName,
-  
+
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'DomainAlias: adserver')]
+                Mandatory = $true,
+                HelpMessage = 'DomainAlias: adserver')]
         [string]
         $DomainAlias,
-  
+
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
+                Mandatory = $true,
+                HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
         [ValidateNotNullOrEmpty()]
         [string]
         $PrimaryUrl,
-  
+
         [Parameter(
-            Mandatory = $false,
-            HelpMessage = 'Optional: URL of a backup server')]
+                Mandatory = $false,
+                HelpMessage = 'Optional: URL of a backup server')]
         [string]
         $SecondaryUrl,
-  
+
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
+                Mandatory = $true,
+                HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
         [ValidateNotNull()]
         [string]
         $BaseDNUsers,
-  
+
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
+                Mandatory = $true,
+                HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
         [ValidateNotNull()]
         [string]
         $BaseDNGroups,
-  
+
         [Parameter(Mandatory = $true,
-            HelpMessage = "Credential for the LDAP server")]
+                HelpMessage = "Credential for the LDAP server")]
         [ValidateNotNull()]
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
         $Credential,
-  
+
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
+                Mandatory = $true,
+                HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
         [System.Security.SecureString]
         $SSLCertificatesSasUrl,
 
         [Parameter (
-            Mandatory = $false,
-            HelpMessage = 'A group in the external identity source to give CloudAdmins access')]
+                Mandatory = $false,
+                HelpMessage = 'A group in the external identity source to give CloudAdmins access')]
         [string]
         $GroupName
-        
+
     )
     if (-not ($PrimaryUrl -match '^(ldaps:).+((:389)|(:636)|(:3268)|(:3269))$')) {
         Write-Error "PrimaryUrl $PrimaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps: and not ldap:" -ErrorAction Stop
@@ -389,7 +389,7 @@ function New-LDAPSIdentitySource {
     if (($SecondaryUrl -match '^(ldaps:).+((:389)|(:3268))$')) {
         Write-Warning "SecondaryUrl $SecondaryUrl is nonstandard. Are you sure you meant to use the 389/3268 port and not the standard ports for LDAPS, 636 or 3269? Continuing anyway.."
     }
-    
+
 
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     if ($null -ne $ExternalIdentitySources) {
@@ -409,15 +409,15 @@ function New-LDAPSIdentitySource {
 
     $Password = $Credential.GetNetworkCredential().Password
     $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl -ErrorAction Stop
-    [System.Array]$Certificates = 
-        foreach($CertFile in $DestinationFileArray) {
-            try {
-                [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
-            } catch {
-                Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
-                throw "File to certificate conversion failed. See error message for more details"
-            }
+    [System.Array]$Certificates =
+    foreach($CertFile in $DestinationFileArray) {
+        try {
+            [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
+        } catch {
+            Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
+            throw "File to certificate conversion failed. See error message for more details"
         }
+    }
     Write-Host "Adding the LDAPS Identity Source..."
     Add-LDAPIdentitySource `
         -Name $Name `
@@ -457,35 +457,94 @@ function Update-IdentitySourceCertificates {
     Param
     (
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Name of the Identity source')]
+                Mandatory = $true,
+                HelpMessage = 'Name of the Identity source')]
         [ValidateNotNull()]
         [string]
         $DomainName,
-  
+
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
+                Mandatory = $true,
+                HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
         [System.Security.SecureString]
         $SSLCertificatesSasUrl
     )
-    
+
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Stop
     if ($null -ne $ExternalIdentitySources) {
         $IdentitySource = $ExternalIdentitySources | Where-Object {$_.Name -eq $DomainName}
         if ($null -ne $IdentitySource) {
             $DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl -ErrorAction Stop
-            [System.Array]$Certificates = 
-                foreach($CertFile in $DestinationFileArray) {
-                    try {
-                        [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
-                    } catch {
-                        Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
-                        throw "File to certificate conversion failed. See error message for more details"
-                    }
+            [System.Array]$Certificates =
+            foreach($CertFile in $DestinationFileArray) {
+                try {
+                    [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
+                } catch {
+                    Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
+                    throw "File to certificate conversion failed. See error message for more details"
                 }
+            }
             Write-Host "Updating the LDAPS Identity Source..."
             Set-LDAPIdentitySource -IdentitySource $IdentitySource -Certificates $Certificates -ErrorAction Stop
+            $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
+            $ExternalIdentitySources | Format-List | Out-String
+        } else {
+            Write-Error "Could not find Identity Source with name: $DomainName." -ErrorAction Stop
+        }
+    }
+    else {
+        Write-Host "No existing external identity sources found."
+    }
+}
+
+<#
+    .Synopsis
+     Update the password used in the credential for authenticating to an Active Directory over LDAPS
+
+    .Parameter Credential 
+     Credential to login to the LDAP server (NOT cloudadmin) in the form of a username/password credential. Usernames often look like prodAdmins@domainname.com or if the AD is a Microsoft Active Directory server, usernames may need to be prefixed with the NetBIOS domain name, such as prod\AD_Admin
+
+    .Parameter DomainName
+     Domain name of the external active directory, e.g. myactivedirectory.local
+#>
+function Update-IdentitySourceCredentialPassword {
+    [CmdletBinding(PositionalBinding = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param
+    (
+        [Parameter(
+                Mandatory = $true,
+                HelpMessage = 'Name of the Identity source')]
+        [ValidateNotNull()]
+        [string]
+        $DomainName,
+
+        [Parameter(Mandatory = $true,
+                HelpMessage = "Credential for the LDAP server")]
+        [ValidateNotNull()]
+        [System.Management.Automation.PSCredential]
+        [System.Management.Automation.Credential()]
+        $Credential
+    )
+
+    $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Stop
+    if ($null -ne $ExternalIdentitySources) {
+        $IdentitySource = $ExternalIdentitySources | Where-Object {$_.Name -eq $DomainName}
+        if ($null -ne $IdentitySource) {
+            <#$DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl -ErrorAction Stop
+            [System.Array]$Certificates =
+            foreach($CertFile in $DestinationFileArray) {
+                try {
+                    [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
+                } catch {
+                    Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
+                    throw "File to certificate conversion failed. See error message for more details"
+                }
+            }
+            
+             #>
+            Write-Host "Updating the LDAPS Identity Source..."
+            Set-LDAPIdentitySource -IdentitySource $IdentitySource -Credential $Credential -ErrorAction Stop
             $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
             $ExternalIdentitySources | Format-List | Out-String
         } else {
@@ -512,7 +571,7 @@ function Get-ExternalIdentitySources {
     }
     else {
         Write-Output "LDAPs Certificate(s) valid until the [Not After] parameter"
-        $ExternalSource | Format-List | Out-String 
+        $ExternalSource | Format-List | Out-String
     }
 }
 
@@ -578,8 +637,8 @@ function Add-GroupToCloudAdmins {
     Param
     (
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Name of the group to add to CloudAdmin')]
+                Mandatory = $true,
+                HelpMessage = 'Name of the group to add to CloudAdmin')]
         [ValidateNotNull()]
         [string]
         $GroupName,
@@ -609,7 +668,7 @@ function Add-GroupToCloudAdmins {
         if ($PSBoundParameters.ContainsKey('Domain')) {
             if ($Domain -ne $ExternalSources.Name) {
                 Write-Error "The Domain passed in ($Domain) does not match the external directory: $($ExternalSources.Name). Try again with -Domain $($ExternalSources.Name)" -ErrorAction Stop
-            } 
+            }
         }
     }
     elseif ($ExternalSources.count -gt 1) {
@@ -630,24 +689,24 @@ function Add-GroupToCloudAdmins {
             }
         }
     }
-    
+
     # Searching for the group in the specified domain, if provided, or all domains, if none provided
     if ($null -eq $Domain -or -Not ($PSBoundParameters.ContainsKey('Domain'))) {
         $FoundMatch = $false
         foreach ($AD in $ExternalSources) {
             Write-Host "Searching $($AD.Name) for $GroupName"
             try {
-                $GroupFound = Get-SsoGroup -Name $GroupName -Domain $AD.Name -ErrorAction Stop 
+                $GroupFound = Get-SsoGroup -Name $GroupName -Domain $AD.Name -ErrorAction Stop
             } catch {
                 Write-Host "Could not find $GroupName in $($AD.Name). Continuing.."
             }
-            if ($null -ne $GroupFound -and -Not $FoundMatch) { 
-                Write-Host "Found $GroupName in $($AD.Name)." 
+            if ($null -ne $GroupFound -and -Not $FoundMatch) {
+                Write-Host "Found $GroupName in $($AD.Name)."
                 $Domain = $AD.Name
                 $GroupToAdd = $GroupFound
                 $FoundMatch = $true
             }
-            elseif ($null -ne $GroupFound -and $FoundMatch) { 
+            elseif ($null -ne $GroupFound -and $FoundMatch) {
                 Write-Host "Found $GroupName in $($AD.Name) as well."
                 Write-Error "Group $GroupName exists in multiple domains . Please re-run and specify domain" -ErrorAction Stop
                 return
@@ -663,7 +722,7 @@ function Add-GroupToCloudAdmins {
     else {
         try {
             Write-Host "Searching $Domain for $GroupName..."
-            $GroupToAdd = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop 
+            $GroupToAdd = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop
         }
         catch {
             Write-Error "Exception $($PSItem.Exception.Message): Unable to get group $GroupName from $Domain" -ErrorAction Stop
@@ -699,7 +758,7 @@ function Add-GroupToCloudAdmins {
         Write-Warning "Cloud Admin Members: $CloudAdminMembers" -ErrorAction Continue
         Write-Error "Unable to add group to CloudAdmins. Error: $($PSItem.Exception.Message)" -ErrorAction Stop
     }
-   
+
     Write-Host "Successfully added $GroupName to CloudAdmins."
     $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
     Write-Output "Cloud Admin Members: $CloudAdminMembers"
@@ -725,8 +784,8 @@ function Remove-GroupFromCloudAdmins {
     Param
     (
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Name of the group to remove from CloudAdmin')]
+                Mandatory = $true,
+                HelpMessage = 'Name of the group to remove from CloudAdmin')]
         [ValidateNotNull()]
         [string]
         $GroupName,
@@ -756,7 +815,7 @@ function Remove-GroupFromCloudAdmins {
         if ($PSBoundParameters.ContainsKey('Domain')) {
             if ($Domain -ne $ExternalSources.Name) {
                 Write-Error "The Domain passed in ($Domain) does not match the external directory: $($ExternalSources.Name)" -ErrorAction Stop
-            } 
+            }
         }
     }
     elseif ($ExternalSources.count -gt 1) {
@@ -777,24 +836,24 @@ function Remove-GroupFromCloudAdmins {
             }
         }
     }
-    
+
     # Searching for the group in the specified domain, if provided, or all domains, if none provided
     if ($null -eq $Domain -or -Not ($PSBoundParameters.ContainsKey('Domain'))) {
         $FoundMatch = $false
         foreach ($AD in $ExternalSources) {
             Write-Host "Searching $($AD.Name) for $GroupName"
             try {
-                $GroupFound = Get-SsoGroup -Name $GroupName -Domain $AD.Name -ErrorAction Stop 
+                $GroupFound = Get-SsoGroup -Name $GroupName -Domain $AD.Name -ErrorAction Stop
             } catch {
                 Write-Host "Could not find $GroupName in $($AD.Name). Continuing.."
             }
-            if ($null -ne $GroupFound -and -Not $FoundMatch) { 
-                Write-Host "Found $GroupName in $($AD.Name)." 
+            if ($null -ne $GroupFound -and -Not $FoundMatch) {
+                Write-Host "Found $GroupName in $($AD.Name)."
                 $Domain = $AD.Name
                 $GroupToRemove = $GroupFound
                 $FoundMatch = $true
             }
-            elseif ($null -ne $GroupFound -and $FoundMatch) { 
+            elseif ($null -ne $GroupFound -and $FoundMatch) {
                 Write-Host "Found $GroupName in $($AD.Name) as well."
                 Write-Error "Group $GroupName exists in multiple domains . Please re-run and specify domain" -ErrorAction Stop
                 return
@@ -810,7 +869,7 @@ function Remove-GroupFromCloudAdmins {
     else {
         try {
             Write-Host "Searching $Domain for $GroupName..."
-            $GroupToRemove = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop 
+            $GroupToRemove = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop
         }
         catch {
             Write-Error "Exception $($PSItem.Exception.Message): Unable to get group $GroupName from $Domain" -ErrorAction Stop
@@ -837,7 +896,7 @@ function Remove-GroupFromCloudAdmins {
         Write-Error "Current Cloud Admin Members: $CloudAdminMembers" -ErrorAction Continue
         Write-Error "Unable to remove group from CloudAdmins. Is it there at all? Error: $($PSItem.Exception.Message)" -ErrorAction Stop
     }
-    
+
     Write-Information "Group $GroupName successfully removed from CloudAdmins."
     $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
     Write-Output "Current Cloud Admin Members: $CloudAdminMembers"
@@ -860,7 +919,7 @@ function Get-CloudAdminGroups {
         Write-Error "Internal Error fetching CloudAdmins group. Contact support" -ErrorAction Stop
     }
 
-    $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Stop 
+    $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Stop
     if ($null -eq $CloudAdminMembers) {
         Write-Output "No groups yet added to CloudAdmin."
     } else {
@@ -875,7 +934,7 @@ function Get-CloudAdminGroups {
 function Get-StoragePolicies {
     [AVSAttribute(3, UpdatesSDDC = $False)]
     Param()
-    
+
     $StoragePolicies
     try {
         $StoragePolicies = Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop | Select-Object Name, AnyOfRuleSets
@@ -885,14 +944,14 @@ function Get-StoragePolicies {
         Write-Error "Unable to get storage policies" -ErrorAction Stop
     }
     if ($null -eq $StoragePolicies) {
-        Write-Host "Could not find any storage policies." 
+        Write-Host "Could not find any storage policies."
     }
     else {
         Write-Output "Available Storage Policies:"
         $StoragePolicies | Format-List | Out-String
     }
 }
-  
+
 <#
     .Synopsis
      Modify vSAN based storage policies on a VM(s)
@@ -913,15 +972,15 @@ function Set-VMStoragePolicy {
     Param
     (
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Name of the storage policy to set')]
+                Mandatory = $true,
+                HelpMessage = 'Name of the storage policy to set')]
         [ValidateNotNullOrEmpty()]
         [string]
         $StoragePolicyName,
-  
+
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Name of the VM to set the storage policy on')]
+                Mandatory = $true,
+                HelpMessage = 'Name of the VM to set the storage policy on')]
         [ValidateNotNullOrEmpty()]
         [string]
         $VMName
@@ -963,15 +1022,15 @@ function Set-LocationStoragePolicy {
     Param
     (
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Name of the storage policy to set')]
+                Mandatory = $true,
+                HelpMessage = 'Name of the storage policy to set')]
         [ValidateNotNullOrEmpty()]
         [string]
         $StoragePolicyName,
-  
+
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Name of the Folder, ResourcePool, or Cluster containing the VMs to set the storage policy on.')]
+                Mandatory = $true,
+                HelpMessage = 'Name of the Folder, ResourcePool, or Cluster containing the VMs to set the storage policy on.')]
         [ValidateNotNullOrEmpty()]
         [string]
         $Location
@@ -1009,22 +1068,22 @@ function Set-ClusterDefaultStoragePolicy {
     Param
     (
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Name of the storage policy to set')]
+                Mandatory = $true,
+                HelpMessage = 'Name of the storage policy to set')]
         [ValidateNotNullOrEmpty()]
         [string]
         $StoragePolicyName,
-  
+
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Name of the Cluster to set the storage policy on')]
+                Mandatory = $true,
+                HelpMessage = 'Name of the Cluster to set the storage policy on')]
         [ValidateNotNullOrEmpty()]
         [string]
         $ClusterName
     )
     $StoragePolicy, $VSANStoragePolicies = Get-StoragePolicyInternal $StoragePolicyName
     $CompatibleDatastores = Get-SpbmCompatibleStorage -StoragePolicy $StoragePolicy
-    $ClusterList = Get-Cluster $ClusterName 
+    $ClusterList = Get-Cluster $ClusterName
     if ($null -eq $ClusterList) {
         Write-Error "Could not find Cluster with the name $ClusterName." -ErrorAction Stop
     }
@@ -1033,10 +1092,10 @@ function Set-ClusterDefaultStoragePolicy {
 
     if ($null -eq $ClusterDatastores) {
         $hosts = $ClusterList | Get-VMHost
-        if ($null -eq $hosts) { 
-             Write-Error "Was not able to set the Storage policy on $ClusterList. The Cluster does not appear to have VM Hosts. Please add VM Hosts before setting storage policy" -ErrorAction Stop
+        if ($null -eq $hosts) {
+            Write-Error "Was not able to set the Storage policy on $ClusterList. The Cluster does not appear to have VM Hosts. Please add VM Hosts before setting storage policy" -ErrorAction Stop
         } else {
-	     Write-Error "Setting the Storage Policy on this Cluster is not supported." -ErrorAction Stop
+            Write-Error "Setting the Storage Policy on this Cluster is not supported." -ErrorAction Stop
         }
     } elseif ($ClusterDatastores.count -eq 1) {
         if ($ClusterDatastores[0] -in $CompatibleDatastores) {
