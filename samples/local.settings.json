@@ -1,0 +1,6 @@
+{
+  "SubscriptionId":  "<YOUR_SUBSCRIPTION_ID>",
+  "AVSResourceGroup":  "<YOUR_RESOURCE_GROUP>",
+  "AVSCloudName": "<YOUR_AVS_CLOUD>",
+  "CommandletId":  "Microsoft.AVS.Management/5.0.85/Get-CloudAdminGroups"
+}
