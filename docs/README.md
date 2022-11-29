@@ -67,6 +67,7 @@ If necessary, use the installation script to create a separate vCenter user and 
 Secrets and additional attributes:
 - Use `PSCredendial` and `SecureString` if taking credentials or secrets as inputs. These parameters are encrypted while inflight and at rest and will never be echoed back to the user.
 - The functions and parameters must have user-friendly description, using standard PS facilities.
+- All names must follow PowerShell [naming guidelines](https://learn.microsoft.com/en-us/powershell/scripting/developer/cmdlet/required-development-guidelines?view=powershell-7.3#use-only-approved-verbs-rd01).
 - Apply `AVSAttribute` as show in [this example](https://www.powershellgallery.com/packages/Microsoft.AVS.Management/1.0.31/Content/Microsoft.AVS.Management.psm1) to specify the default timeout and SDDC status for your scripts.
 
 Other supported parameter types:
@@ -74,6 +75,8 @@ Other supported parameter types:
 - `System.Double`
 - `System.Boolean`
 - `System.Int32`
+
+> IMPORTANT: `String` parameters must be [validated/sanitized](https://learn.microsoft.com/en-us/mem/configmgr/apps/deploy-use/learn-script-security#powershell-parameters-security) against script injection if used in script generation.
 
 If you need another parameter type please make sure it supports automatic conversion from `String`, as all the other parameter types will be taken as text.
 
@@ -201,7 +204,7 @@ The final QA cycle would be:
 
 ## Testing via Run Command
 At this point you can tell us that it’s ready to be reviewed.
-- We’ll review and if it looks OK we’ll import it into our private repository and list it for via Run Command/ARM API. The preview package will only be visible to subscriptions with certain feature flag and won't show up for general public.
+- We’ll review and if it looks OK we’ll import it into our private repository and list it for execution via Run Command/ARM API. The preview package will only be visible to subscriptions with certain feature flag and won't show up for general public.
 - Assuming everything works re-publish the package w/o `-preview` suffix.
 - We make your package available to general public.
  
