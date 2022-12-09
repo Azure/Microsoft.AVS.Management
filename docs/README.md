@@ -29,7 +29,7 @@ AVS will expose some standard runtime options via PowerShell variables.  See bel
 | `SFTP_Sessions` | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh sftp session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SFTPSession.md) | `New-SFTPItem -ItemType Directory -Path "/tmp/zzz" -SFTPSession $SSH_Sessions[esx.hostname.fqdn].Value`
 
 > <b>Persistent secrets</b>: 
-The scecrets are kept in a Keyvault, they are isloated on package name basis, shared across all versions of your package and made available for each of your package scripts. Delete a secrets by setting a property to an empty string or `$null`.
+The secrets are kept in a Keyvault, they are isloated on package name basis, shared across all versions of your package and made available for each of your package scripts. Delete a secrets by setting a property to an empty string or `$null`.
 
 The script shall assume the directory it is executed in is temporary and can use it as needed, assuming 25GB is available.  This environment including any files will be torn down after the script execution.
 
