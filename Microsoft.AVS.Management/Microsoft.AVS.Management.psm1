@@ -424,11 +424,11 @@ function New-LDAPSIdentitySource {
                 $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
                 $SSHOutput = $SSHRes.Output | out-string
             } catch {
-                Write-Error "Failure to download the certificate from" + $computerUrl -ErrorAction Stop
+                throw "Failure to download the certificate from" + $computerUrl
             }
             
             if ($SSHOutput -notmatch '(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)') {
-                Write-Error "Incorrect certificate format" -ErrorAction Stop
+                throw "The certificate from " + $computerUrl + "has an incorrect format"
             } else {
                 $certs = select-string -inputobject $SSHOutput -pattern "(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)" -allmatches
                 $cert = $certs.matches[0]
@@ -713,9 +713,9 @@ function Add-GroupToCloudAdmins {
         Write-Error "Internal Error fetching CloudAdmins group. Contact support" -ErrorAction Stop
     }
 
-    $GroupToAddTuple = [System.Tuple]::Create(“$($GroupToAdd.Name)”,”$($GroupToAdd.Domain)”)
+    $GroupToAddTuple = [System.Tuple]::Create("$($GroupToAdd.Name)","$($GroupToAdd.Domain)")
     $CloudAdminMembers = @()
-    foreach ($a in $(Get-SsoGroup -Group $CloudAdmins)) { $tuple = [System.Tuple]::Create(“$($a.Name)”,”$($a.Domain)”); $CloudAdminMembers += $tuple }
+    foreach ($a in $(Get-SsoGroup -Group $CloudAdmins)) { $tuple = [System.Tuple]::Create("$($a.Name)","$($a.Domain)"); $CloudAdminMembers += $tuple }
     if ($GroupToAddTuple -in $CloudAdminMembers) {
         Write-Host "Group $($GroupToAddTuple.Item1)@$($($GroupToAddTuple.Item2)) has already been added to CloudAdmins."
         return
