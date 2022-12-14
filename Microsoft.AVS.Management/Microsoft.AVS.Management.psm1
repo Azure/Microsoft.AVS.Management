@@ -311,71 +311,71 @@ function New-LDAPSIdentitySource {
     Param
     (
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'User-Friendly name to store in vCenter')]
+                Mandatory = $true,
+                HelpMessage = 'User-Friendly name to store in vCenter')]
         [ValidateNotNull()]
         [string]
         $Name,
-  
+
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Full DomainName: adserver.local')]
+                Mandatory = $true,
+                HelpMessage = 'Full DomainName: adserver.local')]
         [ValidateNotNull()]
         [string]
         $DomainName,
-  
+
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'DomainAlias: adserver')]
+                Mandatory = $true,
+                HelpMessage = 'DomainAlias: adserver')]
         [string]
         $DomainAlias,
-  
+
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
+                Mandatory = $true,
+                HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
         [ValidateNotNullOrEmpty()]
         [string]
         $PrimaryUrl,
-  
+
         [Parameter(
-            Mandatory = $false,
-            HelpMessage = 'Optional: URL of a backup server')]
+                Mandatory = $false,
+                HelpMessage = 'Optional: URL of a backup server')]
         [string]
         $SecondaryUrl,
-  
+
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
+                Mandatory = $true,
+                HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
         [ValidateNotNull()]
         [string]
         $BaseDNUsers,
-  
+
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
+                Mandatory = $true,
+                HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
         [ValidateNotNull()]
         [string]
         $BaseDNGroups,
-  
+
         [Parameter(Mandatory = $true,
-            HelpMessage = "Credential for the LDAP server")]
+                HelpMessage = "Credential for the LDAP server")]
         [ValidateNotNull()]
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
         $Credential,
-  
+
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
+                Mandatory = $false,
+                HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
         [System.Security.SecureString]
         $SSLCertificatesSasUrl,
 
         [Parameter (
-            Mandatory = $false,
-            HelpMessage = 'A group in the external identity source to give CloudAdmins access')]
+                Mandatory = $false,
+                HelpMessage = 'A group in the external identity source to give CloudAdmins access')]
         [string]
         $GroupName
-        
+
     )
     if (-not ($PrimaryUrl -match '^(ldaps:).+((:389)|(:636)|(:3268)|(:3269))$')) {
         Write-Error "PrimaryUrl $PrimaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps: and not ldap:" -ErrorAction Stop
@@ -389,7 +389,6 @@ function New-LDAPSIdentitySource {
     if (($SecondaryUrl -match '^(ldaps:).+((:389)|(:3268))$')) {
         Write-Warning "SecondaryUrl $SecondaryUrl is nonstandard. Are you sure you meant to use the 389/3268 port and not the standard ports for LDAPS, 636 or 3269? Continuing anyway.."
     }
-    
 
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     if ($null -ne $ExternalIdentitySources) {
@@ -406,18 +405,50 @@ function New-LDAPSIdentitySource {
     else {
         Write-Host "No existing external identity sources found."
     }
-
     $Password = $Credential.GetNetworkCredential().Password
-    $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl -ErrorAction Stop
-    [System.Array]$Certificates = 
-        foreach($CertFile in $DestinationFileArray) {
+    $DestinationFileArray = @()
+    if ($PSBoundParameters.ContainsKey('SSLCertificatesSasUrl')) {
+        $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl -ErrorAction Stop
+    } else {
+        $exportFolder = "$home/"
+        $remoteComputers = ,$PrimaryUrl
+        if ($PSBoundParameters.ContainsKey('SecondaryUrl')) { $remoteComputers += $SecondaryUrl }
+        
+        foreach ($computerUrl in $remoteComputers) {
+            if ($computerUrl.IndexOf('ldaps://') -ne 0) { Write-Error "Incorrect Url format entered: " + $computerUrl -ErrorAction Stop}
+
+            $TrimedUrl = $computerUrl.substring('ldaps://'.Length)
+            $Command = 'echo "1" | openssl s_client -connect ' + $TrimedUrl + ' -showcerts' | out-string
+            $SSHOutput = $null
             try {
-                [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
+                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
+                $SSHOutput = $SSHRes.Output | out-string
             } catch {
-                Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
-                throw "File to certificate conversion failed. See error message for more details"
+                Write-Error "Failure to download the certificate from" + $computerUrl -ErrorAction Stop
+            }
+            
+            if ($SSHOutput -notmatch '(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)') {
+                Write-Error "Incorrect certificate format" -ErrorAction Stop
+            } else {
+                $certs = select-string -inputobject $SSHOutput -pattern "(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)" -allmatches
+                $cert = $certs.matches[0]
+                $exportPath = $exportFolder+($TrimedUrl.split(".")[0])+".cer"
+                $cert.Value | Out-File $exportPath -Encoding ascii
+                $DestinationFileArray += $exportPath
             }
         }
+    }
+
+    [System.Array]$Certificates =
+    foreach($CertFile in $DestinationFileArray) {
+        try {
+            [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
+        } catch {
+            Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
+            throw "File to certificate conversion failed. See error message for more details"
+        }
+    }
+    
     Write-Host "Adding the LDAPS Identity Source..."
     Add-LDAPIdentitySource `
         -Name $Name `
