@@ -311,68 +311,68 @@ function New-LDAPSIdentitySource {
     Param
     (
         [Parameter(
-                Mandatory = $true,
-                HelpMessage = 'User-Friendly name to store in vCenter')]
+            Mandatory = $true,
+            HelpMessage = 'User-Friendly name to store in vCenter')]
         [ValidateNotNull()]
         [string]
         $Name,
 
         [Parameter(
-                Mandatory = $true,
-                HelpMessage = 'Full DomainName: adserver.local')]
+            Mandatory = $true,
+            HelpMessage = 'Full DomainName: adserver.local')]
         [ValidateNotNull()]
         [string]
         $DomainName,
 
         [Parameter(
-                Mandatory = $true,
-                HelpMessage = 'DomainAlias: adserver')]
+            Mandatory = $true,
+            HelpMessage = 'DomainAlias: adserver')]
         [string]
         $DomainAlias,
 
         [Parameter(
-                Mandatory = $true,
-                HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
+            Mandatory = $true,
+            HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
         [ValidateNotNullOrEmpty()]
         [string]
         $PrimaryUrl,
 
         [Parameter(
-                Mandatory = $false,
-                HelpMessage = 'Optional: URL of a backup server')]
+            Mandatory = $false,
+            HelpMessage = 'Optional: URL of a backup server')]
         [string]
         $SecondaryUrl,
 
         [Parameter(
-                Mandatory = $true,
-                HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
+            Mandatory = $true,
+            HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
         [ValidateNotNull()]
         [string]
         $BaseDNUsers,
 
         [Parameter(
-                Mandatory = $true,
-                HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
+            Mandatory = $true,
+            HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
         [ValidateNotNull()]
         [string]
         $BaseDNGroups,
 
         [Parameter(Mandatory = $true,
-                HelpMessage = "Credential for the LDAP server")]
+            HelpMessage = "Credential for the LDAP server")]
         [ValidateNotNull()]
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
         $Credential,
 
         [Parameter(
-                Mandatory = $false,
-                HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
+            Mandatory = $false,
+            HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
         [System.Security.SecureString]
         $SSLCertificatesSasUrl,
 
         [Parameter (
-                Mandatory = $false,
-                HelpMessage = 'A group in the external identity source to give CloudAdmins access')]
+            Mandatory = $false,
+            HelpMessage = 'A group in the external identity source to give CloudAdmins access')]
         [string]
         $GroupName
 
@@ -415,10 +415,16 @@ function New-LDAPSIdentitySource {
         if ($PSBoundParameters.ContainsKey('SecondaryUrl')) { $remoteComputers += $SecondaryUrl }
         
         foreach ($computerUrl in $remoteComputers) {
-            if ($computerUrl.IndexOf('ldaps://') -ne 0) { Write-Error "Incorrect Url format entered: " + $computerUrl -ErrorAction Stop}
-
-            $TrimedUrl = $computerUrl.substring('ldaps://'.Length)
-            $Command = 'echo "1" | openssl s_client -connect ' + $TrimedUrl + ' -showcerts' | out-string
+            try {
+                if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) { throw }
+                $ParsedUrl = [System.Uri]$computerUrl
+            }
+            catch {
+                throw "Incorrect Url format entered from: " + $computerUrl
+            }
+            
+            Write-Host "Start to Download Cert from " + $computerUrl
+            $Command = 'echo "1" | openssl s_client -connect ' + $ParsedUrl.Host + ':' + $ParsedUrl.Port + ' -showcerts'
             $SSHOutput = $null
             try {
                 $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
@@ -432,7 +438,7 @@ function New-LDAPSIdentitySource {
             } else {
                 $certs = select-string -inputobject $SSHOutput -pattern "(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)" -allmatches
                 $cert = $certs.matches[0]
-                $exportPath = $exportFolder+($TrimedUrl.split(".")[0])+".cer"
+                $exportPath = $exportFolder+($ParsedUrl.Host.split(".")[0])+".cer"
                 $cert.Value | Out-File $exportPath -Encoding ascii
                 $DestinationFileArray += $exportPath
             }
