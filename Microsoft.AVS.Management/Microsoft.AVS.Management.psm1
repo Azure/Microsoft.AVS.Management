@@ -420,21 +420,37 @@ function New-LDAPSIdentitySource {
                 $ParsedUrl = [System.Uri]$computerUrl
             }
             catch {
-                throw "Incorrect Url format entered from: " + $computerUrl
+                throw "Incorrect Url format entered from: $computerUrl"
+            }
+            if ($ParsedUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ParsedUrl.Host -as [ipaddress])) { 
+                throw "Incorrect Url format. $computerUrl is an IP address. Consider changing it to an URL"
             }
             
-            Write-Host "Start to Download Cert from " + $computerUrl
-            $Command = 'echo "1" | openssl s_client -connect ' + $ParsedUrl.Host + ':' + $ParsedUrl.Port + ' -showcerts'
-            $SSHOutput = $null
+            $Command = $null
+            $SSHRes = $null
+
             try {
+                $Command = 'nslookup ' + $ParsedUrl.Host + ' -type=soa'
+                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
+                if ($SSHRes.ExitStatus -ne 0) { throw 1 }
+
+                $Command = 'nc -vz ' + $ParsedUrl.Host + ' ' + $ParsedUrl.Port
+                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
+                if ($SSHRes.ExitStatus -ne 0) { throw 2 }
+
+                Write-Host ("Start to Download Cert from " + $computerUrl)
+                $Command = 'echo "1" | openssl s_client -connect ' + $ParsedUrl.Host + ':' + $ParsedUrl.Port + ' -showcerts'
                 $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
                 $SSHOutput = $SSHRes.Output | out-string
             } catch {
-                throw "Failure to download the certificate from" + $computerUrl
+                if ($_.Exception.Message -eq 1) { throw "The FQDN $ParsedUrl.Host cannot be resolved to an IP address" }
+                if ($_.Exception.Message -eq 2) { throw "The port $ParsedUrl.Port is not open" }
+
+                throw "Failure to download the certificate from $computerUrl"
             }
             
             if ($SSHOutput -notmatch '(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)') {
-                throw "The certificate from " + $computerUrl + "has an incorrect format"
+                throw "The certificate from $computerUrl has an incorrect format"
             } else {
                 $certs = select-string -inputobject $SSHOutput -pattern "(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)" -allmatches
                 $cert = $certs.matches[0]
