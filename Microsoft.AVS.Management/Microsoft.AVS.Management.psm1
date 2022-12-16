@@ -1068,4 +1068,139 @@ function Set-ClusterDefaultStoragePolicy {
     }
 }
 
+Function CreateScriptingUser {
+    <#
+        .DESCRIPTION
+        Create a temporary scripting user and a role which includes required privileges.
+        The user is used to pass credentials into vcenter resti api calls for functionalites unavailable to powercli
+    
+        .PARAMETER permissions
+        Array of scripting user permissions (default value is an empty array)
+    
+        .EXAMPLE
+        CreateScriptingUser -permissions @("VirtualMachine.Config.CPUCount","VirtualMachine.Config.Memory",)
+    #>
+    
+        Param (
+            [Parameter(Mandatory = $false,
+            HelpMessage = "Array of scripting user permissions")]
+            [array]
+            $permissions
+        )
+    
+        $scriptingUserName = "ScriptingUser"
+        $scriptingUserRole = "ScriptingRole"
+        $domain = "vsphere.local"
+        $group = "CloudAdmins"
+        $scriptingUserPrincipal = $domain + "\" +  $scriptingUserName
+        $SsoGroup = Get-SsoGroup -Name $group -Domain $domain
+    
+        Write-Host "Checking for existing $scriptingUserName."
+    
+        if(IsScriptingUserExists $scriptingUserName) {
+            Write-Host "$scriptingUserName already exists in domain: $domain. Removing old $scriptingUserName."
+            Remove-SsoPersonUser -User $scriptingUserName -ErrorAction Stop
+        }
+    
+        Write-Host "Creating $scriptingUserName user in $domain."
+        $PersistentSecrets.ScriptingPassword = GenerateRandomPassword
+        New-SsoPersonUser -UserName $scriptingUserName -Password $PersistentSecrets.ScriptingPassword -Description "ScriptingUser" -FirstName "Temp" -LastName "ScriptingUser" -ErrorAction Stop
+    
+        Write-Host "Adding $scriptingUserName user to $group in $domain."
+        $SsoGroup = Get-SsoGroup -Name $group -Domain $domain
+        Get-SsoPersonUser -Name $scriptingUserName -Domain $domain -ErrorAction Stop | Add-UserToSsoGroup -TargetGroup $SsoGroup -ErrorAction Stop
+    
+        if(IsScriptingRoleExists $scriptingUserRole) {
+            $joinedPrivileges = ($permissions -join ";")
+            Write-Host "Role: $scriptingUserRole already exists. Overwrite it with the following privileges: $joinedPrivileges"
+                
+            Remove-VIRole -Role (Get-VIRole -Name $scriptingUserRole) -Force:$true -Confirm:$false
+            New-VIRole -name $scriptingUserRole -Privilege (Get-VIPrivilege -Server $VC_ADDRESS -id $permissions) -Server $VC_ADDRESS
+        } 
+        else {
+            New-VIRole -name $scriptingUserRole -Privilege (Get-VIPrivilege -Server $VC_ADDRESS -id $permissions) -Server $VC_ADDRESS -ErrorAction Stop
+            Write-Host "Role $scriptingUserRole created on $VC_ADDRESS"
+        }
+    
+        $rootFolder = Get-Folder -NoRecursion
+        New-VIPermission -Entity $rootFolder -Principal $scriptingUserPrincipal -Role $scriptingUserRole -Propagate:$true -ErrorAction Stop
+        Write-Host "Finish to create ScriptingUser ($scriptingUserName) and assign ScriptingRole ($scriptingUserRole)"
+    
+    }
+    
+    
+    Function IsScriptingUserExists
+    {
+        <#
+            .DESCRIPTION
+            Get a scriptingUserName and a domain, and return whether or not the user exists in the domain.
+     
+                .PARAMETER scriptingUserName
+                Scripting user name (default value is ScriptingDR)
+                 
+                .PARAMETER domain
+                Domain name (default value is vsphere.local)
+                 
+            .EXAMPLE
+     
+            IsScriptingUserExists -scriptingUserName <Username> -domain <domain>
+        #>
+        [CmdletBinding()]
+        [AVSAttribute(30, UpdatesSDDC = $false)]
+        param(
+            [parameter(Mandatory=$false,
+                HelpMessage = "Scripting user name for ZVM installation")]
+            [string]$scriptingUserName = "ScriptingDR",
+            [parameter(Mandatory=$false,
+                HelpMessage = "Domain to search the user at")]
+            [string]$domain = "vsphere.local"
+        )
+            
+        Process {
+            Write-Host "Starting $($MyInvocation.MyCommand)..."
+            
+            if(Get-SsoPersonUser -Name $scriptingUserName -Domain $domain -ErrorAction SilentlyContinue) {
+                Write-Host "$scriptingUserName already exists in $VC_ADDRESS, domain: $domain."
+                return $true;
+            }
+            
+            Write-Host "$scriptingUserName doesn't exist in $VC_ADDRESS, domain: $domain."
+            return $false;
+        }
+    }
+    
+    Function IsScriptingRoleExists
+    {
+        <#
+            .DESCRIPTION
+            Return true if ScriptingRole exists, otherwise return false.
+     
+                .PARAMETER scriptingUserRole
+                Scripting role name (default value is ScriptingRole)
+                 
+            .EXAMPLE
+     
+            IsScriptingRoleExists -scriptingUserRole <role>
+        #>
+        [CmdletBinding()]
+        [AVSAttribute(30, UpdatesSDDC = $false)]
+        param(
+            [parameter(Mandatory=$false,
+                HelpMessage = "Scripting role name for ZVM installation")]
+            [string]$scriptingUserRole = "ScriptingRole"
+        )
+        
+        Process {
+            Write-Host "Starting $($MyInvocation.MyCommand)..."
+            
+            If (Get-VIRole -Name $scriptingUserRole -ErrorAction SilentlyContinue) {
+                Write-Host "$scriptingUserRole already exists in $VC_ADDRESS"
+                return $true
+            } 
+            
+            Write-Host "$scriptingUserRole doesn't exist in $VC_ADDRESS"
+            return $false;
+        }
+    }
+    
 Export-ModuleMember -Function *
