@@ -1088,7 +1088,7 @@ Function CreateScriptingUser {
             $permissions
         )
     
-        $scriptingUserName = "ScriptingUser"
+        $scriptingUserName = "TempScriptingUser"
         $scriptingUserRole = "ScriptingRole"
         $domain = "vsphere.local"
         $group = "CloudAdmins"
@@ -1103,8 +1103,8 @@ Function CreateScriptingUser {
         }
     
         Write-Host "Creating $scriptingUserName user in $domain."
-        $PersistentSecrets.ScriptingPassword = GenerateRandomPassword
-        New-SsoPersonUser -UserName $scriptingUserName -Password $PersistentSecrets.ScriptingPassword -Description "ScriptingUser" -FirstName "Temp" -LastName "ScriptingUser" -ErrorAction Stop
+        $Global:ScriptingPassword = GenerateRandomPassword
+        New-SsoPersonUser -UserName $scriptingUserName -Password $ScriptingPassword -Description "TempScriptingUser" -FirstName "Temp" -LastName "ScriptingUser" -ErrorAction Stop
     
         Write-Host "Adding $scriptingUserName user to $group in $domain."
         $SsoGroup = Get-SsoGroup -Name $group -Domain $domain
@@ -1202,5 +1202,29 @@ Function CreateScriptingUser {
             return $false;
         }
     }
-    
-Export-ModuleMember -Function *
+
+    Function GenerateRandomPassword {
+        #Generate a password with at least 2 uppercase, 4 lowercase, 4 digits & 2 special character (!@#$%^&*())
+        
+        Write-Host "Starting $($MyInvocation.MyCommand)..."
+        
+       $upperChars =(65..90)
+       $lowerChars    = (97..122)
+       $numerics =  (48..57)
+       $specialChars = @(33, 35, 36, 37, 38, 40, 41, 42, 45, 64, 94)    
+       
+       $seedArray = ($upperChars | Get-Random -Count 2)
+       $seedArray += ($lowerChars | Get-Random -Count 4)
+       $seedArray += ($numerics | Get-Random -Count 4)
+       $seedArray += ($specialChars | Get-Random -Count 2)
+       
+       Foreach ($a in $seedArray){
+           $passwordAscii += , [char][byte]$a 
+       }
+       
+       $password = $passwordAscii -join ""
+       
+       return $password
+    }   
+
+    Export-ModuleMember -Function *
