@@ -1099,7 +1099,7 @@ Function CreateScriptingUser {
     
         if(IsScriptingUserExists $scriptingUserName) {
             Write-Host "$scriptingUserName already exists in domain: $domain. Removing old $scriptingUserName."
-            Remove-SsoPersonUser -User $scriptingUserName -ErrorAction Stop
+            Remove-SsoPersonUser -User $(Get-SsoPersonUser -Name $scriptingUserName -Domain $domain) -ErrorAction Stop
         }
     
         Write-Host "Creating $scriptingUserName user in $domain."
