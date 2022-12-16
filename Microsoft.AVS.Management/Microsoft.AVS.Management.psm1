@@ -1089,7 +1089,7 @@ Function CreateScriptingUser {
         )
     
         $scriptingUserName = "TempScriptingUser"
-        $scriptingUserRole = "ScriptingRole"
+        $scriptingUserRole = "TempScriptingRole"
         $domain = "vsphere.local"
         $group = "CloudAdmins"
         $scriptingUserPrincipal = $domain + "\" +  $scriptingUserName
@@ -1103,8 +1103,10 @@ Function CreateScriptingUser {
         }
     
         Write-Host "Creating $scriptingUserName user in $domain."
-        $Global:ScriptingPassword = GenerateRandomPassword
-        New-SsoPersonUser -UserName $scriptingUserName -Password $ScriptingPassword -Description "TempScriptingUser" -FirstName "Temp" -LastName "ScriptingUser" -ErrorAction Stop
+        
+        $scriptingPassword = ConvertTo-SecureString $(GenerateRandomPassword) -AsPlainText -Force
+        $scriptingCredential = New-Object System.Management.Automation.PSCredential ($scriptingUserName, $scriptingPassword)
+        New-SsoPersonUser -UserName $scriptingUserName -Password $scriptingCredential.GetNetworkCredential().Password -Description "TempScriptingUser" -FirstName "Temp" -LastName "ScriptingUser" -ErrorAction Stop
     
         Write-Host "Adding $scriptingUserName user to $group in $domain."
         $SsoGroup = Get-SsoGroup -Name $group -Domain $domain
@@ -1126,6 +1128,7 @@ Function CreateScriptingUser {
         New-VIPermission -Entity $rootFolder -Principal $scriptingUserPrincipal -Role $scriptingUserRole -Propagate:$true -ErrorAction Stop
         Write-Host "Finish to create ScriptingUser ($scriptingUserName) and assign ScriptingRole ($scriptingUserRole)"
     
+        return $scriptingCredential
     }
     
     
