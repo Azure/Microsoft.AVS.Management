@@ -5,7 +5,7 @@
 AVSAttribute applied to a commandlet function indicates:
 - whether the SDDC should be marked as Building while the function executes.
 - default timeout for the commandlet, maximum: 3h.
-AVS SDDC in Building state prevents other changes from being made to the SDDC until the function completes/fails. 
+AVS SDDC in Building state prevents other changes from being made to the SDDC until the function completes/fails.
 #>
 class AVSAttribute : Attribute {
     [bool]$UpdatesSDDC = $false
@@ -19,7 +19,7 @@ class AVSAttribute : Attribute {
     DATE:    4/22/2021
     Version: 1.0.0
     Comment: Cmdlets for various administrative functions of Azure VMWare Solution products
-    Callouts: This script will require the powershell session running it to be able to authenticate to azure to pull secrets from key vault, will need service principal? Also make sure we don't allow code injections  
+    Callouts: This script will require the powershell session running it to be able to authenticate to azure to pull secrets from key vault, will need service principal? Also make sure we don't allow code injections
 ========================================================================================================
 #>
 
@@ -65,7 +65,7 @@ function Get-Certificates {
 }
 
 function Get-StoragePolicyInternal {
-    Param 
+    Param
     (
         [Parameter(
             Mandatory = $true)]
@@ -123,28 +123,28 @@ function Set-StoragePolicyOnVM {
     .Parameter DomainName
      Domain name of the external active directory, e.g. myactivedirectory.local
 
-    .Parameter DomainAlias 
+    .Parameter DomainAlias
      Domain alias of the external active directory, e.g. myactivedirectory
 
     .Parameter PrimaryUrl
      Url of the primary ldap server to attempt to connect to, e.g. ldap://myadserver.local:389
-    
-    .Parameter SecondaryUrl 
+
+    .Parameter SecondaryUrl
      Optional: Url of the fallback ldap server to attempt to connect to, e.g. ldap://myadserver.local:389
 
-    .Parameter BaseDNUsers 
+    .Parameter BaseDNUsers
      Base Distinguished Name for users, e.g. "dc=myadserver,dc=local"
 
     .Parameter BaseDNGroups
      Base Distinguished Name for groups, e.g. "dc=myadserver,dc=local"
 
-    .Parameter Credential 
+    .Parameter Credential
      Credential to login to the LDAP server (NOT cloudadmin) in the form of a username/password credential. Usernames often look like prodAdmins@domainname.com or if the AD is a Microsoft Active Directory server, usernames may need to be prefixed with the NetBIOS domain name, such as prod\AD_Admin
 
     .Parameter GroupName
      Optional: A group in the customer external identity source to be added to CloudAdmins. Users in this group will have CloudAdmin access. Group name should be formatted without the domain name, e.g. group-to-give-access
 
-    .Example 
+    .Example
     # Add the domain server named "myserver.local" to vCenter
     Add-LDAPIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldap://10.40.0.5:389' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local'
 #>
@@ -277,22 +277,22 @@ function New-LDAPIdentitySource {
     .Parameter DomainName
      Domain name of the external active directory, e.g. myactivedirectory.local
 
-    .Parameter DomainAlias 
+    .Parameter DomainAlias
      Domain alias of the external active directory, e.g. myactivedirectory
 
     .Parameter PrimaryUrl
      Url of the primary ldaps server to attempt to connect to, e.g. ldaps://myadserver.local:636
-    
-    .Parameter SecondaryUrl 
+
+    .Parameter SecondaryUrl
      Optional: Url of the fallback ldaps server to attempt to connect to, e.g. ldaps://myadserver.local:636
 
-    .Parameter BaseDNUsers 
+    .Parameter BaseDNUsers
      Base Distinguished Name for users, e.g. "dc=myadserver,dc=local"
 
     .Parameter BaseDNGroups
      Base Distinguished Name for groups, e.g. "dc=myadserver,dc=local"
 
-    .Parameter Credential 
+    .Parameter Credential
      Credential to login to the LDAP server (NOT cloudadmin) in the form of a username/password credential. Usernames often look like prodAdmins@domainname.com or if the AD is a Microsoft Active Directory server, usernames may need to be prefixed with the NetBIOS domain name, such as prod\AD_Admin
 
     .Parameter SSLCertificatesSasUrl
@@ -301,7 +301,7 @@ function New-LDAPIdentitySource {
     .Parameter GroupName
      Optional: A group in the customer external identity source to be added to CloudAdmins. Users in this group will have CloudAdmin access. Group name should be formatted without the domain name, e.g. group-to-give-access
 
-    .Example 
+    .Example
     # Add the domain server named "myserver.local" to vCenter
     Add-LDAPSIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local' -Username 'myserver@myserver.local' -Password 'PlaceholderPassword' -CertificatesSAS 'https://sharedaccessstring.path/accesskey' -Protocol LDAPS
 #>
@@ -316,54 +316,54 @@ function New-LDAPSIdentitySource {
         [ValidateNotNull()]
         [string]
         $Name,
-  
+
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Full DomainName: adserver.local')]
         [ValidateNotNull()]
         [string]
         $DomainName,
-  
+
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'DomainAlias: adserver')]
         [string]
         $DomainAlias,
-  
+
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'URL of your AD Server: ldaps://yourserver:636')]
         [ValidateNotNullOrEmpty()]
         [string]
         $PrimaryUrl,
-  
+
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'Optional: URL of a backup server')]
         [string]
         $SecondaryUrl,
-  
+
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
         [ValidateNotNull()]
         [string]
         $BaseDNUsers,
-  
+
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'BaseDNGroups, "DC=name, DC=name"')]
         [ValidateNotNull()]
         [string]
         $BaseDNGroups,
-  
+
         [Parameter(Mandatory = $true,
             HelpMessage = "Credential for the LDAP server")]
         [ValidateNotNull()]
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
         $Credential,
-  
+
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
@@ -375,7 +375,6 @@ function New-LDAPSIdentitySource {
             HelpMessage = 'A group in the external identity source to give CloudAdmins access')]
         [string]
         $GroupName
-        
     )
     if (-not ($PrimaryUrl -match '^(ldaps:).+((:389)|(:636)|(:3268)|(:3269))$')) {
         Write-Error "PrimaryUrl $PrimaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps: and not ldap:" -ErrorAction Stop
@@ -389,7 +388,6 @@ function New-LDAPSIdentitySource {
     if (($SecondaryUrl -match '^(ldaps:).+((:389)|(:3268))$')) {
         Write-Warning "SecondaryUrl $SecondaryUrl is nonstandard. Are you sure you meant to use the 389/3268 port and not the standard ports for LDAPS, 636 or 3269? Continuing anyway.."
     }
-    
 
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     if ($null -ne $ExternalIdentitySources) {
@@ -409,7 +407,7 @@ function New-LDAPSIdentitySource {
 
     $Password = $Credential.GetNetworkCredential().Password
     $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl -ErrorAction Stop
-    [System.Array]$Certificates = 
+    [System.Array]$Certificates =
         foreach($CertFile in $DestinationFileArray) {
             try {
                 [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
@@ -462,20 +460,20 @@ function Update-IdentitySourceCertificates {
         [ValidateNotNull()]
         [string]
         $DomainName,
-  
+
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
         [System.Security.SecureString]
         $SSLCertificatesSasUrl
     )
-    
+
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Stop
     if ($null -ne $ExternalIdentitySources) {
         $IdentitySource = $ExternalIdentitySources | Where-Object {$_.Name -eq $DomainName}
         if ($null -ne $IdentitySource) {
             $DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl -ErrorAction Stop
-            [System.Array]$Certificates = 
+            [System.Array]$Certificates =
                 foreach($CertFile in $DestinationFileArray) {
                     try {
                         [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
@@ -499,7 +497,7 @@ function Update-IdentitySourceCertificates {
 
 <#
     .Synopsis
-     Gets all external identity sources 
+     Gets all external identity sources
 #>
 function Get-ExternalIdentitySources {
     [AVSAttribute(3, UpdatesSDDC = $false)]
@@ -512,14 +510,14 @@ function Get-ExternalIdentitySources {
     }
     else {
         Write-Output "LDAPs Certificate(s) valid until the [Not After] parameter"
-        $ExternalSource | Format-List | Out-String 
+        $ExternalSource | Format-List | Out-String
     }
 }
 
 <#
     .Synopsis
      Removes supplied identity source, or, if no specific identity source is provided, will remove all identity sources.
-    
+
     .Parameter DomainName
      The domain name of the external identity source to remove i.e. `mydomain.com`. If none provided, will attempt to remove all external identity sources.
 #>
@@ -568,7 +566,7 @@ function Remove-ExternalIdentitySources {
     .Parameter Domain
      Name of the external domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories. For example, MyActiveDirectory.Com
 
-    .Example 
+    .Example
     # Add the group named vsphere-admins to CloudAdmins
      Add-GroupToCloudAdmins -GroupName 'vsphere-admins'
 #>
@@ -609,7 +607,7 @@ function Add-GroupToCloudAdmins {
         if ($PSBoundParameters.ContainsKey('Domain')) {
             if ($Domain -ne $ExternalSources.Name) {
                 Write-Error "The Domain passed in ($Domain) does not match the external directory: $($ExternalSources.Name). Try again with -Domain $($ExternalSources.Name)" -ErrorAction Stop
-            } 
+            }
         }
     }
     elseif ($ExternalSources.count -gt 1) {
@@ -630,24 +628,24 @@ function Add-GroupToCloudAdmins {
             }
         }
     }
-    
+
     # Searching for the group in the specified domain, if provided, or all domains, if none provided
     if ($null -eq $Domain -or -Not ($PSBoundParameters.ContainsKey('Domain'))) {
         $FoundMatch = $false
         foreach ($AD in $ExternalSources) {
             Write-Host "Searching $($AD.Name) for $GroupName"
             try {
-                $GroupFound = Get-SsoGroup -Name $GroupName -Domain $AD.Name -ErrorAction Stop 
+                $GroupFound = Get-SsoGroup -Name $GroupName -Domain $AD.Name -ErrorAction Stop
             } catch {
                 Write-Host "Could not find $GroupName in $($AD.Name). Continuing.."
             }
-            if ($null -ne $GroupFound -and -Not $FoundMatch) { 
-                Write-Host "Found $GroupName in $($AD.Name)." 
+            if ($null -ne $GroupFound -and -Not $FoundMatch) {
+                Write-Host "Found $GroupName in $($AD.Name)."
                 $Domain = $AD.Name
                 $GroupToAdd = $GroupFound
                 $FoundMatch = $true
             }
-            elseif ($null -ne $GroupFound -and $FoundMatch) { 
+            elseif ($null -ne $GroupFound -and $FoundMatch) {
                 Write-Host "Found $GroupName in $($AD.Name) as well."
                 Write-Error "Group $GroupName exists in multiple domains . Please re-run and specify domain" -ErrorAction Stop
                 return
@@ -663,7 +661,7 @@ function Add-GroupToCloudAdmins {
     else {
         try {
             Write-Host "Searching $Domain for $GroupName..."
-            $GroupToAdd = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop 
+            $GroupToAdd = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop
         }
         catch {
             Write-Error "Exception $($PSItem.Exception.Message): Unable to get group $GroupName from $Domain" -ErrorAction Stop
@@ -699,7 +697,7 @@ function Add-GroupToCloudAdmins {
         Write-Warning "Cloud Admin Members: $CloudAdminMembers" -ErrorAction Continue
         Write-Error "Unable to add group to CloudAdmins. Error: $($PSItem.Exception.Message)" -ErrorAction Stop
     }
-   
+
     Write-Host "Successfully added $GroupName to CloudAdmins."
     $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
     Write-Output "Cloud Admin Members: $CloudAdminMembers"
@@ -715,7 +713,7 @@ function Add-GroupToCloudAdmins {
     .Parameter Domain
      Name of the external domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories. For example, MyActiveDirectory.Com
 
-    .Example 
+    .Example
     # Remove the group named vsphere-admins from CloudAdmins
      Remove-GroupFromCloudAdmins -GroupName 'vsphere-admins'
 #>
@@ -756,7 +754,7 @@ function Remove-GroupFromCloudAdmins {
         if ($PSBoundParameters.ContainsKey('Domain')) {
             if ($Domain -ne $ExternalSources.Name) {
                 Write-Error "The Domain passed in ($Domain) does not match the external directory: $($ExternalSources.Name)" -ErrorAction Stop
-            } 
+            }
         }
     }
     elseif ($ExternalSources.count -gt 1) {
@@ -777,24 +775,24 @@ function Remove-GroupFromCloudAdmins {
             }
         }
     }
-    
+
     # Searching for the group in the specified domain, if provided, or all domains, if none provided
     if ($null -eq $Domain -or -Not ($PSBoundParameters.ContainsKey('Domain'))) {
         $FoundMatch = $false
         foreach ($AD in $ExternalSources) {
             Write-Host "Searching $($AD.Name) for $GroupName"
             try {
-                $GroupFound = Get-SsoGroup -Name $GroupName -Domain $AD.Name -ErrorAction Stop 
+                $GroupFound = Get-SsoGroup -Name $GroupName -Domain $AD.Name -ErrorAction Stop
             } catch {
                 Write-Host "Could not find $GroupName in $($AD.Name). Continuing.."
             }
-            if ($null -ne $GroupFound -and -Not $FoundMatch) { 
-                Write-Host "Found $GroupName in $($AD.Name)." 
+            if ($null -ne $GroupFound -and -Not $FoundMatch) {
+                Write-Host "Found $GroupName in $($AD.Name)."
                 $Domain = $AD.Name
                 $GroupToRemove = $GroupFound
                 $FoundMatch = $true
             }
-            elseif ($null -ne $GroupFound -and $FoundMatch) { 
+            elseif ($null -ne $GroupFound -and $FoundMatch) {
                 Write-Host "Found $GroupName in $($AD.Name) as well."
                 Write-Error "Group $GroupName exists in multiple domains . Please re-run and specify domain" -ErrorAction Stop
                 return
@@ -810,7 +808,7 @@ function Remove-GroupFromCloudAdmins {
     else {
         try {
             Write-Host "Searching $Domain for $GroupName..."
-            $GroupToRemove = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop 
+            $GroupToRemove = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop
         }
         catch {
             Write-Error "Exception $($PSItem.Exception.Message): Unable to get group $GroupName from $Domain" -ErrorAction Stop
@@ -837,7 +835,7 @@ function Remove-GroupFromCloudAdmins {
         Write-Error "Current Cloud Admin Members: $CloudAdminMembers" -ErrorAction Continue
         Write-Error "Unable to remove group from CloudAdmins. Is it there at all? Error: $($PSItem.Exception.Message)" -ErrorAction Stop
     }
-    
+
     Write-Information "Group $GroupName successfully removed from CloudAdmins."
     $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
     Write-Output "Current Cloud Admin Members: $CloudAdminMembers"
@@ -846,7 +844,7 @@ function Remove-GroupFromCloudAdmins {
 <#
     .Synopsis
      Get all groups that have been added to the cloud admin group
-    .Example 
+    .Example
     # Get all users in CloudAdmins
      Get-CloudAdminGroups
 #>
@@ -860,7 +858,7 @@ function Get-CloudAdminGroups {
         Write-Error "Internal Error fetching CloudAdmins group. Contact support" -ErrorAction Stop
     }
 
-    $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Stop 
+    $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Stop
     if ($null -eq $CloudAdminMembers) {
         Write-Output "No groups yet added to CloudAdmin."
     } else {
@@ -875,7 +873,7 @@ function Get-CloudAdminGroups {
 function Get-StoragePolicies {
     [AVSAttribute(3, UpdatesSDDC = $False)]
     Param()
-    
+
     $StoragePolicies
     try {
         $StoragePolicies = Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop | Select-Object Name, AnyOfRuleSets
@@ -885,14 +883,14 @@ function Get-StoragePolicies {
         Write-Error "Unable to get storage policies" -ErrorAction Stop
     }
     if ($null -eq $StoragePolicies) {
-        Write-Host "Could not find any storage policies." 
+        Write-Host "Could not find any storage policies."
     }
     else {
         Write-Output "Available Storage Policies:"
         $StoragePolicies | Format-List | Out-String
     }
 }
-  
+
 <#
     .Synopsis
      Modify vSAN based storage policies on a VM(s)
@@ -903,7 +901,7 @@ function Get-StoragePolicies {
     .Parameter VMName
      Name of the VM to set the vSAN based storage policy on. This supports wildcards for bulk operations. For example, MyVM* would attempt to change the storage policy on MyVM1, MyVM2, MyVM3, etc.
 
-    .Example 
+    .Example
     # Set the vSAN based storage policy on MyVM to RAID-1 FTT-1
     Set-VMStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -VMName "MyVM"
 #>
@@ -918,7 +916,7 @@ function Set-VMStoragePolicy {
         [ValidateNotNullOrEmpty()]
         [string]
         $StoragePolicyName,
-  
+
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Name of the VM to set the storage policy on')]
@@ -949,11 +947,11 @@ function Set-VMStoragePolicy {
      Name of a vSAN based storage policy to set on the specified VM. Options can be seen in vCenter or using the Get-StoragePolicies command.
 
     .Parameter Location
-     Name of the Folder, ResourcePool, or Cluster containing the VMs to set the storage policy on. 
-     For example, if you would like to change the storage policy of all the VMs in the cluster "Cluster-2", then supply "Cluster-2". 
+     Name of the Folder, ResourcePool, or Cluster containing the VMs to set the storage policy on.
+     For example, if you would like to change the storage policy of all the VMs in the cluster "Cluster-2", then supply "Cluster-2".
      Similarly, if you would like to change the storage policy of all the VMs in a folder called "MyFolder", supply "MyFolder"
 
-    .Example 
+    .Example
     # Set the vSAN based storage policy on all VMs in MyVMs to RAID-1 FTT-1
     Set-LocationStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -Location "MyVMs"
 #>
@@ -968,7 +966,7 @@ function Set-LocationStoragePolicy {
         [ValidateNotNullOrEmpty()]
         [string]
         $StoragePolicyName,
-  
+
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Name of the Folder, ResourcePool, or Cluster containing the VMs to set the storage policy on.')]
@@ -988,7 +986,6 @@ function Set-LocationStoragePolicy {
     }
 }
 
-
 <#
     .Synopsis
      Specify default storage policy for a cluster(s)
@@ -999,7 +996,7 @@ function Set-LocationStoragePolicy {
     .Parameter ClusterName
      Name of the cluster to set the default on. This supports wildcards for bulk operations. For example, MyCluster* would attempt to change the storage policy on MyCluster1, MyCluster2, etc.
 
-    .Example 
+    .Example
     # Set the default vSAN based storage policy on MyCluster to RAID-1 FTT-1
     Set-ClusterDefaultStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -ClusterName "MyCluster"
 #>
@@ -1014,7 +1011,7 @@ function Set-ClusterDefaultStoragePolicy {
         [ValidateNotNullOrEmpty()]
         [string]
         $StoragePolicyName,
-  
+
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Name of the Cluster to set the storage policy on')]
@@ -1024,7 +1021,7 @@ function Set-ClusterDefaultStoragePolicy {
     )
     $StoragePolicy, $VSANStoragePolicies = Get-StoragePolicyInternal $StoragePolicyName
     $CompatibleDatastores = Get-SpbmCompatibleStorage -StoragePolicy $StoragePolicy
-    $ClusterList = Get-Cluster $ClusterName 
+    $ClusterList = Get-Cluster $ClusterName
     if ($null -eq $ClusterList) {
         Write-Error "Could not find Cluster with the name $ClusterName." -ErrorAction Stop
     }
@@ -1033,7 +1030,7 @@ function Set-ClusterDefaultStoragePolicy {
 
     if ($null -eq $ClusterDatastores) {
         $hosts = $ClusterList | Get-VMHost
-        if ($null -eq $hosts) { 
+        if ($null -eq $hosts) {
              Write-Error "Was not able to set the Storage policy on $ClusterList. The Cluster does not appear to have VM Hosts. Please add VM Hosts before setting storage policy" -ErrorAction Stop
         } else {
 	     Write-Error "Setting the Storage Policy on this Cluster is not supported." -ErrorAction Stop
@@ -1068,166 +1065,198 @@ function Set-ClusterDefaultStoragePolicy {
     }
 }
 
-Function CreateScriptingUser {
-    <#
-        .DESCRIPTION
-        Create a temporary scripting user and a role which includes required privileges.
-        The user is used to pass credentials into vcenter resti api calls for functionalites unavailable to powercli
-    
-        .PARAMETER permissions
-        Array of scripting user permissions (default value is an empty array)
-    
-        .EXAMPLE
-        CreateScriptingUser -permissions @("VirtualMachine.Config.CPUCount","VirtualMachine.Config.Memory",)
-    #>
-    
-        Param (
-            [Parameter(Mandatory = $false,
-            HelpMessage = "Array of scripting user permissions")]
-            [array]
-            $permissions
-        )
-    
-        $scriptingUserName = "TempScriptingUser"
-        $scriptingUserRole = "TempScriptingRole"
-        $domain = "vsphere.local"
-        $group = "CloudAdmins"
-        $scriptingUserPrincipal = $domain + "\" +  $scriptingUserName
-        $SsoGroup = Get-SsoGroup -Name $group -Domain $domain
-    
-        Write-Host "Checking for existing $scriptingUserName."
-    
-        if(IsScriptingUserExists $scriptingUserName) {
-            Write-Host "$scriptingUserName already exists in domain: $domain. Removing old $scriptingUserName."
-            Remove-SsoPersonUser -User $(Get-SsoPersonUser -Name $scriptingUserName -Domain $domain) -ErrorAction Stop
-        }
-    
-        Write-Host "Creating $scriptingUserName user in $domain."
-        
-        $scriptingPassword = ConvertTo-SecureString $(GenerateRandomPassword) -AsPlainText -Force
-        $scriptingCredential = New-Object System.Management.Automation.PSCredential ($scriptingUserName, $scriptingPassword)
-        New-SsoPersonUser -UserName $scriptingUserName -Password $scriptingCredential.GetNetworkCredential().Password -Description "TempScriptingUser" -FirstName "Temp" -LastName "ScriptingUser" -ErrorAction Stop
-    
-        Write-Host "Adding $scriptingUserName user to $group in $domain."
-        $SsoGroup = Get-SsoGroup -Name $group -Domain $domain
-        Get-SsoPersonUser -Name $scriptingUserName -Domain $domain -ErrorAction Stop | Add-UserToSsoGroup -TargetGroup $SsoGroup -ErrorAction Stop
-    
-        if(IsScriptingRoleExists $scriptingUserRole) {
-            $joinedPrivileges = ($permissions -join ";")
-            Write-Host "Role: $scriptingUserRole already exists. Overwrite it with the following privileges: $joinedPrivileges"
-                
-            Remove-VIRole -Role (Get-VIRole -Name $scriptingUserRole) -Force:$true -Confirm:$false
-            New-VIRole -name $scriptingUserRole -Privilege (Get-VIPrivilege -Server $VC_ADDRESS -id $permissions) -Server $VC_ADDRESS
-        } 
-        else {
-            New-VIRole -name $scriptingUserRole -Privilege (Get-VIPrivilege -Server $VC_ADDRESS -id $permissions) -Server $VC_ADDRESS -ErrorAction Stop
-            Write-Host "Role $scriptingUserRole created on $VC_ADDRESS"
-        }
-    
-        $rootFolder = Get-Folder -NoRecursion
-        New-VIPermission -Entity $rootFolder -Principal $scriptingUserPrincipal -Role $scriptingUserRole -Propagate:$true -ErrorAction Stop
-        Write-Host "Finish to create ScriptingUser ($scriptingUserName) and assign ScriptingRole ($scriptingUserRole)"
-    
-        return $scriptingCredential
-    }
-    
-    
-    Function IsScriptingUserExists
-    {
-        <#
-            .DESCRIPTION
-            Get a scriptingUserName and a domain, and return whether or not the user exists in the domain.
-     
-                .PARAMETER scriptingUserName
-                Scripting user name (default value is ScriptingDR)
-                 
-                .PARAMETER domain
-                Domain name (default value is vsphere.local)
-                 
-            .EXAMPLE
-     
-            IsScriptingUserExists -scriptingUserName <Username> -domain <domain>
-        #>
-        [CmdletBinding()]
-        [AVSAttribute(30, UpdatesSDDC = $false)]
-        param(
-            [parameter(Mandatory=$false,
-                HelpMessage = "Scripting user name for ZVM installation")]
-            [string]$scriptingUserName = "ScriptingDR",
-            [parameter(Mandatory=$false,
-                HelpMessage = "Domain to search the user at")]
-            [string]$domain = "vsphere.local"
-        )
-            
-        Process {
-            Write-Host "Starting $($MyInvocation.MyCommand)..."
-            
-            if(Get-SsoPersonUser -Name $scriptingUserName -Domain $domain -ErrorAction SilentlyContinue) {
-                Write-Host "$scriptingUserName already exists in $VC_ADDRESS, domain: $domain."
-                return $true;
-            }
-            
-            Write-Host "$scriptingUserName doesn't exist in $VC_ADDRESS, domain: $domain."
-            return $false;
-        }
-    }
-    
-    Function IsScriptingRoleExists
-    {
-        <#
-            .DESCRIPTION
-            Return true if ScriptingRole exists, otherwise return false.
-     
-                .PARAMETER scriptingUserRole
-                Scripting role name (default value is ScriptingRole)
-                 
-            .EXAMPLE
-     
-            IsScriptingRoleExists -scriptingUserRole <role>
-        #>
-        [CmdletBinding()]
-        [AVSAttribute(30, UpdatesSDDC = $false)]
-        param(
-            [parameter(Mandatory=$false,
-                HelpMessage = "Scripting role name for ZVM installation")]
-            [string]$scriptingUserRole = "ScriptingRole"
-        )
-        
-        Process {
-            Write-Host "Starting $($MyInvocation.MyCommand)..."
-            
-            If (Get-VIRole -Name $scriptingUserRole -ErrorAction SilentlyContinue) {
-                Write-Host "$scriptingUserRole already exists in $VC_ADDRESS"
-                return $true
-            } 
-            
-            Write-Host "$scriptingUserRole doesn't exist in $VC_ADDRESS"
-            return $false;
-        }
+<#
+    .Synopsis
+    Creates a temporary scripting user and a role which includes required privileges.
+    The user is used to pass credentials into vcenter rest api calls for functionalites unavailable to powercli
+
+    .Parameter permissions
+    Array of user permissions (default value is an empty array)
+
+    .Example
+    New-TempScriptingUser -permissions @("VirtualMachine.Config.CPUCount","VirtualMachine.Config.Memory")
+#>
+function New-TempScriptingUser {
+    Param (
+        [Parameter(Mandatory = $false,
+        HelpMessage = "Array of user permissions")]
+        [array]
+        $permissions
+    )
+
+    $scriptingUserName = "TempScriptingUser"
+    $scriptingUserRole = "TempScriptingRole"
+    $domain = "vsphere.local"
+    $group = "CloudAdmins"
+    $scriptingUserPrincipal = $domain + "\" +  $scriptingUserName
+    $SsoGroup = Get-SsoGroup -Name $group -Domain $domain
+
+    Write-Host "Checking for existing $scriptingUserName."
+
+    if(Assert-UserExists $scriptingUserName) {
+        Write-Host "$scriptingUserName already exists in domain: $domain. Removing old $scriptingUserName."
+        Remove-SsoPersonUser -User $(Get-SsoPersonUser -Name $scriptingUserName -Domain $domain) -ErrorAction Stop
     }
 
-    Function GenerateRandomPassword {
-        #Generate a password with at least 2 uppercase, 4 lowercase, 4 digits & 2 special character (!@#$%^&*())
-        
+    Write-Host "Creating $scriptingUserName user in $domain."
+
+    $scriptingPassword = New-RandomPassword
+    New-SsoPersonUser -UserName $scriptingUserName -Password $scriptingPassword -Description "TempScriptingUser" -FirstName "Temp" -LastName "ScriptingUser" -ErrorAction Stop | Out-Null
+
+    Write-Host "Adding $scriptingUserName user to $group in $domain."
+
+    $SsoGroup = Get-SsoGroup -Name $group -Domain $domain
+    Get-SsoPersonUser -Name $scriptingUserName -Domain $domain -ErrorAction Stop | Add-UserToSsoGroup -TargetGroup $SsoGroup -ErrorAction Stop | Out-Null
+
+    if(Assert-RoleExists $scriptingUserRole) {
+        $joinedPrivileges = ($permissions -join ";")
+        Write-Host "Role: $scriptingUserRole already exists. Removing and recreating role with the following new privileges: $joinedPrivileges"
+
+        Remove-VIRole -Role (Get-VIRole -Name $scriptingUserRole) -Force:$true -Confirm:$false | Out-Null
+
+        Write-Host "Removed $scriptingUserRole. Creating New Scripting User role."
+
+        New-VIRole -name $scriptingUserRole -Privilege (Get-VIPrivilege -Server $VC_ADDRESS -id $permissions) -Server $VC_ADDRESS | Out-Null
+        Write-Host "Created role: $scriptingUserRole."
+    }
+    else {
+        New-VIRole -name $scriptingUserRole -Privilege (Get-VIPrivilege -Server $VC_ADDRESS -id $permissions) -Server $VC_ADDRESS -ErrorAction Stop | Out-Null
+        Write-Host "Role $scriptingUserRole created on $VC_ADDRESS"
+    }
+
+    $rootFolder = Get-Folder -NoRecursion
+    New-VIPermission -Entity $rootFolder -Principal $scriptingUserPrincipal -Role $scriptingUserRole -Propagate:$true -ErrorAction Stop | Out-Null
+
+    Write-Host "Sucessfully created temporary ScriptingUser: $scriptingUserName and assigned ScriptingRole: $scriptingUserRole"
+
+    $fullScriptingUsername = "TempScriptingUser" + "@" + "vsphere.local"
+    $secureScriptingPassword =  ConvertTo-SecureString $scriptingPassword -AsPlainText -Force
+
+    return New-Object System.Management.Automation.PSCredential ($fullScriptingUsername, $securescriptingPassword)
+}
+
+<#
+    .Synopsis
+    Removes the temporary scripting user and a role.
+
+#>
+function Remove-TempScriptingUser {
+    $scriptingUserName = "TempScriptingUser"
+    $scriptingUserRole = "TempScriptingRole"
+    $domain = "vsphere.local"
+
+    Write-Host "Checking for existing User: $scriptingUserName."
+
+    if(Assert-UserExists -userName $scriptingUserName -domain $domain) {
+        Write-Host "User: $scriptingUserName exists in domain: $domain. Removing: $scriptingUserName."
+        Remove-SsoPersonUser -User $(Get-SsoPersonUser -Name $scriptingUserName -Domain $domain) -ErrorAction Stop
+    } else { Write-Host "$scriptingUserName does not exists in domain: $domain." }
+
+    Write-Host "Checking for existing Rolde: $scriptingUserRole."
+
+    if(Assert-RoleExists -userRole $scriptingUserRole) {
+        Write-Host "Role: $scriptingUserRole exists. Removing role: $scriptingUserRole"
+        Remove-VIRole -Role (Get-VIRole -Name $scriptingUserRole) -Force:$true -Confirm:$false | Out-Null
+    } else { "Role: $scriptingUserRole does not exists"}
+}
+
+<#
+    .Synopsis
+    Get a userName and a domain, and return whether or not the user exists in the domain.
+
+    .Parameter userName
+    User name (default value is TempScriptingUser)
+
+    .Parameter domain
+    Domain name (default value is vsphere.local)
+
+    .Example
+    Assert-UserExists -scriptingUserName <Username> -domain <domain>
+#>
+Function Assert-UserExists
+{
+    [CmdletBinding()]
+    [AVSAttribute(30, UpdatesSDDC = $false)]
+    param(
+        [parameter(Mandatory=$false,
+            HelpMessage = "User name")]
+        [string]$userName = "TempScriptingUser",
+        [parameter(Mandatory=$false,
+            HelpMessage = "Domain to search the user at")]
+        [string]$domain = "vsphere.local"
+    )
+
+    Process {
         Write-Host "Starting $($MyInvocation.MyCommand)..."
-        
-       $upperChars =(65..90)
-       $lowerChars    = (97..122)
-       $numerics =  (48..57)
-       $specialChars = @(33, 35, 36, 37, 38, 40, 41, 42, 45, 64, 94)    
-       
-       $seedArray = ($upperChars | Get-Random -Count 2)
-       $seedArray += ($lowerChars | Get-Random -Count 4)
-       $seedArray += ($numerics | Get-Random -Count 4)
-       $seedArray += ($specialChars | Get-Random -Count 2)
-       
-       Foreach ($a in $seedArray){
-           $passwordAscii += , [char][byte]$a 
-       }
-       
-       $password = $passwordAscii -join ""
-       
-       return $password
-    }   
 
-    Export-ModuleMember -Function *
+        if(Get-SsoPersonUser -Name $userName -Domain $domain -ErrorAction SilentlyContinue) {
+            Write-Host "$userName already exists in $VC_ADDRESS, domain: $domain."
+            return $true;
+        }
+
+        Write-Host "$userName doesn't exist in $VC_ADDRESS, domain: $domain."
+        return $false;
+    }
+}
+
+<#
+    .Synopsis
+    Return true if role exists, otherwise return false.
+
+    .Parameter userRole
+    Role name (default value is TempScriptingRole)
+
+    .Example
+    Assert-RoleExists -userRole <role>
+#>
+Function Assert-RoleExists
+{
+
+    [CmdletBinding()]
+    [AVSAttribute(30, UpdatesSDDC = $false)]
+    param(
+        [parameter(Mandatory=$false,
+            HelpMessage = "Role name")]
+        [string]$userRole = "TempScriptingRole"
+    )
+
+    Process {
+        Write-Host "Starting $($MyInvocation.MyCommand)..."
+
+        If (Get-VIRole -Name $userRole -ErrorAction SilentlyContinue) {
+            Write-Host "$userRole already exists in $VC_ADDRESS"
+            return $true
+        }
+
+        Write-Host "$userRole does not exist in $VC_ADDRESS"
+        return $false;
+    }
+}
+
+<#
+    .Synopsis
+    Generates a password with at least 2 uppercase, 4 lowercase, 4 digits & 2 special character (!@#$%^&*())
+#>
+Function New-RandomPassword {
+    Write-Host "Starting $($MyInvocation.MyCommand)..."
+
+    $upperChars =(65..90)
+    $lowerChars    = (97..122)
+    $numerics =  (48..57)
+    $specialChars = @(33, 35, 36, 37, 38, 40, 41, 42, 45, 64, 94)
+
+    $seedArray = ($upperChars | Get-Random -Count 2)
+    $seedArray += ($lowerChars | Get-Random -Count 4)
+    $seedArray += ($numerics | Get-Random -Count 4)
+    $seedArray += ($specialChars | Get-Random -Count 2)
+
+    Foreach ($a in $seedArray){
+        $passwordAscii += , [char][byte]$a
+    }
+
+    $password = $passwordAscii -join ""
+
+    return $password
+}
+
+Export-ModuleMember -Function *
