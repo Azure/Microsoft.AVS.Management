@@ -1070,19 +1070,21 @@ function Set-ClusterDefaultStoragePolicy {
     Creates a temporary scripting user and a role which includes required privileges.
     The user is used to pass credentials into vcenter rest api calls for functionalites unavailable to powercli
 
-    .Parameter permissions
-    Array of user permissions (default value is an empty array)
+    .Parameter privileges
+    Array of user privileges (default value is an empty array)
 
     .Example
-    New-TempScriptingUser -permissions @("VirtualMachine.Config.CPUCount","VirtualMachine.Config.Memory")
+    New-TempScriptingUser -privileges @("VirtualMachine.Config.CPUCount","VirtualMachine.Config.Memory")
 #>
 function New-TempScriptingUser {
     Param (
         [Parameter(Mandatory = $false,
-        HelpMessage = "Array of user permissions")]
+        HelpMessage = "Array of user privileges")]
         [array]
-        $permissions
+        $privileges = @()
     )
+
+    if($privileges.Count -eq 0) { throw "If adding a temporary user, please ensure you pass in at least one privilege"}
 
     $scriptingUserName = "TempScriptingUser"
     $scriptingUserRole = "TempScriptingRole"
@@ -1109,18 +1111,18 @@ function New-TempScriptingUser {
     Get-SsoPersonUser -Name $scriptingUserName -Domain $domain -ErrorAction Stop | Add-UserToSsoGroup -TargetGroup $SsoGroup -ErrorAction Stop | Out-Null
 
     if(Assert-RoleExists $scriptingUserRole) {
-        $joinedPrivileges = ($permissions -join ";")
+        $joinedPrivileges = ($privileges -join ";")
         Write-Host "Role: $scriptingUserRole already exists. Removing and recreating role with the following new privileges: $joinedPrivileges"
 
         Remove-VIRole -Role (Get-VIRole -Name $scriptingUserRole) -Force:$true -Confirm:$false | Out-Null
 
         Write-Host "Removed $scriptingUserRole. Creating New Scripting User role."
 
-        New-VIRole -name $scriptingUserRole -Privilege (Get-VIPrivilege -Server $VC_ADDRESS -id $permissions) -Server $VC_ADDRESS | Out-Null
+        New-VIRole -name $scriptingUserRole -Privilege (Get-VIPrivilege -Server $VC_ADDRESS -id $privileges) -Server $VC_ADDRESS | Out-Null
         Write-Host "Created role: $scriptingUserRole."
     }
     else {
-        New-VIRole -name $scriptingUserRole -Privilege (Get-VIPrivilege -Server $VC_ADDRESS -id $permissions) -Server $VC_ADDRESS -ErrorAction Stop | Out-Null
+        New-VIRole -name $scriptingUserRole -Privilege (Get-VIPrivilege -Server $VC_ADDRESS -id $privileges) -Server $VC_ADDRESS -ErrorAction Stop | Out-Null
         Write-Host "Role $scriptingUserRole created on $VC_ADDRESS"
     }
 
@@ -1138,7 +1140,6 @@ function New-TempScriptingUser {
 <#
     .Synopsis
     Removes the temporary scripting user and a role.
-
 #>
 function Remove-TempScriptingUser {
     $scriptingUserName = "TempScriptingUser"
@@ -1148,16 +1149,16 @@ function Remove-TempScriptingUser {
     Write-Host "Checking for existing User: $scriptingUserName."
 
     if(Assert-UserExists -userName $scriptingUserName -domain $domain) {
-        Write-Host "User: $scriptingUserName exists in domain: $domain. Removing: $scriptingUserName."
+        Write-Host "Removing user: $scriptingUserName."
         Remove-SsoPersonUser -User $(Get-SsoPersonUser -Name $scriptingUserName -Domain $domain) -ErrorAction Stop
-    } else { Write-Host "$scriptingUserName does not exists in domain: $domain." }
+    }
 
-    Write-Host "Checking for existing Rolde: $scriptingUserRole."
+    Write-Host "Checking for existing Role: $scriptingUserRole."
 
     if(Assert-RoleExists -userRole $scriptingUserRole) {
-        Write-Host "Role: $scriptingUserRole exists. Removing role: $scriptingUserRole"
+        Write-Host "Removing role: $scriptingUserRole"
         Remove-VIRole -Role (Get-VIRole -Name $scriptingUserRole) -Force:$true -Confirm:$false | Out-Null
-    } else { "Role: $scriptingUserRole does not exists"}
+    }
 }
 
 <#
@@ -1190,7 +1191,7 @@ Function Assert-UserExists
         Write-Host "Starting $($MyInvocation.MyCommand)..."
 
         if(Get-SsoPersonUser -Name $userName -Domain $domain -ErrorAction SilentlyContinue) {
-            Write-Host "$userName already exists in $VC_ADDRESS, domain: $domain."
+            Write-Host "$userName exists in $VC_ADDRESS, domain: $domain."
             return $true;
         }
 
@@ -1224,7 +1225,7 @@ Function Assert-RoleExists
         Write-Host "Starting $($MyInvocation.MyCommand)..."
 
         If (Get-VIRole -Name $userRole -ErrorAction SilentlyContinue) {
-            Write-Host "$userRole already exists in $VC_ADDRESS"
+            Write-Host "$userRole exists in $VC_ADDRESS"
             return $true
         }
 
