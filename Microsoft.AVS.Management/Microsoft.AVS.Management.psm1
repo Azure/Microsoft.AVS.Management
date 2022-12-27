@@ -707,6 +707,53 @@ function Add-GroupToCloudAdmins {
 
 <#
     .Synopsis
+     Update the password used in the credential for authenticating to an Active Directory
+
+    .Parameter Credential 
+     Credential to login to the LDAP server (NOT cloudadmin) in the form of a username/password credential. Usernames often look like prodAdmins@domainname.com or if the AD is a Microsoft Active Directory server, usernames may need to be prefixed with the NetBIOS domain name, such as prod\AD_Admin
+    
+     .Parameter DomainName
+     Domain name of the external active directory, e.g. myactivedirectory.local
+#>
+function Update-IdentitySourcePassword {
+    [CmdletBinding(PositionalBinding = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Name of the Identity source')]
+        [ValidateNotNull()]
+        [string]
+        $DomainName,
+
+        [Parameter(Mandatory = $true,
+                HelpMessage = "Credential for the LDAP server")]
+        [ValidateNotNull()]
+        [System.Management.Automation.PSCredential]
+        [System.Management.Automation.Credential()]
+        $Credential
+    )
+
+    $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Stop
+    if ($null -ne $ExternalIdentitySources) {
+        $IdentitySource = $ExternalIdentitySources | Where-Object {$_.Name -eq $DomainName}
+        if ($null -ne $IdentitySource) {
+            Write-Host "Updating the LDAP Identity Source..."
+            Set-LDAPIdentitySource -IdentitySource $IdentitySource -Credential $Credential -ErrorAction Stop
+            $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
+            $ExternalIdentitySources | Format-List | Out-String
+        } else {
+            throw "Could not find Identity Source with name: $DomainName."
+        }
+    }
+    else {
+        throw "No existing external identity sources found."
+    }
+}
+
+<#
+    .Synopsis
      Remove a previously added group from an external identity from the CloudAdmins group
 
     .Parameter GroupName

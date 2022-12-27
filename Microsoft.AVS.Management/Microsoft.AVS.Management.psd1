@@ -52,7 +52,7 @@
 
     # Modules that must be imported into the global environment prior to importing this module
     RequiredModules   = @(
-        @{"ModuleName" = "VMware.vSphere.SsoAdmin"; "RequiredVersion" = "1.3.5" },
+        @{"ModuleName" = "VMware.vSphere.SsoAdmin"; "RequiredVersion" = "1.3.7" },
         @{"ModuleName" = "VMware.VimAutomation.Core"; "RequiredVersion" = "12.7.0.20091293" }
         @{"ModuleName" = "VMware.VimAutomation.Storage"; "RequiredVersion" = "12.7.0.20091292"}
         @{"ModuleName" = "posh-ssh"; "RequiredVersion" = "3.0.0"}
@@ -76,7 +76,7 @@
     # NestedModules = @()
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-    FunctionsToExport = @("Set-VMStoragePolicy", "Set-LocationStoragePolicy", "Set-ClusterDefaultStoragePolicy", "Get-StoragePolicies", "New-LDAPIdentitySource", "New-LDAPSIdentitySource", "Update-IdentitySourceCertificates", "Get-ExternalIdentitySources", "Remove-ExternalIdentitySources", "Add-GroupToCloudAdmins", "Remove-GroupFromCloudAdmins", "Get-CloudAdminGroups")
+    FunctionsToExport = @("Set-VMStoragePolicy", "Set-LocationStoragePolicy", "Set-ClusterDefaultStoragePolicy", "Get-StoragePolicies", "New-LDAPIdentitySource", "New-LDAPSIdentitySource", "Update-IdentitySourceCertificates", "Get-ExternalIdentitySources", "Remove-ExternalIdentitySources", "Add-GroupToCloudAdmins", "Remove-GroupFromCloudAdmins", "Get-CloudAdminGroups", "Update-IdentitySourcePassword")
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
     CmdletsToExport   = @()
