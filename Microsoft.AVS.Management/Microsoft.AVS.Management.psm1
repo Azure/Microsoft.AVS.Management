@@ -715,7 +715,7 @@ function Add-GroupToCloudAdmins {
      .Parameter DomainName
      Domain name of the external active directory, e.g. myactivedirectory.local
 #>
-function Update-IdentitySourcePassword {
+function Update-IdentitySourceCredential {
     [CmdletBinding(PositionalBinding = $false)]
     [AVSAttribute(10, UpdatesSDDC = $false)]
     Param
