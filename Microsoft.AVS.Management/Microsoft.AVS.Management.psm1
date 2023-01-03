@@ -1259,5 +1259,3 @@ Function New-RandomPassword {
 
     return $password
 }
-
-Export-ModuleMember -Function *
