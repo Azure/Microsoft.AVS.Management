@@ -1,22 +1,26 @@
 
 <#
     .Synopsis
-    Creates a temporary user and a role which includes required privileges.
+    Creates a temporary user and role with required privileges.
     The user is used to pass credentials into vcenter rest api calls for functionalites unavailable to powercli
 
     .Parameter privileges
     Array of user privileges (default value is an empty array)
 
     .Parameter userName
-    User-Friendly name for the user
+    Specifies the user name of the requested user account
 
     .Parameter userRole
-    User-Friendly name for the role
+    Specifies the role of the requested user account
+
+    .Parameter group
+    Specifies the group in which to add the user acount to
 
     .Example
     New-TempUser -privileges @("VirtualMachine.Config.CPUCount","VirtualMachine.Config.Memory") -userName TempUser -userRole TempRole
 #>
 function New-TempUser {
+    [CmdletBinding()]
     Param (
         [Parameter(
             Mandatory = $false,
@@ -26,23 +30,29 @@ function New-TempUser {
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'User-Friendly name for the user')]
+            HelpMessage = 'User name of the new user account')]
         [ValidateNotNull()]
         [string]
         $userName,
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'User-Friendly name for the role')]
+            HelpMessage = 'Role of the new user account')]
         [ValidateNotNull()]
         [string]
-        $userRole
+        $userRole,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'Group instance to add the new user account to')]
+        [ValidateNotNull()]
+        [string]
+        $group = "CloudAdmins"
     )
 
     if($privileges.Count -eq 0) { throw "If adding a temporary user, please ensure you pass in at least one privilege"}
 
     $domain = "vsphere.local"
-    $group = "CloudAdmins"
     $userPrincipal = $domain + "\" +  $userName
     $SsoGroup = Get-SsoGroup -Name $group -Domain $domain
 
@@ -60,7 +70,6 @@ function New-TempUser {
 
     Write-Host "Adding $userName user to $group in $domain."
 
-    $SsoGroup = Get-SsoGroup -Name $group -Domain $domain
     Get-SsoPersonUser -Name $userName -Domain $domain -ErrorAction Stop | Add-UserToSsoGroup -TargetGroup $SsoGroup -ErrorAction Stop | Out-Null
 
     if(Assert-RoleExists -userRole $userRole) {
@@ -88,32 +97,31 @@ function New-TempUser {
 
 <#
     .Synopsis
-    Removes a temporary user and role.
+    Removes a temporary user and role account.
 
     .Parameter userName
-    Name of the user
+    Specifies the user name of the requested user account
 
     .Parameter userRole
-    Name of the role
+    Specifies the role of the requested user account
 
     .Example
     Remove-TempUser -userName TempUser -userRole TempRole
 #>
 function Remove-TempUser {
-    [CmdletBinding(PositionalBinding = $false)]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [CmdletBinding()]
     Param
     (
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'Name of the user')]
+            HelpMessage = 'User name of the user account to be removed')]
         [ValidateNotNull()]
         [string]
         $userName,
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'Name of the role')]
+            HelpMessage = 'Role of the user account to be removed')]
         [ValidateNotNull()]
         [string]
         $userRole
@@ -138,37 +146,34 @@ function Remove-TempUser {
 
 <#
     .Synopsis
-    Get a userName and a domain, and return whether or not the user exists in the domain.
+    Provided a userName and a domain this cmdlet returns whether or not the user exists in the domain.
 
     .Parameter userName
-    User name (default value is TempUser)
+    Specifies the user name to filter on when searching for user accounts
 
     .Parameter domain
-    Domain name (default value is vsphere.local)
+    Specifies the domain in which search will be applied (default value is vsphere.local)
 
     .Example
     Assert-UserExists -userName TempUser -domain "vsphere.local"
 #>
 Function Assert-UserExists {
     [CmdletBinding()]
-    [AVSAttribute(30, UpdatesSDDC = $false)]
     param(
         [parameter(
-            Mandatory=$false,
-            HelpMessage = "User name")]
+            Mandatory = $true,
+            HelpMessage = "User name filter to be applied when searching for user accounts")]
         [string]
-        $userName = "TempUser",
+        $userName,
 
         [parameter(
-            Mandatory=$false,
-            HelpMessage = "Domain to search the user at")]
+            Mandatory = $false,
+            HelpMessage = 'Domain name to search in, default is "vsphere.local"')]
         [string]
         $domain = "vsphere.local"
     )
 
     Process {
-        Write-Host "Starting $($MyInvocation.MyCommand)..."
-
         if(Get-SsoPersonUser -Name $userName -Domain $domain -ErrorAction SilentlyContinue) {
             Write-Host "$userName exists in $VC_ADDRESS, domain: $domain."
             return $true;
@@ -181,27 +186,26 @@ Function Assert-UserExists {
 
 <#
     .Synopsis
-    Return true if role exists, otherwise return false.
+    Provided a role this cmdlet returns true if the role exists, otherwise return false.
 
     .Parameter userRole
-    Role name (default value is TempRole)
+    Specifies role name to filter on when searching for user accounts
 
     .Example
     Assert-RoleExists -userRole <role>
 #>
 Function Assert-RoleExists {
     [CmdletBinding()]
-    [AVSAttribute(30, UpdatesSDDC = $false)]
     param(
-        [parameter(Mandatory=$false,
-            HelpMessage = "Role name")]
-        [string]$userRole = "TempRole"
+        [parameter(
+            Mandatory = $true,
+            HelpMessage = "User role filter to be applied when searching for user accounts")]
+        [string]
+        $userRole
     )
 
     Process {
-        Write-Host "Starting $($MyInvocation.MyCommand)..."
-
-        If (Get-VIRole -Name $userRole -ErrorAction SilentlyContinue) {
+        if(Get-VIRole -Name $userRole -ErrorAction SilentlyContinue) {
             Write-Host "$userRole exists in $VC_ADDRESS"
             return $true
         }
@@ -216,8 +220,6 @@ Function Assert-RoleExists {
     Generates a password with at least 2 uppercase, 4 lowercase, 4 digits & 2 special character (!@#$%^&*())
 #>
 Function New-RandomPassword {
-    Write-Host "Starting $($MyInvocation.MyCommand)..."
-
     $upperChars = (65..90)
     $lowerChars = (97..122)
     $numerics = (48..57)
