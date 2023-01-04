@@ -24,6 +24,7 @@ class AVSAttribute : Attribute {
 #>
 
 . $PSScriptRoot\UserUtils.ps1
+. $PSScriptRoot\HcxUtils.ps1
 
 <# Download certificate from SAS token url #>
 function Get-Certificates {
@@ -1065,4 +1066,123 @@ function Set-ClusterDefaultStoragePolicy {
             }
         }
     }
+}
+
+<#
+    .Synopsis
+    Scale the HCX manager vm to the new resource allocation of 8 vCPU and 24 GB RAM (Default 4 vCPU/12GB)
+#>
+function Set-HcxScaledCpuAndMemorySetting {
+    Write-Host "Creating new temp scripting user"
+    $HcxAdminCredential = New-TempUser -privileges @("VirtualMachine.Config.CPUCount","VirtualMachine.Config.Memory") -userName tempHcxAdmin -userRole tempHcxAdminRole
+    Write-Host "User created"
+
+    $Port = 443
+    $HcxServer = 'hcx'
+    $HcxPreferredVersion = '4.3.2'
+    $SlashCommonTreshold = '90%'
+    $HcxScaledtNumCpu = 8
+    $HcxScaledMemoryGb = 24
+    $Found = $false
+
+    Write-Host "Identifying HCX Vm"
+    $VmsList = Get-VM
+    foreach ($Vm in $VmsList) {
+        if($Vm.Name.Contains("HCX-MGR")) {
+            $HcxVm = $Vm
+            $Found = $true
+            break
+        }
+    }
+
+    if (-not $Found) {
+        throw "HCX VM could not be found. Please check if the HCX addon is installed."
+    }
+    if ($HcxVm.PowerState -ne "PoweredOn") {
+        throw "$($HcxVm.Name) must be powered on. Current powerstate is $($HcxVm.PowerState)."
+    }
+    if (($HcxVm.NumCpu -eq $HcxScaledtNumCpu) -and
+       ($HcxVm.MemoryGb -eq $HcxScaledMemoryGb)) {
+        throw "HCX VM: $($HcxVm.Name) is already scaled to $($HcxVm.NumCpu) CPUs and $($HcxVm.MemoryGb) Memory."
+    }
+
+    Write-Host "Connecting to HCX Server at port $Port..."
+    $elapsed = Measure-Command -Expression { Connect-HCXServer -Server $HcxServer -Port $Port -Credential $HcxAdminCredential -ErrorAction Stop }
+    Write-Host "Connected to HCX Server at port $Port elapsed=$elapsed."
+
+    Write-Host "Checking for active migrations."
+    $migratingVmsCount = (Get-HCXMigration -State MIGRATING -Server $HcxServer).Count
+    if ($migratingVmsCount -gt 0) {
+        throw "There are $migratingVmsCount active migrations. Resume operation at a later time"
+    }
+
+    Write-Host "$migratingVmsCount active migrations found."
+
+    $XHmAuthorization = Get-AuthorizationToken -Credential $HcxAdminCredential -HcxServer $HcxServer
+    $HcxMetaData = Get-HcxMetaData -HcxServer $HcxServer -XHmAuthorization $XHmAuthorization
+    $HcxCurrentVersion = $HcxMetaData.endpoint.version
+    if ($HcxCurrentVersion -lt $HcxPreferredVersion) {
+        throw "Current HCX version: $HcxCurrentVersion is less than the prefered version: $HcxPreferredVersion"
+    }
+
+    Write-Host "Current HCX Version: $HcxCurrentVersion"
+
+    Write-Host "Retrieving Appliances"
+    $elapsed = Measure-Command -Expression { $Appliances = Get-HCXAppliance }
+    Write-Host "Retrieved Appliances elapsed=$elapsed."
+
+    if ($Appliances.Count -gt 0) {
+        $VersionPerAppliance = @{
+            Interconnect = $HcxPreferredVersion;
+            L2Concentrator = $HcxPreferredVersion
+        }
+
+        foreach($Appliance in $appliances) {
+            if($VersionPerAppliance.ContainsKey("$($Appliance."Type")") -and
+               $Appliance."CurrentVersion" -lt $VersionPerAppliance["$($Appliance."Type")"]) {
+                throw "Current Appliance: $($Appliance."Type") version: $($Appliance."CurrentVersion") is less than the prefered version: $HcxPreferredVersion"
+               }
+        }
+    }
+
+    Write-Host "$Appliances appliances found."
+
+    Write-Output "Create HCX SSH Session:"
+    $SshSession = New-SSHSession -ComputerName $HcxServer -Credential $HcxAdminCredential -Port 22 -Force
+    $Stream = New-SSHShellStream -SSHSession $SshSession -TerminalName 'PS-SSH' -Columns 0 -Rows 0 -Width 0 -Height 1000 -BufferSize 10000
+
+    Write-Host "Retrieving /Common Percentage"
+    $DiskFileSystemReturn = Invoke-SSHStreamShellCommand -ShellStream $Stream -Command 'df -h | grep "/common"'
+    if ($DiskFileSystemReturn.GetType().Name -eq 'Object[]') { $SlashCommonPercentage = $($DiskFileSystemReturn[0] -Split '\s+')[4] }
+    else { $SlashCommonPercentage = '0%' }
+
+    if ($SlashCommonPercentage -gt $SlashCommonTreshold) {
+        throw "/Common Percentage: $SlashCommonPercentage is greater than the allowed treshold: $SlashCommonTreshold"
+    }
+
+    Write-Host "Retrieved /Common Percentage: $SlashCommonPercentage"
+
+    Write-Host "Shutting Down Guest OS"
+    Stop-VMGuest -VM $HcxVm -Confirm:$false | Out-Null
+    while($(Get-VMGuest -VM $HcxVm).State -ne 'NotRunning') {
+        Start-Sleep -Seconds 5
+        Write-Host "$($HcxVm.Name)'s Guest OS powerstate=$($(Get-VMGuest -VM $HcxVm).State)"
+    }
+    Write-Host "Guest OS is shut down"
+
+    Write-Host "Configuring memory and cpu settings"
+    Set-VM -VM $HcxVm -MemoryGB $HcxScaledMemoryGb -NumCpu $HcxScaledtNumCpu -Confirm:$false
+    Write-Host "COnfiguration complete"
+
+    Write-Host "Starting $($hcxVm.Name)..."
+    Start-VM -VM $HcxVm -Confirm:$false | Out-Null
+    Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
+
+    $HcxVm = Get-VM -Name $HcxVm.Name
+    Write-Host "$($hcxVm.Name)'s CPU: $($HcxVm.NumCpu) and Memory: $($HcxVm.MemoryGb) Settings"
+    Write-Host "Completed."
+
+    Remove-SSHSession -SSHSession $SshSession
+    Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force
+    Remove-TempUser -userName tempHcxAdmin -userRole tempHcxAdminRole
 }
