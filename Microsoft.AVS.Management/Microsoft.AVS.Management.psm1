@@ -269,6 +269,48 @@ function New-LDAPIdentitySource {
 
 <#
     .Synopsis
+     Download the certificate from a domain controller
+#>
+function Get-CertificateFromDomainController {
+    param (
+        [Parameter(
+            Mandatory = $true)]
+        [ValidateNotNull()]
+        [System.Uri]
+        $ParsedUrl,
+
+        [Parameter(
+            Mandatory = $true)]
+        [ValidateNotNull()]
+        [string]
+        $computerUrl
+    )
+
+    try {
+        $Command = 'nslookup ' + $ParsedUrl.Host + ' -type=soa'
+        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
+        if ($SSHRes.ExitStatus -ne 0) { 
+            throw "The FQDN $ParsedUrl.Host cannot be resolved to an IP address. Make sure DNS is configured."
+        }
+
+        $Command = 'nc -vz ' + $ParsedUrl.Host + ' ' + $ParsedUrl.Port
+        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
+        if ($SSHRes.ExitStatus -ne 0) { 
+            throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure the port $ParsedUrl.Port is open." 
+        }
+
+        Write-Host ("Start to Download Cert from " + $computerUrl)
+        $Command = 'echo "1" | openssl s_client -connect ' + $ParsedUrl.Host + ':' + $ParsedUrl.Port + ' -showcerts'
+        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
+        $SSHOutput = $SSHRes.Output | out-string
+    } catch {
+        throw "Failure to download the certificate from $computerUrl"
+    }
+    return $SSHOutput
+}
+
+<#
+    .Synopsis
      Recommended: Add a secure external identity source (Active Directory over LDAPS) for use with vCenter Server Single Sign-On.
 
     .Parameter Name
@@ -366,7 +408,7 @@ function New-LDAPSIdentitySource {
 
         [Parameter(
             Mandatory = $false,
-            HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
+            HelpMessage = 'Optional: The certs will be installed from domain controllers if not specified. A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
         [System.Security.SecureString]
         $SSLCertificatesSasUrl,
 
@@ -412,7 +454,9 @@ function New-LDAPSIdentitySource {
     } else {
         $exportFolder = "$home/"
         $remoteComputers = ,$PrimaryUrl
-        if ($PSBoundParameters.ContainsKey('SecondaryUrl')) { $remoteComputers += $SecondaryUrl }
+        if ($PSBoundParameters.ContainsKey('SecondaryUrl')) { 
+            $remoteComputers += $SecondaryUrl 
+        }
         
         foreach ($computerUrl in $remoteComputers) {
             try {
@@ -426,28 +470,7 @@ function New-LDAPSIdentitySource {
                 throw "Incorrect Url format. $computerUrl is an IP address. Consider changing it to an URL"
             }
             
-            $Command = $null
-            $SSHRes = $null
-
-            try {
-                $Command = 'nslookup ' + $ParsedUrl.Host + ' -type=soa'
-                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
-                if ($SSHRes.ExitStatus -ne 0) { throw 1 }
-
-                $Command = 'nc -vz ' + $ParsedUrl.Host + ' ' + $ParsedUrl.Port
-                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
-                if ($SSHRes.ExitStatus -ne 0) { throw 2 }
-
-                Write-Host ("Start to Download Cert from " + $computerUrl)
-                $Command = 'echo "1" | openssl s_client -connect ' + $ParsedUrl.Host + ':' + $ParsedUrl.Port + ' -showcerts'
-                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
-                $SSHOutput = $SSHRes.Output | out-string
-            } catch {
-                if ($_.Exception.Message -eq 1) { throw "The FQDN $ParsedUrl.Host cannot be resolved to an IP address" }
-                if ($_.Exception.Message -eq 2) { throw "The port $ParsedUrl.Port is not open" }
-
-                throw "Failure to download the certificate from $computerUrl"
-            }
+            $SSHOutput = Get-CertificateFromDomainController -ParsedUrl $ParsedUrl -computerUrl $computerUrl
             
             if ($SSHOutput -notmatch '(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)') {
                 throw "The certificate from $computerUrl has an incorrect format"
