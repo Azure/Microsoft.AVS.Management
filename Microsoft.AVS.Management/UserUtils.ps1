@@ -47,14 +47,13 @@ function New-TempUser {
             HelpMessage = 'Group instance to add the new user account to')]
         [ValidateNotNull()]
         [string]
-        $group = "CloudAdmins"
+        $group
     )
 
     if($privileges.Count -eq 0) { throw "If adding a temporary user, please ensure you pass in at least one privilege"}
 
     $domain = "vsphere.local"
     $userPrincipal = $domain + "\" +  $userName
-    $SsoGroup = Get-SsoGroup -Name $group -Domain $domain
 
     Write-Host "Checking for existing $userName."
 
@@ -68,9 +67,12 @@ function New-TempUser {
     $userPassword = New-RandomPassword
     New-SsoPersonUser -UserName $userName -Password $userPassword -Description "TemporaryUser" -FirstName $userName -LastName "TempUser" -ErrorAction Stop | Out-Null
 
-    Write-Host "Adding $userName user to $group in $domain."
+    if($group) {
+        Write-Host "Adding $userName user to $group in $domain."
 
-    Get-SsoPersonUser -Name $userName -Domain $domain -ErrorAction Stop | Add-UserToSsoGroup -TargetGroup $SsoGroup -ErrorAction Stop | Out-Null
+        $SsoGroup = Get-SsoGroup -Name $group -Domain $domain
+        Get-SsoPersonUser -Name $userName -Domain $domain -ErrorAction Stop | Add-UserToSsoGroup -TargetGroup $SsoGroup -ErrorAction Stop | Out-Null
+    }
 
     if(Assert-RoleExists -userRole $userRole) {
         $joinedPrivileges = ($privileges -join ";")
