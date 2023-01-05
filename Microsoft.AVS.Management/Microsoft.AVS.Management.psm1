@@ -304,7 +304,7 @@ function Get-CertificateFromDomainController {
         $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
         $SSHOutput = $SSHRes.Output | out-string
     } catch {
-        throw "Failure to download the certificate from $computerUrl"
+        throw "Failure to download the certificate from $computerUrl. $_"
     }
     return $SSHOutput
 }
