@@ -1075,10 +1075,13 @@ function Set-ClusterDefaultStoragePolicy {
 function Set-HcxScaledCpuAndMemorySetting {
     try {
         $DefaultViConnection = $DefaultVIServers
+        $UserName = 'tempHcxAdmin'
+        $UserRole = 'tempHcxAdminRole'
+        $Group = 'CloudAdmins'
 
         Write-Host "Creating new temp scripting user"
-        $HcxAdminCredential = New-TempUser -privileges @("VirtualMachine.Config.CPUCount","VirtualMachine.Config.Memory") -userName tempHcxAdmin -userRole tempHcxAdminRole
-        Write-Host "User created"
+        $HcxAdminCredential = New-TempUser -privileges @("VirtualMachine.Config.CPUCount","VirtualMachine.Config.Memory") -userName $UserName -userRole $UserRole
+        Connect-VIServer -Server $VC_ADDRESS -Credential $HcxAdminCredential | Out-Null
 
         $Port = 443
         $HcxServer = 'hcx'
@@ -1110,6 +1113,7 @@ function Set-HcxScaledCpuAndMemorySetting {
         }
 
         Write-Host "Connecting to HCX Server at port $Port..."
+        Add-UserToGroup -userName $UserName -group $Group
         $elapsed = Measure-Command -Expression { Connect-HCXServer -Server $HcxServer -Port $Port -Credential $HcxAdminCredential -ErrorAction Stop }
         Write-Host "Connected to HCX Server at port $Port elapsed=$elapsed."
 
@@ -1193,6 +1197,6 @@ function Set-HcxScaledCpuAndMemorySetting {
 
         if($SshSession) { Remove-SSHSession -SSHSession $SshSession }
         if($hcxConnection) { Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force }
-        Remove-TempUser -userName tempHcxAdmin -userRole tempHcxAdminRole
+        Remove-TempUser -userName $UserName -userRole $UserRole
     }
 }

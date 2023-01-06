@@ -1,5 +1,43 @@
 <#
     .Synopsis
+    Adds a user account to an existing group
+
+    .Parameter userName
+    Specifies the user name of the requested user account
+
+    .Parameter group
+    Specifies the group in which to add the user acount to
+
+    .Example
+    Add-UserToGroup -userName TempUser -group CloudAdmins
+#>
+function Add-UserToGroup {
+    [CmdletBinding()]
+    Param (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'User name of the a user account')]
+        [ValidateNotNull()]
+        [string]
+        $userName,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'Group instance to add a user account to')]
+        [ValidateNotNull()]
+        [string]
+        $group
+    )
+
+    $domain = "vsphere.local"
+    Write-Host "Adding $userName user to $group in $domain."
+
+    $SsoGroup = Get-SsoGroup -Name $group -Domain $domain
+    Get-SsoPersonUser -Name $userName -Domain $domain -ErrorAction Stop | Add-UserToSsoGroup -TargetGroup $SsoGroup -ErrorAction Stop | Out-Null
+}
+
+<#
+    .Synopsis
     Creates a temporary user and role with required privileges.
     The user is used to pass credentials into vcenter rest api calls for functionalites unavailable to powercli
 
@@ -66,12 +104,7 @@ function New-TempUser {
     $userPassword = New-RandomPassword
     New-SsoPersonUser -UserName $userName -Password $userPassword -Description "TemporaryUser" -FirstName $userName -LastName $domain -ErrorAction Stop | Out-Null
 
-    if($group) {
-        Write-Host "Adding $userName user to $group in $domain."
-
-        $SsoGroup = Get-SsoGroup -Name $group -Domain $domain
-        Get-SsoPersonUser -Name $userName -Domain $domain -ErrorAction Stop | Add-UserToSsoGroup -TargetGroup $SsoGroup -ErrorAction Stop | Out-Null
-    }
+    if($group) { Add-UserToGroup -userName $userName -group $group }
 
     if(Assert-RoleExists -userRole $userRole) {
         $joinedPrivileges = ($privileges -join ";")
