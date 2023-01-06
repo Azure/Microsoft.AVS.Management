@@ -707,13 +707,13 @@ function Add-GroupToCloudAdmins {
 
 <#
     .Synopsis
-     Update the password used in the credential for authenticating to an Active Directory
+     Update the password used in the credential to authenticate an LDAP server
 
     .Parameter Credential 
      Credential to login to the LDAP server (NOT cloudadmin) in the form of a username/password credential. Usernames often look like prodAdmins@domainname.com or if the AD is a Microsoft Active Directory server, usernames may need to be prefixed with the NetBIOS domain name, such as prod\AD_Admin
     
      .Parameter DomainName
-     Domain name of the external active directory, e.g. myactivedirectory.local
+     Domain name of the external LDAP server, e.g. myactivedirectory.local
 #>
 function Update-IdentitySourceCredential {
     [CmdletBinding(PositionalBinding = $false)]
