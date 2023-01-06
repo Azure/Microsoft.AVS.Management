@@ -1,4 +1,3 @@
-
 <#
     .Synopsis
     Creates a temporary user and role with required privileges.
@@ -65,7 +64,7 @@ function New-TempUser {
     Write-Host "Creating $userName user in $domain."
 
     $userPassword = New-RandomPassword
-    New-SsoPersonUser -UserName $userName -Password $userPassword -Description "TemporaryUser" -FirstName $userName -LastName "TempUser" -ErrorAction Stop | Out-Null
+    New-SsoPersonUser -UserName $userName -Password $userPassword -Description "TemporaryUser" -FirstName $userName -LastName $domain -ErrorAction Stop | Out-Null
 
     if($group) {
         Write-Host "Adding $userName user to $group in $domain."
@@ -89,12 +88,15 @@ function New-TempUser {
     $rootFolder = Get-Folder -NoRecursion
     New-VIPermission -Entity $rootFolder -Principal $userPrincipal -Role $userRole -Propagate:$true -ErrorAction Stop | Out-Null
 
-    Write-Host "Sucessfully created temporary User: $userName and assigned Role: $userRole"
+    if(Assert-UserExists -userName $userName -domain $domain) {
+        Write-Host "Sucessfully created temporary User: $userName and assigned Role: $userRole"
 
-    $fullUsername = $userName + "@" + $domain
-    $secureUserPassword =  ConvertTo-SecureString $userPassword -AsPlainText -Force
+        $fullUsername = $userName + "@" + $domain
+        $secureUserPassword =  ConvertTo-SecureString $userPassword -AsPlainText -Force
 
-    return New-Object System.Management.Automation.PSCredential ($fullUsername, $secureUserPassword)
+        return New-Object System.Management.Automation.PSCredential ($fullUsername, $secureUserPassword)
+    }
+    else { throw "Temporary User: $userName was not created." }
 }
 
 <#

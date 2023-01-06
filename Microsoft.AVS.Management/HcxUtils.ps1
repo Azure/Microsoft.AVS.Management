@@ -10,13 +10,13 @@
     Specifies the IP or DNS addresses of the HCX servers to connect to.
 
     .Example
-    Get-AuthorizationToken -Credential {UserCreds} -HcxServer "10.40.0.9"
+    Get-AuthorizationToken -Credential <UserCreds> -HcxServer "10.40.0.9"
 #>
 function Get-AuthorizationToken {
     Param (
         [Parameter(
             Mandatory = $true,
-            HelpMessage = "Credential for the VCSA API")]
+            HelpMessage = "Credential of the vSphere User/Group that has authorized access to HCX")]
         [ValidateNotNull()]
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
