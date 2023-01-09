@@ -1080,7 +1080,11 @@ function Set-HcxScaledCpuAndMemorySetting {
         $Group = 'CloudAdmins'
 
         Write-Host "Creating new temp scripting user"
-        $HcxAdminCredential = New-TempUser -privileges @("VirtualMachine.Config.CPUCount","VirtualMachine.Config.Memory") -userName $UserName -userRole $UserRole
+        $privileges = @("VirtualMachine.Config.CPUCount",
+                        "VirtualMachine.Config.Memory",
+                        "VirtualMachine.Interact.PowerOff",
+                        "VirtualMachine.Interact.PowerOn")
+        $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
         Connect-VIServer -Server $VC_ADDRESS -Credential $HcxAdminCredential | Out-Null
 
         $Port = 443
