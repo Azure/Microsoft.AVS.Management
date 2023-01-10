@@ -25,11 +25,11 @@ AVS will expose some standard runtime options via PowerShell variables.  See bel
 | ------- | ----------- |--|
 | `VC_ADDRESS` | IP Address of VCenter | Script authors now can also use `"vc"` - hostname instead of the address |
 | `PersistentSecrets` | Hashtable for keeping secrets across package script executions | `$PersistentSecrets.ManagementAppliancePassword = '***'` |
-| `SSH_Sessions` | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SSHSession.md) | `Invoke-SSHCommand -Command "uname -a" -SSHSession $SSH_Sessions["esx.hostname.fqdn"].Value`
-| `SFTP_Sessions` | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh sftp session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SFTPSession.md) | `New-SFTPItem -ItemType Directory -Path "/tmp/zzz" -SFTPSession $SSH_Sessions[esx.hostname.fqdn].Value`
+| `SSH_Sessions` | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SSHSession.md) | `Invoke-SSHCommand -Command "uname -a" -SSHSession $SSH_Sessions["esx.hostname.fqdn"].Value`. Another key to the dictionary is `"VC"` for SSH to vCenter.
+| `SFTP_Sessions` | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh sftp session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SFTPSession.md) | `New-SFTPItem -ItemType Directory -Path "/tmp/zzz" -SFTPSession $SSH_Sessions[esx.hostname.fqdn].Value`. Another key to the dictionary is `"VC"` for SFTP to vCenter
 
 > <b>Persistent secrets</b>: 
-The scecrets are kept in a Keyvault, they are isloated on package name basis, shared across all versions of your package and made available for each of your package scripts. Delete a secrets by setting a property to an empty string or `$null`.
+The secrets are kept in a Keyvault, they are isloated on package name basis, shared across all versions of your package and made available for each of your package scripts. Delete a secrets by setting a property to an empty string or `$null`.
 
 The script shall assume the directory it is executed in is temporary and can use it as needed, assuming 25GB is available.  This environment including any files will be torn down after the script execution.
 
@@ -67,6 +67,7 @@ If necessary, use the installation script to create a separate vCenter user and 
 Secrets and additional attributes:
 - Use `PSCredendial` and `SecureString` if taking credentials or secrets as inputs. These parameters are encrypted while inflight and at rest and will never be echoed back to the user.
 - The functions and parameters must have user-friendly description, using standard PS facilities.
+- All names must follow PowerShell [naming guidelines](https://learn.microsoft.com/en-us/powershell/scripting/developer/cmdlet/required-development-guidelines?view=powershell-7.3#use-only-approved-verbs-rd01).
 - Apply `AVSAttribute` as show in [this example](https://www.powershellgallery.com/packages/Microsoft.AVS.Management/1.0.31/Content/Microsoft.AVS.Management.psm1) to specify the default timeout and SDDC status for your scripts.
 
 Other supported parameter types:
@@ -74,6 +75,8 @@ Other supported parameter types:
 - `System.Double`
 - `System.Boolean`
 - `System.Int32`
+
+> IMPORTANT: `String` parameters must be [validated/sanitized](https://learn.microsoft.com/en-us/mem/configmgr/apps/deploy-use/learn-script-security#powershell-parameters-security) against script injection if used in script generation.
 
 If you need another parameter type please make sure it supports automatic conversion from `String`, as all the other parameter types will be taken as text.
 
@@ -201,7 +204,7 @@ The final QA cycle would be:
 
 ## Testing via Run Command
 At this point you can tell us that it’s ready to be reviewed.
-- We’ll review and if it looks OK we’ll import it into our private repository and list it for via Run Command/ARM API. The preview package will only be visible to subscriptions with certain feature flag and won't show up for general public.
+- We’ll review and if it looks OK we’ll import it into our private repository and list it for execution via Run Command/ARM API. The preview package will only be visible to subscriptions with certain feature flag and won't show up for general public.
 - Assuming everything works re-publish the package w/o `-preview` suffix.
 - We make your package available to general public.
  
