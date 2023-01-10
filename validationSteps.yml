@@ -1,8 +1,8 @@
 trigger:
-- main
+- none
 
 pr:
-- none
+- main
 ########################################
 variables:
 - template: vars.yml
