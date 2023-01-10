@@ -5,8 +5,7 @@ param (
 )
 
 function upload-package ([string]$name, [string]$version, [string]$feed, [string]$key) {
-    Write-Output "upload package $name@$version"
-    # Install-Module -Name $name -RequiredVersion $version -Repository PSGallery
+    # We do not need to do the install before Import because it is done in the restore dependencies task.
     Import-Module -Name $name -RequiredVersion $version
     $m = Get-Module -Name $name 
     if($null -eq $m) { throw "Was not able to find the dependency $name" }
@@ -15,11 +14,13 @@ function upload-package ([string]$name, [string]$version, [string]$feed, [string
     }
     $existing = Find-Package -Source $feed -Name $m.Name -AllowPrerelease -RequiredVersion $version -ErrorAction SilentlyContinue
     if($null -eq $existing) { 
-        # Save-Package -Name $m.Name -RequiredVersion $version -Source PSGallery -Provider NuGet -Path . -ErrorAction Stop
-        Publish-Module -Name $m.Name -RequiredVersion $version -NuGetApiKey $key -Repository $feed
-        if($? -eq $false) { throw "Unable to publish the package." } 
+        Write-Output "Pushing dependency $m.Name@$version to $feed"
+        Save-Package -Name $m.Name -RequiredVersion $version -Source $m.RepositorySourceLocation -Provider NuGet -Path . -ErrorAction Stop
+        $r = & dotnet @('nuget', 'push', ("{0}.{1}.nupkg" -f $m.Name,$version), '-s', $feed, '-k', $key)
+        if($? -eq $false) { throw ("Unable to publish the package $($m.Name)@$version, {0}" -f [System.Linq.Enumerable]::First($r.Split('\n'), [Func[object,bool]]{ param($l) $l.Contains("error") })) }
         else { Write-Output "Successfully published the dependency of $name@$version" }
     } else { Write-Output "$name@$version already in the feed"}
+}
 
 
 Write-Output "----START: findAndPublishDependencies-----"
@@ -28,12 +29,9 @@ $requiredModules = (Test-ModuleManifest "$absolutePathToManifest" -ErrorAction S
 if (!$?) {
     Write-Error -Message "FAILED: Could not extract the required dependency module"
     Throw "Dependencies must be loaded in order for the push to succeed"
-    
 } else {
     Write-Output "---- SUCCEEDED: Was able to parse the dependencies ----"
-    foreach($d in $requiredModules) { 
-        Write-Output "Required module: $d"
-    }
+    $requiredModules | Select-Object Name, Version
 }
 
 $feedParameters = @{
@@ -43,7 +41,7 @@ $feedParameters = @{
         InstallationPolicy = 'Trusted'
 }
 
-Write-Output "----Registering PSRepository ----"
+Write-Output "----Registering AVS Nuget Feed ----"
 Unregister-PSRepository -Name $feedParameters.Name -ErrorAction SilentlyContinue
 Register-PSRepository @feedParameters
 if (!$?) {
@@ -53,7 +51,7 @@ if (!$?) {
     Write-Output "----SUCCEEDED: $($feedParameters.Name) repository registered ----"
 }
 
+Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
 foreach($d in $requiredModules) {
-    Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
-    upload-package $d.Name $d.Version $feedParameters.Name "$env:UNOFFICIAL_FEED_NUGET_APIKEY"
+    upload-package $d.Name $d.Version $feedParameters.PublishLocation "$env:UNOFFICIAL_FEED_NUGET_APIKEY"
 }
