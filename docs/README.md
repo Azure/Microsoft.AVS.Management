@@ -194,9 +194,9 @@ sshLogin $ESX_Credentials
 ```
 
 The final QA cycle would be:
-- Publish the package with `-preview` suffix
+- Publish the package with `-preview` version suffix
 - Get on the Linux jumpbox connected to your SDDC vnet
-- install docker and spin up an instance of this image: mcr.microsoft.com/powershell:7.2.1-alpine-3.14-20211215
+- install docker and spin up an instance of this image: mcr.microsoft.com/powershell:lts-7.2-alpine-3.14
 - In the PowerShell container:
     - Install only your package from PS Gallery – this is to ensure that your package has correctly specified all the dependencies
     - Setup the context
