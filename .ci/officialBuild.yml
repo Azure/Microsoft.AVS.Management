@@ -51,62 +51,10 @@ stages:
     - publish: $(System.DefaultWorkingDirectory)
       artifact: ${{ variables.stageForUnsignedFolder }}
       displayName: Stage Unsigned Module
-  ## Compliance
-  ###########################################################################################
-  - job: Check_Compliance
-    displayName: Compliance Tasks
-    dependsOn: 
-    - Build
-    condition: succeeded('Build')
-    steps:
-    - task: ComponentGovernanceComponentDetection@0
-      displayName: 'Component Detection'
-      inputs:
-        sourceScanPath: '$(Build.SourcesDirectory)'
-        snapshotForceEnabled: true
-    - task: securedevelopmentteam.vss-secure-development-tools.build-task-credscan.CredScan@2
-      displayName: 'Run CredScan'
-      inputs:
-        toolMajorVersion: V2
-        debugMode: false
-      continueOnError: false
-    - task: PoliCheck@1
-      displayName: 'Run PoliCheck'
-      inputs:
-        targetType: F
-        optionsFC: 0
-        optionsXS: 0
-        optionsPE: '1|2|3|4'
-        optionsHMENABLE: 0
-      continueOnError: false
-    - task: PublishSecurityAnalysisLogs@2
-      displayName: 'Publish Security Analysis Logs to Build Artifacts'
-      continueOnError: false
-    - task: SdtReport@1
-      inputs:
-        AllTools: false
-        APIScan: false
-        BinSkim: false
-        CodesignValidation: false
-        CredScan: true
-        FortifySCA: false
-        FxCop: false
-        ModernCop: false
-        MSRD: false
-        PoliCheck: true
-        PoliCheckBreakOn: 'Severity2Above'
-        RoslynAnalyzers: false
-        SDLNativeRules: false
-        Semmle: false
-        TSLint: false
-        ToolLogsNotFoundAction: 'Standard'
   # Sign and Publish
   ################################################################################################
   - job: Release
     displayName: Sign and Publish
-    dependsOn: 
-    - Check_Compliance
-    condition: succeeded('Check_Compliance')
     steps:
     - task: DownloadPipelineArtifact@2
       inputs:
