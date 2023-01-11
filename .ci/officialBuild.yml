@@ -66,47 +66,6 @@ stages:
         source: 'current'
         artifact: '${{ variables.stageForUnsignedFolder }}'
         path: '$(Build.ArtifactStagingDirectory)/${{ variables.stageForUnsignedFolder }}'
-    - task: EsrpCodeSigning@1
-      inputs:
-        ConnectedServiceName: 'AVS-Automation-AdminTools-OfficialBuild'
-        FolderPath: '$(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}'
-        Pattern: '${{ variables.moduleFolderName }}.psd1,${{ variables.moduleFolderName }}.psm1'
-        UseMinimatch: false
-        signConfigType: 'inlineSignParams'
-        inlineOperation: |
-          [
-            {
-              "keyCode": "CP-230012",
-              "operationSetCode": "SigntoolSign",
-              "parameters": [
-                {
-                  "parameterName": "OpusName",
-                  "parameterValue": "AVS-Automation-AdminTools"
-                },
-                {
-                  "parameterName": "OpusInfo",
-                  "parameterValue": "https://github.com/Azure/azure-avs-automation-admintools"
-                },
-                {
-                  "parameterName": "PageHash",
-                  "parameterValue": "/NPH"
-                },
-                {
-                  "parameterName": "FileDigest",
-                  "parameterValue": "/fd sha256"
-                },
-                {
-                  "parameterName": "TimeStamp",
-                  "parameterValue": "/tr \"http://rfc3161.gtm.corp.microsoft.com/TSS/HttpTspServer\" /td sha256"
-                }
-              ],
-              "toolName": "signtool.exe",
-              "toolVersion": "6.2.9304.0"
-            }
-          ]
-        SessionTimeout: '60'
-        MaxConcurrency: '50'
-        MaxRetryAttempts: '5'
     - task: PowerShell@2
       displayName: Restore Dependencies
       inputs:
