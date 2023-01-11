@@ -118,7 +118,7 @@ stages:
         source: 'current'
         artifact: '${{ variables.stageForUnsignedFolder }}'
         path: '$(Build.ArtifactStagingDirectory)/${{ variables.stageForUnsignedFolder }}'
-    - task: EsrpCodeSigning
+    - task: EsrpCodeSigning@2
       inputs:
         ConnectedServiceName: 'AVS-Automation-AdminTools-OfficialBuild'
         FolderPath: '$(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}'
