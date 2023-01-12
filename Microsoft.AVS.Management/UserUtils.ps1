@@ -193,6 +193,7 @@ function Remove-TempUser {
         Write-Host "Removing role: $userRole"
         Remove-VIRole -Role (Get-VIRole -Name $userRole) -Force:$true -Confirm:$false | Out-Null
     }
+    Write-Host "Successfully removed temporary user: $userName and role: $userRole from $domain."
 }
 
 <#
