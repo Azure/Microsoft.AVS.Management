@@ -80,7 +80,8 @@ function Get-StoragePolicyInternal {
     if ($null -eq $StoragePolicy) {
         Write-Error "Could not find Storage Policy with the name $StoragePolicyName." -ErrorAction Continue
         Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
-    } elseif (-not ($StoragePolicy -in $VSANStoragePolicies)) {
+    }
+    elseif (-not ($StoragePolicy -in $VSANStoragePolicies)) {
         Write-Error "Storage policy $StoragePolicyName is not supported. Storage policies must be in the VSAN namespace" -ErrorAction Continue
         Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
     }
@@ -411,14 +412,15 @@ function New-LDAPSIdentitySource {
     $Password = $Credential.GetNetworkCredential().Password
     $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl -ErrorAction Stop
     [System.Array]$Certificates =
-        foreach($CertFile in $DestinationFileArray) {
-            try {
-                [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
-            } catch {
-                Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
-                throw "File to certificate conversion failed. See error message for more details"
-            }
+    foreach ($CertFile in $DestinationFileArray) {
+        try {
+            [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
         }
+        catch {
+            Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
+            throw "File to certificate conversion failed. See error message for more details"
+        }
+    }
     Write-Host "Adding the LDAPS Identity Source..."
     Add-LDAPIdentitySource `
         -Name $Name `
@@ -473,23 +475,25 @@ function Update-IdentitySourceCertificates {
 
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Stop
     if ($null -ne $ExternalIdentitySources) {
-        $IdentitySource = $ExternalIdentitySources | Where-Object {$_.Name -eq $DomainName}
+        $IdentitySource = $ExternalIdentitySources | Where-Object { $_.Name -eq $DomainName }
         if ($null -ne $IdentitySource) {
             $DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl -ErrorAction Stop
             [System.Array]$Certificates =
-                foreach($CertFile in $DestinationFileArray) {
-                    try {
-                        [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
-                    } catch {
-                        Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
-                        throw "File to certificate conversion failed. See error message for more details"
-                    }
+            foreach ($CertFile in $DestinationFileArray) {
+                try {
+                    [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
                 }
+                catch {
+                    Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
+                    throw "File to certificate conversion failed. See error message for more details"
+                }
+            }
             Write-Host "Updating the LDAPS Identity Source..."
             Set-LDAPIdentitySource -IdentitySource $IdentitySource -Certificates $Certificates -ErrorAction Stop
             $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
             $ExternalIdentitySources | Format-List | Out-String
-        } else {
+        }
+        else {
             Write-Error "Could not find Identity Source with name: $DomainName." -ErrorAction Stop
         }
     }
@@ -639,7 +643,8 @@ function Add-GroupToCloudAdmins {
             Write-Host "Searching $($AD.Name) for $GroupName"
             try {
                 $GroupFound = Get-SsoGroup -Name $GroupName -Domain $AD.Name -ErrorAction Stop
-            } catch {
+            }
+            catch {
                 Write-Host "Could not find $GroupName in $($AD.Name). Continuing.."
             }
             if ($null -ne $GroupFound -and -Not $FoundMatch) {
@@ -683,9 +688,9 @@ function Add-GroupToCloudAdmins {
         Write-Error "Internal Error fetching CloudAdmins group. Contact support" -ErrorAction Stop
     }
 
-    $GroupToAddTuple = [System.Tuple]::Create(“$($GroupToAdd.Name)”,”$($GroupToAdd.Domain)”)
+    $GroupToAddTuple = [System.Tuple]::Create(“$($GroupToAdd.Name)”, ”$($GroupToAdd.Domain)”)
     $CloudAdminMembers = @()
-    foreach ($a in $(Get-SsoGroup -Group $CloudAdmins)) { $tuple = [System.Tuple]::Create(“$($a.Name)”,”$($a.Domain)”); $CloudAdminMembers += $tuple }
+    foreach ($a in $(Get-SsoGroup -Group $CloudAdmins)) { $tuple = [System.Tuple]::Create(“$($a.Name)”, ”$($a.Domain)”); $CloudAdminMembers += $tuple }
     if ($GroupToAddTuple -in $CloudAdminMembers) {
         Write-Host "Group $($GroupToAddTuple.Item1)@$($($GroupToAddTuple.Item2)) has already been added to CloudAdmins."
         return
@@ -786,7 +791,8 @@ function Remove-GroupFromCloudAdmins {
             Write-Host "Searching $($AD.Name) for $GroupName"
             try {
                 $GroupFound = Get-SsoGroup -Name $GroupName -Domain $AD.Name -ErrorAction Stop
-            } catch {
+            }
+            catch {
                 Write-Host "Could not find $GroupName in $($AD.Name). Continuing.."
             }
             if ($null -ne $GroupFound -and -Not $FoundMatch) {
@@ -864,7 +870,8 @@ function Get-CloudAdminGroups {
     $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Stop
     if ($null -eq $CloudAdminMembers) {
         Write-Output "No groups yet added to CloudAdmin."
-    } else {
+    }
+    else {
         $CloudAdminMembers | Format-List | Out-String
     }
 }
@@ -932,10 +939,12 @@ function Set-VMStoragePolicy {
 
     if ($null -eq $VMList) {
         Write-Error "Was not able to set the storage policy on the VM. Could not find VM(s) with the name: $VMName" -ErrorAction Stop
-    } elseif ($VMList.count -eq 1) {
+    }
+    elseif ($VMList.count -eq 1) {
         $VM = $VMList[0]
         Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Stop
-    } else {
+    }
+    else {
         foreach ($VM in $VMList) {
             Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Continue
         }
@@ -982,7 +991,8 @@ function Set-LocationStoragePolicy {
 
     if ($null -eq $VMList) {
         Write-Error "Was not able to set storage policies. Could not find VM(s) in the container: $Location" -ErrorAction Stop
-    } else {
+    }
+    else {
         foreach ($VM in $VMList) {
             Set-StoragePolicyOnVM -VM $VM -VSANStoragePolicies $VSANStoragePolicies -StoragePolicy $StoragePolicy -ErrorAction Continue
         }
@@ -1034,33 +1044,40 @@ function Set-ClusterDefaultStoragePolicy {
     if ($null -eq $ClusterDatastores) {
         $hosts = $ClusterList | Get-VMHost
         if ($null -eq $hosts) {
-             Write-Error "Was not able to set the Storage policy on $ClusterList. The Cluster does not appear to have VM Hosts. Please add VM Hosts before setting storage policy" -ErrorAction Stop
-        } else {
-	     Write-Error "Setting the Storage Policy on this Cluster is not supported." -ErrorAction Stop
+            Write-Error "Was not able to set the Storage policy on $ClusterList. The Cluster does not appear to have VM Hosts. Please add VM Hosts before setting storage policy" -ErrorAction Stop
         }
-    } elseif ($ClusterDatastores.count -eq 1) {
+        else {
+            Write-Error "Setting the Storage Policy on this Cluster is not supported." -ErrorAction Stop
+        }
+    }
+    elseif ($ClusterDatastores.count -eq 1) {
         if ($ClusterDatastores[0] -in $CompatibleDatastores) {
             try {
                 Write-Host "Setting Storage Policy on $ClusterList to $StoragePolicyName..."
                 Set-SpbmEntityConfiguration -Configuration (Get-SpbmEntityConfiguration $ClusterDatastores[0]) -storagePolicy $StoragePolicy -ErrorAction Stop -Confirm:$false
                 Write-Output "Successfully set the Storage Policy on $ClusterList to $StoragePolicyName"
-            } catch {
+            }
+            catch {
                 Write-Error "Was not able to set the Storage Policy on the Cluster Datastore: $($PSItem.Exception.Message)" -ErrorAction Stop
             }
-        } else {
+        }
+        else {
             Write-Error "Modifying the default storage policy on this cluster: $($ClusterDatastores[0]) is not supported" -ErrorAction Stop
         }
-    } else {
+    }
+    else {
         foreach ($Datastore in $ClusterDatastores) {
             if ($Datastore -in $CompatibleDatastores) {
                 try {
                     Write-Host "Setting Storage Policy on $Datastore to $StoragePolicyName..."
                     Set-SpbmEntityConfiguration -Configuration (Get-SpbmEntityConfiguration $Datastore) -storagePolicy $StoragePolicy -ErrorAction Stop -Confirm:$false
                     Write-Output "Successfully set the storage policy on $Datastore to $StoragePolicyName"
-                } catch {
+                }
+                catch {
                     Write-Error "Was not able to set the storage policy on the Cluster Datastore: $($PSItem.Exception.Message)" -ErrorAction Stop
                 }
-            } else {
+            }
+            else {
                 Write-Error "Modifying the default storage policy on $Datastore is not supported" -ErrorAction Continue
                 continue
             }
@@ -1102,8 +1119,7 @@ function Restart-HCXManager {
         [int]
         $Timeout = 600
     )
-    try
-    {
+    try {
         $DefaultViConnection = $DefaultVIServers
         $UserName = 'tempHcxAdmin'
         $UserRole = 'tempHcxAdminRole'
@@ -1112,7 +1128,7 @@ function Restart-HCXManager {
 
         Write-Host "Creating new temp scripting user"
         $privileges = @("VirtualMachine.Interact.PowerOff",
-                        "VirtualMachine.Interact.PowerOn")
+            "VirtualMachine.Interact.PowerOn")
         $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
 
         Write-Host "INPUTS: HardReboot=$HardReboot, Force=$Force, Port=$Port, Timeout=$Timeout"
@@ -1122,10 +1138,8 @@ function Restart-HCXManager {
 
         Add-UserToGroup -userName $UserName -group $Group
 
-        if($hcxVm.PowerState -ne "PoweredOn")
-        {
-            if(-not $Force)
-            {
+        if ($hcxVm.PowerState -ne "PoweredOn") {
+            if (-not $Force) {
                 throw "$($hcxVm.Name) must be powered on to restart. Current powerstate is $($hcxVm.PowerState)."
             }
             Write-Host "Forcing PowerOn PowerState=$($hcxVm.PowerState), Force=$Force"
@@ -1133,8 +1147,7 @@ function Restart-HCXManager {
             $ForcedPowerOn = $true
         }
 
-        if(-not $Force)
-        {
+        if (-not $Force) {
             Write-Host "Connecting to HCX Server at port $Port..."
             $elapsed = Measure-Command -Expression { Connect-HCXServer -Server $HcxServer -Port $Port -Credential $HcxAdminCredential -ErrorAction Stop }
             Write-Host "Connected to HCX Server at port $Port elapsed=$elapsed."
@@ -1142,8 +1155,7 @@ function Restart-HCXManager {
 
             $migratingVmsCount = (Get-HCXMigration -State MIGRATING -Server $HcxServer).Count
 
-            if($migratingVmsCount -gt 0)
-            {
+            if ($migratingVmsCount -gt 0) {
                 throw "VM cannot restart while migrations are in progress. There are $migratingVmsCount active migrations."
             }
 
@@ -1162,48 +1174,38 @@ function Restart-HCXManager {
                 -Headers @{ 'x-hm-authorization' = "$xHmAuthorization" } `
             | ConvertTo-Json | ConvertFrom-Json -AsHashtable
 
-            foreach ($key in $keysToLookFor)
-            {
-                if (!$replicationSummary.containsKey($key))
-                {
+            foreach ($key in $keysToLookFor) {
+                if (!$replicationSummary.containsKey($key)) {
                     throw "$key not found in replication summary response."
                 }
 
                 $replicationType = $replicationSummary[$key]
-                if ($replicationType.Count -eq 0)
-                {
+                if ($replicationType.Count -eq 0) {
                     $runningReplicationCount = 0
                 }
-                else
-                {
+                else {
                     $runningReplicationCount = $replicationType["outgoing"]
                 }
-                if ($replicationType.containsKey("incoming"))
-                {
+                if ($replicationType.containsKey("incoming")) {
                     $runningReplicationCount += $replicationType["incoming"]
                 }
-                if ($runningReplicationCount -gt 0)
-                {
+                if ($runningReplicationCount -gt 0) {
                     throw "VM cannot restart while replications are in progress. $key=$runningReplicationCount"
                 }
                 Write-Host "$key=$runningReplicationCount"
             }
             Write-Host "$runningReplicationCount total running replications found."
         }
-        else
-        {
+        else {
             Write-Host "WARNING: Force option given, VM will restart regardless of migration and replication status."
         }
-        if (-not $ForcedPowerOn)
-        {
-            if ($HardReboot)
-            {
+        if (-not $ForcedPowerOn) {
+            if ($HardReboot) {
                 Write-Host "Restarting $($hcxVm.Name)..."
                 Restart-VM -VM $hcxVm -Confirm:$false | Out-Null
                 Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
             }
-            else
-            {
+            else {
                 Write-Host "Restarting Guest OS..."
                 Restart-VMGuest -VM $hcxVm | Out-Null
                 Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
@@ -1213,11 +1215,9 @@ function Restart-HCXManager {
 
         $refreshInterval = 30
         $count = $Timeout / $refreshInterval
-        do
-        {
+        do {
             $count -= 1
-            if ($count -lt 0)
-            {
+            if ($count -lt 0) {
                 throw "Timed out reconnecting to HCX Server."
             }
             Start-Sleep -Seconds $refreshInterval
@@ -1226,14 +1226,12 @@ function Restart-HCXManager {
         until ($hcxConnection)
         Write-Host "HCX Appliance on $($hcxVm.name) is now available. Disconnecting from HCX Server."
     }
-    catch
-    {
+    catch {
         Write-Error $_
     }
-    finally
-    {
+    finally {
         $global:DefaultVIServers = $DefaultViConnection
-        if($hcxConnection) { Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force }
+        if ($hcxConnection) { Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force }
         Remove-TempUser -userName $UserName -userRole $UserRole
     }
 
@@ -1252,9 +1250,9 @@ function Set-HcxScaledCpuAndMemorySetting {
 
         Write-Host "Creating new temp scripting user"
         $privileges = @("VirtualMachine.Config.CPUCount",
-                        "VirtualMachine.Config.Memory",
-                        "VirtualMachine.Interact.PowerOff",
-                        "VirtualMachine.Interact.PowerOn")
+            "VirtualMachine.Config.Memory",
+            "VirtualMachine.Interact.PowerOff",
+            "VirtualMachine.Interact.PowerOn")
         $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
         Connect-VIServer -Server $VC_ADDRESS -Credential $HcxAdminCredential | Out-Null
 
@@ -1269,20 +1267,20 @@ function Set-HcxScaledCpuAndMemorySetting {
         Write-Host "Identifying HCX Vm"
         $VmsList = Get-VM
         foreach ($Vm in $VmsList) {
-            if($Vm.Name.Contains("HCX-MGR")) {
+            if ($Vm.Name.Contains("HCX-MGR")) {
                 $HcxVm = $Vm
                 $Found = $true
                 break
             }
         }
 
-        if(-not $Found) {
+        if (-not $Found) {
             throw "HCX VM could not be found. Please check if the HCX addon is installed."
         }
-        if($HcxVm.PowerState -ne "PoweredOn") {
+        if ($HcxVm.PowerState -ne "PoweredOn") {
             throw "$($HcxVm.Name) must be powered on. Current powerstate is $($HcxVm.PowerState)."
         }
-        if(($HcxVm.NumCpu -eq $HcxScaledtNumCpu) -and
+        if (($HcxVm.NumCpu -eq $HcxScaledtNumCpu) -and
         ($HcxVm.MemoryGb -eq $HcxScaledMemoryGb)) {
             throw "HCX VM: $($HcxVm.Name) is already scaled to $($HcxVm.NumCpu) CPUs and $($HcxVm.MemoryGb) Memory."
         }
@@ -1294,7 +1292,7 @@ function Set-HcxScaledCpuAndMemorySetting {
 
         Write-Host "Checking for active migrations."
         $migratingVmsCount = (Get-HCXMigration -State MIGRATING -Server $HcxServer).Count
-        if($migratingVmsCount -gt 0) {
+        if ($migratingVmsCount -gt 0) {
             throw "There are $migratingVmsCount active migrations. Resume operation at a later time"
         }
 
@@ -1303,7 +1301,7 @@ function Set-HcxScaledCpuAndMemorySetting {
         $XHmAuthorization = Get-AuthorizationToken -Credential $HcxAdminCredential -HcxServer $HcxServer
         $HcxMetaData = Get-HcxMetaData -HcxServer $HcxServer -XHmAuthorization $XHmAuthorization
         $HcxCurrentVersion = $HcxMetaData.endpoint.version
-        if($HcxCurrentVersion -lt $HcxPreferredVersion) {
+        if ($HcxCurrentVersion -lt $HcxPreferredVersion) {
             throw "Current HCX version: $HcxCurrentVersion is less than the prefered version: $HcxPreferredVersion"
         }
 
@@ -1313,15 +1311,15 @@ function Set-HcxScaledCpuAndMemorySetting {
         $elapsed = Measure-Command -Expression { $Appliances = Get-HCXAppliance }
         Write-Host "Retrieved Appliances elapsed=$elapsed."
 
-        if($Appliances.Count -gt 0) {
+        if ($Appliances.Count -gt 0) {
             $VersionPerAppliance = @{
-                Interconnect = $HcxPreferredVersion;
+                Interconnect   = $HcxPreferredVersion;
                 L2Concentrator = $HcxPreferredVersion
             }
 
-            foreach($Appliance in $appliances) {
-                if($VersionPerAppliance.ContainsKey("$($Appliance."Type")") -and
-                $Appliance."CurrentVersion" -lt $VersionPerAppliance["$($Appliance."Type")"]) {
+            foreach ($Appliance in $appliances) {
+                if ($VersionPerAppliance.ContainsKey("$($Appliance."Type")") -and
+                    $Appliance."CurrentVersion" -lt $VersionPerAppliance["$($Appliance."Type")"]) {
                     throw "Current Appliance: $($Appliance."Type") version: $($Appliance."CurrentVersion") is less than the prefered version: $HcxPreferredVersion"
                 }
             }
@@ -1335,10 +1333,10 @@ function Set-HcxScaledCpuAndMemorySetting {
 
         Write-Host "Retrieving /Common Percentage"
         $DiskFileSystemReturn = Invoke-SSHStreamShellCommand -ShellStream $Stream -Command 'df -h | grep "/common"'
-        if($DiskFileSystemReturn.GetType().Name -eq 'Object[]') { $SlashCommonPercentage = $($DiskFileSystemReturn[0] -Split '\s+')[4] }
+        if ($DiskFileSystemReturn.GetType().Name -eq 'Object[]') { $SlashCommonPercentage = $($DiskFileSystemReturn[0] -Split '\s+')[4] }
         else { $SlashCommonPercentage = '0%' }
 
-        if($SlashCommonPercentage -gt $SlashCommonTreshold) {
+        if ($SlashCommonPercentage -gt $SlashCommonTreshold) {
             throw "/Common Percentage: $SlashCommonPercentage is greater than the allowed treshold: $SlashCommonTreshold"
         }
 
@@ -1346,7 +1344,7 @@ function Set-HcxScaledCpuAndMemorySetting {
 
         Write-Host "Shutting Down Guest OS"
         Stop-VMGuest -VM $HcxVm -Confirm:$false | Out-Null
-        while($(Get-VMGuest -VM $HcxVm).State -ne 'NotRunning') {
+        while ($(Get-VMGuest -VM $HcxVm).State -ne 'NotRunning') {
             Start-Sleep -Seconds 5
             Write-Host "$($HcxVm.Name)'s Guest OS powerstate=$($(Get-VMGuest -VM $HcxVm).State)"
         }
@@ -1370,8 +1368,8 @@ function Set-HcxScaledCpuAndMemorySetting {
     finally {
         $global:DefaultVIServers = $DefaultViConnection
 
-        if($SshSession) { Remove-SSHSession -SSHSession $SshSession }
-        if($hcxConnection) { Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force }
+        if ($SshSession) { Remove-SSHSession -SSHSession $SshSession }
+        if ($hcxConnection) { Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force }
         Remove-TempUser -userName $UserName -userRole $UserRole
     }
 }
