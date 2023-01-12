@@ -1128,9 +1128,11 @@ function Restart-HCXManager {
 
         Write-Host "Creating new temp scripting user"
         $privileges = @("VirtualMachine.Interact.PowerOff",
-            "VirtualMachine.Interact.PowerOn")
+                        "VirtualMachine.Interact.PowerOn",
+                        "VirtualMachine.Interact.Reset"
+            )
         $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
-
+        Connect-VIServer -Server "vc" -Credential $HcxAdminCredential -Force | Out-Null
         Write-Host "INPUTS: HardReboot=$HardReboot, Force=$Force, Port=$Port, Timeout=$Timeout"
 
         $HcxServer = 'hcx'
