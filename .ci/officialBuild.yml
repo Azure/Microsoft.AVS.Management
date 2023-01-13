@@ -166,7 +166,6 @@ stages:
         arguments: '${{ variables.moduleFolderName }}/${{ variables.moduleFolderName }}.psd1'
         pwsh: true
     - task: NuGetAuthenticate@1
-      inputs:
     - pwsh: |
         Remove-Item "$(Build.ArtifactStagingDirectory)/${{ variables.moduleFolderName }}/CodeSignSummary*"
       displayName: Remove CodeSign Summary before packaging
