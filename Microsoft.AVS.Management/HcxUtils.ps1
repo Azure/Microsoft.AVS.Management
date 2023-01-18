@@ -122,9 +122,6 @@ function Get-HcxManagerVM {
             $HcxVm = $Vm
             break
         }
-    }
-    if(-not $HcxVm) {
-        throw "HCX VM could not be found. Please check if the HCX addon is installed."
-    }
+    }   
     return $HcxVm
 }

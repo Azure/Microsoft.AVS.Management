@@ -1085,6 +1085,46 @@ function Set-ClusterDefaultStoragePolicy {
     }
 }
 <#
+    .Synopsis 
+    Verify a connection to VIServer with retries and a backoff timer in the case of unexpected exceptions.
+    .Parameter Credential
+    Specifies credential used to connect to VIServer
+    .Example
+    Confirm-ConnectVIServer -Credential -HcxAdminCredential
+#>
+function Confirm-ConnectVIServer {
+    [CmdletBinding()]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Credential used to connect to VI Server')]
+        [ValidateNotNull()]
+        [System.Management.Automation.PSCredential]
+        [System.Management.Automation.Credential()]
+        $Credential
+    )
+    $Attempts = 3
+    $Backoff = 5
+    $IsConnected = $false
+        while($Attempts -gt 0) {
+        try {
+            $ViServer = Connect-VIServer -Server "vc" -Credential $Credential -Force
+            if ($ViServer.IsConnected){
+                $IsConnected = $ViServer.IsConnected
+                break
+            }
+        } catch {
+            Write-Host $_.Exception
+            Write-Host "Sleeping for $Backoff seconds before trying again."
+            Start-Sleep $Backoff
+        }
+        $Attempts-- 
+    }
+    return $IsConnected
+}
+
+<#
     .Synopsis
     Restarts the HCX Manager VM
     .Parameter Force
@@ -1100,6 +1140,7 @@ function Set-ClusterDefaultStoragePolicy {
     Restart-HcxManager -Force -HardReboot
 #>
 function Restart-HCXManager {
+    [AVSAttribute(20, UpdatesSDDC = $false)]
     Param(
         [parameter(
             Mandatory = $false,
@@ -1132,12 +1173,20 @@ function Restart-HCXManager {
                         "VirtualMachine.Interact.Reset"
             )
         $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
-        Connect-VIServer -Server "vc" -Credential $HcxAdminCredential -Force | Out-Null
+        $VcenterConnection = Confirm-ConnectVIServer -Credential $HcxAdminCredential
+
+        if (-not $VcenterConnection){
+            throw "Error Connecting to Vcenter with $($HcxAdminCredential.userName)"
+        }
+        
         Write-Host "INPUTS: HardReboot=$HardReboot, Force=$Force, Port=$Port, Timeout=$Timeout"
 
         $HcxServer = 'hcx'
         $hcxVm = Get-HcxManagerVM
-
+        if(-not $HcxVm) 
+        {
+        throw "HCX VM could not be found. Please check if the HCX addon is installed."
+        }
         Add-UserToGroup -userName $UserName -group $Group
 
         if ($hcxVm.PowerState -ne "PoweredOn") {
