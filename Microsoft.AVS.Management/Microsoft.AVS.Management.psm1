@@ -1164,7 +1164,7 @@ function Restart-HCXManager {
         $DefaultViConnection = $DefaultVIServers
         $UserName = 'tempHcxAdmin'
         $UserRole = 'tempHcxAdminRole'
-        $Group = 'CloudAdmins'
+        $Group = 'Administrators'
         $Port = 443
 
         Write-Host "Creating new temp scripting user"
@@ -1285,7 +1285,6 @@ function Restart-HCXManager {
         if ($hcxConnection) { Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force }
         Remove-TempUser -userName $UserName -userRole $UserRole
     }
-
 }
 
 <#
