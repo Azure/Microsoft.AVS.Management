@@ -33,9 +33,13 @@ The secrets are kept in a Keyvault, they are isolated on package name basis, sha
 
 The script shall assume the directory it is executed in is temporary and can use it as needed, assuming 25GB is available.  This environment including any files will be torn down after the script execution.
 
+## Script Execution
+
+Script executions are serialized (executed one at a time) for the safety of all parties.
+
 ## Script Termination
 
-AVS will terminate the script if it runs beyond the established AVS scripting timeout period. Timeout will be defaulted to 30 minutes unless one is provided by the script author (see `AVSAttribute` below).
+AVS will terminate the script if it runs beyond the established AVS scripting timeout period. Timeout will be defaulted to 30 minutes unless one is provided by the script author (see `AVSAttribute` below).  The max timeout value is one hour.  The timeout value can override on a per-cmdlet basis.
 
 ## Script Review
 
@@ -209,3 +213,14 @@ At this point you can tell us that it’s ready to be reviewed.
 - We make your package available to general public.
  
 After this initial onboarding we require that the vendor sets up CI testing that executes the commandlets via AVS SDK to make sure future packages pass the lifecycle test and to shield you from any possible changes on the AVS side. Promotion from `-preview` to generally available package will be conditional on the test report that shows that all commandlets perform as expected.
+
+## FAQ
+
+**Q**: Does the Run Command container have access to the Internet?</br>
+**A**: Yes.
+
+**Q**: Does Run Command carry session state across invocations?</br>
+**A**: No, with the exception of package-scoped secrets there is no support for preserving state across executions.
+
+**Q**: Is there a way to invoke Run Command outside of the Azure portal?</br>
+**A**: Yes, see [az vmware script-execution create](https://learn.microsoft.com/en-us/cli/azure/vmware/script-execution?view=azure-cli-latest#az-vmware-script-execution-create) documentation, or see the [C# sample](https://github.com/boumenot/Microsoft.AVS.Management/blob/main/samples/Program.cs) for an example using the Azure SDK.
