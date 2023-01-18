@@ -1085,7 +1085,7 @@ function Set-ClusterDefaultStoragePolicy {
     }
 }
 <#
-    .Synopsis 
+    .Synopsis
     Verify a connection to VIServer with retries and a backoff timer in the case of unexpected exceptions.
     .Parameter Credential
     Specifies credential used to connect to VIServer
@@ -1107,19 +1107,20 @@ function Confirm-ConnectVIServer {
     $Attempts = 3
     $Backoff = 5
     $IsConnected = $false
-        while($Attempts -gt 0) {
+    while ($Attempts -gt 0) {
         try {
             $ViServer = Connect-VIServer -Server "vc" -Credential $Credential -Force
-            if ($ViServer.IsConnected){
+            if ($ViServer.IsConnected) {
                 $IsConnected = $ViServer.IsConnected
                 break
             }
-        } catch {
+        }
+        catch {
             Write-Host $_.Exception
             Write-Host "Sleeping for $Backoff seconds before trying again."
             Start-Sleep $Backoff
         }
-        $Attempts-- 
+        $Attempts--
     }
     return $IsConnected
 }
@@ -1169,23 +1170,22 @@ function Restart-HCXManager {
 
         Write-Host "Creating new temp scripting user"
         $privileges = @("VirtualMachine.Interact.PowerOff",
-                        "VirtualMachine.Interact.PowerOn",
-                        "VirtualMachine.Interact.Reset"
-            )
+            "VirtualMachine.Interact.PowerOn",
+            "VirtualMachine.Interact.Reset"
+        )
         $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
         $VcenterConnection = Confirm-ConnectVIServer -Credential $HcxAdminCredential
 
-        if (-not $VcenterConnection){
+        if (-not $VcenterConnection) {
             throw "Error Connecting to Vcenter with $($HcxAdminCredential.userName)"
         }
-        
+
         Write-Host "INPUTS: HardReboot=$HardReboot, Force=$Force, Port=$Port, Timeout=$Timeout"
 
         $HcxServer = 'hcx'
         $hcxVm = Get-HcxManagerVM
-        if(-not $HcxVm) 
-        {
-        throw "HCX VM could not be found. Please check if the HCX addon is installed."
+        if (-not $HcxVm) {
+            throw "HCX VM could not be found. Please check if the HCX addon is installed."
         }
         Add-UserToGroup -userName $UserName -group $Group
 
