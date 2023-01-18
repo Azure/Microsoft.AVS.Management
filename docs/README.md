@@ -13,7 +13,7 @@ AVS Scripting environment is expecting to run scripts targeted for vCenter via P
 
 The 3rd Party script will not have access to administrator password.  Prior to executing a 3rd Party script, AVS will establish administrator level login sessions with vCenter.    This will allow any API within vCenter to be accessed.  There will be two logins established:
 
-- The first login will be done with PowerCLI's [Connect-VIServer](https://developer.vmware.com/docs/powercli/latest/vmware.vimautomation.core/commands/connect-viserver/#Default) cmdlet.  
+- The first login will be done with PowerCLI's [Connect-VIServer](https://developer.vmware.com/docs/powercli/latest/vmware.vimautomation.core/commands/connect-viserver/#Default) cmdlet.
 - The second login will be done with VMware's [Connect-SsoAdminServer](https://github.com/vmware/PowerCLI-Example-Scripts/tree/master/Modules/VMware.vSphere.SsoAdmin).
 
 
@@ -29,13 +29,13 @@ AVS will expose some standard runtime options via PowerShell variables.  See bel
 | `SFTP_Sessions` | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh sftp session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SFTPSession.md) | `New-SFTPItem -ItemType Directory -Path "/tmp/zzz" -SFTPSession $SSH_Sessions[esx.hostname.fqdn].Value`. Another key to the dictionary is `"VC"` for SFTP to vCenter
 
 > <b>Persistent secrets</b>: 
-The secrets are kept in a Keyvault, they are isloated on package name basis, shared across all versions of your package and made available for each of your package scripts. Delete a secrets by setting a property to an empty string or `$null`.
+The secrets are kept in a Keyvault, they are isolated on package name basis, shared across all versions of your package and made available for each of your package scripts. Delete a secrets by setting a property to an empty string or `$null`.
 
 The script shall assume the directory it is executed in is temporary and can use it as needed, assuming 25GB is available.  This environment including any files will be torn down after the script execution.
 
 ## Script Termination
 
-AVS will terminate the script if it runs beyond the established AVS scripting timeout period. Timeout will be defaulted to 30 minutes unless one is provided by the script author (see `AVSAttribute` bellow).
+AVS will terminate the script if it runs beyond the established AVS scripting timeout period. Timeout will be defaulted to 30 minutes unless one is provided by the script author (see `AVSAttribute` below).
 
 ## Script Review
 
@@ -59,13 +59,13 @@ A Module should not attempt to elevate privileges for the AVS provided `cloudadm
 
 If necessary, use the installation script to create a separate vCenter user and role to give it.  Recommendation is to use the `cloudadmins` role as a base by duplicating it, then add necessary elevated privileges to the new role.  The privileges required for the new role will need to be reviewed by Microsoft. 
 > Always add the created account to `CloudAdmins` SSO group.
-> Provide a commandlet to rotate the service account password.
+> Provide a cmdlet to rotate the service account password.
 > Do not expose the credentials in any way, use `PersistentSecrets` if access to the password may be required later.
 
 ## Top-level functionality should be exposed as functions with [CmdletBinding](https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_functions_cmdletbindingattribute?view=powershell-7.1) taking all the inputs as the named parameters.
 
 Secrets and additional attributes:
-- Use `PSCredendial` and `SecureString` if taking credentials or secrets as inputs. These parameters are encrypted while inflight and at rest and will never be echoed back to the user.
+- Use `PSCredential` and `SecureString` if taking credentials or secrets as inputs. These parameters are encrypted while inflight and at rest and will never be echoed back to the user.
 - The functions and parameters must have user-friendly description, using standard PS facilities.
 - All names must follow PowerShell [naming guidelines](https://learn.microsoft.com/en-us/powershell/scripting/developer/cmdlet/required-development-guidelines?view=powershell-7.3#use-only-approved-verbs-rd01).
 - Apply `AVSAttribute` as show in [this example](https://www.powershellgallery.com/packages/Microsoft.AVS.Management/1.0.31/Content/Microsoft.AVS.Management.psm1) to specify the default timeout and SDDC status for your scripts.
