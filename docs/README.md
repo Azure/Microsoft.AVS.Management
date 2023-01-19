@@ -13,7 +13,7 @@ AVS Scripting environment is expecting to run scripts targeted for vCenter via P
 
 The 3rd Party script will not have access to administrator password.  Prior to executing a 3rd Party script, AVS will establish administrator level login sessions with vCenter.    This will allow any API within vCenter to be accessed.  There will be two logins established:
 
-- The first login will be done with PowerCLI's [Connect-VIServer](https://developer.vmware.com/docs/powercli/latest/vmware.vimautomation.core/commands/connect-viserver/#Default) cmdlet.  
+- The first login will be done with PowerCLI's [Connect-VIServer](https://developer.vmware.com/docs/powercli/latest/vmware.vimautomation.core/commands/connect-viserver/#Default) cmdlet.
 - The second login will be done with VMware's [Connect-SsoAdminServer](https://github.com/vmware/PowerCLI-Example-Scripts/tree/master/Modules/VMware.vSphere.SsoAdmin).
 
 
@@ -29,13 +29,17 @@ AVS will expose some standard runtime options via PowerShell variables.  See bel
 | `SFTP_Sessions` | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh sftp session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SFTPSession.md) | `New-SFTPItem -ItemType Directory -Path "/tmp/zzz" -SFTPSession $SSH_Sessions[esx.hostname.fqdn].Value`. Another key to the dictionary is `"VC"` for SFTP to vCenter
 
 > <b>Persistent secrets</b>: 
-The secrets are kept in a Keyvault, they are isloated on package name basis, shared across all versions of your package and made available for each of your package scripts. Delete a secrets by setting a property to an empty string or `$null`.
+The secrets are kept in a Keyvault, they are isolated on package name basis, shared across all versions of your package and made available for each of your package scripts. Delete a secrets by setting a property to an empty string or `$null`.
 
 The script shall assume the directory it is executed in is temporary and can use it as needed, assuming 25GB is available.  This environment including any files will be torn down after the script execution.
 
+## Script Execution
+
+Script executions are serialized (executed one at a time) for the safety of all parties.
+
 ## Script Termination
 
-AVS will terminate the script if it runs beyond the established AVS scripting timeout period. Timeout will be defaulted to 30 minutes unless one is provided by the script author (see `AVSAttribute` bellow).
+AVS will terminate the script if it runs beyond the established AVS scripting timeout period. Timeout will be defaulted to 30 minutes unless one is provided by the script author (see `AVSAttribute` below).  The max timeout value is one hour.  The timeout value can override on a per-cmdlet basis.
 
 ## Script Review
 
@@ -59,13 +63,13 @@ A Module should not attempt to elevate privileges for the AVS provided `cloudadm
 
 If necessary, use the installation script to create a separate vCenter user and role to give it.  Recommendation is to use the `cloudadmins` role as a base by duplicating it, then add necessary elevated privileges to the new role.  The privileges required for the new role will need to be reviewed by Microsoft. 
 > Always add the created account to `CloudAdmins` SSO group.
-> Provide a commandlet to rotate the service account password.
+> Provide a cmdlet to rotate the service account password.
 > Do not expose the credentials in any way, use `PersistentSecrets` if access to the password may be required later.
 
 ## Top-level functionality should be exposed as functions with [CmdletBinding](https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_functions_cmdletbindingattribute?view=powershell-7.1) taking all the inputs as the named parameters.
 
 Secrets and additional attributes:
-- Use `PSCredendial` and `SecureString` if taking credentials or secrets as inputs. These parameters are encrypted while inflight and at rest and will never be echoed back to the user.
+- Use `PSCredential` and `SecureString` if taking credentials or secrets as inputs. These parameters are encrypted while inflight and at rest and will never be echoed back to the user.
 - The functions and parameters must have user-friendly description, using standard PS facilities.
 - All names must follow PowerShell [naming guidelines](https://learn.microsoft.com/en-us/powershell/scripting/developer/cmdlet/required-development-guidelines?view=powershell-7.3#use-only-approved-verbs-rd01).
 - Apply `AVSAttribute` as show in [this example](https://www.powershellgallery.com/packages/Microsoft.AVS.Management/1.0.31/Content/Microsoft.AVS.Management.psm1) to specify the default timeout and SDDC status for your scripts.
@@ -194,9 +198,9 @@ sshLogin $ESX_Credentials
 ```
 
 The final QA cycle would be:
-- Publish the package with `-preview` suffix
+- Publish the package with `-preview` version suffix
 - Get on the Linux jumpbox connected to your SDDC vnet
-- install docker and spin up an instance of this image: mcr.microsoft.com/powershell:7.2.1-alpine-3.14-20211215
+- install docker and spin up an instance of this image: mcr.microsoft.com/powershell:lts-7.2-alpine-3.14
 - In the PowerShell container:
     - Install only your package from PS Gallery – this is to ensure that your package has correctly specified all the dependencies
     - Setup the context
@@ -209,3 +213,14 @@ At this point you can tell us that it’s ready to be reviewed.
 - We make your package available to general public.
  
 After this initial onboarding we require that the vendor sets up CI testing that executes the commandlets via AVS SDK to make sure future packages pass the lifecycle test and to shield you from any possible changes on the AVS side. Promotion from `-preview` to generally available package will be conditional on the test report that shows that all commandlets perform as expected.
+
+## FAQ
+
+**Q**: Does the Run Command container have access to the Internet?</br>
+**A**: Yes.
+
+**Q**: Does Run Command carry session state across invocations?</br>
+**A**: No, with the exception of package-scoped secrets there is no support for preserving state across executions.
+
+**Q**: Is there a way to invoke Run Command outside of the Azure portal?</br>
+**A**: Yes, see [az vmware script-execution create](https://learn.microsoft.com/en-us/cli/azure/vmware/script-execution?view=azure-cli-latest#az-vmware-script-execution-create) documentation, or see the [C# sample](https://github.com/boumenot/Microsoft.AVS.Management/blob/main/samples/Program.cs) for an example using the Azure SDK.

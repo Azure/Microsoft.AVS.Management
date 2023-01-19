@@ -1,3 +1,17 @@
+<#PSScriptInfo
+    .VERSION 1.0
+
+    .GUID f58381a2-e11d-46c8-aec9-fa3fcd6bd65a
+
+    .AUTHOR Frantz Prinvil
+
+    .COMPANYNAME Microsoft
+
+    .COPYRIGHT (c) Microsoft. All rights reserved.
+
+    .DESCRIPTION PowerShell Cmdlets to Support User Functionalities
+#>
+
 <#
     .Synopsis
     Adds a user account to an existing group
@@ -179,6 +193,7 @@ function Remove-TempUser {
         Write-Host "Removing role: $userRole"
         Remove-VIRole -Role (Get-VIRole -Name $userRole) -Force:$true -Confirm:$false | Out-Null
     }
+    Write-Host "Successfully removed temporary user: $userName and role: $userRole from $domain."
 }
 
 <#
