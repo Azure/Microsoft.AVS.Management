@@ -1117,9 +1117,9 @@ function Confirm-ConnectVIServer {
         }
         catch {
             Write-Host $_.Exception
-            Write-Host "Sleeping for $Backoff seconds before trying again."
-            Start-Sleep $Backoff
         }
+        Write-Host "Sleeping for $Backoff seconds before trying again."
+        Start-Sleep $Backoff
         $Attempts--
     }
     return $IsConnected
@@ -1262,7 +1262,7 @@ function Restart-HCXManager {
                 Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
             }
         }
-        Write-Host "Waiting on connection to HCX appliance..."
+        Write-Host "Waiting $Timeout seconds for successful connection to HCX appliance..."
 
         $refreshInterval = 30
         $count = $Timeout / $refreshInterval
@@ -1296,7 +1296,7 @@ function Set-HcxScaledCpuAndMemorySetting {
         $DefaultViConnection = $DefaultVIServers
         $UserName = 'tempHcxAdmin'
         $UserRole = 'tempHcxAdminRole'
-        $Group = 'CloudAdmins'
+        $Group = 'Administrators'
 
         Write-Host "Creating new temp scripting user"
         $privileges = @("VirtualMachine.Config.CPUCount",
@@ -1304,7 +1304,10 @@ function Set-HcxScaledCpuAndMemorySetting {
             "VirtualMachine.Interact.PowerOff",
             "VirtualMachine.Interact.PowerOn")
         $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
-        Connect-VIServer -Server $VC_ADDRESS -Credential $HcxAdminCredential | Out-Null
+        $VcenterConnection = Confirm-ConnectVIServer -Credential $HcxAdminCredential
+        if (-not $VcenterConnection) {
+            throw "Error Connecting to Vcenter with $($HcxAdminCredential.userName)"
+        }
 
         $Port = 443
         $HcxServer = 'hcx'
