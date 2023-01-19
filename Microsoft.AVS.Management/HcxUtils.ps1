@@ -1,3 +1,17 @@
+<#PSScriptInfo
+    .VERSION 1.0
+
+    .GUID 953d76b2-f8ef-4a8c-9754-44fef24ecb93
+
+    .AUTHOR Frantz Prinvil
+
+    .COMPANYNAME Microsoft
+
+    .COPYRIGHT (c) Microsoft. All rights reserved.
+
+    .DESCRIPTION PowerShell Cmdlets for Managing Hybrid Cloud Extension (HCX) on VMware Cloud on AWS
+#>
+
 <#
     .Synopsis
     Get the authorization token found in the response headers under the name of 'x-hm-authorization'
@@ -91,4 +105,23 @@ function Get-HcxMetaData {
     }
 
     throw "Unable To Retrieve HCX Manager Meta Data"
+}
+<#
+    .Synopsis
+    Get and return HCX Virtual machine
+    .Example
+    Get-HcxManagerVM
+#>
+function Get-HcxManagerVM {
+    Write-Host "Identifying HCX VM"
+    $HcxVm = $null
+    $VmsList = Get-VM
+
+    foreach ($Vm in $VmsList) {
+        if($Vm.Name.Contains("HCX-MGR")) {
+            $HcxVm = $Vm
+            break
+        }
+    }   
+    return $HcxVm
 }
