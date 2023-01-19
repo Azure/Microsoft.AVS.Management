@@ -296,10 +296,10 @@ function Get-CertificateFromDomainController {
         $Command = 'nc -vz ' + $ParsedUrl.Host + ' ' + $ParsedUrl.Port
         $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
         if ($SSHRes.ExitStatus -ne 0) { 
-            throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure the port $ParsedUrl.Port is open." 
+            throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $ParsedUrl.Port is open." 
         }
 
-        Write-Host ("Start to Download Cert from " + $computerUrl)
+        Write-Host ("Starting to Download Cert from " + $computerUrl)
         $Command = 'echo "1" | openssl s_client -connect ' + $ParsedUrl.Host + ':' + $ParsedUrl.Port + ' -showcerts'
         $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
         $SSHOutput = $SSHRes.Output | out-string
