@@ -55,6 +55,7 @@
         @{"ModuleName" = "VMware.vSphere.SsoAdmin"; "RequiredVersion" = "1.3.5" },
         @{"ModuleName" = "VMware.VimAutomation.Core"; "RequiredVersion" = "12.7.0.20091293" }
         @{"ModuleName" = "VMware.VimAutomation.Storage"; "RequiredVersion" = "12.7.0.20091292"}
+        @{"ModuleName" = "VMware.VimAutomation.Hcx"; "RequiredVersion" = "12.7.0.20091291"}
         @{"ModuleName" = "posh-ssh"; "RequiredVersion" = "3.0.0"}
     )
 
