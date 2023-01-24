@@ -12,7 +12,7 @@
     RootModule        = 'Microsoft.AVS.Management.psm1'
 
     # Version number of this module.
-    ModuleVersion     = '5.0.0'
+    ModuleVersion     = '5.1.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -55,6 +55,7 @@
         @{"ModuleName" = "VMware.vSphere.SsoAdmin"; "RequiredVersion" = "1.3.8" },
         @{"ModuleName" = "VMware.VimAutomation.Core"; "RequiredVersion" = "12.7.0.20091293" }
         @{"ModuleName" = "VMware.VimAutomation.Storage"; "RequiredVersion" = "12.7.0.20091292"}
+        @{"ModuleName" = "VMware.VimAutomation.Hcx"; "RequiredVersion" = "12.7.0.20091291"}
         @{"ModuleName" = "posh-ssh"; "RequiredVersion" = "3.0.0"}
     )
 
@@ -76,7 +77,7 @@
     # NestedModules = @()
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-    FunctionsToExport = @("Set-VMStoragePolicy", "Set-LocationStoragePolicy", "Set-ClusterDefaultStoragePolicy", "Get-StoragePolicies", "New-LDAPIdentitySource", "New-LDAPSIdentitySource", "Update-IdentitySourceCertificates", "Get-ExternalIdentitySources", "Remove-ExternalIdentitySources", "Add-GroupToCloudAdmins", "Remove-GroupFromCloudAdmins", "Get-CloudAdminGroups", "Update-IdentitySourceCredential", "Set-HcxScaledCpuAndMemorySetting")
+    FunctionsToExport = @("Set-VMStoragePolicy", "Set-LocationStoragePolicy", "Set-ClusterDefaultStoragePolicy", "Get-StoragePolicies", "New-LDAPIdentitySource", "New-LDAPSIdentitySource", "Update-IdentitySourceCertificates", "Get-ExternalIdentitySources", "Remove-ExternalIdentitySources", "Add-GroupToCloudAdmins", "Remove-GroupFromCloudAdmins", "Get-CloudAdminGroups", "Update-IdentitySourceCredential", "Set-HcxScaledCpuAndMemorySetting", "Restart-HcxManager")
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
     CmdletsToExport   = @()
