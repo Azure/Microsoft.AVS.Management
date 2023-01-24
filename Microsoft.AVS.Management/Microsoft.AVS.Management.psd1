@@ -52,7 +52,7 @@
 
     # Modules that must be imported into the global environment prior to importing this module
     RequiredModules   = @(
-        @{"ModuleName" = "VMware.vSphere.SsoAdmin"; "RequiredVersion" = "1.3.5" },
+        @{"ModuleName" = "VMware.vSphere.SsoAdmin"; "RequiredVersion" = "1.3.8" },
         @{"ModuleName" = "VMware.VimAutomation.Core"; "RequiredVersion" = "12.7.0.20091293" }
         @{"ModuleName" = "VMware.VimAutomation.Storage"; "RequiredVersion" = "12.7.0.20091292"}
         @{"ModuleName" = "VMware.VimAutomation.Hcx"; "RequiredVersion" = "12.7.0.20091291"}
@@ -77,7 +77,7 @@
     # NestedModules = @()
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-    FunctionsToExport = @("Set-VMStoragePolicy", "Set-LocationStoragePolicy", "Set-ClusterDefaultStoragePolicy", "Get-StoragePolicies", "New-LDAPIdentitySource", "New-LDAPSIdentitySource", "Update-IdentitySourceCertificates", "Get-ExternalIdentitySources", "Remove-ExternalIdentitySources", "Add-GroupToCloudAdmins", "Remove-GroupFromCloudAdmins", "Get-CloudAdminGroups", "Set-HcxScaledCpuAndMemorySetting", "Restart-HcxManager")
+    FunctionsToExport = @("Set-VMStoragePolicy", "Set-LocationStoragePolicy", "Set-ClusterDefaultStoragePolicy", "Get-StoragePolicies", "New-LDAPIdentitySource", "New-LDAPSIdentitySource", "Update-IdentitySourceCertificates", "Get-ExternalIdentitySources", "Remove-ExternalIdentitySources", "Add-GroupToCloudAdmins", "Remove-GroupFromCloudAdmins", "Get-CloudAdminGroups", "Update-IdentitySourceCredential", "Set-HcxScaledCpuAndMemorySetting", "Restart-HcxManager")
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
     CmdletsToExport   = @()
