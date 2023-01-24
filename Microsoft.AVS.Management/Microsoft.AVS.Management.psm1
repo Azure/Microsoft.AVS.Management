@@ -294,7 +294,7 @@ function Get-CertificateFromDomainController {
         $Command = 'nslookup ' + $ParsedUrl.Host + ' -type=soa'
         $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
         if ($SSHRes.ExitStatus -ne 0) { 
-            throw "The FQDN $ParsedUrl.Host cannot be resolved to an IP address. Make sure DNS is configured."
+            throw "The FQDN $($ParsedUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
         }
 
         $Command = 'nc -vz ' + $ParsedUrl.Host + ' ' + $ParsedUrl.Port
@@ -471,7 +471,7 @@ function New-LDAPSIdentitySource {
                 throw "Incorrect Url format entered from: $computerUrl"
             }
             if ($ParsedUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ParsedUrl.Host -as [ipaddress])) { 
-                throw "Incorrect Url format. $computerUrl is an IP address. Consider changing it to an URL"
+                throw "Incorrect Url format. $computerUrl is an IP address. Consider using hostname exactly as specified on the issued certificate."
             }
             
             $SSHOutput = Get-CertificateFromDomainController -ParsedUrl $ParsedUrl -computerUrl $computerUrl
