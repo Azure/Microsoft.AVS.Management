@@ -122,6 +122,184 @@ function Get-HcxManagerVM {
             $HcxVm = $Vm
             break
         }
-    }   
+    }
     return $HcxVm
+}
+
+<#
+    .Synopsis
+    Get and return the utilization percentage of a specified disk
+
+    .Parameter DiskName
+    Disk name
+
+    .Parameter Disks
+    List of disks and metadata
+
+    .Example
+    Get-DiskUtilizationPercentage -Disks <List of Disks> -DiskName "/"
+#>
+function Get-DiskUtilizationPercentage {
+    Param (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Specify the name of the desired disk')]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $DiskName,
+
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'List of disks')]
+        [ValidateNotNullOrEmpty()]
+        [array]
+        $Disks
+    )
+
+        $DiskData = $Disks | Where-Object Path -eq $DiskName
+
+        if($DiskData) {
+            $UsagePercentage = [math]::round((1 - ($DiskData.FreeSpaceGB / $DiskData.CapacityGB)) * 100,2)
+
+            return $UsagePercentage
+        }
+        throw "Disk: $DiskName was not found in the list provided"
+}
+
+<#
+    .Synopsis
+    Test the connection to the HCX server
+
+    .Parameter RefreshInterval
+    Seconds delay in between each retry
+
+    .Parameter Count
+    The amount of connection retrys per function call
+
+    .Parameter Server
+    The server to which the connection is being established
+
+    .Parameter Port
+    Connection port
+
+    .Parameter Credential
+    Credential used to connect to Server
+
+    .Parameter HcxVm
+    HCX Vm
+
+    .Example
+    Test-HcxConnection -Server 'HcxServer' -Count 5 -Port '443' -Credential <PsCredential> -HcxVm 'HcxVm'
+#>
+function Test-HcxConnection {
+    Param (
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'Seconds delay in between each retry')]
+        [ValidateNotNullOrEmpty()]
+        [int]
+        $RefreshInterval = 60,
+
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Number of connection retrys')]
+        [ValidateNotNullOrEmpty()]
+        [int]
+        $Count,
+
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'HCX Server Name')]
+        [ValidateNotNull()]
+        [string]
+        $Server,
+
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Port number')]
+        [ValidateNotNullOrEmpty()]
+        [int]
+        $Port,
+
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Credential used to connect to Server')]
+        [ValidateNotNull()]
+        [System.Management.Automation.PSCredential]
+        [System.Management.Automation.Credential()]
+        $Credential,
+
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'HCX VM')]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $HcxVm
+    )
+    Write-Host "Reconnecting to HCX Server..."
+    do {
+        $Count -= 1
+        if ($Count -lt 0) {
+            throw "Timed out reconnecting to HCX Server."
+        }
+        Write-Host "Retrys remaining: $Count..."
+        Start-Sleep -Seconds $RefreshInterval
+
+        $hcxConnection = Connect-HCXServer -Server $Server -Port $Port -Credential $Credential -ErrorAction:SilentlyContinue
+    }
+    until ($hcxConnection)
+
+    Write-Host "HCX Appliance on $($HcxVm.name) is now available."
+    return $hcxConnection
+}
+
+<#
+    .Synopsis
+    Provide a list of disks and a specific set of disk, this cmdlet will alert if the utilization has surpassed the threshold
+
+    .Parameter DiskUtilizationTreshold
+    Threshold value
+
+    .Parameter MonitoredDisks
+    Disks to be checked
+
+    .Parameter Disks
+    List of disks and metadata
+
+    .Example
+    Get-DiskUtilizationPercentage -Disks <List of Disks> -DiskName "/"
+#>
+function Invoke-DiskUtilizationThresholdCheck {
+    param (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Timeout for connection to HCX Server')]
+        [ValidateNotNull()]
+        [int]
+        $DiskUtilizationTreshold,
+
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Timeout for connection to HCX Server')]
+        [ValidateNotNull()]
+        [array]
+        $MonitoredDisks,
+
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Timeout for connection to HCX Server')]
+        [ValidateNotNull()]
+        [array]
+        $Disks
+    )
+    foreach ($MonitoredDisk in $MonitoredDisks) {
+        Write-Host "Retrieving Disk: $MonitoredDisk Percentage"
+        $DiskUtilizationPercentage = Get-DiskUtilizationPercentage -Disks $Disks -DiskName $MonitoredDisk
+
+        if ($DiskUtilizationPercentage -gt $DiskUtilizationTreshold) {
+            throw "Disk: $MonitoredDisk Percentage: $DiskUtilizationPercentage is greater than the allowed treshold: $DiskUtilizationTreshold"
+        }
+
+        Write-Host "Retrieved Disk: $MonitoredDisk Percentage: $DiskUtilizationPercentage %"
+    }
 }

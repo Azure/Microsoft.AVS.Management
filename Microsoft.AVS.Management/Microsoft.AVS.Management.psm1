@@ -1269,21 +1269,15 @@ function Restart-HCXManager {
     Param(
         [parameter(
             Mandatory = $false,
-            HelpMessage = "Force restart without checking for migrations")]
+            HelpMessage = "Force restart without checking for migrations and replications.")]
         [switch]
         $Force,
         [Parameter(
             Mandatory = $false,
-            HelpMessage = 'Hard Reboots the VM')]
+            HelpMessage = 'Reboot the Virtual Machine instead of restarting the Guest OS')]
         [ValidateNotNull()]
         [switch]
-        $HardReboot,
-        [Parameter(
-            Mandatory = $false,
-            HelpMessage = 'Timeout for connection to HCX Server')]
-        [ValidateNotNull()]
-        [int]
-        $Timeout = 600
+        $HardReboot
     )
     try {
         $DefaultViConnection = $DefaultVIServers
@@ -1308,7 +1302,7 @@ function Restart-HCXManager {
 
         $HcxServer = 'hcx'
         $hcxVm = Get-HcxManagerVM
-        if (-not $HcxVm) {
+        if (-not $hcxVm) {
             throw "HCX VM could not be found. Please check if the HCX addon is installed."
         }
         Add-UserToGroup -userName $UserName -group $Group
@@ -1386,27 +1380,17 @@ function Restart-HCXManager {
                 Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
             }
         }
-        Write-Host "Waiting $Timeout seconds for successful connection to HCX appliance..."
-
-        $refreshInterval = 30
-        $count = $Timeout / $refreshInterval
-        do {
-            $count -= 1
-            if ($count -lt 0) {
-                throw "Timed out reconnecting to HCX Server."
-            }
-            Start-Sleep -Seconds $refreshInterval
-            $hcxConnection = Connect-HCXServer -Server $HcxServer -Port $port -Credential $HcxAdminCredential -ErrorAction:SilentlyContinue
-        }
-        until ($hcxConnection)
-        Write-Host "HCX Appliance on $($hcxVm.name) is now available. Disconnecting from HCX Server."
+        $hcxConnection = Test-HcxConnection -Server $HcxServer -Port $Port -Count 6 -Credential $HcxAdminCredential -HcxVm $hcxVm
     }
     catch {
         Write-Error $_
     }
     finally {
         $global:DefaultVIServers = $DefaultViConnection
-        if ($hcxConnection) { Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force }
+        if ($hcxConnection) {
+            Write-Host "Disconnecting from HCX Server."
+            Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force
+        }
         Remove-TempUser -userName $UserName -userRole $UserRole
     }
 }
@@ -1436,22 +1420,12 @@ function Set-HcxScaledCpuAndMemorySetting {
         $Port = 443
         $HcxServer = 'hcx'
         $HcxPreferredVersion = '4.3.2'
-        $SlashCommonTreshold = '90%'
+        $DiskUtilizationTreshold = 90
         $HcxScaledtNumCpu = 8
         $HcxScaledMemoryGb = 24
-        $Found = $false
 
-        Write-Host "Identifying HCX Vm"
-        $VmsList = Get-VM
-        foreach ($Vm in $VmsList) {
-            if ($Vm.Name.Contains("HCX-MGR")) {
-                $HcxVm = $Vm
-                $Found = $true
-                break
-            }
-        }
-
-        if (-not $Found) {
+        $HcxVm = Get-HcxManagerVM
+        if (-not $HcxVm) {
             throw "HCX VM could not be found. Please check if the HCX addon is installed."
         }
         if ($HcxVm.PowerState -ne "PoweredOn") {
@@ -1485,8 +1459,7 @@ function Set-HcxScaledCpuAndMemorySetting {
         Write-Host "Current HCX Version: $HcxCurrentVersion"
 
         Write-Host "Retrieving Appliances"
-        $elapsed = Measure-Command -Expression { $Appliances = Get-HCXAppliance }
-        Write-Host "Retrieved Appliances elapsed=$elapsed."
+        $Appliances = Get-HCXAppliance
 
         if ($Appliances.Count -gt 0) {
             $VersionPerAppliance = @{
@@ -1501,23 +1474,13 @@ function Set-HcxScaledCpuAndMemorySetting {
                 }
             }
         }
-
         Write-Host "$Appliances appliances found."
 
-        Write-Output "Create HCX SSH Session:"
-        $SshSession = New-SSHSession -ComputerName $HcxServer -Credential $HcxAdminCredential -Port 22 -Force
-        $Stream = New-SSHShellStream -SSHSession $SshSession -TerminalName 'PS-SSH' -Columns 0 -Rows 0 -Width 0 -Height 1000 -BufferSize 10000
+        Write-Host "Retrieving HCX Guest VM Data"
+        $HcxVmGuest = Get-VMGuest -VM $HcxVM
 
-        Write-Host "Retrieving /Common Percentage"
-        $DiskFileSystemReturn = Invoke-SSHStreamShellCommand -ShellStream $Stream -Command 'df -h | grep "/common"'
-        if ($DiskFileSystemReturn.GetType().Name -eq 'Object[]') { $SlashCommonPercentage = $($DiskFileSystemReturn[0] -Split '\s+')[4] }
-        else { $SlashCommonPercentage = '0%' }
-
-        if ($SlashCommonPercentage -gt $SlashCommonTreshold) {
-            throw "/Common Percentage: $SlashCommonPercentage is greater than the allowed treshold: $SlashCommonTreshold"
-        }
-
-        Write-Host "Retrieved /Common Percentage: $SlashCommonPercentage"
+        $MonitoredDisks = @("/common")
+        Invoke-DiskUtilizationThresholdCheck -DiskUtilizationTreshold $DiskUtilizationTreshold -MonitoredDisks $MonitoredDisks -Disks $HcxVmGuest.Disks
 
         Write-Host "Shutting Down Guest OS"
         Stop-VMGuest -VM $HcxVm -Confirm:$false | Out-Null
@@ -1529,15 +1492,17 @@ function Set-HcxScaledCpuAndMemorySetting {
 
         Write-Host "Configuring memory and cpu settings"
         Set-VM -VM $HcxVm -MemoryGB $HcxScaledMemoryGb -NumCpu $HcxScaledtNumCpu -Confirm:$false
-        Write-Host "Configuration complete"
 
         Write-Host "Starting $($hcxVm.Name)..."
         Start-VM -VM $HcxVm -Confirm:$false | Out-Null
         Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
 
+        Write-Host "Waiting for successful connection to HCX appliance..."
+        $hcxConnection = Test-HcxConnection -Server $HcxServer -Count 6 -Port $Port -Credential $HcxAdminCredential -HcxVm $HcxVm
+
         $HcxVm = Get-VM -Name $HcxVm.Name
-        Write-Host "$($hcxVm.Name)'s CPU: $($HcxVm.NumCpu) and Memory: $($HcxVm.MemoryGb) Settings"
-        Write-Host "Completed."
+        Write-Host "$($hcxVm.Name)'s CPU: $($HcxVm.NumCpu) and Memory: $($HcxVm.MemoryGb) Gb Settings"
+        Write-Host "Configuration complete"
     }
     catch {
         Write-Error $_
@@ -1545,8 +1510,10 @@ function Set-HcxScaledCpuAndMemorySetting {
     finally {
         $global:DefaultVIServers = $DefaultViConnection
 
-        if ($SshSession) { Remove-SSHSession -SSHSession $SshSession }
-        if ($hcxConnection) { Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force }
+        if ($hcxConnection) {
+            Write-Host "Disconnecting from HCX Server."
+            Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force
+        }
         Remove-TempUser -userName $UserName -userRole $UserRole
     }
 }
