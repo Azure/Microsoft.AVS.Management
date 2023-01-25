@@ -35,7 +35,7 @@ The script shall assume the directory it is executed in is temporary and can use
 
 ## Script Execution
 
-Script executions are serialized (executed one at a time) for the safety of all parties.
+Script executions are serialized (executed one at a time) for the safety of all parties.  Scripts are not executed when the SDDC is the `Updating` state.  A script can set the SDDC state to `Updating` using an `AVSAttribute`, see below.
 
 ## Script Termination
 
