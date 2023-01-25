@@ -236,7 +236,7 @@ function Test-HcxConnection {
         [string]
         $HcxVm
     )
-
+    Write-Host "Reconnecting to HCX Server..."
     do {
         $Count -= 1
         if ($Count -lt 0) {

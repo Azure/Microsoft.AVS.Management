@@ -1145,21 +1145,15 @@ function Restart-HCXManager {
     Param(
         [parameter(
             Mandatory = $false,
-            HelpMessage = "Force restart without checking for migrations")]
+            HelpMessage = "Force restart without checking for migrations and replications.")]
         [switch]
         $Force,
         [Parameter(
             Mandatory = $false,
-            HelpMessage = 'Hard Reboots the VM')]
+            HelpMessage = 'Reboot the Virtual Machine instead of restarting the Guest OS')]
         [ValidateNotNull()]
         [switch]
-        $HardReboot,
-        [Parameter(
-            Mandatory = $false,
-            HelpMessage = 'Timeout for connection to HCX Server')]
-        [ValidateNotNull()]
-        [int]
-        $Timeout = 600
+        $HardReboot
     )
     try {
         $DefaultViConnection = $DefaultVIServers
@@ -1262,11 +1256,7 @@ function Restart-HCXManager {
                 Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
             }
         }
-        Write-Host "Waiting $Timeout seconds for successful connection to HCX appliance..."
-
-        $refreshInterval = 30
-        $count = $Timeout / $refreshInterval
-        $hcxConnection = Test-HcxConnection -RefreshInterval $refreshInterval -Server $HcxServer -Count $count -Port $Port -Credential $HcxAdminCredential -HcxVm $hcxVm
+        $hcxConnection = Test-HcxConnection -Server $HcxServer -Port $Port -Count 6 -Credential $HcxAdminCredential -HcxVm $hcxVm
     }
     catch {
         Write-Error $_
