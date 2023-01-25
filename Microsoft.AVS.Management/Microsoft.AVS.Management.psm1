@@ -1184,7 +1184,7 @@ function Restart-HCXManager {
 
         $HcxServer = 'hcx'
         $hcxVm = Get-HcxManagerVM
-        if (-not $HcxVm) {
+        if (-not $hcxVm) {
             throw "HCX VM could not be found. Please check if the HCX addon is installed."
         }
         Add-UserToGroup -userName $UserName -group $Group
@@ -1266,23 +1266,17 @@ function Restart-HCXManager {
 
         $refreshInterval = 30
         $count = $Timeout / $refreshInterval
-        do {
-            $count -= 1
-            if ($count -lt 0) {
-                throw "Timed out reconnecting to HCX Server."
-            }
-            Start-Sleep -Seconds $refreshInterval
-            $hcxConnection = Connect-HCXServer -Server $HcxServer -Port $port -Credential $HcxAdminCredential -ErrorAction:SilentlyContinue
-        }
-        until ($hcxConnection)
-        Write-Host "HCX Appliance on $($hcxVm.name) is now available. Disconnecting from HCX Server."
+        $hcxConnection = Test-HcxConnection -RefreshInterval $refreshInterval -Server $HcxServer -Count $count -Port $Port -Credential $HcxAdminCredential -HcxVm $hcxVm
     }
     catch {
         Write-Error $_
     }
     finally {
         $global:DefaultVIServers = $DefaultViConnection
-        if ($hcxConnection) { Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force }
+        if ($hcxConnection) {
+            Write-Host "Disconnecting from HCX Server."
+            Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force
+        }
         Remove-TempUser -userName $UserName -userRole $UserRole
     }
 }
