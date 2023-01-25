@@ -37,6 +37,8 @@ The script shall assume the directory it is executed in is temporary and can use
 
 Script executions are serialized (executed one at a time) for the safety of all parties.
 
+If a script executes against an SDDC in the `Updating` state it will result in an error.  A script can set the SDDC state to `Updating` using an `AVSAttribute`, see below.
+
 ## Script Termination
 
 AVS will terminate the script if it runs beyond the established AVS scripting timeout period. Timeout will be defaulted to 30 minutes unless one is provided by the script author (see `AVSAttribute` below).  The max timeout value is one hour.  The timeout value can override on a per-cmdlet basis.
