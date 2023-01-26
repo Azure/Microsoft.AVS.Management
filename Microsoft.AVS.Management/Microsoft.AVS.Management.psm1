@@ -1491,7 +1491,7 @@ function Set-HcxScaledCpuAndMemorySetting {
         Write-Host "Guest OS is shut down"
 
         Write-Host "Configuring memory and cpu settings"
-        Set-VM -VM $HcxVm -MemoryGB $HcxScaledMemoryGb -NumCpu $HcxScaledtNumCpu -Confirm:$false
+        Set-VM -VM $HcxVm -MemoryGB $HcxScaledMemoryGb -NumCpu $HcxScaledtNumCpu -Confirm:$false | Out-Null
 
         Write-Host "Starting $($hcxVm.Name)..."
         Start-VM -VM $HcxVm -Confirm:$false | Out-Null
