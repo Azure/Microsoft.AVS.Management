@@ -293,14 +293,14 @@ function Get-CertificateFromDomainController {
     try {
         $Command = 'nslookup ' + $ParsedUrl.Host + ' -type=soa'
         $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
-        if ($SSHRes.ExitStatus -ne 0) { 
+        if ($SSHRes.ExitStatus -ne 0) {
             throw "The FQDN $($ParsedUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
         }
 
         $Command = 'nc -vz ' + $ParsedUrl.Host + ' ' + $ParsedUrl.Port
         $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
-        if ($SSHRes.ExitStatus -ne 0) { 
-            throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ParsedUrl.Port) is open." 
+        if ($SSHRes.ExitStatus -ne 0) {
+            throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ParsedUrl.Port) is open."
         }
 
         Write-Host ("Starting to Download Cert from " + $computerUrl)
@@ -458,10 +458,10 @@ function New-LDAPSIdentitySource {
     } else {
         $exportFolder = "$home/"
         $remoteComputers = ,$PrimaryUrl
-        if ($PSBoundParameters.ContainsKey('SecondaryUrl')) { 
-            $remoteComputers += $SecondaryUrl 
+        if ($PSBoundParameters.ContainsKey('SecondaryUrl')) {
+            $remoteComputers += $SecondaryUrl
         }
-        
+
         foreach ($computerUrl in $remoteComputers) {
             try {
                 if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) { throw }
@@ -470,12 +470,12 @@ function New-LDAPSIdentitySource {
             catch {
                 throw "Incorrect Url format entered from: $computerUrl"
             }
-            if ($ParsedUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ParsedUrl.Host -as [ipaddress])) { 
+            if ($ParsedUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ParsedUrl.Host -as [ipaddress])) {
                 throw "Incorrect Url format. $computerUrl is an IP address. Consider using hostname exactly as specified on the issued certificate."
             }
-            
+
             $SSHOutput = Get-CertificateFromDomainController -ParsedUrl $ParsedUrl -computerUrl $computerUrl
-            
+
             if ($SSHOutput -notmatch '(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)') {
                 throw "The certificate from $computerUrl has an incorrect format"
             } else {
@@ -792,9 +792,9 @@ function Add-GroupToCloudAdmins {
     .Synopsis
      Update the password used in the credential to authenticate an LDAP server
 
-    .Parameter Credential 
+    .Parameter Credential
      Credential to login to the LDAP server (NOT cloudadmin) in the form of a username/password credential. Usernames often look like prodAdmins@domainname.com or if the AD is a Microsoft Active Directory server, usernames may need to be prefixed with the NetBIOS domain name, such as prod\AD_Admin
-    
+
      .Parameter DomainName
      Domain name of the external LDAP server, e.g. myactivedirectory.local
 #>
@@ -1265,7 +1265,7 @@ function Confirm-ConnectVIServer {
     Restart-HcxManager -Force -HardReboot
 #>
 function Restart-HCXManager {
-    [AVSAttribute(20, UpdatesSDDC = $false)]
+    [AVSAttribute(30, UpdatesSDDC = $false)]
     Param(
         [parameter(
             Mandatory = $false,
@@ -1380,7 +1380,7 @@ function Restart-HCXManager {
                 Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
             }
         }
-        $hcxConnection = Test-HcxConnection -Server $HcxServer -Port $Port -Count 6 -Credential $HcxAdminCredential -HcxVm $hcxVm
+        $hcxConnection = Test-HcxConnection -Server $HcxServer -Port $Port -Count 12 -Credential $HcxAdminCredential -HcxVm $hcxVm
     }
     catch {
         Write-Error $_
@@ -1491,14 +1491,14 @@ function Set-HcxScaledCpuAndMemorySetting {
         Write-Host "Guest OS is shut down"
 
         Write-Host "Configuring memory and cpu settings"
-        Set-VM -VM $HcxVm -MemoryGB $HcxScaledMemoryGb -NumCpu $HcxScaledtNumCpu -Confirm:$false
+        Set-VM -VM $HcxVm -MemoryGB $HcxScaledMemoryGb -NumCpu $HcxScaledtNumCpu -Confirm:$false | Out-Null
 
         Write-Host "Starting $($hcxVm.Name)..."
         Start-VM -VM $HcxVm -Confirm:$false | Out-Null
         Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
 
         Write-Host "Waiting for successful connection to HCX appliance..."
-        $hcxConnection = Test-HcxConnection -Server $HcxServer -Count 6 -Port $Port -Credential $HcxAdminCredential -HcxVm $HcxVm
+        $hcxConnection = Test-HcxConnection -Server $HcxServer -Count 12 -Port $Port -Credential $HcxAdminCredential -HcxVm $HcxVm
 
         $HcxVm = Get-VM -Name $HcxVm.Name
         Write-Host "$($hcxVm.Name)'s CPU: $($HcxVm.NumCpu) and Memory: $($HcxVm.MemoryGb) Gb Settings"
