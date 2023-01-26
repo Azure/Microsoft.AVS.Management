@@ -1380,7 +1380,7 @@ function Restart-HCXManager {
                 Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
             }
         }
-        $hcxConnection = Test-HcxConnection -Server $HcxServer -Port $Port -Count 10 -Credential $HcxAdminCredential -HcxVm $hcxVm
+        $hcxConnection = Test-HcxConnection -Server $HcxServer -Port $Port -Count 12 -Credential $HcxAdminCredential -HcxVm $hcxVm
     }
     catch {
         Write-Error $_
@@ -1498,7 +1498,7 @@ function Set-HcxScaledCpuAndMemorySetting {
         Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
 
         Write-Host "Waiting for successful connection to HCX appliance..."
-        $hcxConnection = Test-HcxConnection -Server $HcxServer -Count 10 -Port $Port -Credential $HcxAdminCredential -HcxVm $HcxVm
+        $hcxConnection = Test-HcxConnection -Server $HcxServer -Count 12 -Port $Port -Credential $HcxAdminCredential -HcxVm $HcxVm
 
         $HcxVm = Get-VM -Name $HcxVm.Name
         Write-Host "$($hcxVm.Name)'s CPU: $($HcxVm.NumCpu) and Memory: $($HcxVm.MemoryGb) Gb Settings"
