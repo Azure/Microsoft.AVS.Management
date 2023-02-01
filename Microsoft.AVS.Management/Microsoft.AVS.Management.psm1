@@ -292,20 +292,20 @@ function Get-CertificateFromDomainController {
 
     try {
         $Command = 'nslookup ' + $ParsedUrl.Host + ' -type=soa'
-        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
         if ($SSHRes.ExitStatus -ne 0) {
             throw "The FQDN $($ParsedUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
         }
 
         $Command = 'nc -vz ' + $ParsedUrl.Host + ' ' + $ParsedUrl.Port
-        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
         if ($SSHRes.ExitStatus -ne 0) {
             throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ParsedUrl.Port) is open."
         }
 
         Write-Host ("Starting to Download Cert from " + $computerUrl)
         $Command = 'echo "1" | openssl s_client -connect ' + $ParsedUrl.Host + ':' + $ParsedUrl.Port + ' -showcerts'
-        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC']
         $SSHOutput = $SSHRes.Output | out-string
     } catch {
         throw "Failure to download the certificate from $computerUrl. $_"
