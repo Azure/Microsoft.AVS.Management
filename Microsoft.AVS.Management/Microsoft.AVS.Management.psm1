@@ -274,26 +274,37 @@ function New-LDAPIdentitySource {
 <#
     .Synopsis
      Recommended: Add a secure external identity source (Active Directory over LDAPS) for use with vCenter Server Single Sign-On.
+
     .Parameter Name
      The user-friendly name the external AD will be given in vCenter
+
     .Parameter DomainName
      Domain name of the external active directory, e.g. myactivedirectory.local
+
     .Parameter DomainAlias
      Domain alias of the external active directory, e.g. myactivedirectory
+
     .Parameter PrimaryUrl
      Url of the primary ldaps server to attempt to connect to, e.g. ldaps://myadserver.local:636
+
     .Parameter SecondaryUrl
      Optional: Url of the fallback ldaps server to attempt to connect to, e.g. ldaps://myadserver.local:636
+
     .Parameter BaseDNUsers
      Base Distinguished Name for users, e.g. "dc=myadserver,dc=local"
+
     .Parameter BaseDNGroups
      Base Distinguished Name for groups, e.g. "dc=myadserver,dc=local"
+
     .Parameter Credential
      Credential to login to the LDAP server (NOT cloudadmin) in the form of a username/password credential. Usernames often look like prodAdmins@domainname.com or if the AD is a Microsoft Active Directory server, usernames may need to be prefixed with the NetBIOS domain name, such as prod\AD_Admin
+
     .Parameter SSLCertificatesSasUrl
      An comma-delimeted list of Blob Shared Access Signature strings to the certificates required to connect to the external active directory
+
     .Parameter GroupName
      Optional: A group in the customer external identity source to be added to CloudAdmins. Users in this group will have CloudAdmin access. Group name should be formatted without the domain name, e.g. group-to-give-access
+
     .Example
     # Add the domain server named "myserver.local" to vCenter
     Add-LDAPSIdentitySource -Name 'myserver' -DomainName 'myserver.local' -DomainAlias 'myserver' -PrimaryUrl 'ldaps://10.40.0.5:636' -BaseDNUsers 'dc=myserver, dc=local' -BaseDNGroups 'dc=myserver, dc=local' -Username 'myserver@myserver.local' -Password 'PlaceholderPassword' -CertificatesSAS 'https://sharedaccessstring.path/accesskey' -Protocol LDAPS
