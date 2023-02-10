@@ -77,7 +77,24 @@
     # NestedModules = @()
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-    FunctionsToExport = @("Set-VMStoragePolicy", "Set-LocationStoragePolicy", "Set-ClusterDefaultStoragePolicy", "Get-StoragePolicies", "New-LDAPIdentitySource", "New-LDAPSIdentitySource", "Update-IdentitySourceCertificates", "Get-ExternalIdentitySources", "Remove-ExternalIdentitySources", "Add-GroupToCloudAdmins", "Remove-GroupFromCloudAdmins", "Get-CloudAdminGroups", "Update-IdentitySourceCredential", "Set-HcxScaledCpuAndMemorySetting", "Restart-HcxManager")
+    FunctionsToExport = @(
+         "Set-VMStoragePolicy"
+         "Set-LocationStoragePolicy"
+         "Set-ClusterDefaultStoragePolicy"
+         "Get-StoragePolicies"
+         "New-LDAPIdentitySource"
+         "New-LDAPSIdentitySource"
+         "Update-IdentitySourceCertificates"
+         "Get-ExternalIdentitySources"
+         "Remove-ExternalIdentitySources"
+         "Add-GroupToCloudAdmins"
+         "Remove-GroupFromCloudAdmins"
+         "Get-CloudAdminGroups"
+         "Update-IdentitySourceCredential"
+         "Set-HcxScaledCpuAndMemorySetting"
+         "Restart-HcxManager"
+         "Set-ToolsRepo"
+       )
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
     CmdletsToExport   = @()
@@ -137,4 +154,3 @@
     # DefaultCommandPrefix = ''
 
 }
-

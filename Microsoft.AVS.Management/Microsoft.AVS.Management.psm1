@@ -1440,3 +1440,88 @@ function Set-HcxScaledCpuAndMemorySetting {
         Remove-TempUser -userName $UserName -userRole $UserRole
     }
 }
+
+<#
+    .Synopsis
+     This will create a folder on every datastore (/vmfs/volumes/datastore/tools-repo) and set the ESXi hosts to use that folder as the tools-repo. The customer is responsible for putting the VMware Tools files into the folder.
+
+     .EXAMPLE
+     Once the function is imported, you simply need to run Set-ToolsRepo without any parameters.
+#>
+
+function Set-ToolsRepo
+{
+    param()
+
+    # Tools repo folder
+    $newFolder = 'tools-repo'
+
+    # Get all datastores
+    try
+    {
+        $datastores = Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq "vsan" }
+    }
+    catch
+    {
+        Write-Error -Message "Unable to get datastores. $($_.Exception.Message)"
+    }
+
+    foreach ($datastore in $datastores)
+    {
+        # Get datastore name
+        $ds_name = $datastore.Name
+
+        # Get ID of the vsanDatastore requrested
+        $ds_id = Get-Datastore -Name $ds_name | Select-Object -Property Id
+
+        # Create the PS drive
+        New-PSDrive -Location $datastore -Name DS -PSProvider VimDatastore -Root "\" | Out-Null
+
+        # Does repo folder exist?
+        $Dsbrowser = Get-View -Id $Datastore.Extensiondata.Browser
+        $spec = New-Object VMware.Vim.HostDatastoreBrowserSearchSpec
+        $spec.Query += New-Object VMware.Vim.FolderFileQuery
+        $folderObj = ($dsBrowser.SearchDatastore("[$ds_name] \", $spec)).File | Where-Object { $_.FriendlyName -eq $newFolder }
+
+        # If not, create it
+        If ($nil -eq $folderObj)
+        {
+            New-Item -ItemType Directory -Path "DS:/$newFolder"
+            # Recheck
+            $folderObj = ($dsBrowser.SearchDatastore("[$ds_name] \", $spec)).File | Where-Object { $_.FriendlyName -eq $newFolder }
+            If ($nil -eq $folderObj)
+            {
+                Write-Error -Message "Folder creation failed on $ds_name"
+            }
+            else
+            {
+                Write-Host "Folder creation successful on $ds_name"
+            }
+        }
+
+        # Remove the PS drive
+        Remove-PSDrive -Name DS -Confirm:$false
+
+        # List of hosts attached to that datastore
+        $vmhosts = Get-VMHost | Where-Object { $_.ExtensionData.Datastore.value -eq ($ds_id.Id).Split('-', 2)[1] }
+
+        $repo_dir = "/vmfs/volumes/$ds_name/$newFolder"
+
+        # Set the tools-repo
+        foreach ($vmhost in $vmhosts)
+        {
+            $vmhost.ExtensionData.UpdateProductLockerLocation($repo_dir) | Out-Null
+        }
+
+        # Check the tools-repo
+        $exist_repo = ($vmhosts | Get-AdvancedSetting -Name "UserVars.ProductLockerLocation" | Select-Object Entity, Value) | Select-Object -Unique
+        If (($exist_repo.Value -ne $repo_dir) -or ($exist_repo.count -ne 1))
+        {
+            Write-Error -Message "Failed to set tools-repo on all hosts for datastore $ds_name"
+        }
+        else
+        {
+            Write-Host "Successfully set tools-repo on all hosts for datastore $ds_name"
+        }
+    }
+}
