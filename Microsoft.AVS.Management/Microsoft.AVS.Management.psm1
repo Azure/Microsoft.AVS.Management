@@ -1459,7 +1459,7 @@ function Set-ToolsRepo
     # Get all datastores
     try
     {
-        $datastores = Get-Datastore -ErrorAction Stop
+        $datastores = Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq "vsan" }
     }
     catch
     {
