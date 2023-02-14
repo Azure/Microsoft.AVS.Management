@@ -1323,7 +1323,17 @@ function Restart-HCXManager {
     Scale the HCX manager vm to the new resource allocation of 8 vCPU and 24 GB RAM (Default 4 vCPU/12GB)
 #>
 function Set-HcxScaledCpuAndMemorySetting {
+    [AVSAttribute(30, UpdatesSDDC = $false)]
+    Param(
+        [parameter(
+            Mandatory = $false,
+            HelpMessage = "HCX manager will be rebooted and will not be available during scaling.")]
+        [switch]
+        $AgreeToRestartHCX = $false
+    )
     try {
+        Assert-CustomerRestartAwareness -AgreeToRestartHCX $AgreeToRestartHCX
+
         $DefaultViConnection = $DefaultVIServers
         $UserName = 'tempHcxAdmin'
         $UserRole = 'tempHcxAdminRole'

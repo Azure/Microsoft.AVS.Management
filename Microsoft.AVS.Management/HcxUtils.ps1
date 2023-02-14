@@ -303,3 +303,27 @@ function Invoke-DiskUtilizationThresholdCheck {
         Write-Host "Retrieved Disk: $MonitoredDisk Percentage: $DiskUtilizationPercentage %"
     }
 }
+
+<#
+    .Synopsis
+    A boolean parameter that ensures customer understands that HCX will be rebooted. Default value is false
+
+    .Parameter AgreeToRestartHCX
+    Agree to restarting HCX
+
+    .Example
+    Assert-CustomerRestartAwareness -AgreeToRestartHCX $true
+#>
+function Assert-CustomerRestartAwareness {
+    Param(
+        [parameter(
+            Mandatory = $false,
+            HelpMessage = "Customer acknowledging HCX reboot.")]
+        [switch]
+        $AgreeToRestartHCX = $false
+    )
+
+    if(!$AgreeToRestartHCX) {
+        throw "Please confirm awareness that HCX will be rebooted by this cmdlet."
+    }
+}
