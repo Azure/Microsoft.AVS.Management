@@ -306,7 +306,7 @@ function Invoke-DiskUtilizationThresholdCheck {
 
 <#
     .Synopsis
-    A boolean parameter that ensures customer understands that HCX will be rebooted. Default value is false
+    A switch parameter that ensures the customer understands that HCX will be rebooted
 
     .Parameter AgreeToRestartHCX
     Agree to restarting HCX
@@ -317,10 +317,10 @@ function Invoke-DiskUtilizationThresholdCheck {
 function Assert-CustomerRestartAwareness {
     Param(
         [parameter(
-            Mandatory = $false,
+            Mandatory = $true,
             HelpMessage = "Customer acknowledging HCX reboot.")]
         [switch]
-        $AgreeToRestartHCX = $false
+        $AgreeToRestartHCX
     )
 
     if(!$AgreeToRestartHCX) {
