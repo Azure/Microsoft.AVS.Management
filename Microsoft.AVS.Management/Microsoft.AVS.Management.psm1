@@ -1326,10 +1326,10 @@ function Set-HcxScaledCpuAndMemorySetting {
     [AVSAttribute(30, UpdatesSDDC = $false)]
     Param(
         [parameter(
-            Mandatory = $true,
+            Mandatory = $false,
             HelpMessage = "HCX manager will be rebooted and will not be available during scaling.")]
-        [switch]
-        $AgreeToRestartHCX
+        [bool]
+        $AgreeToRestartHCX = $false
     )
     try {
         $DefaultViConnection = $DefaultVIServers
@@ -1337,7 +1337,7 @@ function Set-HcxScaledCpuAndMemorySetting {
         $UserRole = 'tempHcxAdminRole'
         $Group = 'Administrators'
 
-        Assert-CustomerRestartAwareness -AgreeToRestartHCX:$AgreeToRestartHCX
+        Assert-CustomerRestartAwareness -AgreeToRestartHCX $AgreeToRestartHCX
 
         Write-Host "Creating new temp scripting user"
         $privileges = @("VirtualMachine.Config.CPUCount",

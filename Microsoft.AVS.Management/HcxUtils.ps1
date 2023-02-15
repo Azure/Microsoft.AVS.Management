@@ -319,7 +319,7 @@ function Assert-CustomerRestartAwareness {
         [parameter(
             Mandatory = $true,
             HelpMessage = "Customer acknowledging HCX reboot.")]
-        [switch]
+        [bool]
         $AgreeToRestartHCX
     )
 
