@@ -24,6 +24,9 @@ AVS will expose some standard runtime options via PowerShell variables.  See bel
 | Var | Description | Usage example |
 | ------- | ----------- |--|
 | `VC_ADDRESS` | IP Address of VCenter | Script authors now can also use `"vc"` - hostname instead of the address |
+| `SddcDnsSuffix` | Domain suffix of the SDDC |  |
+| `SddcResourceId` | (Coming soon) ARM ResourceId of the SDDC | "/subscriptions/7f1fae41-7708-4fa4-89b3-f6552cad2fc1/resourceGroups/myRG/providers/Microsoft.AVS/privateClouds/myCloud" |
+| `AadAuthority` | (Coming soon) Azure Active Directory address in this Azure Cloud | "https://login.microsoftonline.com/" |
 | `PersistentSecrets` | Hashtable for keeping secrets across package script executions | `$PersistentSecrets.ManagementAppliancePassword = '***'` |
 | `SSH_Sessions` | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SSHSession.md) | `Invoke-SSHCommand -Command "uname -a" -SSHSession $SSH_Sessions["esx.hostname.fqdn"].Value`. Another key to the dictionary is `"VC"` for SSH to vCenter.
 | `SFTP_Sessions` | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh sftp session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SFTPSession.md) | `New-SFTPItem -ItemType Directory -Path "/tmp/zzz" -SFTPSession $SSH_Sessions[esx.hostname.fqdn].Value`. Another key to the dictionary is `"VC"` for SFTP to vCenter
@@ -65,8 +68,20 @@ A Module should not attempt to elevate privileges for the AVS provided `cloudadm
 
 If necessary, use the installation script to create a separate vCenter user and role to give it.  Recommendation is to use the `cloudadmins` role as a base by duplicating it, then add necessary elevated privileges to the new role.  The privileges required for the new role will need to be reviewed by Microsoft. 
 > Always add the created account to `CloudAdmins` SSO group.
-> Provide a cmdlet to rotate the service account password.
-> Do not expose the credentials in any way, use `PersistentSecrets` if access to the password may be required later.
+
+### Protecting service credentials
+If deploying an appliance in customer infrastruture that needs service credentials with privileges above `cloudadmins` role the vendor must ensure that the credentials are never exposed - not in-flight, nor at rest.
+- The appliance user must not be able to gain root access or direct access to the storage or file system where credetials are stored.
+- The appliance must be deployed in a resource pool with Deny permission to `CloudAdmins` SSO group.
+- The credentials must be passed as OVA properties to the appliance, including the rotation scenario.
+- The credentials must never be logged, no diagnostic bundle may include the credentials.
+- The vendor must provide the cmdlets to rotate the service account password and perform any appliance updates, including security patches.
+- When passing the credentials to vCenter the appliance must enforce HTTPS with host authentication.
+- Use `PersistentSecrets` if access to credentials is required by the scripts later.
+
+### Other information protection
+If deploying an appliance, the appliance may not expose any VMware logs directly to the customer, any logs and diagnostics from the VMware infrastructure must go through AVS where they can be filtered for sensitive information.
+AVS provides syslog forwarding that makes relavant logs available in Azure.
 
 ## Top-level functionality should be exposed as functions with [CmdletBinding](https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_functions_cmdletbindingattribute?view=powershell-7.1) taking all the inputs as the named parameters.
 
