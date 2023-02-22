@@ -79,6 +79,17 @@ If deploying an appliance in customer infrastruture that needs service credentia
 - When passing the credentials to vCenter the appliance must enforce HTTPS with host authentication.
 - Use `PersistentSecrets` if access to credentials is required by the scripts later.
 
+### Protecting elevated operation
+If a script is not intended for the end-customer, but rather for vendor's own automation the vendor must sign one or more parameters (i.e. data) with a service key. 
+Outline of the method:
+- Issue a private/public RSA key pair of at least 2048-bit, keep the private key securely with your service.
+- Include the public key in your package.
+- Declare a signature parameter for your automation script as `SecureString`.
+- Sign the data's SHA256 hash with the private key then base64-encode the signature when passing it to the Run Command API as a parameter.
+- In the script, get SHA256 hash of the signed data, base64-decode then check the signed hash using the public key.
+
+See [Cryptographic Signatures](https://learn.microsoft.com/en-us/dotnet/standard/security/cryptographic-signatures) for an example.
+
 ### Other information protection
 If deploying an appliance, the appliance may not expose any VMware logs directly to the customer, any logs and diagnostics from the VMware infrastructure must go through AVS where they can be filtered for sensitive information.
 AVS provides syslog forwarding that makes relavant logs available in Azure.
