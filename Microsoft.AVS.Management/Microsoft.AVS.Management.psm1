@@ -1,28 +1,4 @@
-#Requires -Modules PowerShellGet
-#Requires -Version 5.0
-
-<#
-AVSAttribute applied to a commandlet function indicates:
-- whether the SDDC should be marked as Building while the function executes.
-- default timeout for the commandlet, maximum: 3h.
-AVS SDDC in Building state prevents other changes from being made to the SDDC until the function completes/fails.
-#>
-class AVSAttribute : Attribute {
-    [bool]$UpdatesSDDC = $false
-    [TimeSpan]$Timeout
-    AVSAttribute($timeoutMinutes) { $this.Timeout = New-TimeSpan -Minutes $timeoutMinutes }
-}
-
-<#
-=======================================================================================================
-    AUTHOR:  David Becher
-    DATE:    4/22/2021
-    Version: 1.0.0
-    Comment: Cmdlets for various administrative functions of Azure VMWare Solution products
-    Callouts: This script will require the powershell session running it to be able to authenticate to azure to pull secrets from key vault, will need service principal? Also make sure we don't allow code injections
-========================================================================================================
-#>
-
+. $PSScriptRoot\Classes.ps1
 . $PSScriptRoot\UserUtils.ps1
 . $PSScriptRoot\HcxUtils.ps1
 
