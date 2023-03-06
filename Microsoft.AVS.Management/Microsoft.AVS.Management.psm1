@@ -1429,15 +1429,24 @@ function Set-HcxScaledCpuAndMemorySetting {
 
 <#
     .Synopsis
-     This will create a folder on every datastore (/vmfs/volumes/datastore/tools-repo) and set the ESXi hosts to use that folder as the tools-repo. The customer is responsible for putting the VMware Tools files into the folder.
+     This will create a folder on every datastore (/vmfs/volumes/datastore/tools-repo) and set the ESXi hosts to use that folder as the tools-repo.
+     The customer is responsible for putting the VMware Tools zip file in a downloadable location.
 
      .EXAMPLE
-     Once the function is imported, you simply need to run Set-ToolsRepo without any parameters.
+     Once the function is imported, you simply need to run Set-ToolsRepo -url <url to tools zip file>
 #>
 
 function Set-ToolsRepo
 {
-    param()
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $url
+    )
+
+    # Make sure no old files exist
+    Remove-Item -Path "./newtools" -Recurse -ErrorAction SilentlyContinue
+    Remove-Item -Path "./newtools.zip" -ErrorAction SilentlyContinue
 
     # Tools repo folder
     $newFolder = 'tools-repo'
@@ -1452,12 +1461,23 @@ function Set-ToolsRepo
         Write-Error -Message "Unable to get datastores. $($_.Exception.Message)"
     }
 
+    # Download the new tools files
+    Invoke-WebRequest -Uri $url -OutFile "newtools.zip"
+    Expand-Archive "./newtools.zip"
+
+    # Make sure the new tools files exist
+    If (!(Test-Path "./newtools/vmtools"))
+    {
+        Write-Error -Message "Unable to find new tools files"
+        throw "Unable to find new tools files"
+    }
+
     foreach ($datastore in $datastores)
     {
         # Get datastore name
         $ds_name = $datastore.Name
 
-        # Get ID of the vsanDatastore requrested
+        # Get ID of the vsanDatastore requested
         $ds_id = Get-Datastore -Name $ds_name | Select-Object -Property Id
 
         # Create the PS drive
@@ -1484,6 +1504,13 @@ function Set-ToolsRepo
                 Write-Host "Folder creation successful on $ds_name"
             }
         }
+        else {
+            # Remove old tools files
+            Remove-Item -Path "DS:/$newFolder/floppies" -Recurse -ErrorAction SilentlyContinue
+            Remove-Item -Path "DS:/$newFolder/vmtools" -Recurse -ErrorAction SilentlyContinue
+        }
+
+        Copy-DatastoreItem -Item "./newtools/*" "DS:/$newFolder" -Recurse
 
         # Remove the PS drive
         Remove-PSDrive -Name DS -Confirm:$false
@@ -1510,4 +1537,8 @@ function Set-ToolsRepo
             Write-Host "Successfully set tools-repo on all hosts for datastore $ds_name"
         }
     }
+
+    # Remove the downloaded files
+    Remove-Item -Path "./newtools" -Recurse
+    Remove-Item -Path "./newtools.zip"
 }
