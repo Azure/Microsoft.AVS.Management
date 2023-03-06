@@ -1440,13 +1440,9 @@ function Set-ToolsRepo
 {
     param(
         [Parameter(Mandatory = $true)]
-        [string]
+        [SecureString]
         $url
     )
-
-    # Make sure no old files exist
-    Remove-Item -Path "./newtools" -Recurse -ErrorAction SilentlyContinue
-    Remove-Item -Path "./newtools.zip" -ErrorAction SilentlyContinue
 
     # Tools repo folder
     $newFolder = 'tools-repo'
@@ -1537,8 +1533,4 @@ function Set-ToolsRepo
             Write-Host "Successfully set tools-repo on all hosts for datastore $ds_name"
         }
     }
-
-    # Remove the downloaded files
-    Remove-Item -Path "./newtools" -Recurse
-    Remove-Item -Path "./newtools.zip"
 }
