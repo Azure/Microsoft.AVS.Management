@@ -1433,15 +1433,17 @@ function Set-HcxScaledCpuAndMemorySetting {
      The customer is responsible for putting the VMware Tools zip file in a downloadable location.
 
      .EXAMPLE
-     Once the function is imported, you simply need to run Set-ToolsRepo -url <url to tools zip file>
+     Once the function is imported, you simply need to run Set-ToolsRepo -ToolsURL <url to tools zip file>
 #>
 
 function Set-ToolsRepo
 {
+    [AVSAttribute(30, UpdatesSDDC = $false)]
     param(
-        [Parameter(Mandatory = $true)]
+        [Parameter(Mandatory = $true,
+        HelpMessage = "A URL to download the Tools zip file.")]
         [SecureString]
-        $url
+        $ToolsURL
     )
 
     # Tools repo folder
@@ -1458,7 +1460,7 @@ function Set-ToolsRepo
     }
 
     # Download the new tools files
-    Invoke-WebRequest -Uri $url -OutFile "newtools.zip"
+    Invoke-WebRequest -Uri $ToolsURL -OutFile "newtools.zip"
     Expand-Archive "./newtools.zip"
 
     # Make sure the new tools files exist
