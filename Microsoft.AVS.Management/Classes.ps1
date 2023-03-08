@@ -25,21 +25,38 @@ class AVSAttribute : Attribute {
 }
 
 <#
-SecurePool class provides a way to create a pool protected from CloudAdmins.
+SecureFolder class provides a way to create a folder protected from CloudAdmins.
 #>
-class AVSSecurePool {
+class AVSSecureFolder {
+    hidden static [string]$vendors = "AVS-vendor-folders"
     <#
-        Returns $null in case of any error.
+        Returns vendors root folder or $null in case of any error.
     #>
-    static [VMware.VimAutomation.ViCore.Types.V1.Inventory.ResourcePool] Create([string]$cluster, [string]$name) {
+    static [VMware.VimAutomation.ViCore.Types.V1.Inventory.Folder] Root() {
         $admin = Get-VIRole -Name "Admin" -ErrorAction Stop
         $noAccess = Get-VIRole -Name "NoAccess" -ErrorAction Stop
         $scripting = Get-VIAccount -Id "scripting" -Domain "vsphere.local" -ErrorAction Stop
         $group = Get-VIAccount -Group -Id "CloudAdmins" -Domain "vsphere.local" -ErrorAction Stop
-        $location = Get-Cluster -Name $cluster -ErrorAction Stop
-        $pool = New-ResourcePool -Location $location -Name $name -ErrorAction Stop
-        New-VIPermission -Entity $pool -Principal $scripting -Role $admin -Propagate $true -ErrorAction Stop
-        New-VIPermission -Entity $pool -Principal $group -Role $noAccess -Propagate $true -ErrorAction Stop
-        return $pool
+        $location = Get-Folder -Location ((Get-Datacenter)[0]) -Name "vm"
+        $root = Get-Folder -Name ([AVSSecureFolder]::vendors) -NoRecursion -Location $location -ErrorAction SilentlyContinue
+        if($null -eq $root) {
+            $root = New-Folder -Location $location -Name ([AVSSecureFolder]::vendors) -ErrorAction Stop
+            New-VIPermission -Entity $root -Principal $scripting -Role $admin -Propagate $true -ErrorAction Stop
+            New-VIPermission -Entity $root -Principal $group -Role $noAccess -Propagate $true -ErrorAction Stop
+        }
+        return $root
+    }
+
+    <#
+        Creates a subfolder or returns existing one given the name.
+        Returns $null in case of any error.
+    #>
+    static [VMware.VimAutomation.ViCore.Types.V1.Inventory.Folder] GetOrCreate([string]$name) {
+        $root = [AVSSecureFolder]::Root()
+        $folder = Get-Folder -Location $root -Name $name -NoRecursion -ErrorAction SilentlyContinue
+        if($null -eq $folder) {
+            $folder = New-Folder -Location $root -Name $name -ErrorAction Stop
+        }
+        return $folder
     }
 }
