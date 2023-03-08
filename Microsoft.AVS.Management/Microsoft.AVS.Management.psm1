@@ -249,6 +249,48 @@ function New-LDAPIdentitySource {
 
 <#
     .Synopsis
+     Download the certificate from a domain controller
+#>
+function Get-CertificateFromDomainController {
+    param (
+        [Parameter(
+            Mandatory = $true)]
+        [ValidateNotNull()]
+        [System.Uri]
+        $ParsedUrl,
+
+        [Parameter(
+            Mandatory = $true)]
+        [ValidateNotNull()]
+        [string]
+        $computerUrl
+    )
+
+    try {
+        $Command = 'nslookup ' + $ParsedUrl.Host + ' -type=soa'
+        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+        if ($SSHRes.ExitStatus -ne 0) {
+            throw "The FQDN $($ParsedUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
+        }
+
+        $Command = 'nc -vz ' + $ParsedUrl.Host + ' ' + $ParsedUrl.Port
+        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+        if ($SSHRes.ExitStatus -ne 0) {
+            throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ParsedUrl.Port) is open."
+        }
+
+        Write-Host ("Starting to Download Cert from " + $computerUrl)
+        $Command = 'echo "1" | openssl s_client -connect ' + $ParsedUrl.Host + ':' + $ParsedUrl.Port + ' -showcerts'
+        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+        $SSHOutput = $SSHRes.Output | out-string
+    } catch {
+        throw "Failure to download the certificate from $computerUrl. $_"
+    }
+    return $SSHOutput
+}
+
+<#
+    .Synopsis
      Recommended: Add a secure external identity source (Active Directory over LDAPS) for use with vCenter Server Single Sign-On.
 
     .Parameter Name
@@ -345,8 +387,8 @@ function New-LDAPSIdentitySource {
         $Credential,
 
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
+            Mandatory = $false,
+            HelpMessage = 'Optional: The certs will be installed from domain controllers if not specified. A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
         [System.Security.SecureString]
         $SSLCertificatesSasUrl,
 
@@ -356,6 +398,7 @@ function New-LDAPSIdentitySource {
         [string]
         $GroupName
     )
+
     if (-not ($PrimaryUrl -match '^(ldaps:).+((:389)|(:636)|(:3268)|(:3269))$')) {
         Write-Error "PrimaryUrl $PrimaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps: and not ldap:" -ErrorAction Stop
     }
@@ -384,19 +427,54 @@ function New-LDAPSIdentitySource {
     else {
         Write-Host "No existing external identity sources found."
     }
-
+    
     $Password = $Credential.GetNetworkCredential().Password
-    $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl -ErrorAction Stop
+    $DestinationFileArray = @()
+    if ($PSBoundParameters.ContainsKey('SSLCertificatesSasUrl')) {
+        $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl -ErrorAction Stop
+    } else {
+        $exportFolder = "$home/"
+        $remoteComputers = ,$PrimaryUrl
+        if ($PSBoundParameters.ContainsKey('SecondaryUrl')) {
+            $remoteComputers += $SecondaryUrl
+        }
+
+        foreach ($computerUrl in $remoteComputers) {
+            try {
+                if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) { throw }
+                $ParsedUrl = [System.Uri]$computerUrl
+            }
+            catch {
+                throw "Incorrect Url format entered from: $computerUrl"
+            }
+            if ($ParsedUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ParsedUrl.Host -as [ipaddress])) {
+                throw "Incorrect Url format. $computerUrl is an IP address. Consider using hostname exactly as specified on the issued certificate."
+            }
+
+            $SSHOutput = Get-CertificateFromDomainController -ParsedUrl $ParsedUrl -computerUrl $computerUrl
+
+            if ($SSHOutput -notmatch '(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)') {
+                throw "The certificate from $computerUrl has an incorrect format"
+            } else {
+                $certs = select-string -inputobject $SSHOutput -pattern "(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)" -allmatches
+                $cert = $certs.matches[0]
+                $exportPath = $exportFolder+($ParsedUrl.Host.split(".")[0])+".cer"
+                $cert.Value | Out-File $exportPath -Encoding ascii
+                $DestinationFileArray += $exportPath
+            }
+        }
+    }
+
     [System.Array]$Certificates =
-    foreach ($CertFile in $DestinationFileArray) {
+    foreach($CertFile in $DestinationFileArray) {
         try {
             [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
-        }
-        catch {
+        } catch {
             Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
             throw "File to certificate conversion failed. See error message for more details"
         }
     }
+
     Write-Host "Adding the LDAPS Identity Source..."
     Add-LDAPIdentitySource `
         -Name $Name `
@@ -685,53 +763,6 @@ function Add-GroupToCloudAdmins {
     Write-Host "Successfully added $GroupName to CloudAdmins."
     $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Continue
     Write-Output "Cloud Admin Members: $CloudAdminMembers"
-}
-
-<#
-    .Synopsis
-     Update the password used in the credential to authenticate an LDAP server
-
-    .Parameter Credential
-     Credential to login to the LDAP server (NOT cloudadmin) in the form of a username/password credential. Usernames often look like prodAdmins@domainname.com or if the AD is a Microsoft Active Directory server, usernames may need to be prefixed with the NetBIOS domain name, such as prod\AD_Admin
-
-     .Parameter DomainName
-     Domain name of the external LDAP server, e.g. myactivedirectory.local
-#>
-function Update-IdentitySourceCredential {
-    [CmdletBinding(PositionalBinding = $false)]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
-    Param
-    (
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Name of the Identity source')]
-        [ValidateNotNull()]
-        [string]
-        $DomainName,
-
-        [Parameter(Mandatory = $true,
-                HelpMessage = "Credential for the LDAP server")]
-        [ValidateNotNull()]
-        [System.Management.Automation.PSCredential]
-        [System.Management.Automation.Credential()]
-        $Credential
-    )
-
-    $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Stop
-    if ($null -ne $ExternalIdentitySources) {
-        $IdentitySource = $ExternalIdentitySources | Where-Object {$_.Name -eq $DomainName}
-        if ($null -ne $IdentitySource) {
-            Write-Host "Updating the LDAP Identity Source..."
-            Set-LDAPIdentitySource -IdentitySource $IdentitySource -Credential $Credential -ErrorAction Stop
-            $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
-            $ExternalIdentitySources | Format-List | Out-String
-        } else {
-            throw "Could not find Identity Source with name: $DomainName."
-        }
-    }
-    else {
-        throw "No existing external identity sources found."
-    }
 }
 
 <#
