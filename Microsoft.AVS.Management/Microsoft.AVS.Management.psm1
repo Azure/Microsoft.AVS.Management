@@ -427,7 +427,7 @@ function New-LDAPSIdentitySource {
     else {
         Write-Host "No existing external identity sources found."
     }
-    
+
     $Password = $Credential.GetNetworkCredential().Password
     $DestinationFileArray = @()
     if ($PSBoundParameters.ContainsKey('SSLCertificatesSasUrl')) {
@@ -1564,6 +1564,82 @@ function Set-ToolsRepo
         else
         {
             Write-Host "Successfully set tools-repo on all hosts for datastore $ds_name"
+        }
+    }
+}
+
+<#
+.Synopsis
+    Set vSAN compression and deduplication on a cluster or clusters. If deduplication is enabled then compression is required.
+    The default cluster configuration is deduplication and compression but the customer can change that.
+    Choosing neither compression nor deduplication will disable both.
+    This requires action on every physical disk and will take time to complete.
+
+.EXAMPLE
+    Set-vSANCompressDedupe -compression -cluster "cluster-1", "cluster-2"
+
+    Set-vSANCompressDedupe -deduplication -cluster "cluster-1", "cluster-2"
+
+    Set-vSANCompressDedupe -cluster "cluster-1", "cluster-2"
+
+    Set-vSANCompressDedupe -cluster "all"
+#>
+
+function Set-vSANCompressDedupe
+{
+    [AVSAttribute(120, UpdatesSDDC = $true)]
+    param(
+        [Parameter(Mandatory = $false,
+        HelpMessage = "Enable compression and deduplication.")]
+        [bool]$deduplication = $false,
+        [Parameter(Mandatory = $false,
+        HelpMessage = "Enable compression only.")]
+        [bool]$compression = $false,
+        [Parameter(Mandatory = $false,
+        HelpMessage = "Neither compression nor deduplication.")]
+        [bool]$neither = $false,
+        [Parameter(Mandatory = $true)]
+        [Array]$cluster
+    )
+
+    # $cluster is an array of cluster names or "all"
+    If ($cluster -eq "all")
+    {
+        $clusters = Get-Cluster
+    }
+    else
+    {
+        foreach ($cluster_each in $cluster)
+        {
+            $clusters += Get-Cluster -Name $cluster_each
+        }
+    }
+
+    foreach ($cluster in $clusters)
+    {
+        $cluster_name = $cluster.Name
+
+        If ($deduplication -eq $true)
+        {
+            # Deduplication requires compression
+            Write-Host "Enabling deduplication and compression on $cluster_name"
+            Set-VsanClusterConfiguration -Configuration $cluster_name -SpaceEfficiencyEnabled $true
+        }
+        elseif ($compression -eq $true)
+        {
+            # Compression only
+            Write-Host "Enabling compression on $cluster_name"
+            Set-VsanClusterConfiguration -Configuration $cluster_name -SpaceCompressionEnabled $true
+        }
+        elseif ($neither -eq $true)
+        {
+            # Neither compression nor deduplication
+            Write-Host "Disabling compression and deduplication on $cluster_name"
+            Set-VsanClusterConfiguration -Configuration $cluster_name -SpaceEfficiencyEnabled $false
+        }
+        else {
+            Write-Host "No compression or deduplication option selected."
+            throw "No compression or deduplication option selected."
         }
     }
 }
