@@ -593,7 +593,7 @@ function Remove-ExternalIdentitySources {
 
     $ExternalSource = Get-IdentitySource -External
     if ($null -eq $ExternalSource) {
-        Write-Output "No external identity sources found to remove. Nothing done"
+        Write-Output "No external identity sources found to remove. Nothing done  "
         return
     }
     else {
