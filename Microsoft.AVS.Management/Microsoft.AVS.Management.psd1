@@ -52,7 +52,7 @@
 
     # Modules that must be imported into the global environment prior to importing this module
     RequiredModules   = @(
-        @{"ModuleName" = "VMware.vSphere.SsoAdmin"; "RequiredVersion" = "1.3.5" },
+        @{"ModuleName" = "VMware.vSphere.SsoAdmin"; "RequiredVersion" = "1.3.8" },
         @{"ModuleName" = "VMware.VimAutomation.Core"; "RequiredVersion" = "12.7.0.20091293" }
         @{"ModuleName" = "VMware.VimAutomation.Storage"; "RequiredVersion" = "12.7.0.20091292"}
         @{"ModuleName" = "VMware.VimAutomation.Hcx"; "RequiredVersion" = "12.7.0.20091291"}
@@ -85,6 +85,7 @@
          "New-LDAPIdentitySource"
          "New-LDAPSIdentitySource"
          "Update-IdentitySourceCertificates"
+         "Update-IdentitySourceCredential"
          "Get-ExternalIdentitySources"
          "Remove-ExternalIdentitySources"
          "Add-GroupToCloudAdmins"
