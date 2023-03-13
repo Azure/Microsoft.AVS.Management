@@ -1477,6 +1477,9 @@ function Set-ToolsRepo
         $ToolsURL
     )
 
+    # Decrypt the URL
+    $tools_url = ConvertFrom-SecureString $ToolsURL -AsPlainText
+
     # Tools repo folder
     $newFolder = 'tools-repo'
 
@@ -1491,7 +1494,7 @@ function Set-ToolsRepo
     }
 
     # Download the new tools files
-    Invoke-WebRequest -Uri $ToolsURL -OutFile "newtools.zip"
+    Invoke-WebRequest -Uri $tools_url -OutFile "newtools.zip"
     Expand-Archive "./newtools.zip"
 
     # Make sure the new tools files exist
