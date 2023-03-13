@@ -1576,70 +1576,66 @@ function Set-ToolsRepo
     This requires action on every physical disk and will take time to complete.
 
 .EXAMPLE
-    Set-vSANCompressDedupe -compression -cluster "cluster-1", "cluster-2"
+    Set-vSANCompressDedupe -Cluster "cluster-1,cluster-2" -Compression $true
 
-    Set-vSANCompressDedupe -deduplication -cluster "cluster-1", "cluster-2"
+    Set-vSANCompressDedupe -Cluster "cluster-1,cluster-2" -Deduplication $true
 
-    Set-vSANCompressDedupe -cluster "cluster-1", "cluster-2"
+    Set-vSANCompressDedupe -Cluster "cluster-1,cluster-2"
 
-    Set-vSANCompressDedupe -cluster "all"
+    Set-vSANCompressDedupe -Cluster "all"
 #>
 
 function Set-vSANCompressDedupe
 {
     [AVSAttribute(120, UpdatesSDDC = $true)]
     param(
+        [Parameter(Mandatory = $true)]
+        [String]$Cluster,
         [Parameter(Mandatory = $false,
         HelpMessage = "Enable compression and deduplication.")]
-        [bool]$deduplication = $false,
+        [bool]$Deduplication = $false,
         [Parameter(Mandatory = $false,
         HelpMessage = "Enable compression only.")]
-        [bool]$compression = $false,
+        [bool]$Compression = $true,
         [Parameter(Mandatory = $false,
         HelpMessage = "Neither compression nor deduplication.")]
-        [bool]$neither = $false,
-        [Parameter(Mandatory = $true)]
-        [Array]$cluster
+        [bool]$Neither = $false
     )
 
     # $cluster is an array of cluster names or "all"
-    If ($cluster -eq "all")
+    If ($Cluster -eq "all")
     {
-        $clusters = Get-Cluster
+        $Clusters = Get-Cluster
     }
     else
     {
-        foreach ($cluster_each in $cluster)
+        foreach ($cluster_each in ($Cluster.split(",")).Trim())
         {
-            $clusters += Get-Cluster -Name $cluster_each
+            $Clusters += Get-Cluster -Name $cluster_each
         }
     }
 
-    foreach ($cluster in $clusters)
+    foreach ($Cluster in $Clusters)
     {
-        $cluster_name = $cluster.Name
+        $cluster_name = $Cluster.Name
 
-        If ($deduplication -eq $true)
+        If ($Deduplication -eq $true)
         {
             # Deduplication requires compression
             Write-Host "Enabling deduplication and compression on $cluster_name"
             Set-VsanClusterConfiguration -Configuration $cluster_name -SpaceEfficiencyEnabled $true
         }
-        elseif ($compression -eq $true)
+        elseif ($Compression -eq $true)
         {
             # Compression only
             Write-Host "Enabling compression on $cluster_name"
             Set-VsanClusterConfiguration -Configuration $cluster_name -SpaceCompressionEnabled $true
         }
-        elseif ($neither -eq $true)
+        elseif ($Neither -eq $true)
         {
             # Neither compression nor deduplication
             Write-Host "Disabling compression and deduplication on $cluster_name"
             Set-VsanClusterConfiguration -Configuration $cluster_name -SpaceEfficiencyEnabled $false
-        }
-        else {
-            Write-Host "No compression or deduplication option selected."
-            throw "No compression or deduplication option selected."
         }
     }
 }
