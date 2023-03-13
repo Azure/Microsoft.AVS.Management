@@ -1557,17 +1557,6 @@ function Set-ToolsRepo
         {
             $vmhost.ExtensionData.UpdateProductLockerLocation($repo_dir) | Out-Null
         }
-
-        # Check the tools-repo
-        $exist_repo = ($vmhosts | Get-AdvancedSetting -Name "UserVars.ProductLockerLocation" | Select-Object Entity, Value) | Select-Object -Unique
-        If (($exist_repo.Value -ne $repo_dir) -or ($exist_repo.count -ne 1))
-        {
-            Write-Error -Message "Failed to set tools-repo on all hosts for datastore $ds_name"
-        }
-        else
-        {
-            Write-Host "Successfully set tools-repo on all hosts for datastore $ds_name"
-        }
     }
 }
 
