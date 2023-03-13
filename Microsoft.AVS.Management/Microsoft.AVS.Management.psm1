@@ -1609,7 +1609,7 @@ function Set-vSANCompressDedupe
     }
     else
     {
-        foreach ($cluster_each in ($Cluster.split(",")).Trim())
+        foreach ($cluster_each in ($Cluster.split(",",[System.StringSplitOptions]::RemoveEmptyEntries)).Trim())
         {
             $Clusters += Get-Cluster -Name $cluster_each
         }
