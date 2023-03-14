@@ -1587,7 +1587,7 @@ function Set-ToolsRepo
 
 function Set-vSANCompressDedupe
 {
-    [AVSAttribute(120, UpdatesSDDC = $true)]
+    [AVSAttribute(60, UpdatesSDDC = $true)]
     param(
         [Parameter(Mandatory = $true)]
         [String]$Cluster,
