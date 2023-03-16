@@ -1532,7 +1532,7 @@ function Set-ToolsRepo
     $tools_url = ConvertFrom-SecureString $ToolsURL -AsPlainText
     # Download the new tools files
     Invoke-WebRequest -Uri $tools_url -OutFile "newtools.zip"
-    Expand-Archive "./newtools.zip"
+    Expand-Archive "./newtools.zip" -ErrorAction Stop
 
     # Make sure the new tools files exist
     If (!(Test-Path "./newtools/vmtools"))
