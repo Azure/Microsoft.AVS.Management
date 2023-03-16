@@ -1184,6 +1184,7 @@ function Set-ClusterDefaultStoragePolicy {
         }
     }
 }
+
 <#
     .Synopsis
     Verify a connection to VIServer with retries and a backoff timer in the case of unexpected exceptions.
@@ -1512,7 +1513,6 @@ function Set-HcxScaledCpuAndMemorySetting {
      .EXAMPLE
      Once the function is imported, you simply need to run Set-ToolsRepo -ToolsURL <url to tools zip file>
 #>
-
 function Set-ToolsRepo
 {
     [AVSAttribute(30, UpdatesSDDC = $false)]
@@ -1527,17 +1527,11 @@ function Set-ToolsRepo
     $newFolder = 'tools-repo'
 
     # Get all datastores
-    try
-    {
-        $datastores = Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq "vsan" }
-    }
-    catch
-    {
-        Write-Error -Message "Unable to get datastores. $($_.Exception.Message)"
-    }
-
+    $datastores = Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq "vsan" }
+    
+    $tools_url = ConvertFrom-SecureString $ToolsURL -AsPlainText
     # Download the new tools files
-    Invoke-WebRequest -Uri $ToolsURL -OutFile "newtools.zip"
+    Invoke-WebRequest -Uri $tools_url -OutFile "newtools.zip"
     Expand-Archive "./newtools.zip"
 
     # Make sure the new tools files exist
@@ -1630,7 +1624,6 @@ function Set-ToolsRepo
 
     Set-vSANCompressDedupe -Cluster "all"
 #>
-
 function Set-vSANCompressDedupe
 {
     [AVSAttribute(60, UpdatesSDDC = $true)]
