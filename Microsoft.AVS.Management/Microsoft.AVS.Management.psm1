@@ -607,9 +607,9 @@ function Update-IdentitySourceCertificates {
 <#
     .Synopsis
      Update the password used in the credential to authenticate an LDAP server
-    .Parameter Credential 
+    .Parameter Credential
      Credential to login to the LDAP server (NOT cloudadmin) in the form of a username/password credential. Usernames often look like prodAdmins@domainname.com or if the AD is a Microsoft Active Directory server, usernames may need to be prefixed with the NetBIOS domain name, such as prod\AD_Admin
-    
+
      .Parameter DomainName
      Domain name of the external LDAP server, e.g. myactivedirectory.local
 #>
@@ -1576,7 +1576,7 @@ function Set-ToolsRepo
 
     # Get all datastores
     $datastores = Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq "vsan" }
-    
+
     $tools_url = ConvertFrom-SecureString $ToolsURL -AsPlainText
     # Download the new tools files
     Invoke-WebRequest -Uri $tools_url -OutFile "newtools.zip"
@@ -1652,6 +1652,69 @@ function Set-ToolsRepo
         else
         {
             Write-Host "Successfully set tools-repo on all hosts for datastore $ds_name"
+        }
+    }
+}
+
+<#
+.Synopsis
+    Set vSAN compression and deduplication on a cluster or clusters. If deduplication is enabled then compression is required.
+    The default cluster configuration is deduplication and compression but the customer can change that.
+    Choosing neither compression nor deduplication will disable both.
+    This requires action on every physical disk and will take time to complete.
+.EXAMPLE
+    Set-vSANCompressDedupe -ClustersToChange "cluster-1,cluster-2" -Compression $true
+    Set-vSANCompressDedupe -ClustersToChange "cluster-1,cluster-2" -Deduplication $true
+    Set-vSANCompressDedupe -ClustersToChange "cluster-1,cluster-2"
+    Set-vSANCompressDedupe -ClustersToChange "all"
+#>
+function Set-vSANCompressDedupe
+{
+    [AVSAttribute(60, UpdatesSDDC = $true)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [String]$ClustersToChange,
+        [Parameter(Mandatory = $false,
+        HelpMessage = "Enable compression and deduplication.")]
+        [bool]$Deduplication = $false,
+        [Parameter(Mandatory = $false,
+        HelpMessage = "Enable compression only.")]
+        [bool]$Compression = $false
+    )
+
+    # $cluster is an array of cluster names or "all"
+    If ($ClustersToChange -eq "all")
+    {
+        $Clusters = Get-Cluster
+    }
+    else {
+        foreach ($cluster_each in ($ClustersToChange.split(",",[System.StringSplitOptions]::RemoveEmptyEntries)).Trim())
+        {
+            $Clusters += Get-Cluster -Name $cluster_each
+        }
+    }
+
+    foreach ($Cluster in $Clusters)
+    {
+        $cluster_name = $Cluster.Name
+
+        If ($Deduplication -eq $true)
+        {
+            # Deduplication requires compression
+            Write-Host "Enabling deduplication and compression on $cluster_name"
+            Set-VsanClusterConfiguration -Configuration $cluster_name -SpaceEfficiencyEnabled $true
+        }
+        elseif ($Compression -eq $true)
+        {
+            # Compression only
+            Write-Host "Enabling compression on $cluster_name"
+            Set-VsanClusterConfiguration -Configuration $cluster_name -SpaceCompressionEnabled $true
+        }
+        else
+        {
+            # Disable both
+            Write-Host "Disabling deduplication and compression on $cluster_name"
+            Set-VsanClusterConfiguration -Configuration $cluster_name -SpaceEfficiencyEnabled $false
         }
     }
 }
