@@ -1666,7 +1666,7 @@ function Set-ToolsRepo
     Set-vSANCompressDedupe -ClustersToChange "cluster-1,cluster-2" -Compression $true
     Set-vSANCompressDedupe -ClustersToChange "cluster-1,cluster-2" -Deduplication $true
     Set-vSANCompressDedupe -ClustersToChange "cluster-1,cluster-2"
-    Set-vSANCompressDedupe -ClustersToChange "all"
+    Set-vSANCompressDedupe -ClustersToChange "*"
 #>
 function Set-vSANCompressDedupe
 {
@@ -1683,7 +1683,7 @@ function Set-vSANCompressDedupe
     )
 
     # $cluster is an array of cluster names or "all"
-    If ($ClustersToChange -eq "all")
+    If ($ClustersToChange -eq "*")
     {
         $Clusters = Get-Cluster
     }
