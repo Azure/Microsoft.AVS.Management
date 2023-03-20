@@ -1682,16 +1682,10 @@ function Set-vSANCompressDedupe
         [bool]$Compression = $false
     )
 
-    # $cluster is an array of cluster names or "all"
-    If ($ClustersToChange -eq "*")
+    # $cluster is an array of cluster names or "*""
+    foreach ($cluster_each in ($ClustersToChange.split(",",[System.StringSplitOptions]::RemoveEmptyEntries)).Trim())
     {
-        $Clusters = Get-Cluster
-    }
-    else {
-        foreach ($cluster_each in ($ClustersToChange.split(",",[System.StringSplitOptions]::RemoveEmptyEntries)).Trim())
-        {
-            $Clusters += Get-Cluster -Name $cluster_each
-        }
+        $Clusters += Get-Cluster -Name $cluster_each
     }
 
     foreach ($Cluster in $Clusters)
