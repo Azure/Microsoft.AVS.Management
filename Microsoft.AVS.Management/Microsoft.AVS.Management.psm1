@@ -1676,10 +1676,10 @@ function Set-vSANCompressDedupe
         [String]$ClustersToChange,
         [Parameter(Mandatory = $false,
         HelpMessage = "Enable compression and deduplication.")]
-        [bool]$Deduplication = $false,
+        [bool]$Deduplication,
         [Parameter(Mandatory = $false,
         HelpMessage = "Enable compression only.")]
-        [bool]$Compression = $false
+        [bool]$Compression
     )
 
     # $cluster is an array of cluster names or "*""
@@ -1692,13 +1692,13 @@ function Set-vSANCompressDedupe
     {
         $cluster_name = $Cluster.Name
 
-        If ($Deduplication -eq $true)
+        If ($Deduplication)
         {
             # Deduplication requires compression
             Write-Host "Enabling deduplication and compression on $cluster_name"
             Set-VsanClusterConfiguration -Configuration $cluster_name -SpaceEfficiencyEnabled $true
         }
-        elseif ($Compression -eq $true)
+        elseif ($Compression)
         {
             # Compression only
             Write-Host "Enabling compression on $cluster_name"
