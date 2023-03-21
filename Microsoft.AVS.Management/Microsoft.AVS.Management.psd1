@@ -96,7 +96,6 @@
          "Restart-HcxManager"
          "Set-ToolsRepo"
          "Set-vSANCompressDedupe"
-         "Get-AVSStoragePolicy"
          "New-AVSStoragePolicy"
          "Remove-AVSStoragePolicy"
        )
