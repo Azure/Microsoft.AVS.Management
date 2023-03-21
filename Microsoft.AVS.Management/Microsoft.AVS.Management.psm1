@@ -1,7 +1,8 @@
+<# Private Function Import #>
 . $PSScriptRoot\UserUtils.ps1
 . $PSScriptRoot\HcxUtils.ps1
-. $PSScriptRoot\PrivateGenericUtils.psm1
-. $PSScriptRoot\PrivatevSANUtils.psm1
+. $PSScriptRoot\AVSGenericUtils.ps1
+. $PSScriptRoot\AVSvSANUtils.ps1
 
 <#
 AVSAttribute applied to a commandlet function indicates:
