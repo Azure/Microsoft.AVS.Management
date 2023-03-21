@@ -1,3 +1,20 @@
+
+<#PSScriptInfo
+
+.VERSION 1.0
+
+.GUID ce8e0201-4bcd-4e42-9918-1f81d110f520
+
+.AUTHOR K. Chris Nakagaki
+
+.COMPANYNAME Microsoft
+
+.COPYRIGHT (c) Microsoft. All rights reserved.
+
+.DESCRIPTION Powershell generic private functions for general manipulation or validation of strings.
+
+#>
+
 Function Test-AVSProtectedObjectName {
     <#
         .NOTES :

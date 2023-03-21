@@ -1,3 +1,19 @@
+<#PSScriptInfo
+
+.VERSION 1.0
+
+.GUID b28778e8-2fd5-4ab1-a4bd-8026dc75d14b
+
+.AUTHOR K. Chris Nakagaki
+
+.COMPANYNAME Microsoft
+
+.COPYRIGHT (c) Microsoft. All rights reserved.
+
+.DESCRIPTION PowerShell private functions for AVS Storage Policy manipulation
+
+#>
+
 Function New-AVSCommonStoragePolicy {
     <#
             .NOTES :
