@@ -219,7 +219,7 @@ Function Get-AVSStoragePolicy {
         [Parameter(Mandatory = $false)]
         [ValidateSet("RESOURCE", "DATA_SERVICE_POLICY", "REQUIREMENT")]
         [string]
-        $ResourceType="REQUIREMENT"
+        $ResourceType = "REQUIREMENT"
     )
     Begin {
         $serviceInstanceView = Get-SpbmView -Id "PbmServiceInstance-ServiceInstance"
