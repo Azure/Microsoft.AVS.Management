@@ -12,7 +12,7 @@
     RootModule        = 'Microsoft.AVS.Management.psm1'
 
     # Version number of this module.
-    ModuleVersion     = '5.2.0'
+    ModuleVersion     = '5.3.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
