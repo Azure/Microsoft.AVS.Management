@@ -1775,9 +1775,9 @@ Function New-AVSStoragePolicy {
         Default is 0. Valid values are 0..100
         Percentage of cache reservation for the policy.
 	.PARAMETER vSANChecksumDisabled
-        Default is unset/blank. Enable or disable checksum for the policy. Valid values are $true or $false.
+        Default is $false. Enable or disable checksum for the policy. Valid values are $true or $false.
     .PARAMETER vSANForceProvisioning
-        Default is unset/blank. Force provisioning for the policy. Valid values are $true or $false.
+        Default is $false. Force provisioning for the policy. Valid values are $true or $false.
         vSAN Force Provisioned Objects are not covered under Microsoft SLA.
     .PARAMETER Tags
         Match to datastores that do have these tags.  Tags are case sensitive.
@@ -1843,13 +1843,11 @@ Function New-AVSStoragePolicy {
         [int]
         $vSANCacheReservation,
         [Parameter(Mandatory = $false)]
-        [ValidateSet("unset", $true, $false)]
-        [string]
-        $vSANChecksumDisabled = "unset",
+        [boolean]
+        $vSANChecksumDisabled,
         [Parameter(Mandatory = $false)]
-        [ValidateSet("unset", $true, $false)]
-        [string]
-        $vSANForceProvisioning = "unset",
+        [boolean]
+        $vSANForceProvisioning,
         [Parameter(Mandatory = $false)]
         [string]
         $Tags,
@@ -2244,23 +2242,8 @@ Function New-AVSStoragePolicy {
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
             }
-            $false {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "checksumDisabled"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = $false
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-            }
-            Default {}
+            # Empty profile spec defaults to setting to false in overwrite case
+            $false {}
         }
         #vSANForceProvisioning
         Write-Information "vSANForceProvisioning Value is: $vSANForceProvisioning"
@@ -2282,23 +2265,8 @@ Function New-AVSStoragePolicy {
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
                 $Description = $Description + " - Force Provisioned objects are unprotected by Microsoft SLA"
             }
-            $false {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "forceProvisioning"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = $false
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-            }
-            Default {}
+            # Empty profile spec defaults to setting to false in overwrite case
+            $false {}
         }
 
         #vSANDiskStripesPerObject
@@ -2386,7 +2354,7 @@ Function New-AVSStoragePolicy {
         $TagData = $SPBMCapabilities | Where-Object { $_.subcategory -eq "Tag" }
         If (![string]::IsNullOrEmpty($Tags)) {
             # Needed as run command does not support string array types
-            $Tags = $Tags.split(",", [System.StringSplitOptions]::RemoveEmptyEntries).Trim()
+            $Tags = Convert-StringToArray -String $Tags
             Foreach ($Tag in $Tags) {
                 Write-Information ("Tag: " + $Tag)
                 $Tag = Limit-WildcardsandCodeInjectionCharacters -String $Tag
@@ -2463,7 +2431,7 @@ Function New-AVSStoragePolicy {
         Write-Information ("NotTags recorded as: " + $NotTags)
         If (![string]::IsNullOrEmpty($NotTags)) {
             # Needed as run command does not support string array types
-            $NotTags = $NotTags.split(",", [System.StringSplitOptions]::RemoveEmptyEntries).Trim()
+            $NotTags = Convert-StringToArray -String $NotTags
             Foreach ($Tag in $NotTags) {
                 Write-Information ("Tag: " + $Tag)
                 $Tag = Limit-WildcardsandCodeInjectionCharacters -String $Tag
