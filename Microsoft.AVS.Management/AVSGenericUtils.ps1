@@ -16,13 +16,6 @@
 
 Function Test-AVSProtectedObjectName {
     <#
-        .NOTES :
-        --------------------------------------------------------
-        Created by: K. Chris Nakagaki
-            Organization    : Microsoft
-            Copyright (c) Microsoft. All rights reserved.
-        --------------------------------------------------------
-
     .DESCRIPTION
         This function tests if an object name is valid.
     .PARAMETER Name
@@ -83,12 +76,6 @@ Function Test-AVSProtectedObjectName {
 
 Function Limit-WildcardsandCodeInjectionCharacters {
     <#
-            .NOTES :
-            --------------------------------------------------------
-            Created by: K. Chris Nakagaki
-                Organization    : Microsoft
-                Copyright (c) Microsoft. All rights reserved.
-            --------------------------------------------------------
         .DESCRIPTION
             This function removes wildcards and code injection characters from a string.
         .PARAMETER String

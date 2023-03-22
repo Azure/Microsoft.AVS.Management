@@ -16,12 +16,6 @@
 
 Function New-AVSCommonStoragePolicy {
     <#
-            .NOTES :
-            --------------------------------------------------------
-            Created by: K. Chris Nakagaki
-                Organization    : Microsoft
-                COPYRIGHT (c) Microsoft. All rights reserved.
-            --------------------------------------------------------
         .DESCRIPTION
             This function creates a new or overwrites an existing vSAN Storage Policy.
         .PARAMETER Name
@@ -157,12 +151,6 @@ Function New-AVSCommonStoragePolicy {
 Function Get-AVSSPBMCapabilities {
 
     <#
-            .NOTES :
-            --------------------------------------------------------
-            Created by: K. Chris Nakagaki
-                Organization    : Microsoft
-                e-mail          : Chris.Nakagaki@microsoft.com
-            --------------------------------------------------------
             .DESCRIPTION
             This is meant to pull the capabilities of the SPBM service for application to storage profiles.
     #>

@@ -1708,13 +1708,6 @@ function Set-vSANCompressDedupe {
 
 Function Remove-AVSStoragePolicy {
     <#
-        .NOTES :
-        --------------------------------------------------------
-        Created by: K. Chris Nakagaki
-        Organization    : Microsoft
-        Copyright (c) Microsoft. All rights reserved.
-        --------------------------------------------------------
-
     .DESCRIPTION
         This function removes a storage policy.
     .PARAMETER Name
@@ -1755,12 +1748,6 @@ Function Remove-AVSStoragePolicy {
 
 Function New-AVSStoragePolicy {
     <#
-        .NOTES :
-        --------------------------------------------------------
-        Created by: K. Chris Nakagaki
-            Organization    : Microsoft
-            COPYRIGHT (c) Microsoft. All rights reserved.
-        --------------------------------------------------------
 	.DESCRIPTION
 		This function creates a new or overwrites an existing vSAN Storage Policy.
     .PARAMETER Name
