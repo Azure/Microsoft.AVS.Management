@@ -1754,13 +1754,14 @@ Function New-AVSStoragePolicy {
         Name of Storage Policy - Wildcards are not allowed and will be stripped.
     .PARAMETER vSANSiteDisasterTolerance
         Default is None.  Valid values are None, Site mirroring - stretched cluster, "None - keep data on Preferred (stretched cluster)", "None - keep data on Secondary (stretched cluster)", "None - stretched cluster"
+        Only valid for stretch clusters.
     .PARAMETER vSANFailuresToTolerate
         Default is "1 failure - RAID-1 (Mirroring)",  Valid values are "No Data Redundancy", "No Data redundancy with host affinity", "1 failure - RAID-1 (Mirroring)", "1 failure - RAID-5 (Erasure Coding)", "2 failures - RAID-1 (Mirroring)", "2 failures - RAID-6 (Erasure Coding)", "3 failures - RAID-1 (Mirroring)"
         No Data Redundancy options are not covered under Microsoft SLA.
     .PARAMETER VMEncryption
         Default is None.  Valid values are None, PreIO, PostIO.
-        PreIO allows IO Filtering solutions to capture data prior to VM encryption.
-        PostIO allows IO Filtering solutions to capture data after VM encryption.
+        PreIO allows VAIO filtering solutions to capture data prior to VM encryption.
+        PostIO allows VAIO filtering solutions to capture data after VM encryption.
     .PARAMETER vSANObjectSpaceReservation
         Default is 0.  Valid values are 0..100
         Object Reservation.  0=Thin Provision, 100=Thick Provision
@@ -1774,16 +1775,20 @@ Function New-AVSStoragePolicy {
         Default is 0. Valid values are 0..100
         Percentage of cache reservation for the policy.
 	.PARAMETER vSANChecksumDisabled
-        Default is unset. Enable or disable checksum for the policy. Valid values are $true or $false.
+        Default is unset/blank. Enable or disable checksum for the policy. Valid values are $true or $false.
     .PARAMETER vSANForceProvisioning
-        Default is unset. Force provisioning for the policy. Valid values are $true or $false.
+        Default is unset/blank. Force provisioning for the policy. Valid values are $true or $false.
         vSAN Force Provisioned Objects are not covered under Microsoft SLA.
     .PARAMETER Tags
         Match to datastores that do have these tags.  Tags are case sensitive.
+        Comma seperate multiple tags. Example: Tag1,Tag 2,Tag_3
     .PARAMETER NotTags
         Match to datastores that do NOT have these tags. Tags are case sensitive.
+        Comma seperate multiple tags. Example: Tag1,Tag 2,Tag_3
     .PARAMETER Overwrite
         Overwrite existing Storage Policy.  Default is $false.
+        Passing overwrite true provided will overwrite an existing policy exactly as defined.  
+        Those values not passed will be removed or set to default values.
     .EXAMPLE
         Creates a new storage policy named Encryption with that enables Pre-IO filter VM encryption
         New-AVSStoragePolicy -Name "Encryption" -VMEncryption "PreIO"
@@ -1846,10 +1851,10 @@ Function New-AVSStoragePolicy {
         [string]
         $vSANForceProvisioning = "unset",
         [Parameter(Mandatory = $false)]
-        [string[]]
+        [string]
         $Tags,
         [Parameter(Mandatory = $false)]
-        [string[]]
+        [string]
         $NotTags,
         [Parameter(Mandatory = $false)]
         [Boolean]
@@ -1861,12 +1866,12 @@ Function New-AVSStoragePolicy {
 
     Begin {
         #Cleanup Wildcard and Code Injection Characters
-        Write-Debug "Cleaning up Wildcard and Code Injection Characters from Name value: $Name"
+        Write-Information "Cleaning up Wildcard and Code Injection Characters from Name value: $Name"
         $Name = Limit-WildcardsandCodeInjectionCharacters -String $Name
-        Write-Debug "Name value after cleanup: $Name"
-        Write-Debug "Cleaning up Wildcard and Code Injection Characters from Description value: $Description"
+        Write-Information "Name value after cleanup: $Name"
+        Write-Information "Cleaning up Wildcard and Code Injection Characters from Description value: $Description"
         If (![string]::IsNullOrEmpty($Description)) { $Description = Limit-WildcardsandCodeInjectionCharacters -String $Description }
-        Write-Debug "Description value after cleanup: $Description"
+        Write-Information "Description value after cleanup: $Description"
 
         #Protected Policy Object Name Validation Check
         If (Test-AVSProtectedObjectName -Name $Name) {
@@ -1876,7 +1881,7 @@ Function New-AVSStoragePolicy {
 
         #Check for existing policy
         $ExistingPolicy = Get-AVSStoragePolicy -Name $Name
-        Write-Debug ("Existing Policy: " + $ExistingPolicy.name)
+        Write-Information ("Existing Policy: " + $ExistingPolicy.name)
         if ($ExistingPolicy -and !$Overwrite) {
             Write-Error "Storage Policy $Name already exists.  Set -Overwrite to $true to overwrite existing policy."
             break
@@ -1885,7 +1890,7 @@ Function New-AVSStoragePolicy {
             Write-Error "Storage Policy $Name does not exist.  Set -Overwrite to $false to create new policy."
             break
         }
-        Write-Debug "Overwrite value set to: $Overwrite"
+        Write-Information "Overwrite value set to: $Overwrite"
         Switch ($Overwrite) {
             $true {
                 $pbmprofileresourcetype = new-object vmware.spbm.views.PbmProfileResourceType
@@ -1904,18 +1909,18 @@ Function New-AVSStoragePolicy {
                 $profilespec.Constraints = new-object vmware.spbm.views.PbmCapabilitySubProfileConstraints
                 If (![string]::IsNullOrEmpty($Description)) { $profilespec.Description = $Description }
                 $profilespec.Category = "REQUIREMENT" #Valid options are REQUIREMENT = vSAN Storage Policies or RESOURCE = ?? or DATA_SERVICE_POLICY = Common Storage Policies such encryption and storage IO.
-                Write-Debug "Profile Name set to: $($profilespec.Name)"
-                Write-Debug "Profile Category set to: $($profilespec.Category)"
+                Write-Information "Profile Name set to: $($profilespec.Name)"
+                Write-Information "Profile Category set to: $($profilespec.Category)"
             }
         }
-        Write-Debug "Getting SPBM Capabilities"
+        Write-Information "Getting SPBM Capabilities"
         $SPBMCapabilities = Get-AVSSPBMCapabilities
         Foreach ($Capability in $SPBMCapabilities) {
-            Write-Debug "SPBM Capability: NameSpace: $($Capability.NameSpace), SubCategory: $($Capability.SubCategory), CapabilityMetaData Count: $($Capability.CapabilityMetadata.Count)"
+            Write-Information "SPBM Capability: NameSpace: $($Capability.NameSpace), SubCategory: $($Capability.SubCategory), CapabilityMetaData Count: $($Capability.CapabilityMetadata.Count)"
         }
 
         #vSAN Site Disaster Tolerance / Stretch Cluster specific configuration
-        Write-Debug "vSANSiteDisasterTolerance value set to: $vSANSiteDisasterTolerance"
+        Write-Information "vSANSiteDisasterTolerance value set to: $vSANSiteDisasterTolerance"
         Switch ($vSANSiteDisasterTolerance) {
             "None" {
                 #Left blank on purpose.  No additional configuration required.
@@ -1931,7 +1936,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 1
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                    Write-Information "Added VSAN Subprofile to ProfileSpec"
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
@@ -1957,7 +1962,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 1
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                    Write-Information "Added VSAN Subprofile to ProfileSpec"
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
@@ -1972,7 +1977,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = "Preferred Fault Domain"
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                    Write-Information "Added VSAN Subprofile to ProfileSpec"
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
@@ -1989,7 +1994,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 1
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                    Write-Information "Added VSAN Subprofile to ProfileSpec"
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
@@ -2004,7 +2009,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = "Secondary Fault Domain"
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                    Write-Information "Added VSAN Subprofile to ProfileSpec"
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
                 $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA"
@@ -2020,7 +2025,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 1
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                    Write-Information "Added VSAN Subprofile to ProfileSpec"
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
 
@@ -2034,7 +2039,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = "None"
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                    Write-Information "Added VSAN Subprofile to ProfileSpec"
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
@@ -2043,10 +2048,9 @@ Function New-AVSStoragePolicy {
             Default {
                 #Left blank on purpose, same as none option.
             }
-
         }
         #vSANFailurestoTolerate / FTT
-        Write-Debug "vSANFailurestoTolerate value set to: $vSANFailuresToTolerate"
+        Write-Information "vSANFailurestoTolerate value set to: $vSANFailuresToTolerate"
         Switch ($vSANFailuresToTolerate) {
             "No Data Redundancy" {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
@@ -2059,7 +2063,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 0
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                    Write-Information "Added VSAN Subprofile to ProfileSpec"
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
@@ -2077,7 +2081,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 1
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                    Write-Information "Added VSAN Subprofile to ProfileSpec"
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
@@ -2103,12 +2107,12 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 1
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                    Write-Information "Added VSAN Subprofile to ProfileSpec"
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
 
-                Write-Debug "Profilespec: $($profilespec | Out-String)"
+                Write-Information "Profilespec: $($profilespec | Out-String)"
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
                 $Subprofile.Id.Namespace = "VSAN"
@@ -2119,7 +2123,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = "RAID-5/6 (Erasure Coding) - Capacity"
                 ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
 
-                Write-Debug "Profilespec: $($profilespec | Out-String)"
+                Write-Information "Profilespec: $($profilespec | Out-String)"
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
                 $Subprofile.Id.Namespace = "VSAN"
@@ -2129,7 +2133,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
                 $Subprofile.Constraint[0].PropertyInstance[0].value = "Allflash"
                 ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                Write-Debug "All Flash added to ProfileSpec as required for $vsanFailurestoTolerate"
+                Write-Information "All Flash added to ProfileSpec as required for $vsanFailurestoTolerate"
             }
             "2 failures - RAID-1 (Mirroring)" {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
@@ -2142,7 +2146,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 2
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                    Write-Information "Added VSAN Subprofile to ProfileSpec"
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
@@ -2168,7 +2172,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 2
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                    Write-Information "Added VSAN Subprofile to ProfileSpec"
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
@@ -2192,7 +2196,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
                 $Subprofile.Constraint[0].PropertyInstance[0].value = "Allflash"
                 ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                Write-Debug "All Flash added to ProfileSpec as required for $vsanFailurestoTolerate"
+                Write-Information "All Flash added to ProfileSpec as required for $vsanFailurestoTolerate"
             }
             "3 failures - RAID-1 (Mirroring)" {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
@@ -2205,7 +2209,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 3
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                    Write-Information "Added VSAN Subprofile to ProfileSpec"
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
@@ -2223,7 +2227,7 @@ Function New-AVSStoragePolicy {
             Default {}
         }
         #vSANChecksumDisabled
-        Write-Debug "vSANChecksumDisabled value is: $vSANChecksumDisabled"
+        Write-Information "vSANChecksumDisabled value is: $vSANChecksumDisabled"
         Switch ($vSANChecksumDisabled) {
             $true {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
@@ -2236,7 +2240,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = $true
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                    Write-Information "Added VSAN Subprofile to ProfileSpec"
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
             }
@@ -2251,7 +2255,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = $false
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                    Write-Information "Added VSAN Subprofile to ProfileSpec"
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
@@ -2259,7 +2263,7 @@ Function New-AVSStoragePolicy {
             Default {}
         }
         #vSANForceProvisioning
-        Write-Debug "vSANForceProvisioning Value is: $vSANForceProvisioning"
+        Write-Information "vSANForceProvisioning Value is: $vSANForceProvisioning"
         Switch ($vSANForceProvisioning) {
             $true {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
@@ -2272,7 +2276,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = $true
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                    Write-Information "Added VSAN Subprofile to ProfileSpec"
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
@@ -2289,7 +2293,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = $false
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                    Write-Information "Added VSAN Subprofile to ProfileSpec"
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
@@ -2298,9 +2302,9 @@ Function New-AVSStoragePolicy {
         }
 
         #vSANDiskStripesPerObject
-        Write-Debug "vSANDiskStripesPerObject value is: $vSANDiskStripesPerObject"
+        Write-Information "vSANDiskStripesPerObject value is: $vSANDiskStripesPerObject"
         If ($vSANDiskStripesPerObject -gt 0) {
-            Write-Debug "Creating vSAN Disk Stripes Subprofile"
+            Write-Information "Creating vSAN Disk Stripes Subprofile"
             $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
             $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
             $Subprofile.Id.Namespace = "VSAN"
@@ -2311,16 +2315,16 @@ Function New-AVSStoragePolicy {
             $Subprofile.Constraint[0].PropertyInstance[0].value = $vSANDiskStripesPerObject
             If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                 $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                Write-Information "Added VSAN Subprofile to ProfileSpec"
                 ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
             }
             Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
         }
 
         #VSANIOLimit
-        Write-Debug "vSANIOLimit set to: $vSANIOLimit"
+        Write-Information "vSANIOLimit set to: $vSANIOLimit"
         If ($vSANIOLimit -gt 0) {
-            Write-Debug "Building vSAN IOLimit Subprofile"
+            Write-Information "Building vSAN IOLimit Subprofile"
             $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
             $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
             $Subprofile.Id.Namespace = "VSAN"
@@ -2331,16 +2335,16 @@ Function New-AVSStoragePolicy {
             $Subprofile.Constraint[0].PropertyInstance[0].value = $vSANIOLimit
             If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                 $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                Write-Information "Added VSAN Subprofile to ProfileSpec"
                 ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
             }
             Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
         }
 
         #VSANCacheReservation
-        Write-Debug "vSANCacheReservation set to: $vSANCacheReservation"
+        Write-Information "vSANCacheReservation set to: $vSANCacheReservation"
         If ($vSANCacheReservation -gt 0) {
-            Write-Debug "Creating vSANCacheReservation Subprofile"
+            Write-Information "Creating vSANCacheReservation Subprofile"
             $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
             $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
             $Subprofile.Id.Namespace = "VSAN"
@@ -2351,16 +2355,16 @@ Function New-AVSStoragePolicy {
             $Subprofile.Constraint[0].PropertyInstance[0].value = ([int]$vSANCacheReservation * 10000)
             If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                 $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                Write-Information "Added VSAN Subprofile to ProfileSpec"
                 ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
             }
             Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
         }
 
         #VSANObjectReservation
-        Write-Debug "vSANObjectReservation set to: $vSANObjectSpaceReservation"
+        Write-Information "vSANObjectReservation set to: $vSANObjectSpaceReservation"
         If ($vSANObjectSpaceReservation -gt 0) {
-            Write-Debug "Creating vSANObjectReservation Subprofile"
+            Write-Information "Creating vSANObjectReservation Subprofile"
             $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
             $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
             $Subprofile.Id.Namespace = "VSAN"
@@ -2371,25 +2375,27 @@ Function New-AVSStoragePolicy {
             $Subprofile.Constraint[0].PropertyInstance[0].value = $vSANObjectSpaceReservation
             If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                 $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                Write-Debug "Added VSAN Subprofile to ProfileSpec"
+                Write-Information "Added VSAN Subprofile to ProfileSpec"
                 ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
             }
             Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
         }
 
         # Tag Support for Storage Policies
-        Write-Debug ("Tags recorded as: " + $Tags)
+        Write-Information ("Tags recorded as: " + $Tags)
         $TagData = $SPBMCapabilities | Where-Object { $_.subcategory -eq "Tag" }
         If (![string]::IsNullOrEmpty($Tags)) {
+            # Needed as run command does not support string array types
+            $Tags = $Tags.split(",", [System.StringSplitOptions]::RemoveEmptyEntries).Trim()
             Foreach ($Tag in $Tags) {
-                Write-Debug ("Tag: " + $Tag)
+                Write-Information ("Tag: " + $Tag)
                 $Tag = Limit-WildcardsandCodeInjectionCharacters -String $Tag
                 $ObjectTag = Get-Tag -Name $Tag
                 If (![string]::IsNullOrEmpty($ObjectTag)) {
                     If ($ObjectTag.count -gt 1) {
-                        Write-Debug "Multiple Tags found with the name $Tag. Filtering by Datastore category."
+                        Write-Information "Multiple Tags found with the name $Tag. Filtering by Datastore category."
                         Foreach ($Entry in $ObjectTag) {
-                            Write-Debug ("Tag Name: " + $Entry.Name)
+                            Write-Information ("Tag Name: " + $Entry.Name)
                             If ($Entry.Category.EntityType -eq "Datastore") {
                                 $CatData = $TagData.CapabilityMetadata | Where-Object { $_.summary.Label -eq $Entry.Category.Name }
                                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
@@ -2402,9 +2408,9 @@ Function New-AVSStoragePolicy {
                                 $Subprofile.Constraint[0].PropertyInstance[0].value.values = $Entry.Name
                                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).count -eq 0) {
                                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "Tag based placement" }
-                                    Write-Debug "Added Tag based placement subprofile to ProfileSpec"
+                                    Write-Information "Added Tag based placement subprofile to ProfileSpec"
                                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
-                                    Write-Debug "Added $Tag to profilespec"
+                                    Write-Information "Added $Tag to profilespec"
                                 }
                                 Else {
                                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
@@ -2412,7 +2418,7 @@ Function New-AVSStoragePolicy {
 
                             }
                             If ($Entry.Category.EntityType -ne "Datastore") {
-                                Write-Debug "Tag $($Entry.Name) of category $($Entry.Category.Name) is not a Datastore Tag. Skipping."
+                                Write-Information "Tag $($Entry.Name) of category $($Entry.Category.Name) is not a Datastore Tag. Skipping."
                             }
                         }
                     }
@@ -2433,9 +2439,9 @@ Function New-AVSStoragePolicy {
                             $Subprofile.Constraint[0].PropertyInstance[0].value.values = $Entry.Name
                             If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).count -eq 0) {
                                 $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "Tag based placement" }
-                                Write-Debug "Added Tag based placement subprofile to ProfileSpec"
+                                Write-Information "Added Tag based placement subprofile to ProfileSpec"
                                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
-                                Write-Debug "Added $Tag to profilespec"
+                                Write-Information "Added $Tag to profilespec"
                             }
                             Else {
                                 ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
@@ -2454,17 +2460,19 @@ Function New-AVSStoragePolicy {
         }
 
         # Not Tag Support for Storage Policies
-        Write-Debug ("NotTags recorded as: " + $NotTags)
+        Write-Information ("NotTags recorded as: " + $NotTags)
         If (![string]::IsNullOrEmpty($NotTags)) {
+            # Needed as run command does not support string array types
+            $NotTags = $NotTags.split(",", [System.StringSplitOptions]::RemoveEmptyEntries).Trim()
             Foreach ($Tag in $NotTags) {
-                Write-Debug ("Tag: " + $Tag)
+                Write-Information ("Tag: " + $Tag)
                 $Tag = Limit-WildcardsandCodeInjectionCharacters -String $Tag
                 $ObjectTag = Get-Tag -Name $Tag
                 If (![string]::IsNullOrEmpty($ObjectTag)) {
                     If ($ObjectTag.count -gt 1) {
-                        Write-Debug "Multiple Tags found with the name $Tag. Filtering by Datastore category."
+                        Write-Information "Multiple Tags found with the name $Tag. Filtering by Datastore category."
                         Foreach ($Entry in $ObjectTag) {
-                            Write-Debug ("Tag Name: " + $Entry.Name)
+                            Write-Information ("Tag Name: " + $Entry.Name)
                             If ($Entry.Category.EntityType -eq "Datastore") {
                                 $CatData = $TagData.CapabilityMetadata | Where-Object { $_.summary.Label -eq $Entry.Category.Name }
                                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
@@ -2477,9 +2485,9 @@ Function New-AVSStoragePolicy {
                                 $Subprofile.Constraint[0].PropertyInstance[0].value.values = $Entry.Name
                                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).count -eq 0) {
                                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "Tag based placement" }
-                                    Write-Debug "Added Tag based placement subprofile to ProfileSpec"
+                                    Write-Information "Added Tag based placement subprofile to ProfileSpec"
                                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
-                                    Write-Debug "Added $Tag to profilespec"
+                                    Write-Information "Added $Tag to profilespec"
                                 }
                                 Else {
                                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
@@ -2487,13 +2495,13 @@ Function New-AVSStoragePolicy {
 
                             }
                             If ($Entry.Category.EntityType -ne "Datastore") {
-                                Write-Debut "Tag $($Entry.Name) of category $($Entry.Category.Name) is not a Datastore Tag. Skipping."
+                                Write-Information "Tag $($Entry.Name) of category $($Entry.Category.Name) is not a Datastore Tag. Skipping."
                             }
                         }
                     }
                     If ($ObjectTag.count -eq 1) {
                         if ($ObjectTag.Category.EntityType -ne "Datastore") {
-                            Write-Debug "Tag $Tag is not a Datastore Tag. Skipping."
+                            Write-Information "Tag $Tag is not a Datastore Tag. Skipping."
                         }
                         Else {
                             $Entry = $ObjectTag
@@ -2508,9 +2516,9 @@ Function New-AVSStoragePolicy {
                             $Subprofile.Constraint[0].PropertyInstance[0].value.values = $Entry.Name
                             If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).count -eq 0) {
                                 $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "Tag based placement" }
-                                Write-Debug "Added Tag based placement subprofile to ProfileSpec"
+                                Write-Information "Added Tag based placement subprofile to ProfileSpec"
                                 ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
-                                Write-Debug "Added $Tag to profilespec"
+                                Write-Information "Added $Tag to profilespec"
                             }
                             Else {
                                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
@@ -2528,14 +2536,14 @@ Function New-AVSStoragePolicy {
 
         }
         #IMPORTANT - Any additional functionality should be added before the VMEncryption Parameter.  The reason is that this subprofile must be added as a capability to all subprofile types for API to accept.
-        Write-Debug "VMEncryption set to: $VMEncryption"
+        Write-Information "VMEncryption set to: $VMEncryption"
         Switch ($VMEncryption) {
             "None" {}
             "PreIO" {
                 #Check for AVS VM Encryption Policies, create if not present.
                 $IOPolicy = Get-AVSStoragePolicy -Name "AVS PRE IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
                 If (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS PRE IO Encryption" -Description "Encrypts VM before VAIO Filter" -PostIOEncryption $false }
-                Write-Debug ("VMEncryption uniqueID: " + $IOPolicy.ProfileId.UniqueId)
+                Write-Information ("VMEncryption uniqueID: " + $IOPolicy.ProfileId.UniqueId)
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
                 $Subprofile.Id.Namespace = "com.vmware.storageprofile.dataservice"
@@ -2547,7 +2555,7 @@ Function New-AVSStoragePolicy {
                 If ($profilespec.Constraints.SubProfiles.count -eq 0) {
                     $SubprofileName = "Host based services"
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = $SubprofileName }
-                    Write-Debug "Added $SubprofileName to ProfileSpec"
+                    Write-Information "Added $SubprofileName to ProfileSpec"
                     Foreach ($service in $profilespec.Constraints.SubProfiles) {
                         $service.Capability += $subprofile
                     }
@@ -2557,13 +2565,13 @@ Function New-AVSStoragePolicy {
                         $service.Capability += $subprofile
                     }
                 }
-                Write-Debug "Added $($IOPolicy.Name) to profilespec"
+                Write-Information "Added $($IOPolicy.Name) to profilespec"
 
             }
             "PostIO" {
                 $IOPolicy = Get-AVSStoragePolicy -Name "AVS POST IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
                 If (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS POST IO Encryption" -Description "Encrypts VM after VAIO Filter" -PostIOEncryption $true }
-                Write-Debug ("VMEncryption uniqueID: " + $IOPolicy.ProfileId.UniqueId)
+                Write-Information ("VMEncryption uniqueID: " + $IOPolicy.ProfileId.UniqueId)
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
                 $Subprofile.Id.Namespace = "com.vmware.storageprofile.dataservice"
@@ -2575,8 +2583,8 @@ Function New-AVSStoragePolicy {
                 If ($profilespec.Constraints.SubProfiles.count -eq 0) {
                     $SubprofileName = "Host based services"
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = $SubprofileName }
-                    Write-Debug "Added $SubprofileName to ProfileSpec"
-                    Write-Debug $profilespec.Constraints.SubProfiles[0].Name
+                    Write-Information "Added $SubprofileName to ProfileSpec"
+                    Write-Information $profilespec.Constraints.SubProfiles[0].Name
                     Foreach ($service in $profilespec.Constraints.SubProfiles) {
                         $service.Capability += $subprofile
                     }
@@ -2586,7 +2594,7 @@ Function New-AVSStoragePolicy {
                         $service.Capability += $subprofile
                     }
                 }
-                Write-Debug "Added $($IOPolicy.Name) to profilespec"
+                Write-Information "Added $($IOPolicy.Name) to profilespec"
 
             }
             Default {}
@@ -2598,18 +2606,23 @@ Function New-AVSStoragePolicy {
         #return $profilespec #Uncomment to capture and debug profile spec.
         If ($profilespec.Constraints.SubProfiles.count -eq 0) {
             Write-Error "At least one parameter must be defined to create a storage policy."
-            Return
+            Return 
         }
         $serviceInstanceView = Get-SpbmView -Id "PbmServiceInstance-ServiceInstance"
         $spbmServiceContent = $serviceInstanceView.PbmRetrieveServiceContent()
         $spbmProfMgr = Get-SpbmView -Id $spbmServiceContent.ProfileManager
         If ($Overwrite) {
             $spbmProfMgr.PbmUpdate($ExistingPolicy.ProfileId, $profilespec)
-            #TODO: Insert validation code here.  Above API call does not return anything.
+            if ($?){return "$($ExistingPolicy.Name) Updated"}
+            else {return "$($ExistingPolicy.Name) Update Failed"}
+            
         }
         Else {
             $profileuniqueID = $spbmProfMgr.PbmCreate($profilespec)
-            return $profileuniqueID.UniqueId
+            $existingpolicies = Get-AVSStoragePolicy
+            $createdpolicy = $existingpolicies | where-object {$_.profileid.uniqueid -eq $profileuniqueID.UniqueId}
+            Write-Information "Created $($createdpolicy.Name)"
+            return ("Created " + $createdpolicy.Name + " " + $profileuniqueID.UniqueId)
         }
 
     }
