@@ -1749,9 +1749,11 @@ Function Remove-AVSStoragePolicy {
 Function New-AVSStoragePolicy {
     <#
 	.DESCRIPTION
-		This function creates a new or overwrites an existing vSAN Storage Policy.
+		This function creates a new or overwrites an existing vSphere Storage Policy.  vSAN Only, Encryption Only, Tag Only based and/or any combination of these 3 policy types are supported.
     .PARAMETER Name
         Name of Storage Policy - Wildcards are not allowed and will be stripped.
+    .PARAMETER Description
+        Description of Storage Policy, free form text.
     .PARAMETER vSANSiteDisasterTolerance
         Default is None.  Valid values are None, Site mirroring - stretched cluster, "None - keep data on Preferred (stretched cluster)", "None - keep data on Secondary (stretched cluster)", "None - stretched cluster"
         Only valid for stretch clusters.
@@ -1979,7 +1981,8 @@ Function New-AVSStoragePolicy {
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-                $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA"
+                $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
+                Write-Warning "$Name policy setting unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
             "None - keep data on Secondary (stretched cluster)" {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
@@ -2010,7 +2013,8 @@ Function New-AVSStoragePolicy {
                     Write-Information "Added VSAN Subprofile to ProfileSpec"
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-                $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA"
+                $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
+                Write-Warning "$Name policy setting unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
             "None - stretched cluster" {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
@@ -2041,7 +2045,8 @@ Function New-AVSStoragePolicy {
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-                $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA"
+                $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
+                Write-Warning "$Name policy setting unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
             Default {
                 #Left blank on purpose, same as none option.
@@ -2065,7 +2070,8 @@ Function New-AVSStoragePolicy {
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-                $Description = $Description + " - FTT 0 based policy objects are unprotected by Microsoft SLA"
+                $Description = $Description + " - FTT 0 based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur."
+                Write-Warning "$Name policy setting FTT 0 based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
             "No Data redundancy with host affinity" {  }
             "1 failure - RAID-1 (Mirroring)" {
@@ -2241,6 +2247,8 @@ Function New-AVSStoragePolicy {
                     Write-Information "Added VSAN Subprofile to ProfileSpec"
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+                $Description = $Description + " - Disabling vSAN Checksum may invalidate Microsoft SLA terms and data loss/corruption may occur."
+                Write-Warning "Disabling vSAN Checksum may invalidate Microsoft SLA terms and data loss/corruption may occur."
             }
             # Empty profile spec defaults to setting to false in overwrite case
             $false {}
@@ -2263,7 +2271,8 @@ Function New-AVSStoragePolicy {
                     ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-                $Description = $Description + " - Force Provisioned objects are unprotected by Microsoft SLA"
+                $Description = $Description + " - Force Provisioned objects are unprotected by Microsoft SLA and data loss/corruption may occur."
+                Write-Warning "$Name policy setting Force Provisioned objects are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
             # Empty profile spec defaults to setting to false in overwrite case
             $false {}
