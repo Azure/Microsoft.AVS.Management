@@ -1779,7 +1779,7 @@ Function New-AVSStoragePolicy {
         Percentage of cache reservation for the policy.
 	.PARAMETER vSANChecksumDisabled
         Default is $false. Enable or disable checksum for the policy. Valid values are $true or $false.
-        WARNING - Disabling checksum may lead Data LOSS and/or corruption.
+        WARNING - Disabling checksum may lead to data LOSS and/or corruption.
         Recommended value is $false.
     .PARAMETER vSANForceProvisioning
         Default is $false. Force provisioning for the policy. Valid values are $true or $false.
