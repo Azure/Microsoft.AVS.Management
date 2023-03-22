@@ -12,7 +12,7 @@
     RootModule        = 'Microsoft.AVS.Management.psm1'
 
     # Version number of this module.
-    ModuleVersion     = '5.2.0'
+    ModuleVersion     = '5.3.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -96,6 +96,8 @@
          "Restart-HcxManager"
          "Set-ToolsRepo"
          "Set-vSANCompressDedupe"
+         "New-AVSStoragePolicy"
+         "Remove-AVSStoragePolicy"
        )
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
