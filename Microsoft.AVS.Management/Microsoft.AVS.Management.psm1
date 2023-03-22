@@ -1757,6 +1757,7 @@ Function New-AVSStoragePolicy {
     .PARAMETER vSANSiteDisasterTolerance
         Default is None.  Valid values are None, Site mirroring - stretched cluster, "None - keep data on Preferred (stretched cluster)", "None - keep data on Secondary (stretched cluster)", "None - stretched cluster"
         Only valid for stretch clusters.
+        "Site mirroring mirroring - stretched cluster" 
     .PARAMETER vSANFailuresToTolerate
         Default is "1 failure - RAID-1 (Mirroring)",  Valid values are "No Data Redundancy", "No Data redundancy with host affinity", "1 failure - RAID-1 (Mirroring)", "1 failure - RAID-5 (Erasure Coding)", "2 failures - RAID-1 (Mirroring)", "2 failures - RAID-6 (Erasure Coding)", "3 failures - RAID-1 (Mirroring)"
         No Data Redundancy options are not covered under Microsoft SLA.
@@ -1778,9 +1779,12 @@ Function New-AVSStoragePolicy {
         Percentage of cache reservation for the policy.
 	.PARAMETER vSANChecksumDisabled
         Default is $false. Enable or disable checksum for the policy. Valid values are $true or $false.
+        WARNING - Disabling checksum may lead Data LOSS and/or corruption.
+        Recommended value is $false.
     .PARAMETER vSANForceProvisioning
         Default is $false. Force provisioning for the policy. Valid values are $true or $false.
-        vSAN Force Provisioned Objects are not covered under Microsoft SLA.
+        WARNING - vSAN Force Provisioned Objects are not covered under Microsoft SLA.  Data LOSS and vSAN instability may occur.
+        Recommended value is $false.
     .PARAMETER Tags
         Match to datastores that do have these tags.  Tags are case sensitive.
         Comma seperate multiple tags. Example: Tag1,Tag 2,Tag_3
@@ -1924,6 +1928,7 @@ Function New-AVSStoragePolicy {
         Switch ($vSANSiteDisasterTolerance) {
             "None" {
                 #Left blank on purpose.  No additional configuration required.
+                Write-Warning "Policy setting of $vSANSiteDisasterTolerance in a stretch cluster is unprotected by Microsoft SLA as data loss/corruption may occur."
             }
             "Site mirroring - stretched cluster" {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
@@ -2071,7 +2076,7 @@ Function New-AVSStoragePolicy {
                 }
                 Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
                 $Description = $Description + " - FTT 0 based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur."
-                Write-Warning "$Name policy setting FTT 0 based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur."
+                Write-Warning "$Name policy setting $vSANFailurestoTolerate based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
             "No Data redundancy with host affinity" {  }
             "1 failure - RAID-1 (Mirroring)" {
