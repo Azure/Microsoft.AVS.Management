@@ -1,5 +1,4 @@
 using module Microsoft.AVS.Management
-$ErrorActionPreference = "stop"
 
 <#
     .SYNOPSIS
