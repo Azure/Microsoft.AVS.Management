@@ -1,6 +1,6 @@
 <#PSScriptInfo
 
-.VERSION 1.0
+.VERSION 1.1
 
 .GUID ce8e0201-4bcd-4e42-9918-1f81d110f520
 
@@ -103,3 +103,44 @@ Function Limit-WildcardsandCodeInjectionCharacters {
     }
     
 }
+
+Function Convert-StringToArray {
+    <#
+        .DESCRIPTION
+            This function converts a string to an array based on defined delimiter.
+        .PARAMETER String
+            String value to convert into an array.
+        .PARAMETER Delimiter
+            Delimiter to use to split the string into an array. 
+            Default is ","
+        .PARAMETER TrimandCleanup
+            Removes any empty entries and preceding/trailing spaces. 
+            Default is $true.
+    #>
+    
+    [CmdletBinding(DefaultParameterSetName = "Encryption")]
+    param ( 
+        [Parameter(Mandatory = $true)]
+        [string]
+        $String,
+        [Parameter(Mandatory = $false)]
+        [string]
+        $Delimiter = ",",
+        [Parameter(Mandatory = $false)]
+        [boolean]
+        $TrimandCleanup = $true
+    )
+    Begin {
+        #Convert string to array
+        Switch ($TrimandCleanup) {
+            $true { $Array = $String.Split($Delimiter, [System.StringSplitOptions]::RemoveEmptyEntries).Trim() }
+            $false { $Array = $String.Split($Delimiter) }
+        }
+        
+    }
+    Process {
+        Return $Array
+    }
+    
+}
+
