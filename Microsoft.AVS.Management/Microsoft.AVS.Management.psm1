@@ -1749,15 +1749,15 @@ Function Remove-AVSStoragePolicy {
 Function New-AVSStoragePolicy {
     <#
 	.DESCRIPTION
-		This function creates a new or overwrites an existing vSphere Storage Policy.  vSAN Only, Encryption Only, Tag Only based and/or any combination of these 3 policy types are supported.
+		This function creates a new or overwrites an existing vSphere Storage Policy.  
+        Non vSAN-Based, vSAN Only, VMEncryption Only, Tag Only based and/or any combination of these policy types are supported.
     .PARAMETER Name
         Name of Storage Policy - Wildcards are not allowed and will be stripped.
     .PARAMETER Description
-        Description of Storage Policy, free form text.
+        Description of Storage Policy you are creating, free form text.
     .PARAMETER vSANSiteDisasterTolerance
         Default is None.  Valid values are None, Site mirroring - stretched cluster, "None - keep data on Preferred (stretched cluster)", "None - keep data on Secondary (stretched cluster)", "None - stretched cluster"
         Only valid for stretch clusters.
-        "Site mirroring mirroring - stretched cluster" 
     .PARAMETER vSANFailuresToTolerate
         Default is "1 failure - RAID-1 (Mirroring)",  Valid values are "No Data Redundancy", "No Data redundancy with host affinity", "1 failure - RAID-1 (Mirroring)", "1 failure - RAID-5 (Erasure Coding)", "2 failures - RAID-1 (Mirroring)", "2 failures - RAID-6 (Erasure Coding)", "3 failures - RAID-1 (Mirroring)"
         No Data Redundancy options are not covered under Microsoft SLA.
@@ -1770,7 +1770,8 @@ Function New-AVSStoragePolicy {
         Object Reservation.  0=Thin Provision, 100=Thick Provision
     .PARAMETER vSANDiskStripesPerObject
         Default is 1.  Valid values are 1..12.
-        The number of HDDs across which each replica of a storage object is striped. A value higher than 1 may result in better performance (for e.g. when flash read cache misses need to get serviced from HDD), but also results in higher use of system resources.
+        The number of HDDs across which each replica of a storage object is striped. 
+        A value higher than 1 may result in better performance (for e.g. when flash read cache misses need to get serviced from HDD), but also results in higher use of system resources.
     .PARAMETER vSANIOLimit
         Default is unset. Valid values are 0..2147483647
         IOPS limit for the policy.
@@ -2054,7 +2055,7 @@ Function New-AVSStoragePolicy {
                 Write-Warning "$Name policy setting unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
             Default {
-                #Left blank on purpose, same as none option.
+                Write-Warning "Policy setting of blank in a stretch cluster is unprotected by Microsoft SLA as data loss/corruption may occur."
             }
         }
         #vSANFailurestoTolerate / FTT
@@ -2367,9 +2368,9 @@ Function New-AVSStoragePolicy {
         Write-Information ("Tags recorded as: " + $Tags)
         $TagData = $SPBMCapabilities | Where-Object { $_.subcategory -eq "Tag" }
         If (![string]::IsNullOrEmpty($Tags)) {
-            # Needed as run command does not support string array types
-            $Tags = Convert-StringToArray -String $Tags
-            Foreach ($Tag in $Tags) {
+            # Needed as run command does not support string array types, cannot simply overwrite existing variable for some reason.
+            $Array = Convert-StringToArray -String $Tags
+            Foreach ($Tag in $Array) {
                 Write-Information ("Tag: " + $Tag)
                 $Tag = Limit-WildcardsandCodeInjectionCharacters -String $Tag
                 $ObjectTag = Get-Tag -Name $Tag
@@ -2444,9 +2445,9 @@ Function New-AVSStoragePolicy {
         # Not Tag Support for Storage Policies
         Write-Information ("NotTags recorded as: " + $NotTags)
         If (![string]::IsNullOrEmpty($NotTags)) {
-            # Needed as run command does not support string array types
-            $NotTags = Convert-StringToArray -String $NotTags
-            Foreach ($Tag in $NotTags) {
+            # Needed as run command does not support string array types, cannot simply overwrite existing variable for some reason.
+            $Array = Convert-StringToArray -String $NotTags
+            Foreach ($Tag in $Array) {
                 Write-Information ("Tag: " + $Tag)
                 $Tag = Limit-WildcardsandCodeInjectionCharacters -String $Tag
                 $ObjectTag = Get-Tag -Name $Tag
