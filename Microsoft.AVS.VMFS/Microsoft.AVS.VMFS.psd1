@@ -68,21 +68,15 @@
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
     FunctionsToExport = @(
-        "Configure-VmfsIscsi",
+        "Set-VmfsIscsi",
         "New-VmfsDatastore",
-        "Unmount-VmfsDatastore",
+        "Dismount-VmfsDatastore",
         "Resize-VmfsVolume",
-        "Resignature-VmfsVolume"
+        "Restore-VmfsVolume"
     )
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
-    CmdletsToExport = @(
-        "Configure-VmfsIscsi",
-        "New-VmfsDatastore",
-        "Unmount-VmfsDatastore",
-        "Resize-VmfsVolume",
-        "Resignature-VmfsVolume"
-    )
+    CmdletsToExport = @()
 
     # Variables to export from this module
     VariablesToExport = '*'

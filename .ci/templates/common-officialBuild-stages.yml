@@ -1,14 +1,16 @@
 parameters:
 - name: moduleFolderName
   type: string
+- name: moduleDisplayName
+  type: string
 - name: stageForSigningFolder
   type: string
 - name: stageForUnsignedFolder
   type: string
 
 stages:
-- stage: 'Official_Build_${{ parameters.moduleFolderName }}'
-  displayName: Build and Publish Package
+- stage: 'Official_Build_${{ parameters.moduleDisplayName }}' # Valid stage name cannot contain the character '.'
+  displayName: 'Build and Publish Package for ${{ parameters.moduleFolderName }}'
   pool:
     vmImage: windows-2019
   jobs:
@@ -53,6 +55,7 @@ stages:
     displayName: Compliance Tasks
     dependsOn: 
     - Build
+    condition: succeeded('Build')
     steps:
     - task: ComponentGovernanceComponentDetection@0
       displayName: 'Component Detection'
@@ -98,7 +101,7 @@ stages:
   # Sign and Publish
   ################################################################################################
   - job: Release
-    displayName: Sign and Publish
+    displayName: 'Sign and Publish for ${{ parameters.moduleFolderName }}'
     dependsOn: 
     - Check_Compliance
     condition: succeeded('Check_Compliance')

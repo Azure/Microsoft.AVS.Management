@@ -18,7 +18,7 @@ using module Microsoft.AVS.Management
      Secondary IP Address to add as dynamic iSCSI target
 
     .EXAMPLE
-     Configure-VmfsIscsi -ClusterName "myCluster" -PrimaryScsiIpAddress "192.168.0.1" -SecondaryScsiIpAddress "192.168.0.2"
+     Set-VmfsIscsi -ClusterName "myCluster" -PrimaryScsiIpAddress "192.168.0.1" -SecondaryScsiIpAddress "192.168.0.2"
 
     .INPUTS
      vCenter cluster name, Primary and Secondary SCSI IP Addresses.
@@ -26,7 +26,7 @@ using module Microsoft.AVS.Management
     .OUTPUTS
      None.
 #>
-function Configure-VmfsIscsi {
+function Set-VmfsIscsi {
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false)]
     Param (
@@ -229,7 +229,7 @@ function New-VmfsDatastore {
 
 <#
     .DESCRIPTION
-     Detaches and unmount a VMFS datastore from a cluster.
+     Detach and unmount a VMFS datastore from a cluster.
 
     .PARAMETER ClusterName
      Cluster name
@@ -238,7 +238,7 @@ function New-VmfsDatastore {
      Datastore name
 
     .EXAMPLE
-     Unmount-VmfsDatastore -ClusterName "myCluster" -DatastoreName "myDatastore"
+     Dismount-VmfsDatastore -ClusterName "myCluster" -DatastoreName "myDatastore"
 
     .INPUTS
      vCenter cluster name and datastore name.
@@ -246,7 +246,7 @@ function New-VmfsDatastore {
     .OUTPUTS
      None.
 #>
-function Unmount-VmfsDatastore {
+function Dismount-VmfsDatastore {
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false)]
     Param (
@@ -386,7 +386,7 @@ function Resize-VmfsVolume {
      NAA ID of device associated with the existing VMFS volume
 
     .EXAMPLE
-     Resignature-VmfsVolume -ClusterName "myClusterName" -DeviceNaaId $DeviceNaaId
+     Restore-VmfsVolume -ClusterName "myClusterName" -DeviceNaaId $DeviceNaaId
 
     .INPUTS
      vCenter cluster name and device NAA ID.
@@ -394,7 +394,7 @@ function Resize-VmfsVolume {
     .OUTPUTS
      None.
 #>
-function Resignature-VmfsVolume {
+function Restore-VmfsVolume {
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false)]
     Param (

@@ -21,7 +21,9 @@ stages:
 - template: templates/common-unofficialBuild-stages.yml@self
   parameters:
     moduleFolderName: ${{ variables.managementModuleFolderName }}
+    moduleDisplayName: ${{ variables.managementModuleDisplayName }}
 
 - template: templates/common-unofficialBuild-stages.yml@self
   parameters:
     moduleFolderName: ${{ variables.vmfsModuleFolderName }}
+    moduleDisplayName: ${{ variables.vmfsModuleDisplayName }}

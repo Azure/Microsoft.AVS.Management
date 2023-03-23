@@ -1,10 +1,12 @@
 parameters:
 - name: moduleFolderName
   type: string
+- name: moduleDisplayName
+  type: string
 
 stages:
-- stage: 'Unofficial_Build_${{ parameters.moduleFolderName }}' 
-  displayName: Build and Publish Package
+- stage: 'Unofficial_Build_${{ parameters.moduleDisplayName }}' # Valid stage name cannot contain the character '.'
+  displayName: 'Build and Publish Package for ${{ parameters.moduleFolderName }}'
   pool:
     vmImage: windows-2019
   jobs:
