@@ -17,31 +17,31 @@
     GUID = '1bc2c94d-907f-4184-9224-cf2bf07470af'
 
     # Author of this module
-    Author = 'Microsoft'
+    Author = 'Sanjay Rajmohan'
 
     # Company or vendor of this module
     CompanyName = 'Microsoft Corporation'
 
     # Copyright statement for this module
-    Copyright = '(c) 2023 Microsoft Corporation. All rights reserved.'
+    Copyright = '(c) Microsoft. All rights reserved.'
 
     # Description of the functionality provided by this module
-    Description = 'Microsoft AVS VMFS Plugin.'
+    Description = 'Azure VMware Solutions VMFS Plugin.'
 
     # Minimum version of the PowerShell engine required by this module
     PowerShellVersion = '5.1'
 
     # Name of the PowerShell host required by this module
-    PowerShellHostName = ''
+    # PowerShellHostName = ''
 
     # Minimum version of the PowerShell host required by this module
-    PowerShellHostVersion = ''
+    # PowerShellHostVersion = ''
 
     # Minimum version of Microsoft .NET Framework required by this module. This prerequisite is valid for the PowerShell Desktop edition only.
-    DotNetFrameworkVersion = ''
+    # DotNetFrameworkVersion = ''
 
     # Minimum version of the common language runtime (CLR) required by this module. This prerequisite is valid for the PowerShell Desktop edition only.
-    ClrVersion = ''
+    # ClrVersion = ''
 
     # Processor architecture (None, X86, Amd64) required by this module
     # ProcessorArchitecture = ''
@@ -52,19 +52,19 @@
     )
 
     # Assemblies that must be loaded prior to importing this module
-    RequiredAssemblies = @()
+    # RequiredAssemblies = @()
 
     # Script files (.ps1) that are run in the caller's environment prior to importing this module.
-    ScriptsToProcess = @()
+    # ScriptsToProcess = @()
 
     # Type files (.ps1xml) to be loaded when importing this module
-    TypesToProcess = @()
+    # TypesToProcess = @()
 
     # Format files (.ps1xml) to be loaded when importing this module
-    FormatsToProcess = @()
+    # FormatsToProcess = @()
 
     # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
-    NestedModules = @()
+    # NestedModules = @()
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
     FunctionsToExport = @(
@@ -91,13 +91,13 @@
     AliasesToExport = @()
 
     # DSC resources to export from this module
-    DscResourcesToExport = @()
+    # DscResourcesToExport = @()
 
     # List of all modules packaged with this module
-    ModuleList = @()
+    # ModuleList = @()
 
     # List of all files packaged with this module
-    FileList = @()
+    # FileList = @()
 
     # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
     PrivateData = @{
@@ -108,27 +108,33 @@
             Tags = @("VMware", "PowerCLI", "Azure", "AVS")
 
             # A URL to the license for this module.
-            LicenseUri = ''
+            # LicenseUri = ''
 
             # A URL to the main website for this project.
-            ProjectUri = ''
+            ProjectUri = 'https://github.com/Azure/Microsoft.AVS.Management'
 
             # A URL to an icon representing this module.
-            IconUri = ''
+            # IconUri = ''
 
             # ReleaseNotes of this module
-            ReleaseNotes = ''
+            # ReleaseNotes = ''
 
             # Remove this for GA version
-            Prerelease = 'preview'
+            # Prerelease = ''
+
+            # Flag to indicate whether the module requires explicit user acceptance for install/update/save
+            # RequireLicenseAcceptance = $false
+
+            # External dependent modules of this module
+            # ExternalModuleDependencies = @()
         }
 
     }
 
     # HelpInfo URI of this module
-    HelpInfoURI = ''
+    # HelpInfoURI = ''
 
     # Default prefix for commands exported from this module. Override the default prefix using Import-Module -Prefix.
-    DefaultCommandPrefix = ''
+    # DefaultCommandPrefix = ''
 
 }

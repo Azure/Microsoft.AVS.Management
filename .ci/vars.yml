@@ -1,5 +1,6 @@
 variables:
-  moduleFolderName: 'Microsoft.AVS.Management'
+  managementModuleFolderName: 'Microsoft.AVS.Management'
+  vmfsModuleFolderName: 'Microsoft.AVS.VMFS'
   GDN_CODESIGN_TARGETDIRECTORY: '$(Build.ArtifactStagingDirectory)'
   stageForUnsignedFolder: 'unsigned'
   stageForSigningFolder: 'forSigning'
