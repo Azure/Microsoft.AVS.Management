@@ -11,13 +11,13 @@ name: $(Rev:r) # Provide build run number (i.e., Build.BuildNumber) that is used
 #######################################
 
 stages:
-- template: templates/common-stages.yml@self
+- template: templates/common-officialBuild-stages.yml@self
   parameters:
     moduleFolderName: ${{ variables.managementModuleFolderName }}
     stageForSigningFolder: ${{ variables.stageForSigningFolder }}
     stageForUnsignedFolder: ${{ variables.stageForUnsignedFolder }}
 
-- template: templates/common-stages.yml@self
+- template: templates/common-officialBuild-stages.yml@self
   parameters:
     moduleFolderName: ${{ variables.vmfsModuleFolderName }}
     stageForSigningFolder: ${{ variables.stageForSigningFolder }}
