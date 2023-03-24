@@ -1756,10 +1756,23 @@ Function New-AVSStoragePolicy {
     .PARAMETER Description
         Description of Storage Policy you are creating, free form text.
     .PARAMETER vSANSiteDisasterTolerance
-        Default is None.  Valid values are None, Site mirroring - stretched cluster, "None - keep data on Preferred (stretched cluster)", "None - keep data on Secondary (stretched cluster)", "None - stretched cluster"
+        Default is "None"
+        Valid Values are "None", "Dual", "Preferred", "Secondary", "NoneStretch"
+        None = No Site Redundancy (Recommended Option for Non-Stretch Clusters, NOT recommended for Stretch Clusters)
+        Dual = Dual Site Redundancy (Recommended Option for Stretch Clusters)
+        Preferred = No site redundancy - keep data on Preferred (stretched cluster)
+        Secondary = No site redundancy -  Keep data on Secondary Site (stretched cluster)
+        NoneStretch = No site redundancy - Not Recommended (https://kb.vmware.com/s/article/88358)
         Only valid for stretch clusters.
     .PARAMETER vSANFailuresToTolerate
-        Default is "1 failure - RAID-1 (Mirroring)",  Valid values are "No Data Redundancy", "No Data redundancy with host affinity", "1 failure - RAID-1 (Mirroring)", "1 failure - RAID-5 (Erasure Coding)", "2 failures - RAID-1 (Mirroring)", "2 failures - RAID-6 (Erasure Coding)", "3 failures - RAID-1 (Mirroring)"
+        Default is "R1FTT1"
+        Valid values are "None", "R1FTT1", "R1FTT2", "R1FTT3", "R5FTT1", "R6FTT2", "R1FTT3"
+        None = No Data Redundancy
+        R1FTT1 = 1 failure - RAID-1 (Mirroring)
+        R1FTT2 = 2 failures - RAID-1 (Mirroring)
+        R1FTT3 = 3 failures - RAID-1 (Mirroring)
+        R5FTT1 = 1 failure - RAID-5 (Erasure Coding)
+        R6FTT2 = 2 failures - RAID-6 (Erasure Coding)
         No Data Redundancy options are not covered under Microsoft SLA.
     .PARAMETER VMEncryption
         Default is None.  Valid values are None, PreIO, PostIO.
@@ -1822,11 +1835,11 @@ Function New-AVSStoragePolicy {
         [string]
         $Description,
         [Parameter(Mandatory = $false)]
-        [ValidateSet("None", "Site mirroring - stretched cluster", "None - keep data on Preferred (stretched cluster)", "None - keep data on Secondary (stretched cluster)", "None - stretched cluster")]
+        [ValidateSet("None", "Dual", "Preferred", "Secondary", "NoneStretch")]
         [string]
         $vSANSiteDisasterTolerance,
         [Parameter(Mandatory = $false)]
-        [ValidateSet("No Data Redundancy", "No Data redundancy with host affinity", "1 failure - RAID-1 (Mirroring)", "1 failure - RAID-5 (Erasure Coding)", "2 failures - RAID-1 (Mirroring)", "2 failures - RAID-6 (Erasure Coding)", "3 failures - RAID-1 (Mirroring)")]
+        [ValidateSet("None", "R1FTT1", "R5FTT1", "R1FTT2", "R6FTT2", "R1FTT3")]
         [string]
         $vSANFailuresToTolerate,
         [Parameter(Mandatory = $false)]
@@ -1929,9 +1942,8 @@ Function New-AVSStoragePolicy {
         Switch ($vSANSiteDisasterTolerance) {
             "None" {
                 #Left blank on purpose.  No additional configuration required.
-                Write-Warning "Policy setting of $vSANSiteDisasterTolerance in a stretch cluster is unprotected by Microsoft SLA as data loss/corruption may occur."
             }
-            "Site mirroring - stretched cluster" {
+            "Dual" {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
                 $Subprofile.Id.Namespace = "VSAN"
@@ -1957,7 +1969,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = "None"
                 ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
             }
-            "None - keep data on Preferred (stretched cluster)" {
+            "Preferred" {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
                 $Subprofile.Id.Namespace = "VSAN"
@@ -1990,7 +2002,7 @@ Function New-AVSStoragePolicy {
                 $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
                 Write-Warning "$Name policy setting unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
-            "None - keep data on Secondary (stretched cluster)" {
+            "Secondary" {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
                 $Subprofile.Id.Namespace = "VSAN"
@@ -2022,7 +2034,7 @@ Function New-AVSStoragePolicy {
                 $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
                 Write-Warning "$Name policy setting unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
-            "None - stretched cluster" {
+            "NoneStretch" {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
                 $Subprofile.Id.Namespace = "VSAN"
@@ -2054,14 +2066,12 @@ Function New-AVSStoragePolicy {
                 $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
                 Write-Warning "$Name policy setting unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
-            Default {
-                Write-Warning "Policy setting of blank in a stretch cluster is unprotected by Microsoft SLA as data loss/corruption may occur."
-            }
+            Default {}
         }
         #vSANFailurestoTolerate / FTT
         Write-Information "vSANFailurestoTolerate value set to: $vSANFailuresToTolerate"
         Switch ($vSANFailuresToTolerate) {
-            "No Data Redundancy" {
+            "None" {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
                 $Subprofile.Id.Namespace = "VSAN"
@@ -2079,8 +2089,9 @@ Function New-AVSStoragePolicy {
                 $Description = $Description + " - FTT 0 based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur."
                 Write-Warning "$Name policy setting $vSANFailurestoTolerate based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
+            #TODO: Support this?
             "No Data redundancy with host affinity" {  }
-            "1 failure - RAID-1 (Mirroring)" {
+            "R1FTT1" {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
                 $Subprofile.Id.Namespace = "VSAN"
@@ -2106,7 +2117,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = "RAID-1 (Mirroring) - Performance"
                 ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
             }
-            "1 failure - RAID-5 (Erasure Coding)" {
+            "R5FTT1" {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
                 $Subprofile.Id.Namespace = "VSAN"
@@ -2145,7 +2156,7 @@ Function New-AVSStoragePolicy {
                 ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 Write-Information "All Flash added to ProfileSpec as required for $vsanFailurestoTolerate"
             }
-            "2 failures - RAID-1 (Mirroring)" {
+            "R1FTT2" {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
                 $Subprofile.Id.Namespace = "VSAN"
@@ -2171,7 +2182,7 @@ Function New-AVSStoragePolicy {
                 $Subprofile.Constraint[0].PropertyInstance[0].value = "RAID-1 (Mirroring) - Performance"
                 ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
             }
-            "2 failures - RAID-6 (Erasure Coding)" {
+            "R6FTT2" {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
                 $Subprofile.Id.Namespace = "VSAN"
@@ -2208,7 +2219,7 @@ Function New-AVSStoragePolicy {
                 ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
                 Write-Information "All Flash added to ProfileSpec as required for $vsanFailurestoTolerate"
             }
-            "3 failures - RAID-1 (Mirroring)" {
+            "R1FTT3" {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
                 $Subprofile.Id.Namespace = "VSAN"
