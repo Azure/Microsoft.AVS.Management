@@ -1,7 +1,7 @@
 parameters:
 - name: publishManagementPackage
   type: boolean
-  default: false
+  default: true
 - name: publishVmfsPackage
   type: boolean
   default: false
