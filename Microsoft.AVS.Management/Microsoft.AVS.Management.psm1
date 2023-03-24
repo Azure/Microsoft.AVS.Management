@@ -2632,14 +2632,14 @@ Function New-AVSStoragePolicy {
     .Synopsis
         This allows the customer to change DRS from the default setting to one step more conservative.
     .PARAMETER Drs
-        The DRS setting to apply to the cluster.  3 is the default setting, 4 is one step more conservative.
+        The DRS setting to apply to the cluster.  3 is the default setting, 4 is one step more conservative (meaning less agressive in moving VMs).
     .EXAMPLE
         Set-CustomDRS -Drs 4
         Set-CustomDRS -Drs 3 # This returns it to the default setting
 #>
 function Set-CustomDRS {
 
-    [AVSAttribute(30, UpdatesSDDC = $false)]
+    [AVSAttribute(15, UpdatesSDDC = $false)]
     param(
         [Parameter(Mandatory = $true)]
         [ValidateRange(3, 4)]
