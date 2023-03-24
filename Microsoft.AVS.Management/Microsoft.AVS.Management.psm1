@@ -2641,7 +2641,8 @@ function Set-CustomDRS {
 
     [AVSAttribute(15, UpdatesSDDC = $false)]
     param(
-        [Parameter(Mandatory = $true)]
+        [Parameter(Mandatory = $true,
+            HelpMessage = "The DRS setting. Default of 3 or more conservative of 4.")]
         [ValidateRange(3, 4)]
         [int] $Drs
     )
