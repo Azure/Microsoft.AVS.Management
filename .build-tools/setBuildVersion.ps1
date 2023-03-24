@@ -6,6 +6,7 @@ param (
 )
 
 $manifestVersionAsArray = (Import-PowerShellDataFile $absolutePathToManifest).ModuleVersion -split "\."
-$updatedBuildVersion = @( $manifestVersionAsArray[0], $manifestVersionAsArray[1], $buildPatch) | Join-String -Separator '.'
+$buildPatchAsArray = $buildPatch -split "\."
+$updatedBuildVersion = @( $manifestVersionAsArray[0], $manifestVersionAsArray[1], ($buildPatchAsArray | Select-Object -Last 1) ) | Join-String -Separator '.'
 Write-Host "----- Setting Build Version to $updatedBuildVersion -----"
 Write-Host "##vso[build.updatebuildnumber]$updatedBuildVersion"
