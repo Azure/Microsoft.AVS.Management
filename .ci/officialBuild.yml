@@ -1,10 +1,10 @@
 parameters:
 - name: publishManagementPackage
   type: boolean
-  default: false
+  default: true
 - name: publishVmfsPackage
   type: boolean
-  default: false
+  default: true
 
 trigger:
 - main
@@ -19,18 +19,18 @@ name: $(Rev:r) # Provide build run number (i.e., Build.BuildNumber) that is used
 #######################################
 
 stages:
-- template: templates/common-officialBuild-stages.yml@self
-  parameters:
-    publishPackage: ${{ parameters.publishManagementPackage }}
-    moduleFolderName: ${{ variables.managementModuleFolderName }}
-    moduleDisplayName: ${{ variables.managementModuleDisplayName }}
-    stageForSigningFolder: ${{ variables.stageForSigningFolder }}
-    stageForUnsignedFolder: ${{ variables.stageForUnsignedFolder }}
+- ${{ if eq(parameters.publishManagementPackage, true) }}:
+  - template: templates/common-officialBuild-stages.yml@self
+    parameters:
+      moduleFolderName: ${{ variables.managementModuleFolderName }}
+      moduleDisplayName: ${{ variables.managementModuleDisplayName }}
+      stageForSigningFolder: ${{ variables.stageForSigningFolder }}
+      stageForUnsignedFolder: ${{ variables.stageForUnsignedFolder }}
 
-- template: templates/common-officialBuild-stages.yml@self
-  parameters:
-    publishPackage: ${{ parameters.publishVmfsPackage }}
-    moduleFolderName: ${{ variables.vmfsModuleFolderName }}
-    moduleDisplayName: ${{ variables.vmfsModuleDisplayName }}
-    stageForSigningFolder: ${{ variables.stageForSigningFolder }}
-    stageForUnsignedFolder: ${{ variables.stageForUnsignedFolder }}
+- ${{ if eq(parameters.publishVmfsPackage, true) }}:
+  - template: templates/common-officialBuild-stages.yml@self
+    parameters:
+      moduleFolderName: ${{ variables.vmfsModuleFolderName }}
+      moduleDisplayName: ${{ variables.vmfsModuleDisplayName }}
+      stageForSigningFolder: ${{ variables.stageForSigningFolder }}
+      stageForUnsignedFolder: ${{ variables.stageForUnsignedFolder }}
