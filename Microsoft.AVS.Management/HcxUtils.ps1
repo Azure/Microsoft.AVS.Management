@@ -9,7 +9,7 @@
 
     .COPYRIGHT (c) Microsoft. All rights reserved.
 
-    .DESCRIPTION PowerShell Cmdlets for Managing Hybrid Cloud Extension (HCX) on VMware Cloud on AWS
+    .DESCRIPTION PowerShell Cmdlets for Managing Hybrid Cloud Extension (HCX) on VMware Cloud on Azure
 #>
 
 <#
