@@ -1,4 +1,5 @@
 # https://aka.ms/yaml
+parameters:
 - name: publishPackage
   type: boolean
   default: false
