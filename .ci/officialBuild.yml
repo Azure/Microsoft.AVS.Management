@@ -4,7 +4,7 @@ parameters:
   default: true
 - name: publishVmfsPackage
   type: boolean
-  default: false
+  default: true
 
 trigger:
 - main
