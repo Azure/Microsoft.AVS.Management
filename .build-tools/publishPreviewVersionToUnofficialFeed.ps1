@@ -9,11 +9,13 @@ Write-Output "----START: publishPreviewVersionToUnofficialFeed----"
 #Append part of commit hash to Prerelease string
 $prereleaseString = "-preview"
 $absolutePathToManifestFolder = (Split-Path "$absolutePathToManifest")
+$manifestVersionAsArray = (Import-PowerShellDataFile $absolutePathToManifest).ModuleVersion -split "\."
+$updatedModuleVersion = @( $manifestVersionAsArray[0], $manifestVersionAsArray[1],  $env:BUILD_BUILDNUMBER ) | Join-String -Separator '.'
 
 Get-Content "$absolutePathToManifest"
-Write-Output "---- Updating the module version to preview version $env:BUILD_BUILDNUMBER-$prereleaseString ----"
+Write-Output "---- Updating the module version to preview version $updatedModuleVersion-$prereleaseString ----"
 
-$targetModuleParams = @{ModuleVersion = "$env:BUILD_BUILDNUMBER"; Prerelease = "$prereleaseString"; Path = "$absolutePathToManifest"}
+$targetModuleParams = @{ModuleVersion = "$updatedModuleVersion"; Prerelease = "$prereleaseString"; Path = "$absolutePathToManifest"}
 Update-ModuleManifest @targetModuleParams
 
 if (!$?) {
