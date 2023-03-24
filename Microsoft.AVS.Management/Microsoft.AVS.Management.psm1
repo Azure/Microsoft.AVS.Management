@@ -2628,5 +2628,56 @@ Function New-AVSStoragePolicy {
     }
 }
 
+<#
+    .Synopsis
+        This allows the customer to change DRS from the default setting to one step more conservative.
+    .PARAMETER Drs
+        The DRS setting to apply to the cluster.  3 is the default setting, 4 is one step more conservative.
+    .EXAMPLE
+        Set-CustomDRS -Drs 4
+        Set-CustomDRS -Drs 3 # This returns it to the default setting
+#>
+function Set-CustomDRS {
 
+    [AVSAttribute(30, UpdatesSDDC = $false)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(3, 4)]
+        [int] $Drs
+    )
 
+    $NamedOutputs = @{}
+    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
+
+    # Settings for DRS
+    $spec = New-Object VMware.Vim.ClusterConfigSpecEx
+    $spec.DrsConfig = New-Object VMware.Vim.ClusterDrsConfigInfo
+    $spec.DrsConfig.VmotionRate = $drs
+    $spec.DrsConfig.Enabled = $true
+    $spec.DrsConfig.Option = New-Object VMware.Vim.OptionValue[] (2)
+    $spec.DrsConfig.Option[0] = New-Object VMware.Vim.OptionValue
+    $spec.DrsConfig.Option[0].Value = '0'
+    $spec.DrsConfig.Option[0].Key = 'TryBalanceVmsPerHost'
+    $spec.DrsConfig.Option[1] = New-Object VMware.Vim.OptionValue
+    $spec.DrsConfig.Option[1].Value = '1'
+    $spec.DrsConfig.Option[1].Key = 'IsClusterManaged'
+    $modify = $true
+    # End DRS settings
+
+    $clusters = Get-Cluster
+
+    foreach ($cluster in $clusters)
+    {
+        try
+        {
+            $_this = Get-View -Id $cluster.Id
+            $_this.ReconfigureComputeResource_Task($spec, $modify)
+            $NamedOutputs += @{ $cluster.Name = "Success" }
+        }
+        catch
+        {
+            $NamedOutputs[$cluster.Name] = "Failed"
+        }
+    }
+    $NamedOutputs | ConvertTo-Json -Compress
+}
