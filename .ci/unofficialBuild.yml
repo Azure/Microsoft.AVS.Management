@@ -20,10 +20,10 @@ name: $(Rev:r) # Provide build run number (i.e., Build.BuildNumber) that is used
 stages:
 - template: templates/common-unofficialBuild-stages.yml@self
   parameters:
-    moduleFolderName: ${{ variables.vmfsModuleFolderName }}
-    moduleDisplayName: ${{ variables.vmfsModuleDisplayName }}
+    moduleFolderName: ${{ variables.managementModuleFolderName }}
+    moduleDisplayName: ${{ variables.managementModuleDisplayName }}
 
 - template: templates/common-unofficialBuild-stages.yml@self
   parameters:
-    moduleFolderName: ${{ variables.managementModuleFolderName }}
-    moduleDisplayName: ${{ variables.managementModuleDisplayName }}
+    moduleFolderName: ${{ variables.vmfsModuleFolderName }}
+    moduleDisplayName: ${{ variables.vmfsModuleDisplayName }}
