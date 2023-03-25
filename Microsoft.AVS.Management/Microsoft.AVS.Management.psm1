@@ -2633,14 +2633,18 @@ Function New-AVSStoragePolicy {
         This allows the customer to change DRS from the default setting to one step more conservative.
     .PARAMETER Drs
         The DRS setting to apply to the cluster.  3 is the default setting, 4 is one step more conservative (meaning less agressive in moving VMs).
+    .PARAMETER ClustersToChange
+        The clusters to apply the DRS setting to.  This can be a single cluster or a comma separated list of clusters or a wildcard.
     .EXAMPLE
-        Set-CustomDRS -Drs 4
-        Set-CustomDRS -Drs 3 # This returns it to the default setting
+        Set-CustomDRS -ClustersToChange "Cluster-1, Cluster-2" -Drs 4
+        Set-CustomDRS -ClustersToChange "*" -Drs 3  # This returns it to the default setting
 #>
 function Set-CustomDRS {
 
     [AVSAttribute(15, UpdatesSDDC = $false)]
     param(
+        [Parameter(Mandatory = $true)]
+        [String]$ClustersToChange,
         [Parameter(Mandatory = $true,
             HelpMessage = "The DRS setting. Default of 3 or more conservative of 4.")]
         [ValidateRange(3, 4)]
@@ -2665,7 +2669,10 @@ function Set-CustomDRS {
     $modify = $true
     # End DRS settings
 
-    $clusters = Get-Cluster
+    # $cluster is an array of cluster names or "*""
+    foreach ($cluster_each in ($ClustersToChange.split(",", [System.StringSplitOptions]::RemoveEmptyEntries)).Trim()) {
+        $Clusters += Get-Cluster -Name $cluster_each
+    }
 
     foreach ($cluster in $clusters)
     {
