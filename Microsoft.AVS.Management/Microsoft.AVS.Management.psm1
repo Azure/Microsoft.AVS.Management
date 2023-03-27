@@ -2687,5 +2687,6 @@ function Set-CustomDRS {
             $NamedOutputs[$cluster.Name] = "Failed"
         }
     }
-    $NamedOutputs | ConvertTo-Json -Compress
+    $out = $NamedOutputs | ConvertTo-Json -Compress
+    Write-Output $out
 }
