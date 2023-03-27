@@ -2651,8 +2651,7 @@ function Set-CustomDRS {
         [int] $Drs
     )
 
-    $NamedOutputs = @{}
-    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
+    $error_state = ""
 
     # Settings for DRS
     $spec = New-Object VMware.Vim.ClusterConfigSpecEx
@@ -2680,13 +2679,16 @@ function Set-CustomDRS {
         {
             $_this = Get-View -Id $cluster.Id
             $_this.ReconfigureComputeResource_Task($spec, $modify)
-            $NamedOutputs += @{ $cluster.Name = "Success" }
         }
         catch
         {
-            $NamedOutputs[$cluster.Name] = "Failed"
+            Write-Error "Failed to set DRS for cluster $($cluster.Name)."
+            $error_state = "Failed"
         }
+
+        if ($error_state -eq "Success") {
+            Write-Output "Successfully set DRS for cluster $($cluster.Name)."
+        }
+        $error_state = "Success"
     }
-    $out = $NamedOutputs | ConvertTo-Json -Compress
-    Write-Output $out
 }
