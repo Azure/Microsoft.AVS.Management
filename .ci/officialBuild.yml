@@ -20,17 +20,35 @@ name: $(Rev:r) # Provide build run number (i.e., Build.BuildNumber) that is used
 
 stages:
 - ${{ if eq(parameters.publishManagementPackage, true) }}:
-  - template: templates/common-officialBuild-stages.yml@self
+  - template: templates/common-officialBuild-build-stages.yml@self
     parameters:
       moduleFolderName: ${{ variables.managementModuleFolderName }}
       moduleDisplayName: ${{ variables.managementModuleDisplayName }}
-      stageForSigningFolder: ${{ variables.stageForSigningFolder }}
-      stageForUnsignedFolder: ${{ variables.stageForUnsignedFolder }}
+      stageForSigningFolder: ${{ variables.managementStageForSigningFolder }}
+      stageForUnsignedFolder: ${{ variables.managementStageForUnsignedFolder }}
 
 - ${{ if eq(parameters.publishVmfsPackage, true) }}:
-  - template: templates/common-officialBuild-stages.yml@self
+  - template: templates/common-officialBuild-build-stages.yml@self
     parameters:
       moduleFolderName: ${{ variables.vmfsModuleFolderName }}
       moduleDisplayName: ${{ variables.vmfsModuleDisplayName }}
-      stageForSigningFolder: ${{ variables.stageForSigningFolder }}
-      stageForUnsignedFolder: ${{ variables.stageForUnsignedFolder }}
+      stageForSigningFolder: ${{ variables.vmfsStageForSigningFolder }}
+      stageForUnsignedFolder: ${{ variables.vmfsStageForUnsignedFolder }}
+
+- template: templates/common-officialBuild-compliance-stages.yml@self
+
+- ${{ if eq(parameters.publishManagementPackage, true) }}:
+  - template: templates/common-officialBuild-release-stages.yml@self
+    parameters:
+      moduleFolderName: ${{ variables.managementModuleFolderName }}
+      moduleDisplayName: ${{ variables.managementModuleDisplayName }}
+      stageForSigningFolder: ${{ variables.managementStageForSigningFolder }}
+      stageForUnsignedFolder: ${{ variables.managementStageForUnsignedFolder }}
+
+- ${{ if eq(parameters.publishVmfsPackage, true) }}:
+  - template: templates/common-officialBuild-release-stages.yml@self
+    parameters:
+      moduleFolderName: ${{ variables.vmfsModuleFolderName }}
+      moduleDisplayName: ${{ variables.vmfsModuleDisplayName }}
+      stageForSigningFolder: ${{ variables.vmfsStageForSigningFolder }}
+      stageForUnsignedFolder: ${{ variables.vmfsStageForUnsignedFolder }}
