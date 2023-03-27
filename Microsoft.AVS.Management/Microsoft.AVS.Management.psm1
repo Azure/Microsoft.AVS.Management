@@ -2687,7 +2687,7 @@ function Set-CustomDRS {
         }
 
         if ($error_state -eq "Success") {
-            Write-Output "Successfully set DRS for cluster $($cluster.Name)."
+            Write-Host "Successfully set DRS for cluster $($cluster.Name)."
         }
         $error_state = "Success"
     }
