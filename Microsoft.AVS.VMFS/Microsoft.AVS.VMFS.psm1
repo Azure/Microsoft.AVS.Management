@@ -215,7 +215,7 @@ function New-VmfsDatastore {
         $VmfsDatastoreCreateSpec.Vmfs.Extent = $HostScsiDiskPartition
         $VmfsDatastoreCreateSpec.vmfs.MajorVersion = $DatastoreCreateOptions[0].Spec.Vmfs.MajorVersion
         
-        $DatastoreSystem.CreateVmfsDatastore($VmfsDatastoreCreateSpec)
+        $DatastoreSystem.CreateVmfsDatastore($VmfsDatastoreCreateSpec) | Out-Null
     } catch {
         Write-Error $Global:Error[0]
     }
@@ -372,7 +372,7 @@ function Resize-VmfsVolume {
     $ExpandOptions = $DatastoreSystem.QueryVmfsDatastoreExpandOptions($DatastoreToResize.ExtensionData.MoRef)
 
     Write-Host "Increasing the size of the VMFS volume..."
-    $DatastoreSystem.ExpandVmfsDatastore($DatastoreToResize.ExtensionData.MoRef, $ExpandOptions[0].spec)
+    $DatastoreSystem.ExpandVmfsDatastore($DatastoreToResize.ExtensionData.MoRef, $ExpandOptions[0].spec) | Out-Null
 }
 
 <#
@@ -461,4 +461,70 @@ function Restore-VmfsVolume {
     Start-Sleep -s 5
 
     $Esxi | Get-VMHostStorage -RescanVMFS -ErrorAction stop | Out-Null
+}
+
+<#
+    .DESCRIPTION
+     Renames an existing VMFS Datastore
+
+    .PARAMETER ClusterName
+     Cluster name
+
+    .PARAMETER DeviceNaaId
+     NAA ID of device associated with the existing VMFS volume
+
+     .PARAMETER DatastoreName
+     New datastore name.
+
+    .EXAMPLE
+     Set-VmfsDatastoreName -ClusterName "myClusterName" -DeviceNaaId $DeviceNaaId -DatastoreName $NewDatastoreName
+
+    .INPUTS
+     vCenter cluster name and device NAA ID.
+
+    .OUTPUTS
+     None.
+#>
+function Set-VmfsDatastoreName {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param (
+        [Parameter(
+                Mandatory=$true,
+                HelpMessage = 'Cluster name in vCenter')]
+        [ValidateNotNull()]
+        [String]
+        $ClusterName,
+
+        [Parameter(
+                Mandatory=$true,
+                HelpMessage = 'NAA ID of device associated with the existing VMFS volume')]
+        [ValidateNotNull()]
+        [String]
+        $DeviceNaaId,
+
+        [Parameter(
+                Mandatory=$true,
+                HelpMessage = 'New datastore name')]
+        [ValidateNotNull()]
+        [String]
+        $DatastoreName
+    )
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $ClusterName does not exist."
+    }
+
+    $Esxi = $Cluster | Get-VMHost | Where-Object { ($_.ConnectionState -eq 'Connected') } | Select-Object -last 1
+    $datastores = $Esxi| Get-Datastore -ErrorAction stop
+    foreach ($ds in $datastores)
+    {
+        $naa = $ds.ExtensionData.Info.Vmfs.Extent.DiskName
+        if ($naa -eq $DeviceNaaId)
+        {
+            Write-Host "Renaming $($ds.Name) to $DatastoreName...."
+            $ds | Set-Datastore -Name $DatastoreName -ErrorAction stop
+            return
+        }
+    }
 }
