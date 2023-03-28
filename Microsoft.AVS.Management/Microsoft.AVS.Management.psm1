@@ -2622,5 +2622,60 @@ Function New-AVSStoragePolicy {
     }
 }
 
+<#
+    .Synopsis
+        This allows the customer to change DRS from the default setting to one step more conservative.
+    .PARAMETER Drs
+        The DRS setting to apply to the cluster.  3 is the default setting, 4 is one step more conservative (meaning less agressive in moving VMs).
+    .PARAMETER ClustersToChange
+        The clusters to apply the DRS setting to.  This can be a single cluster or a comma separated list of clusters or a wildcard.
+    .EXAMPLE
+        Set-CustomDRS -ClustersToChange "Cluster-1, Cluster-2" -Drs 4
+        Set-CustomDRS -ClustersToChange "*" -Drs 3  # This returns it to the default setting
+#>
+function Set-CustomDRS {
 
+    [AVSAttribute(15, UpdatesSDDC = $false)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [String]$ClustersToChange,
+        [Parameter(Mandatory = $true,
+            HelpMessage = "The DRS setting. Default of 3 or more conservative of 4.")]
+        [ValidateRange(3, 4)]
+        [int] $Drs
+    )
 
+    # Settings for DRS
+    $spec = New-Object VMware.Vim.ClusterConfigSpecEx
+    $spec.DrsConfig = New-Object VMware.Vim.ClusterDrsConfigInfo
+    $spec.DrsConfig.VmotionRate = $drs
+    $spec.DrsConfig.Enabled = $true
+    $spec.DrsConfig.Option = New-Object VMware.Vim.OptionValue[] (2)
+    $spec.DrsConfig.Option[0] = New-Object VMware.Vim.OptionValue
+    $spec.DrsConfig.Option[0].Value = '0'
+    $spec.DrsConfig.Option[0].Key = 'TryBalanceVmsPerHost'
+    $spec.DrsConfig.Option[1] = New-Object VMware.Vim.OptionValue
+    $spec.DrsConfig.Option[1].Value = '1'
+    $spec.DrsConfig.Option[1].Key = 'IsClusterManaged'
+    $modify = $true
+    # End DRS settings
+
+    # $cluster is an array of cluster names or "*""
+    foreach ($cluster_each in ($ClustersToChange.split(",", [System.StringSplitOptions]::RemoveEmptyEntries)).Trim()) {
+        $Clusters += Get-Cluster -Name $cluster_each
+    }
+
+    foreach ($cluster in $clusters)
+    {
+        try
+        {
+            $_this = Get-View -Id $cluster.Id
+            $_this.ReconfigureComputeResource_Task($spec, $modify)
+            Write-Host "Successfully set DRS for cluster $($cluster.Name)."
+        }
+        catch
+        {
+            Write-Error "Failed to set DRS for cluster $($cluster.Name)."
+        }
+    }
+}
