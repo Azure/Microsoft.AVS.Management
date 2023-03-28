@@ -2651,7 +2651,7 @@ function Set-CustomDRS {
         [int] $Drs
     )
 
-    $error_state = ""
+    $error_state = $true
 
     # Settings for DRS
     $spec = New-Object VMware.Vim.ClusterConfigSpecEx
@@ -2683,12 +2683,12 @@ function Set-CustomDRS {
         catch
         {
             Write-Error "Failed to set DRS for cluster $($cluster.Name)."
-            $error_state = "Failed"
+            $error_state = $false
         }
 
-        if ($error_state -eq "Success") {
+        if ($error_state) {
             Write-Host "Successfully set DRS for cluster $($cluster.Name)."
         }
-        $error_state = "Success"
+        $error_state = $true
     }
 }
