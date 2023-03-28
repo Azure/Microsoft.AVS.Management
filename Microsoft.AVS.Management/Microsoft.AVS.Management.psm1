@@ -2651,8 +2651,6 @@ function Set-CustomDRS {
         [int] $Drs
     )
 
-    $error_state = $true
-
     # Settings for DRS
     $spec = New-Object VMware.Vim.ClusterConfigSpecEx
     $spec.DrsConfig = New-Object VMware.Vim.ClusterDrsConfigInfo
@@ -2679,16 +2677,11 @@ function Set-CustomDRS {
         {
             $_this = Get-View -Id $cluster.Id
             $_this.ReconfigureComputeResource_Task($spec, $modify)
+            Write-Host "Successfully set DRS for cluster $($cluster.Name)."
         }
         catch
         {
             Write-Error "Failed to set DRS for cluster $($cluster.Name)."
-            $error_state = $false
         }
-
-        if ($error_state) {
-            Write-Host "Successfully set DRS for cluster $($cluster.Name)."
-        }
-        $error_state = $true
     }
 }
