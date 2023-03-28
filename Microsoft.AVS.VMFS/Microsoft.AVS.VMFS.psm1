@@ -480,7 +480,7 @@ function Restore-VmfsVolume {
      Set-VmfsDatastoreName -ClusterName "myClusterName" -DeviceNaaId $DeviceNaaId -DatastoreName $NewDatastoreName
 
     .INPUTS
-     vCenter cluster name and device NAA ID.
+     vCenter cluster name , device NAA ID and new datastore name.
 
     .OUTPUTS
      None.
