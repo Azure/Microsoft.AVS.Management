@@ -489,7 +489,7 @@ function Sync-VMHostStorage {
      Name of the VMHost (ESXi server)
 
     .EXAMPLE
-     Sync-VMHostStorage -VMHostName "vmhost1"
+     Remove-VMHostStaticiSCSITargets -VMHostName "vmhost1"
 
     .INPUTS
      VMHostName
