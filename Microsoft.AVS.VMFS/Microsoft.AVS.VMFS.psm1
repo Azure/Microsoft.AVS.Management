@@ -508,5 +508,10 @@ function Remove-VMHostStaticiSCSITargets {
         [String]
         $VMHostName
     )
-    Get-VMHost $VMHostName | Get-VMHostHba -Type iScsi | Get-IScsiHbaTarget | Where {$_.Type -eq "Static"} | Remove-IScsiHbaTarget -Confirm:$false
+
+    $VMHost = Get-VMHost $VMHostName -ErrorAction Ignore
+    if (-not $VMHost) {
+        throw "VMHost $VMHostName does not exist."
+    }
+    $VMHost| Get-VMHostHba -Type iScsi | Get-IScsiHbaTarget | Where {$_.Type -eq "Static"} | Remove-IScsiHbaTarget -Confirm:$false
 }
