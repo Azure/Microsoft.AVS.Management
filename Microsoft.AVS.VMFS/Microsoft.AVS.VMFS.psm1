@@ -486,7 +486,7 @@ function Sync-VMHostStorage {
     Param (
         [Parameter(
                 Mandatory=$true,
-                HelpMessage = 'VMost name')]
+                HelpMessage = 'VMHost name')]
         [ValidateNotNull()]
         [String]
         $VMHostName
