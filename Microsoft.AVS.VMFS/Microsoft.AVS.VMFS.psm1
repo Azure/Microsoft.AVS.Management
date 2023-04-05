@@ -503,7 +503,7 @@ function Remove-VMHostStaticiSCSITargets {
     Param (
         [Parameter(
                 Mandatory=$true,
-                HelpMessage = 'VMost name')]
+                HelpMessage = 'VMHost name')]
         [ValidateNotNull()]
         [String]
         $VMHostName
