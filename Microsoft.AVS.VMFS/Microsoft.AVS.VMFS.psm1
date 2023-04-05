@@ -28,15 +28,15 @@ function Set-VmfsIscsi {
     [AVSAttribute(10, UpdatesSDDC = $false)]
     Param (
         [Parameter(
-                Mandatory=$true,
-                HelpMessage = 'Cluster name in vCenter')]
+            Mandatory=$true,
+            HelpMessage = 'Cluster name in vCenter')]
         [ValidateNotNull()]
         [String]
         $ClusterName,
 
         [Parameter(
-                Mandatory=$true,
-                HelpMessage = 'Primary IP Address to add as dynamic iSCSI target')]
+            Mandatory=$true,
+            HelpMessage = 'Primary IP Address to add as dynamic iSCSI target')]
         [ValidateNotNull()]
         [String]
         $ScsiIpAddress
