@@ -448,3 +448,35 @@ function Restore-VmfsVolume {
 
     $Esxi | Get-VMHostStorage -RescanVMFS -ErrorAction stop | Out-Null
 }
+
+<#
+    .SYNOPSIS
+     Rescans host storage
+
+    .PARAMETER VMHostName
+     Name of the VMHost (ESXi server)
+
+
+    .EXAMPLE
+     Sync-VMHostStorage -VMHostName "vmhost1"
+
+    .INPUTS
+     VMHostName.
+
+    .OUTPUTS
+     None.
+#>
+function Sync-VMHostStorage {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param (
+        [Parameter(
+                Mandatory=$true,
+                HelpMessage = 'VMHost name')]
+        [ValidateNotNull()]
+        [String]
+        $VMHostName
+    )
+
+    Get-VMHost $VMHostName | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
+}
