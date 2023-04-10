@@ -11,17 +11,14 @@ using module Microsoft.AVS.Management
     .PARAMETER ClusterName
      Cluster name
 
-    .PARAMETER PrimaryScsiIpAddress
-     Primary IP Address to add as dynamic iSCSI target
-    
-    .PARAMETER SecondaryScsiIpAddress
-     Secondary IP Address to add as dynamic iSCSI target
+    .PARAMETER ScsiIpAddress
+     IP Address to add as dynamic iSCSI target
 
     .EXAMPLE
-     Set-VmfsIscsi -ClusterName "myCluster" -PrimaryScsiIpAddress "192.168.0.1" -SecondaryScsiIpAddress "192.168.0.2"
+     Set-VmfsIscsi -ClusterName "myCluster" -ScsiIpAddress "192.168.0.1"
 
     .INPUTS
-     vCenter cluster name, Primary and Secondary SCSI IP Addresses.
+     vCenter cluster name, Primary SCSI IP Addresses.
 
     .OUTPUTS
      None.
@@ -42,25 +39,16 @@ function Set-VmfsIscsi {
             HelpMessage = 'Primary IP Address to add as dynamic iSCSI target')]
         [ValidateNotNull()]
         [String]
-        $PrimaryScsiIpAddress,
-
-        [Parameter(
-            Mandatory=$true,
-            HelpMessage = 'Secondary IP Address to add as dynamic iSCSI target')]
-        [ValidateNotNull()]
-        [String]
-        $SecondaryScsiIpAddress
+        $ScsiIpAddress
     )
 
-    $ScsiIpAddresses = @($PrimaryScsiIpAddress, $SecondaryScsiIpAddress)
-    foreach ($ScsiIpAddress in $ScsiIpAddresses) {
-        try {
-            [ipaddress] $ScsiIpAddress
-        } catch {
-            throw "Invalid SCSI IP address $ScsiIpAddress provided."
-        }
+    try {
+        [ipaddress] $ScsiIpAddress
     }
-    
+    catch {
+        throw "Invalid SCSI IP address $ScsiIpAddress provided."
+    }
+
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
     if (-not $Cluster) {
         throw "Cluster $ClusterName does not exist."
@@ -73,35 +61,33 @@ function Set-VmfsIscsi {
             $VMHost | Get-VMHostStorage | Set-VMHostStorage -SoftwareIScsiEnabled $True | Out-Null
         }
 
-        foreach ($ScsiIpAddress in $ScsiIpAddresses) {
-            $IscsiAdapter = $VMHost | Get-VMHostHba -Type iScsi | Where-Object {$_.Model -eq "iSCSI Software Adapter"}
-            if (!(Get-IScsiHbaTarget -IScsiHba $IscsiAdapter -Type Send -ErrorAction stop | Where-Object {$_.Address -cmatch $ScsiIpAddress})) {
-                New-IScsiHbaTarget -IScsiHba $IscsiAdapter -Address $ScsiIpAddress -ErrorAction stop
-            }
+        $IscsiAdapter = $VMHost | Get-VMHostHba -Type iScsi | Where-Object {$_.Model -eq "iSCSI Software Adapter"}
+        if (!(Get-IScsiHbaTarget -IScsiHba $IscsiAdapter -Type Send -ErrorAction stop | Where-Object {$_.Address -cmatch $ScsiIpAddress})) {
+            New-IScsiHbaTarget -IScsiHba $IscsiAdapter -Address $ScsiIpAddress -ErrorAction stop
+        }
 
-            $EsxCli = $VMHost | Get-EsxCli -v2
-            $IscsiArgs = $EsxCli.iscsi.adapter.discovery.sendtarget.param.get.CreateArgs()
+        $EsxCli = $VMHost | Get-EsxCli -v2
+        $IscsiArgs = $EsxCli.iscsi.adapter.discovery.sendtarget.param.get.CreateArgs()
+        $IscsiArgs.adapter = $IscsiAdapter.Device
+        $IscsiArgs.address = $ScsiIpAddress
+        $DelayedAck = $EsxCli.iscsi.adapter.discovery.sendtarget.param.get.invoke($IscsiArgs) | Where-Object {$_.name -eq "DelayedAck"}
+        $LoginTimeout = $EsxCli.iscsi.adapter.discovery.sendtarget.param.get.invoke($IscsiArgs) | Where-Object {$_.name -eq "LoginTimeout"}
+        if ($DelayedAck.Current -eq "true") {
+            $IscsiArgs = $EsxCli.iscsi.adapter.discovery.sendtarget.param.set.CreateArgs()
             $IscsiArgs.adapter = $IscsiAdapter.Device
             $IscsiArgs.address = $ScsiIpAddress
-            $DelayedAck = $EsxCli.iscsi.adapter.discovery.sendtarget.param.get.invoke($IscsiArgs) | Where-Object {$_.name -eq "DelayedAck"}
-            $LoginTimeout = $EsxCli.iscsi.adapter.discovery.sendtarget.param.get.invoke($IscsiArgs) | Where-Object {$_.name -eq "LoginTimeout"}
-            if ($DelayedAck.Current -eq "true") {
-                $IscsiArgs = $EsxCli.iscsi.adapter.discovery.sendtarget.param.set.CreateArgs()
-                $IscsiArgs.adapter = $IscsiAdapter.Device
-                $IscsiArgs.address = $ScsiIpAddress
-                $IscsiArgs.value = "false"
-                $IscsiArgs.key = "DelayedAck"
-                $EsxCli.iscsi.adapter.discovery.sendtarget.param.set.invoke($IscsiArgs) | Out-Null
-            }
+            $IscsiArgs.value = "false"
+            $IscsiArgs.key = "DelayedAck"
+            $EsxCli.iscsi.adapter.discovery.sendtarget.param.set.invoke($IscsiArgs) | Out-Null
+        }
 
-            if ($LoginTimeout.Current -ne "30") {
-                $IscsiArgs = $EsxCli.iscsi.adapter.discovery.sendtarget.param.set.CreateArgs()
-                $IscsiArgs.adapter = $IscsiAdapter.Device
-                $IscsiArgs.address = $ScsiIpAddress
-                $IscsiArgs.value = "30"
-                $IscsiArgs.key = "LoginTimeout"
-                $EsxCli.iscsi.adapter.discovery.sendtarget.param.set.invoke($IscsiArgs) | Out-Null
-            }
+        if ($LoginTimeout.Current -ne "30") {
+            $IscsiArgs = $EsxCli.iscsi.adapter.discovery.sendtarget.param.set.CreateArgs()
+            $IscsiArgs.adapter = $IscsiAdapter.Device
+            $IscsiArgs.address = $ScsiIpAddress
+            $IscsiArgs.value = "30"
+            $IscsiArgs.key = "LoginTimeout"
+            $EsxCli.iscsi.adapter.discovery.sendtarget.param.set.invoke($IscsiArgs) | Out-Null
         }
     }
 
