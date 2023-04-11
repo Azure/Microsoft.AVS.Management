@@ -460,5 +460,5 @@ function Restore-VmfsVolume {
 
     Start-Sleep -s 5
 
-    $Esxi | Get-VMHostStorage -RescanVMFS -ErrorAction stop | Out-Null
+    $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
 }
