@@ -480,3 +480,33 @@ function Sync-VMHostStorage {
 
     Get-VMHost $VMHostName | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
 }
+
+<#
+    .SYNOPSIS
+     This function removes the static iSCSI configurations from a specified Esxi Host
+
+    .PARAMETER VMHostName
+     Name of the VMHost (ESXi server)
+
+    .EXAMPLE
+     Sync-VMHostStorage -VMHostName "vmhost1"
+
+    .INPUTS
+     VMHostName
+
+    .OUTPUTS
+     None
+#>
+function Remove-VMHostStaticiSCSITargets {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param (
+        [Parameter(
+                Mandatory=$true,
+                HelpMessage = 'VMost name')]
+        [ValidateNotNull()]
+        [String]
+        $VMHostName
+    )
+    Get-VMHost $VMHostName | Get-VMHostHba -Type iScsi | Get-IScsiHbaTarget | Where {$_.Type -eq "Static"} | Remove-IScsiHbaTarget -Confirm:$false
+}
