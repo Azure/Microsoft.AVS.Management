@@ -492,7 +492,7 @@ function Sync-VMHostStorage {
      iSCSI target address. Multiple addresses can be seperated by ","
 
     .EXAMPLE
-     Remove-VMHostStaticiSCSITargets -ClusterName "myCluster" -ISCSIAddress "192.168.1.10,192.168.1.11"
+     Remove-VMHostStaticIScsiTargets -ClusterName "myCluster" -ISCSIAddress "192.168.1.10,192.168.1.11"
 
     .INPUTS
      vCenter cluster name and iSCSi target address
@@ -500,7 +500,7 @@ function Sync-VMHostStorage {
     .OUTPUTS
      None
 #>
-function Remove-VMHostStaticiSCSITargets {
+function Remove-VMHostStaticIScsiTargets {
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false)]
     Param (
