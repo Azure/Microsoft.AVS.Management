@@ -480,3 +480,39 @@ function Sync-VMHostStorage {
 
     Get-VMHost $VMHostName | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
 }
+
+<#
+    .SYNOPSIS
+     Rescans all host storage in cluster
+
+    .PARAMETER ClusterName
+     Cluster name
+
+    .EXAMPLE
+     Sync-ClusterVMHostStorage -ClusterName "myClusterName"
+
+    .INPUTS
+     vCenter cluster name
+
+    .OUTPUTS
+     None
+#>
+function Sync-ClusterVMHostStorage {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param (
+        [Parameter(
+                Mandatory=$true,
+                HelpMessage = 'Cluster name in vCenter')]
+        [ValidateNotNull()]
+        [String]
+        $ClusterName
+    )
+
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $ClusterName does not exist."
+    }
+
+    $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
+}
