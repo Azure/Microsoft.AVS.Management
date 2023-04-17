@@ -480,3 +480,55 @@ function Sync-VMHostStorage {
 
     Get-VMHost $VMHostName | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
 }
+
+<#
+    .SYNOPSIS
+     This function removes the specified static iSCSI configurations from all of Esxi Hosts in a cluster
+
+    .PARAMETER ClusterName
+     Cluster name
+
+    .PARAMETER iSCSIAddress
+     iSCSI target address. Multiple addresses can be seperated by ","
+
+    .EXAMPLE
+     Remove-VMHostStaticIScsiTargets -ClusterName "myCluster" -ISCSIAddress "192.168.1.10,192.168.1.11"
+
+    .INPUTS
+     vCenter cluster name and iSCSi target address
+
+    .OUTPUTS
+     None
+#>
+function Remove-VMHostStaticIScsiTargets {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param (
+        [Parameter(
+                Mandatory=$true,
+                HelpMessage = 'Cluster name in vCenter')]
+        [ValidateNotNull()]
+        [String]
+        $ClusterName,
+
+        [Parameter(
+                Mandatory=$true,
+                HelpMessage = 'IP Address of static iSCSI target to remove. Multiple addresses can be seperated by ","')]
+        [ValidateNotNull()]
+        [String]
+        $iSCSIAddress
+    )
+
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $ClusterName does not exist."
+    }
+
+    $iSCSIAddressList = $iSCSIAddress.Split(",")
+
+    # Remove iSCSI ip address from static discovery from all of hosts if there is a match
+    $Cluster | Get-VMHost | Get-VMHostHba -Type iScsi | Get-IScsiHbaTarget | Where-Object {($_.Type -eq "Static") -and ($ISCSIAddressList -contains $_.Address)} | Remove-IScsiHbaTarget -Confirm:$false
+
+    # Rescan after removing the iSCSI targets
+    $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
+}
