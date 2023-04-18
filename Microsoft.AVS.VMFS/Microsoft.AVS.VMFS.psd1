@@ -74,6 +74,7 @@
         "Resize-VmfsVolume",
         "Restore-VmfsVolume",
         "Sync-VMHostStorage",
+        "Sync-ClusterVMHostStorage",
         "Remove-VMHostStaticIScsiTargets"
     )
 

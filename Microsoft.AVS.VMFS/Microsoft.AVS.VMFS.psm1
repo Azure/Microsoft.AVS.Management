@@ -483,6 +483,42 @@ function Sync-VMHostStorage {
 
 <#
     .SYNOPSIS
+     Rescans all host storage in cluster
+
+    .PARAMETER ClusterName
+     Cluster name
+
+    .EXAMPLE
+     Sync-ClusterVMHostStorage -ClusterName "myClusterName"
+
+    .INPUTS
+     vCenter cluster name
+
+    .OUTPUTS
+     None
+#>
+function Sync-ClusterVMHostStorage {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param (
+        [Parameter(
+                Mandatory=$true,
+                HelpMessage = 'Cluster name in vCenter')]
+        [ValidateNotNull()]
+        [String]
+        $ClusterName
+    )
+
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $ClusterName does not exist."
+    }
+
+    $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
+}
+
+<#
+    .SYNOPSIS
      This function removes the specified static iSCSI configurations from all of Esxi Hosts in a cluster
 
     .PARAMETER ClusterName
