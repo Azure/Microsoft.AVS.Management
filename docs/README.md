@@ -32,7 +32,7 @@ AVS will expose some standard runtime options via PowerShell variables.  See bel
 | `SFTP_Sessions` | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh sftp session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SFTPSession.md) | `New-SFTPItem -ItemType Directory -Path "/tmp/zzz" -SFTPSession $SSH_Sessions[esx.hostname.fqdn].Value`. Another key to the dictionary is `"VC"` for SFTP to vCenter
 
 > <b>Persistent secrets</b>: 
-The secrets are kept in a Keyvault, they are isolated on package name basis, shared across all versions of your package and made available for each of your package scripts. Delete a secrets by setting a property to an empty string or `$null`.
+The secrets are kept in a Keyvault, they are isolated on package name basis, shared across all versions of your package and made available for each of your package scripts. Delete secrets by setting the hastable entry to an empty string or `$null`.
 
 The script shall assume the directory it is executed in is temporary and can use it as needed, assuming 25GB is available.  This environment including any files will be torn down after the script execution.
 
@@ -62,7 +62,7 @@ A Module should not attempt to login to vCenter with the AVS provided `cloudadmi
 
 ## Never elevate privileges for cloudadmins
 
-A Module should not attempt to elevate privileges for the AVS provided `cloudadmins` role.  Scripts that attempt to do this will not be allowed to run against an AVS Private Cloud. Elevating privileges for cloudadmin could have unintended consequences by giving elevated access to anyone using cloudadmin.  The script is already logged in with administrator privileges and does not require elevating `cloudadmins` role.
+A Module should not attempt to elevate privileges for the AVS provided `cloudadmins` role.  Scripts that attempt to do this will not be allowed to run against an AVS Private Cloud. Elevating privileges for cloudadmin could have unintended consequences by giving elevated access to anyone using cloudadmin. The script is already logged in with administrator privileges and does not require elevating `cloudadmins` role.
 
 ## Never use cloudadmin as the user for any installed software
 
@@ -111,7 +111,8 @@ The script execution pipeline supports following PowerShell streams:
 - Warning
 - Error
 
-Use the stream appropriate for the purpose, suppress outputs with `Out-Null` for information that doesn't not help with the installation or troubleshooting.
+Use the stream appropriate for the purpose, suppress outputs with `Out-Null` for information that doesn't not help with the installation or troubleshooting. 
+Be aware that content of these streams is always stored as strings. Objects emitted into these streams should either be primitives (strings, ints, etc), of type `HashTable` or be explicitly converted to string by your script, otherwise they may fail to deserialize and won't be captured.
 
 Use `-ErrorAction Stop` or equivalent means to terminate with an error and indicate the final status to the user.
 
