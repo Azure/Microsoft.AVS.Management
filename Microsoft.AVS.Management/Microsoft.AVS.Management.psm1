@@ -318,15 +318,19 @@ function Get-CertificateFromDomainController {
     )
 
     try {
-        $Command = 'nslookup ' + $ParsedUrl.Host + ' -type=soa'
-        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-        if ($SSHRes.ExitStatus -ne 0) {
+        try {
+            $Command = 'nslookup ' + $ParsedUrl.Host + ' -type=soa'
+            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+        }
+        catch {
             throw "The FQDN $($ParsedUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
         }
-
-        $Command = 'nc -vz ' + $ParsedUrl.Host + ' ' + $ParsedUrl.Port
-        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-        if ($SSHRes.ExitStatus -ne 0) {
+        
+        try {
+            $Command = 'nc -vz ' + $ParsedUrl.Host + ' ' + $ParsedUrl.Port
+            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+        }
+        catch {
             throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ParsedUrl.Port) is open."
         }
 
