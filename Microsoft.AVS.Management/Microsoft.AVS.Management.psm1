@@ -40,6 +40,15 @@ class AVSSecureFolder {
     }
 
     <#
+        Secure all objects in the specified folder.
+    #>
+    static Secure([VMware.VimAutomation.ViCore.Types.V1.Inventory.Folder]$folder) {
+        $noAccess = Get-VIRole -Name "NoAccess" -ErrorAction Stop
+        $group = Get-VIAccount -Group -Id "CloudAdmins" -Domain "vsphere.local" -ErrorAction Stop
+        (Get-VM -Location $folder) + (Get-VApp -Location $folder) | New-VIPermission -Principal $group -Role $noAccess -Propagate $true
+    }
+
+    <#
         Creates a subfolder or returns existing one given the name.
         Returns $null in case of any error.
     #>
