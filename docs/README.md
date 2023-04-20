@@ -25,8 +25,8 @@ AVS will expose some standard runtime options via PowerShell variables.  See bel
 | ------- | ----------- |--|
 | `VC_ADDRESS` | IP Address of VCenter | Script authors now can also use `"vc"` - hostname instead of the address |
 | `SddcDnsSuffix` | Domain suffix of the SDDC |  |
-| `SddcResourceId` | (Coming soon) ARM ResourceId of the SDDC | "/subscriptions/7f1fae41-7708-4fa4-89b3-f6552cad2fc1/resourceGroups/myRG/providers/Microsoft.AVS/privateClouds/myCloud" |
-| `AadAuthority` | (Coming soon) Azure Active Directory address in this Azure Cloud | "https://login.microsoftonline.com/" |
+| `SddcResourceId` | ARM ResourceId of the SDDC | "/subscriptions/7f1fae41-7708-4fa4-89b3-f6552cad2fc1/resourceGroups/myRG/providers/Microsoft.AVS/privateClouds/myCloud" |
+| `AadAuthority` | Azure Active Directory address in this Azure Cloud | "https://login.microsoftonline.com/" |
 | `PersistentSecrets` | Hashtable for keeping secrets across package script executions | `$PersistentSecrets.ManagementAppliancePassword = '***'` |
 | `SSH_Sessions` | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SSHSession.md) | `Invoke-SSHCommand -Command "uname -a" -SSHSession $SSH_Sessions["esx.hostname.fqdn"].Value`. Another key to the dictionary is `"VC"` for SSH to vCenter.
 | `SFTP_Sessions` | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh sftp session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SFTPSession.md) | `New-SFTPItem -ItemType Directory -Path "/tmp/zzz" -SFTPSession $SSH_Sessions[esx.hostname.fqdn].Value`. Another key to the dictionary is `"VC"` for SFTP to vCenter
@@ -71,7 +71,7 @@ If necessary, use the installation script to create a separate vCenter user and 
 
 ### Protecting service credentials
 If deploying an appliance in customer infrastruture that needs service credentials with privileges above `cloudadmins` role the vendor must ensure that the credentials are never exposed - not in-flight, nor at rest.
-- The appliance user must not be able to gain root access or direct access to the storage or file system where credetials are stored.
+- The appliance user must not be able to gain root access or direct access to the storage or file system where credentials are stored.
 - The appliance must be deployed in a folder with NoAccess permission to `CloudAdmins` SSO group. See `[AVSSecureFolder]::Root()` and `[AVSSecureFolder]::GetOrCreate()`.
 - The credentials must be passed as OVA properties to the appliance, including the rotation scenario.
 - The credentials must never be logged, no diagnostic bundle may include the credentials.
@@ -81,7 +81,7 @@ If deploying an appliance in customer infrastruture that needs service credentia
 
 ### Other information protection
 If deploying an appliance, the appliance may not expose any VMware logs directly to the customer, any logs and diagnostics from the VMware infrastructure must go through AVS where they can be filtered for sensitive information.
-AVS provides syslog forwarding that makes relavant logs available in Azure.
+AVS provides syslog forwarding that makes relevant logs available in Azure.
 
 ## Top-level functionality should be exposed as functions with [CmdletBinding](https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_functions_cmdletbindingattribute?view=powershell-7.1) taking all the inputs as the named parameters.
 
@@ -227,15 +227,18 @@ The final QA cycle would be:
 ## Testing via Run Command
 At this point you can tell us that it’s ready to be reviewed.
 - We’ll review and if it looks OK we’ll import it into our private repository and list it for execution via Run Command/ARM API. The preview package will only be visible to subscriptions with certain feature flag and won't show up for general public.
-- Assuming everything works re-publish the package w/o `-preview` suffix.
+- AVS "Customer 0" will evaluate the overall GA readiness
+- Vendor will re-publish the package w/o `-preview` suffix.
 - We make your package available to general public.
  
 After this initial onboarding we require that the vendor sets up CI testing that executes the commandlets via AVS SDK to make sure future packages pass the lifecycle test and to shield you from any possible changes on the AVS side. Promotion from `-preview` to generally available package will be conditional on the test report that shows that all commandlets perform as expected.
 
 ## FAQ
-
 **Q**: Does the Run Command container have access to the Internet?</br>
-**A**: Yes.
+**A**: Yes, the agent executing the commands is always connected to the Internet via AVS management network.
+
+**Q**: Does the Run Command container have access to the customer's Azure VNet or resources?</br>
+**A**: No, any access to customer resources other than VMware infrastructure of the SDDC would have to be scripted by the vendor.
 
 **Q**: Does Run Command carry session state across invocations?</br>
 **A**: No, with the exception of package-scoped secrets there is no support for preserving state across executions.
