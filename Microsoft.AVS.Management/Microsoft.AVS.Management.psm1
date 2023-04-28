@@ -22,19 +22,26 @@ SecureFolder class provides a way to create a folder protected from CloudAdmins.
 class AVSSecureFolder {
     hidden static [string]$vendors = "AVS-vendor-folders"
     <#
-        Returns vendors root folder or $null in case of any error.
+        Applies propagating permissions to specified objects.
     #>
-    static [VMware.VimAutomation.ViCore.Types.V1.Inventory.Folder] Root() {
+    hidden static ApplyPermissions($objects) {
         $admin = Get-VIRole -Name "Admin" -ErrorAction Stop
         $noAccess = Get-VIRole -Name "NoAccess" -ErrorAction Stop
         $scripting = Get-VIAccount -Id "scripting" -Domain "vsphere.local" -ErrorAction Stop
         $group = Get-VIAccount -Group -Id "CloudAdmins" -Domain "vsphere.local" -ErrorAction Stop
+        $objects | New-VIPermission -Principal $scripting -Role $admin -Propagate $true
+        $objects | New-VIPermission -Principal $group -Role $noAccess -Propagate $true
+    }
+
+    <#
+        Returns vendors root folder or $null in case of any error.
+    #>
+    static [VMware.VimAutomation.ViCore.Types.V1.Inventory.Folder] Root() {
         $location = Get-Folder -Location ((Get-Datacenter)[0]) -Name "vm"
         $root = Get-Folder -Name ([AVSSecureFolder]::vendors) -NoRecursion -Location $location -ErrorAction SilentlyContinue
         if ($null -eq $root) {
             $root = New-Folder -Location $location -Name ([AVSSecureFolder]::vendors) -ErrorAction Stop
-            New-VIPermission -Entity $root -Principal $scripting -Role $admin -Propagate $true -ErrorAction Stop
-            New-VIPermission -Entity $root -Principal $group -Role $noAccess -Propagate $true -ErrorAction Stop
+            [AVSSecureFolder]::ApplyPermissions($root)
         }
         return $root
     }
@@ -43,9 +50,8 @@ class AVSSecureFolder {
         Secure all objects in the specified folder.
     #>
     static Secure([VMware.VimAutomation.ViCore.Types.V1.Inventory.Folder]$folder) {
-        $noAccess = Get-VIRole -Name "NoAccess" -ErrorAction Stop
-        $group = Get-VIAccount -Group -Id "CloudAdmins" -Domain "vsphere.local" -ErrorAction Stop
-        @(Get-VM -Location $folder) + @(Get-VApp -Location $folder) | New-VIPermission -Principal $group -Role $noAccess -Propagate $true
+        $objects = @(Get-VM -Location $folder) + @(Get-VApp -Location $folder)
+        [AVSSecureFolder]::ApplyPermissions($objects)
     }
 
     <#
