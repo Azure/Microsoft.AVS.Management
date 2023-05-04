@@ -11,6 +11,9 @@ parameters:
 stages:
 - stage: 'Official_Build_Release_${{ parameters.moduleDisplayName }}' # Valid stage name cannot contain the character '.'
   displayName: '${{ parameters.moduleFolderName }} Package Release'
+  dependsOn:
+  - 'Official_Build_${{ parameters.moduleDisplayName }}'
+  - 'Official_Build_Check_Compliance'
   pool:
     vmImage: windows-2019
   jobs:
@@ -92,11 +95,19 @@ stages:
         arguments: '$(Build.ArtifactStagingDirectory)/${{ parameters.stageForUnsignedFolder }}/${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
         pwsh: true
     - task: PowerShell@2
-      displayName: Publish Preview Version to Official Feed
+      displayName: Publish Developer Version to Official Feed
       env:
         UNOFFICIAL_FEED_NUGET_APIKEY: $(unofficialFeedNugetApiKey)
         # MICROSOFT_AVS_MANAGEMENT_OFFICIAL_FEED_AND_RELEASES_PAT: $(Microsoft-AVS-Management-OfficialFeed-And-ReleasesPAT)
       inputs:
-        filePath: '.build-tools/publishPreviewVersionToUnofficialFeed.ps1'
-        arguments: '$(Build.ArtifactStagingDirectory)/${{ parameters.stageForUnsignedFolder }}/${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
+        filePath: '.build-tools/publishPreviewOrDevVersionToUnofficialFeed.ps1'
+        arguments: '$(Build.ArtifactStagingDirectory)/${{ parameters.stageForUnsignedFolder }}/${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1 dev'
+        pwsh: true
+    - task: PowerShell@2
+      displayName: Publish Preview Version to Official Feed
+      env:
+        UNOFFICIAL_FEED_NUGET_APIKEY: $(unofficialFeedNugetApiKey)
+      inputs:
+        filePath: '.build-tools/publishPreviewOrDevVersionToUnofficialFeed.ps1'
+        arguments: '$(Build.ArtifactStagingDirectory)/${{ parameters.stageForUnsignedFolder }}/${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1 preview'
         pwsh: true

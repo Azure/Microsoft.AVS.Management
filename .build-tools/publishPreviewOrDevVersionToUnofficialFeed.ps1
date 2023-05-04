@@ -1,13 +1,13 @@
 #!/usr/bin/pwsh
 
 param (
-    [Parameter(Mandatory=$true)][string]$absolutePathToManifest
+    [Parameter(Mandatory=$true)][string]$absolutePathToManifest,
+    [Parameter(Mandatory=$true)][string]$prereleaseString
 )
 
-Write-Output "----START: publishPreviewVersionToUnofficialFeed----"
+Write-Output "----START: publishPreviewOrDevVersionToUnofficialFeed----"
 
 #Append part of commit hash to Prerelease string
-$prereleaseString = "-preview"
 $absolutePathToManifestFolder = (Split-Path "$absolutePathToManifest")
 $manifestVersionAsArray = (Import-PowerShellDataFile $absolutePathToManifest).ModuleVersion -split "\."
 $updatedModuleVersion = @( $manifestVersionAsArray[0], $manifestVersionAsArray[1],  $env:BUILD_BUILDNUMBER ) | Join-String -Separator '.'
@@ -15,7 +15,7 @@ $updatedModuleVersion = @( $manifestVersionAsArray[0], $manifestVersionAsArray[1
 Get-Content "$absolutePathToManifest"
 Write-Output "---- Updating the module version to preview version $updatedModuleVersion-$prereleaseString ----"
 
-$targetModuleParams = @{ModuleVersion = "$updatedModuleVersion"; Prerelease = "$prereleaseString"; Path = "$absolutePathToManifest"}
+$targetModuleParams = @{ModuleVersion = "$updatedModuleVersion"; Prerelease = "-$prereleaseString"; Path = "$absolutePathToManifest"}
 Update-ModuleManifest @targetModuleParams
 
 if (!$?) {
