@@ -1,6 +1,7 @@
 stages:
 - stage: 'Official_Build_Check_Compliance'
   displayName: 'Check Compliance for Packages'
+  dependsOn: []
   pool:
     vmImage: windows-2019
   jobs:
