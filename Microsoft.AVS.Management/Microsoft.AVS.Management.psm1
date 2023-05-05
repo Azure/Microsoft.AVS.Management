@@ -2714,16 +2714,19 @@ Function Set-AVSVSANClusterUNMAPTRIM {
     begin {
         $Name = Limit-WildcardsandCodeInjectionCharacters -Name $Name
         $Array = Convert-StringToArray $Name
+        $TagName = "VSAN UNMAP/TRIM"
+        $InfoMessage = "Info - There may be a performance impact when UNMAP/TRIM is enabled.  
+            See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub5"
     }
     process {
         If ([string]::IsNullOrEmpty($Array)) {
             $Clusters = Get-Cluster
             Foreach ($Cluster in $Clusters) {
                 $Cluster | Set-VsanClusterConfiguration -GuestTrimUnmap:$Enable
+                Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster    
                 Write-Information "$($Cluster.Name) set to $Enabled for UNMAP/TRIM"
                 If ($Enable) {
-                    Write-Warning "WARNING - $Cluster - There is a performance impact when UNMAP/TRIM is enabled.
-                        See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub5"
+                    Write-Information $InfoMessage
                 }
             }
             Get-Cluster | Set-VsanClusterConfiguration -GuestTrimUnmap:$Enable
@@ -2734,8 +2737,12 @@ Function Set-AVSVSANClusterUNMAPTRIM {
                     $Cluster | Set-VsanClusterConfiguration -GuestTrimUnmap:$Enable
                     Write-Information "$($Cluster.Name) set to $Enabled for UNMAP/TRIM"
                     If ($Enable) {
-                        Write-Warning "WARNING - $Cluster - There is a performance impact when UNMAP/TRIM is enabled.
-                        See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub5"
+                        Write-Information $InfoMessage
+                        Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
+                    }
+                    If ($Enable -eq $false) {
+                        $AssignedTag = Get-TagAssignment -Tag $Tagname -Entity $Cluster
+                        Remove-TagAssignment -TagAssignment $AssignedTag -Confirm:$false
                     }
                 }
             }
