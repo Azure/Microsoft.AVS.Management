@@ -1,0 +1,6 @@
+Set-Variable -Name "AdminQueueSize"   -Value 32    -Option constant -Description "NVMe/TCP AdminQueueSize"
+Set-Variable -Name "ControllerId"     -Value 65535  -Option constant -Description "NVMe/TCP ControllerId"
+Set-Variable -Name "IoQueueNumber"    -Value 8      -Option constant -Description "NVMe/TCP IO Queue Number"
+Set-Variable -Name "IoQueueSize"      -Value 256    -Option constant -Description "NVMe/TCP IO Queue Size"
+Set-Variable -Name "KeepAliveTimeout" -Value 256    -Option constant -Description "NVMe/TCP KeepAliveTimeout"
+Set-Variable -Name "PortNumber"       -Value 4420    -Option constant -Description "NVMe/TCP Target Port Number"
