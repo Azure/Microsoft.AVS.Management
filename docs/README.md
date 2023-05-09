@@ -145,7 +145,11 @@ Private AVS package repository will be used to install the modules. For the purp
 ## Versioning and Module manifest
 AVS scripting modules are expected to follow [semver guidelines](https://semver.org/) when publishing a new version. Adhering to the guidelines will ensure that any automation built around the ARM resources representing the commandlets will keep working while benefiting from the patch fixes.
 
-Until there's an agreement with the AVS about the general availability, publish the package with `-preview` version suffix. This would allow the consumer to opt-in into the experience before it is generally available.
+We also support following version suffixes:
+- `-dev`, for example `1.0.0-dev`. Versions with this suffix are mapped to a subscription flag we only assign to vendors doing the testing on AVS.
+- `-preview`. Versions with this suffix are mapped to `Microsoft.AVS/scriptingPreview` flag that any subscription owner can register for themselves.
+
+Until there's an agreement with the AVS about the general availability, publish the package with `-dev` or `-preview` version suffix only. This would allow us to control the rollout and enable the consumer to opt-in into the experience before it is generally available.
 
 To direct the customers to the information about the module make sure to include `ProjectUri` in the module manifest, supplying the address of the product support landing page designed for AVS customers. 
 
@@ -217,7 +221,7 @@ sshLogin $ESX_Credentials
 ```
 
 The final QA cycle would be:
-- Publish the package with `-preview` version suffix
+- Publish the package with `-dev` version suffix
 - Get on the Linux jumpbox connected to your SDDC vnet
 - install docker and spin up an instance of this image: mcr.microsoft.com/powershell:lts-7.2-alpine-3.14
 - In the PowerShell container:
@@ -225,12 +229,12 @@ The final QA cycle would be:
     - Setup the context
     - Test
 
-## Testing via Run Command
+## Testing via Run Command and preparing for release
 At this point you can tell us that it’s ready to be reviewed.
-- We’ll review and if it looks OK we’ll import it into our private repository and list it for execution via Run Command/ARM API. The preview package will only be visible to subscriptions with certain feature flag and won't show up for general public.
+- We’ll review the package, import it into our private repository and list it for execution via Run Command/ARM API. Additional checklist may be required, work with your PM to determine.
 - AVS "Customer 0" will evaluate the overall GA readiness
-- Vendor will re-publish the package w/o `-preview` suffix.
-- We make your package available to general public.
+- Re-publish the package with `-preview` suffix to do a Private Preview with your customers.
+- Re-publish the package w/o `-preview` suffix to make your package available to general public.
  
 After this initial onboarding we require that the vendor sets up CI testing that executes the commandlets via AVS SDK to make sure future packages pass the lifecycle test and to shield you from any possible changes on the AVS side. Promotion from `-preview` to generally available package will be conditional on the test report that shows that all commandlets perform as expected.
 
