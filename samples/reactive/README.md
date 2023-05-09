@@ -2,12 +2,13 @@
 The sample demonstrates scripted deployment of Azure Function with Managed Identity to execute AVS Run Command commandlet via .NET SDK.
 
 ## Overview
-Deploying multiple resources to Azure can be a challenging and error-prone task. 
+Repeatably deploying multiple resources can be a challenging and error-prone.
 This examples demonstrates:
 - infrastructure-as-code approach with strong static validation that together provide high confidence and repeatbility for your deployments.
+- Managed Identity-based authentication and authorization
 - settings propagation
 - timer- and event-based trigger handlers
-- AppInsights telemetry 
+- AppInsights telemetry
 
 The deployment relies on [F# script](https://learn.microsoft.com/en-us/dotnet/fsharp/tools/fsharp-interactive/) that uses [FAKE](https://fake.build/) and [farmer library](https://compositionalit.github.io/farmer/) to succinctly capture build and deployment logic.
 

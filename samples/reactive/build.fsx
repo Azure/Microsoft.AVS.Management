@@ -5,7 +5,7 @@
 #r "nuget: Fake.DotNet.Cli"
 #r "nuget: Fake.IO.FileSystem" 
 #r "nuget: Fake.IO.Zip" 
-#r "/Users/eugene/sources/farmer/src/Farmer/bin/Debug/netstandard2.0/Farmer.dll" 
+#r "nuget: Farmer" 
 #r "nuget: System.Reactive" 
 #load "deploymentArgs.fsx"
 
