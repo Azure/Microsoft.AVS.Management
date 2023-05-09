@@ -2626,14 +2626,14 @@ Function New-AVSStoragePolicy {
         $spbmProfMgr = Get-SpbmView -Id $spbmServiceContent.ProfileManager
         If ($Overwrite) {
             $spbmProfMgr.PbmUpdate($ExistingPolicy.ProfileId, $profilespec)
-            if ($?){return "$($ExistingPolicy.Name) Updated"}
-            else {return "$($ExistingPolicy.Name) Update Failed"}
+            if ($?) { return "$($ExistingPolicy.Name) Updated" }
+            else { return "$($ExistingPolicy.Name) Update Failed" }
             
         }
         Else {
             $profileuniqueID = $spbmProfMgr.PbmCreate($profilespec)
             $existingpolicies = Get-AVSStoragePolicy
-            $createdpolicy = $existingpolicies | where-object {$_.profileid.uniqueid -eq $profileuniqueID.UniqueId}
+            $createdpolicy = $existingpolicies | where-object { $_.profileid.uniqueid -eq $profileuniqueID.UniqueId }
             Write-Information "Created $($createdpolicy.Name)"
             return ("Created " + $createdpolicy.Name + " " + $profileuniqueID.UniqueId)
         }
@@ -2684,17 +2684,87 @@ function Set-CustomDRS {
         $Clusters += Get-Cluster -Name $cluster_each
     }
 
-    foreach ($cluster in $clusters)
-    {
-        try
-        {
+    foreach ($cluster in $clusters) {
+        try {
             $_this = Get-View -Id $cluster.Id
             $_this.ReconfigureComputeResource_Task($spec, $modify)
             Write-Host "Successfully set DRS for cluster $($cluster.Name)."
         }
-        catch
-        {
+        catch {
             Write-Error "Failed to set DRS for cluster $($cluster.Name)."
+        }
+    }
+}
+
+Function Set-AVSVSANClusterUNMAPTRIM {
+    <#
+    .DESCRIPTION
+        This function enables vSAN UNMAP/TRIM on the cluster defined by the -Name parameter.  
+        Once enabled, supported Guest OS VM's must be powered off and powered back on.  A reboot will not suffice.
+        See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub5
+    .PARAMETER Name
+        Name of Clusters as defined in vCenter.  Valid values are blank or a comma separated list of cluster names.
+        Set-AVSVSANClusterUNMAPTRIM -Name Cluster-1,Cluster-2,Cluster-3
+        Enables UNMAP/TRIM on Clusters-1,2,3
+        Set-AVSVSANClusterUNMAPTRIM -Enable:True
+        Enables UNMAP/TRIM on all Clusters
+    .PARAMETER Enable
+        Set to true to enable UNMAP/TRIM on target cluster(s). Default is false.
+        WARNING - There is a performance impact when UNMAP/TRIM is enabled.  
+        See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub5
+    .EXAMPLE
+        Set-AVSVSANClusterUNMAPTRIM -Name 'Cluster-1,Cluster-2,Cluster-3'
+        Enables UNMAP/TRIM on Clusters-1,2,3
+    .EXAMPLE
+        Set-AVSVSANClusterUNMAPTRIM -Enable:True
+        Enables UNMAP/TRIM on all Clusters
+    #>
+
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    param (
+        [Parameter(Mandatory = $false)]
+        [string]
+        $Name,
+        [Parameter(Mandatory = $true)]
+        [bool]
+        $Enable
+    )
+    begin {
+        $Name = Limit-WildcardsandCodeInjectionCharacters -Name $Name
+        $Array = Convert-StringToArray $Name
+        $TagName = "VSAN UNMAP/TRIM"
+        $InfoMessage = "Info - There may be a performance impact when UNMAP/TRIM is enabled.  
+            See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub5"
+    }
+    process {
+        If ([string]::IsNullOrEmpty($Array)) {
+            $Clusters = Get-Cluster
+            Foreach ($Cluster in $Clusters) {
+                $Cluster | Set-VsanClusterConfiguration -GuestTrimUnmap:$Enable
+                Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster    
+                Write-Information "$($Cluster.Name) set to $Enabled for UNMAP/TRIM"
+                If ($Enable) {
+                    Write-Information $InfoMessage
+                }
+            }
+            Get-Cluster | Set-VsanClusterConfiguration -GuestTrimUnmap:$Enable
+        }
+        Else {
+            Foreach ($Entry in $Array) {
+                If ($Cluster = Get-Cluster -name $Entry) {
+                    $Cluster | Set-VsanClusterConfiguration -GuestTrimUnmap:$Enable
+                    Write-Information "$($Cluster.Name) set to $Enabled for UNMAP/TRIM"
+                    If ($Enable) {
+                        Write-Information $InfoMessage
+                        Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
+                    }
+                    If ($Enable -eq $false) {
+                        $AssignedTag = Get-TagAssignment -Tag $Tagname -Entity $Cluster
+                        Remove-TagAssignment -TagAssignment $AssignedTag -Confirm:$false
+                    }
+                }
+            }
         }
     }
 }
