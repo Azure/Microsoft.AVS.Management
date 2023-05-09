@@ -4,7 +4,7 @@ Minimal sample that demonstrates executing AVS Run Command commandlet via .NET S
 ## Running the sample
 
 ### Pre-requisites
-1. .NET SDK 5.x
+1. .NET SDK 7.x
 1. `az` CLI if intending to impersonate the current user*
 1. Edit `local.settings.json` and provide the details of your AVS cloud
 1. Optional: edit `Program.cs` to provide arguments for your commandlet.

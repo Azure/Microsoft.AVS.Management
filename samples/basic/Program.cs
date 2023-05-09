@@ -19,7 +19,8 @@ namespace AVSScripting
         public string SubscriptionId { get; set; }
         public string AVSResourceGroup { get; set; }
         public string AVSCloudName { get; set; }
-        public string CommandletId { get; set; }
+        public string PackageId { get; set; }
+        public string CommandletName { get; set; }
 
         public static Settings Load()
         {
@@ -73,13 +74,13 @@ namespace AVSScripting
                 { SubscriptionId = settings.SubscriptionId };
             var execution = new ScriptExecution
             {
-                ScriptCmdletId = settings.CommandletId,
+                ScriptCmdletId = $"/{settings.SubscriptionId}/resourceGroups/{settings.AVSResourceGroup}/providers/Microsoft.AVS/privateClouds/{settings.AVSCloudName}/scriptPackages/{settings.PackageId}/scriptCmdlets/{settings.CommandletName}",
                 Parameters = new List<ScriptExecutionParameter>(),
                 Retention = System.Xml.XmlConvert.ToString( TimeSpan.FromMinutes(30)),
                 Timeout = System.Xml.XmlConvert.ToString( TimeSpan.FromMinutes(3)),
             };
             var started = client.ScriptExecutions.CreateOrUpdate(settings.AVSResourceGroup, 
-                settings.AVSCloudName, $"{settings.CommandletId.Split('/').Last()}-{DateTime.Now.Second}", execution);
+                settings.AVSCloudName, $"{settings.CommandletName}-{DateTime.Now.Second}", execution);
         }
     }
 }
