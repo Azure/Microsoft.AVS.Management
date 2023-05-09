@@ -144,3 +144,50 @@ Function Convert-StringToArray {
     
 }
 
+Function Add-AVSTag{
+    <#
+        .DESCRIPTION
+            This function creates or adds a tag w/ associated to an AVS Tag Category
+        .PARAMETER Name
+            Name of Tag to create or add.
+        .PARAMETER Description
+            Description of Tag.
+        .PARAMETER Entity
+            vCenter Object to add tag to.
+    #>
+    
+    [CmdletBinding()]
+    param ( 
+        [Parameter(Mandatory = $true)]
+        [string]
+        $Name,
+        [Parameter(Mandatory = $false)]
+        [string]
+        $Description,
+        [Parameter(Mandatory = $true)]
+        [VMware.VimAutomation.ViCore.Interop.V1.VIObjectCoreInterop]
+        $Entity
+    )
+    Begin {
+        $TagCategory = Get-TagCategory -Name "AVS"
+        If (!$TagCategory) {
+            $TagCategory = New-TagCategory -Name "AVS" -Description "Category for AVS Operations" -Cardinality:Multiple
+        }
+        $Tag = Get-Tag -Name $Name -Category $TagCategory
+        If (!$Tag) {
+            $Tag = New-Tag -Name $Name -Description $Description -Category $TagCategory
+        }
+        }
+        
+    Process {
+        try {
+            New-TagAssignment -Tag $Tag -Entity $Entity -ErrorAction Stop
+            return
+        }
+        catch {
+            <#Do this if a terminating exception happens#>
+        }
+
+    }
+    
+}
