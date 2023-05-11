@@ -340,7 +340,7 @@ function Get-CertificateFromDomainController {
         catch {
             throw "The FQDN $($ParsedUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
         }
-        
+
         try {
             $Command = 'nc -vz ' + $ParsedUrl.Host + ' ' + $ParsedUrl.Port
             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
@@ -1583,7 +1583,7 @@ function Set-HcxScaledCpuAndMemorySetting {
 <#
     .Synopsis
      This will create a folder on every datastore (/vmfs/volumes/datastore/tools-repo) and set the ESXi hosts to use that folder as the tools-repo.
-     The customer is responsible for putting the VMware Tools zip file in a downloadable location.
+     The customer is responsible for putting the VMware Tools zip file in a publicly available HTTP(S) downloadable location.
 
      .EXAMPLE
      Once the function is imported, you simply need to run Set-ToolsRepo -ToolsURL <url to tools zip file>
@@ -1592,7 +1592,7 @@ function Set-ToolsRepo {
     [AVSAttribute(30, UpdatesSDDC = $false)]
     param(
         [Parameter(Mandatory = $true,
-            HelpMessage = "A URL to download the Tools zip file.")]
+            HelpMessage = "A publiclly available HTTP(S) URL to download the Tools zip file.")]
         [SecureString]
         $ToolsURL
     )
@@ -1768,7 +1768,7 @@ Function Remove-AVSStoragePolicy {
 Function New-AVSStoragePolicy {
     <#
 	.DESCRIPTION
-		This function creates a new or overwrites an existing vSphere Storage Policy.  
+		This function creates a new or overwrites an existing vSphere Storage Policy.
         Non vSAN-Based, vSAN Only, VMEncryption Only, Tag Only based and/or any combination of these policy types are supported.
     .PARAMETER Name
         Name of Storage Policy - Wildcards are not allowed and will be stripped.
@@ -1802,7 +1802,7 @@ Function New-AVSStoragePolicy {
         Object Reservation.  0=Thin Provision, 100=Thick Provision
     .PARAMETER vSANDiskStripesPerObject
         Default is 1.  Valid values are 1..12.
-        The number of HDDs across which each replica of a storage object is striped. 
+        The number of HDDs across which each replica of a storage object is striped.
         A value higher than 1 may result in better performance (for e.g. when flash read cache misses need to get serviced from HDD), but also results in higher use of system resources.
     .PARAMETER vSANIOLimit
         Default is unset. Valid values are 0..2147483647
@@ -1826,7 +1826,7 @@ Function New-AVSStoragePolicy {
         Comma seperate multiple tags. Example: Tag1,Tag 2,Tag_3
     .PARAMETER Overwrite
         Overwrite existing Storage Policy.  Default is $false.
-        Passing overwrite true provided will overwrite an existing policy exactly as defined.  
+        Passing overwrite true provided will overwrite an existing policy exactly as defined.
         Those values not passed will be removed or set to default values.
     .EXAMPLE
         Creates a new storage policy named Encryption with that enables Pre-IO filter VM encryption
@@ -2619,7 +2619,7 @@ Function New-AVSStoragePolicy {
         #return $profilespec #Uncomment to capture and debug profile spec.
         If ($profilespec.Constraints.SubProfiles.count -eq 0) {
             Write-Error "At least one parameter must be defined to create a storage policy."
-            Return 
+            Return
         }
         $serviceInstanceView = Get-SpbmView -Id "PbmServiceInstance-ServiceInstance"
         $spbmServiceContent = $serviceInstanceView.PbmRetrieveServiceContent()
@@ -2628,7 +2628,7 @@ Function New-AVSStoragePolicy {
             $spbmProfMgr.PbmUpdate($ExistingPolicy.ProfileId, $profilespec)
             if ($?) { return "$($ExistingPolicy.Name) Updated" }
             else { return "$($ExistingPolicy.Name) Update Failed" }
-            
+
         }
         Else {
             $profileuniqueID = $spbmProfMgr.PbmCreate($profilespec)
@@ -2699,7 +2699,7 @@ function Set-CustomDRS {
 Function Set-AVSVSANClusterUNMAPTRIM {
     <#
     .DESCRIPTION
-        This function enables vSAN UNMAP/TRIM on the cluster defined by the -Name parameter.  
+        This function enables vSAN UNMAP/TRIM on the cluster defined by the -Name parameter.
         Once enabled, supported Guest OS VM's must be powered off and powered back on.  A reboot will not suffice.
         See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub5
     .PARAMETER Name
@@ -2710,7 +2710,7 @@ Function Set-AVSVSANClusterUNMAPTRIM {
         Enables UNMAP/TRIM on all Clusters
     .PARAMETER Enable
         Set to true to enable UNMAP/TRIM on target cluster(s). Default is false.
-        WARNING - There is a performance impact when UNMAP/TRIM is enabled.  
+        WARNING - There is a performance impact when UNMAP/TRIM is enabled.
         See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub5
     .EXAMPLE
         Set-AVSVSANClusterUNMAPTRIM -Name 'Cluster-1,Cluster-2,Cluster-3'
@@ -2734,7 +2734,7 @@ Function Set-AVSVSANClusterUNMAPTRIM {
         $Name = Limit-WildcardsandCodeInjectionCharacters -Name $Name
         $Array = Convert-StringToArray $Name
         $TagName = "VSAN UNMAP/TRIM"
-        $InfoMessage = "Info - There may be a performance impact when UNMAP/TRIM is enabled.  
+        $InfoMessage = "Info - There may be a performance impact when UNMAP/TRIM is enabled.
             See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub5"
     }
     process {
@@ -2742,7 +2742,7 @@ Function Set-AVSVSANClusterUNMAPTRIM {
             $Clusters = Get-Cluster
             Foreach ($Cluster in $Clusters) {
                 $Cluster | Set-VsanClusterConfiguration -GuestTrimUnmap:$Enable
-                Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster    
+                Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
                 Write-Information "$($Cluster.Name) set to $Enabled for UNMAP/TRIM"
                 If ($Enable) {
                     Write-Information $InfoMessage
