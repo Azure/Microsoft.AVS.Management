@@ -51,7 +51,7 @@
     # ProcessorArchitecture = ''
 
     # Modules that must be imported into the global environment prior to importing this module
-    RequiredModules = @(
+    RequiredModules   = @(
         @{ "ModuleName" = "Microsoft.AVS.Management"; "ModuleVersion" = "5.2.39" }
     )
 
