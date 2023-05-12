@@ -51,8 +51,8 @@
     # ProcessorArchitecture = ''
 
     # Modules that must be imported into the global environment prior to importing this module
-    RequiredModules   = @(
-        @{ "ModuleName" = "NVMeTCP.AVS.Core"; "ModuleVersion" = "0.0.1" }
+    RequiredModules = @(
+        @{ "ModuleName" = "Microsoft.AVS.Management"; "ModuleVersion" = "5.2.39" }
     )
 
     # Assemblies that must be loaded prior to importing this module
@@ -77,7 +77,7 @@
         "New-NVMeDatastore",
         "Remove-NVMeDatastore"
         "Mount-NVMeDatastore",
-        "Unmount-NVMeDatastore"
+        "Dismount-NVMeDatastore"
     )
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.

@@ -1,7 +1,4 @@
-#using module Microsoft.AVS.Management
-
-<# Private Function Import #>
-. $PSScriptRoot\NVMeTCPConstants
+using module Microsoft.AVS.Management
 
 <#
     .SYNOPSIS
@@ -10,7 +7,14 @@
      1. ESXi host IP address or DNS
      2. ESXi NVMe/TCP Storage adaper name 
      3. Storage Node EndPoint IP address
-     4. Storage SystemNQN
+     4. Storage SystemNQN 
+     5. NVMe/TCP Admin Queue Size (Optional)
+     6. Controller Id (Optional) 
+     7. IO Queue Number (Optional)
+     8. IO Queue Size (Optional)
+     9. Keep Alive Timeout (Optional)
+     10. Target Port Number (Optional)
+     
      
     .PARAMETER HostAddress
      ESXi host IP Address 
@@ -23,7 +27,24 @@
 
     .PARAMETER StorageSystemNQN
      Storage system NQN
+    
+    .PARAMETER  AdminQueueSize
+     NVMe/TCP Admin Queue Size, default 32
 
+    .PARAMETER  ControllerId
+     NVMe/TCP Controller ID, default 65535 
+
+    .PARAMETER  IoQueueNumber
+     IO Queue Number, default 8
+
+    .PARAMETER IoQueueSize
+     IO Queue Size, default 256
+     
+    .PARAMETER KeepAliveTimeout
+     Keep Alive Timeout, default 256
+     
+    .PARAMETER  PortNumber
+     Target Port Number, default 4420
 
     .EXAMPLE
      Connect-NVMeTCPTarget HostAddress "192.168.0.1" -HostAdapter "adapter-name" -NodeAddress "192.168.0.1" -StorageSystemNQN "nqn.2016-01.com.lightbitslabs:uuid:46edb489-ba18-4dd4-a157-1d8eb8c32e21"
@@ -36,6 +57,8 @@
 #>
 
 function Connect-NVMeTCPTarget {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
     Param
     (
         [Parameter(
@@ -57,7 +80,40 @@ function Connect-NVMeTCPTarget {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Target storage SystemNQN')]
-        [string]     $StorageSystemNQN
+        [string]     $StorageSystemNQN,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'NVMe/TCP Admin Queue Size')]
+        [int]     $AdminQueueSize = 32,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'NVMe/TCP Controller Id')]
+        [int]     $ControllerId = 65535,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'NVMe/TCP IO Queue Number')]
+        [int]     $IoQueueNumber = 8,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'NVMe/TCP IO Queue Size')]
+        [int]     $IoQueueSize = 256,
+
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'Keep Alive Timeout')]
+        [int]     $KeepAliveTimeout = 256,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'Port Number')]
+        [int]     $PortNumber = 4420
+
+
 
     )
        
@@ -135,6 +191,9 @@ function Connect-NVMeTCPTarget {
 #>
 
 function Disconnect-NVMeTCPTarget {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+   
     Param
     (
         [Parameter(
@@ -151,6 +210,9 @@ function Disconnect-NVMeTCPTarget {
             Mandatory = $true,
             HelpMessage = 'Target storage SystemNQN')]
         [string]     $StorageSystemNQN
+
+
+
 
     )
 
@@ -233,6 +295,9 @@ function Disconnect-NVMeTCPTarget {
 #>
 
 function New-NVMeDatastore {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+   
     Param
     (
   
@@ -328,6 +393,9 @@ function New-NVMeDatastore {
 #>
 
 function Remove-NVMeDatastore {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+   
     Param
     (
   
@@ -355,7 +423,7 @@ function Remove-NVMeDatastore {
                 Remove-Datastore -VMHost $HostAddress $DatastoreName -Confirm:$false    
                 Write-Host "Datastores removed. "
                 Write-Host "Rescanning datastore "
-                Get-VMHostStorage -VMHost $HostAddress -RescanAllHba -RescanVmfs
+                $RescanResult = Get-VMHostStorage -VMHost $HostAddress -RescanAllHba 
             }
             catch {
                 Write-Host "Failed to delete datasore $($DatastoreName)."
@@ -379,8 +447,9 @@ function Remove-NVMeDatastore {
     .SYNOPSIS
      This function mount VMFS datastore to already attached ESXi host(s) using NVMe/TCP transport.
 
-     1. Datastore Name
-     
+     1. vCenter Address IP/FQDN
+     2. Datastore Name
+
     .PARAMETER DatastoreName
      Datastore Name
 
@@ -396,7 +465,15 @@ function Remove-NVMeDatastore {
 #>
 
 Function Mount-NVMeDatastore {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+   
     Param(
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'vCenter Address')]
+        [string] $vCenterAddress,
+    
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Datastore name')]
@@ -404,14 +481,21 @@ Function Mount-NVMeDatastore {
     )
 
     Process {
-        if (-not $DatastoreName) {
+
+        if ($null -eq $DatastoreName) {
             Write-Host "No Datastore name provided"
             Exit
         }
 
+        if ($null -eq $vCenterAddress) {
+            Write-Host "No vCenter Address provided"
+            Exit
+        }
+        
+
         $Datastore = $null 
         try {
-            $Datastore = Get-Datastore -Name $DatastoreName -ErrorAction ignore
+            $Datastore = Get-Datastore -Server $vCenterAddress -Name $DatastoreName -ErrorAction ignore
         }
         catch {
             throw " Failed to execute Get-Datastore by name  $($DatastoreName)."
@@ -471,25 +555,39 @@ Function Mount-NVMeDatastore {
      None.
 #>
 
-Function Unmount-NVMeDatastore {
-    [CmdletBinding()]
-   
+Function Dismount-NVMeDatastore {
+    #[CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+      
     Param(
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'vCenter Address')]
+        [string] $vCenterAddress,
+    
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Datastore name')]
         [string] $DatastoreName
+        
     )
 
     Process {
+
+        
+        if ($null -eq $vCenterAddress) {
+            Write-Host "No vCenter Address provided"
+            Exit
+        }
+                
         if (-not $DatastoreName) {
             Write-Host "No Datastore name provided"
             Exit
         }
-
+     
         $Datastore = $null 
         try {
-            $Datastore = Get-Datastore -Name $DatastoreName -ErrorAction ignore
+            $Datastore = Get-Datastore -Server $vCenterAddress -Name $DatastoreName -ErrorAction ignore
         }
         catch {
             throw " No datastore found by the given name $($DatastoreName)."
