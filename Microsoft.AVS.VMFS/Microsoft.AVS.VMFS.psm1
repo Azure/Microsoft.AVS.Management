@@ -8,17 +8,23 @@ using module Microsoft.AVS.Management
      2. iSCSI Software Adapter is enabled.
      3. Apply iSCSI best practices configuration on dynamic targets.
 
-    .PARAMETER ClusterName
+    .PARAMETER Timestamp
+     Timestamp in RFC3339Nano format
+    
+     .PARAMETER ClusterName
      Cluster name
 
     .PARAMETER ScsiIpAddress
      IP Address to add as dynamic iSCSI target
 
+    .PARAMETER SignatureBase64
+     Signed hash value of input data encoded as a Base64 string.
+
     .EXAMPLE
-     Set-VmfsIscsi -ClusterName "myCluster" -ScsiIpAddress "192.168.0.1"
+     Set-VmfsIscsi -Timestamp "<Timestamp>" -ClusterName "myCluster" -ScsiIpAddress "192.168.0.1" -SignatureBase64 "<SignatureBase64>"
 
     .INPUTS
-     vCenter cluster name, Primary SCSI IP Addresses.
+     Request creation timestamp string, vCenter cluster name, Primary SCSI IP Addresses, Signed hash base64 string value of input data.
 
     .OUTPUTS
      None.
@@ -27,6 +33,13 @@ function Set-VmfsIscsi {
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false)]
     Param (
+        [Parameter(
+            Mandatory=$true,
+            HelpMessage = 'RFC3339Nano formatted timestamp when the signature was created')]
+        [ValidateNotNull()]
+        [String]
+        $Timestamp,
+
         [Parameter(
             Mandatory=$true,
             HelpMessage = 'Cluster name in vCenter')]
@@ -39,7 +52,14 @@ function Set-VmfsIscsi {
             HelpMessage = 'Primary IP Address to add as dynamic iSCSI target')]
         [ValidateNotNull()]
         [String]
-        $ScsiIpAddress
+        $ScsiIpAddress,
+
+        [Parameter(
+            Mandatory=$true,
+            HelpMessage = 'Base64 encoded string value of data signature')]
+        [ValidateNotNull()]
+        [String]
+        $SignatureBase64
     )
 
     try {
@@ -47,6 +67,15 @@ function Set-VmfsIscsi {
     }
     catch {
         throw "Invalid SCSI IP address $ScsiIpAddress provided."
+    }
+
+    $OperationProtectionSource = Get-Content -Path ".\OperationProtection.cs"
+    Add-Type -TypeDefinition $OperationProtectionSource
+
+    $SignatureVerificationData = "$Timestamp`n$ClusterName`n$ScsiIpAddress`n"
+    $VerifySignatureObject = New-Object VerifySignature
+    if (-not $VerifySignatureObject.VerifySignature($SignatureVerificationData, $SignatureBase64)) {
+        throw "Unable to verify the request signature."
     }
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore

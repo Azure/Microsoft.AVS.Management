@@ -80,6 +80,21 @@ If deploying an appliance in customer infrastruture that needs service credentia
 - When passing the credentials to vCenter the appliance must enforce HTTPS with host authentication.
 - Use `PersistentSecrets` if access to credentials is required by the scripts later.
 
+### Generating a signature for request verification
+- Include the public RSA key file in the `valid-keys` folder of a package in this repository.
+- Prior to generating a signature, the data must be of the following format:
+  ```
+  Timestamp in RFC3339Nano format
+  Input parameter 1
+  Input parameter 2
+  .
+  .
+  Final input parameter
+  ```
+- The signature data must also contain a newline after the final input parameter.
+- Once the data has been formatted, create a signature using the private RSA key similar to [Generate a Signature](https://learn.microsoft.com/en-us/dotnet/standard/security/cryptographic-signatures#generate-a-signature).
+- Encode the signature into a Base64 string and include it as an input parameter when passing it to the Run Command API. The signature creation timestamp should also be included as a string parameter to verify the signature.
+
 ### Other information protection
 If deploying an appliance, the appliance may not expose any VMware logs directly to the customer, any logs and diagnostics from the VMware infrastructure must go through AVS where they can be filtered for sensitive information.
 AVS provides syslog forwarding that makes relevant logs available in Azure.
