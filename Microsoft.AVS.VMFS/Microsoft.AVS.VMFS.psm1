@@ -797,7 +797,7 @@ function Disconnect-NVMeTCPTarget {
         }
     }
     catch {
-        throw "Failed to execute Get-EsxCli cmdlet on host $($HostAddress). Make sure valid ESXi IP/DNS is provided."
+        throw "Failed to execute Get-EsxCli cmdlet on host $($HostAddress). Make sure valid ESXi IP/DNS is provided. $($_.Exception)"
     }
 
     try {
@@ -823,7 +823,7 @@ function Disconnect-NVMeTCPTarget {
         } 
     }
     catch {
-        throw "Failed to execute Get-EsxCli cmdlet on host $($HostAddress). Make sure valid ESXi IP/DNS is provided."
+        throw "Failed to execute EsxCli on host $($HostAddress). Make sure valid ESXi IP/DNS is provided. $($_.Exception)"
     } 
     Write-Host ""
 }
