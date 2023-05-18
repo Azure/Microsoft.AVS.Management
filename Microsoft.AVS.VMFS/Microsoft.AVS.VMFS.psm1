@@ -69,12 +69,12 @@ function Set-VmfsIscsi {
         throw "Invalid SCSI IP address $ScsiIpAddress provided."
     }
 
-    $OperationProtectionSource = Get-Content -Path ".\OperationProtection.cs"
+    $OperationProtectionSource = Get-Content -Path "..\Microsoft.AVS.Management\OperationProtection.cs"
     Add-Type -TypeDefinition $OperationProtectionSource
 
     $SignatureVerificationData = "$Timestamp`n$ClusterName`n$ScsiIpAddress`n"
-    $VerifySignatureObject = New-Object VerifySignature
-    if (-not $VerifySignatureObject.VerifySignature($SignatureVerificationData, $SignatureBase64)) {
+    $isSignatureValid = [OperationProtection]::VerifySignature($SignatureVerificationData, $SignatureBase64);
+    if ($isSignatureValid -eq $false) {
         throw "Unable to verify the request signature."
     }
 
