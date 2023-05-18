@@ -569,28 +569,23 @@ function Remove-VMHostStaticIScsiTargets {
     $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
 }
 
-
 <#
     .SYNOPSIS
-     This function connects an esxi host to the specified storage cluster node/target.
+     This function connects all ESXi host(s) to the specified storage cluster node/target via NVMe/TCP.
 
-     1. ESXi host IP address or DNS
-     2. ESXi NVMe/TCP Storage adaper name 
-     3. Storage Node EndPoint IP address
-     4. Storage SystemNQN 
-     5. NVMe/TCP Admin Queue Size (Optional)
-     6. Controller Id (Optional) 
-     7. IO Queue Number (Optional)
-     8. IO Queue Size (Optional)
-     9. Keep Alive Timeout (Optional)
-     10. Target Port Number (Optional)
+     1. vSphere Cluster Name
+     2. Storage Node EndPoint Network address
+     3. Storage SystemNQN 
+     4. NVMe/TCP Admin Queue Size (Optional)
+     5. Controller Id (Optional) 
+     6. IO Queue Number (Optional)
+     7. IO Queue Size (Optional)
+     8. Keep Alive Timeout (Optional)
+     9. Target Port Number (Optional)
      
      
-    .PARAMETER HostAddress
-     ESXi host IP Address 
-
-    .PARAMETER HostAdapter
-     ESXi host storage adapter name 
+    .PARAMETER ClusterName
+     vSphere Cluster Name 
 
     .PARAMETER NodeAddress
      Storage Node EndPoint Address
@@ -617,10 +612,10 @@ function Remove-VMHostStaticIScsiTargets {
      Target Port Number, default 4420
 
     .EXAMPLE
-     Connect-NVMeTCPTarget HostAddress "192.168.0.1" -HostAdapter "adapter-name" -NodeAddress "192.168.0.1" -StorageSystemNQN "nqn.2016-01.com.lightbitslabs:uuid:46edb489-ba18-4dd4-a157-1d8eb8c32e21"
+     Connect-NVMeTCPTarget ClusterName "Cluster-001" -NodeAddress "192.168.0.1" -StorageSystemNQN "nqn.2016-01.com.lightbitslabs:uuid:46edb489-ba18-4dd4-a157-1d8eb8c32e21"
 
     .INPUTS
-     ESXi Address, Storage Adapter, Storage Node Address, Storage System NQN
+     vSphere Cluster Name, Storage Node Address, Storage System NQN
 
     .OUTPUTS
      None.
@@ -632,19 +627,13 @@ function Connect-NVMeTCPTarget {
     (
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'ESXi host network address')]
-        [string] $HostAddress,
-
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'NVMe/TCP Storage Adapter Name')]
-        [string] $HostAdapter,
-
+            HelpMessage = 'vSphere Cluster Name')]
+        [String] $ClusterName,
+        
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Target storage Node datapath address')]
-        [string]     $NodeAddress,
-
+        [string] $NodeAddress,
 
         [Parameter(
             Mandatory = $true,
@@ -682,76 +671,95 @@ function Connect-NVMeTCPTarget {
             HelpMessage = 'Port Number')]
         [int]     $PortNumber = 4420
 
-
-
     )
        
-    Write-Host "Connecting to targets via Storage Adapter on given ESXi host " $HostAddress;
+    Write-Host "Connecting to target via Storage Adapter from ESXi host(s) under Cluster " $ClusterName
     Write-Host " " ;
 
-    $HostEsxcli = $null;
- 
-    try {
-        $HostEsxcli = Get-EsxCli -VMHost $HostAddress 
-    }
-    catch {
-        throw "Failed to execute Get-EsxCli cmdlet on host $($HostAddress). Make sure valid ESXi IP/DNS is provided."
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $ClusterName does not exist."
     }
 
-    if ($HostEsxcli) { 
-        Write-Host "Connected to host via PowerCLI-esxcli"
-     
+    $VmHosts = $Cluster | Get-VMHost
+    
+    foreach ($VmHost in $VMHosts) {
+
+        if ($VmHost.ConnectionState -ne "Connected") {
+            Write-Host "ESXi host $($VmHost.Name) must be in connected state, ignoring operation because of current state "$VmHost.ConnectionState
+            Write-Host ""
+            continue
+        }
+        
+        $StorageAdapters = $VmHost | Get-VMHostHba    
+        $HostEsxcli = $null;
         try {
-   
-            $EsxCliResult = $HostEsxcli.nvme.fabrics.connect(
-                $HostAdapter, $AdminQueueSize, $ControllerId, 
-                $null, $IoQueueNumber, $IoQueueSize, $NodeAddress,
-                $KeepAliveTimeout, $PortNumber, $StorageSystemNQN, $null, $null 
-            );
-       
-            if ($EsxCliResult) {
-                Write-Host "ESXi host is connected to storage controller " $hostAddress 
-            }
-            else {
-                throw
-            }
+            $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name 
         }
         catch {
-            throw "Failed to connect ESXi NVMe/TCP storage adapter to storage controller  $($item) " 
-        }  
-        Write-Host "Connecting Controller status: "$EsxCliResult;
+            Write-Error "Failed to execute Get-EsxCli cmdlet on host $($VmHost.Name), continue connecting rest of the host(s) "
+            continue 
+        }
+     
+        Write-Host "Connected to host via PowerCLI-esxcli $($VmHost.Name)" 
+
+        foreach ($StorageAdapter in $StorageAdapters) {
+
+            if (($StorageAdapter.Status -eq "online") -and ($StorageAdapter.Driver -eq "nvmetcp")) {
+            
+                if ($HostEsxcli) {
+                    $Name = $StorageAdapter.Name.ToString().Trim() 
+                    Write-Host "Connecting Adapter $($Name) to storage controller"
+                    try {
+                 
+                        $EsxCliResult = $HostEsxcli.nvme.fabrics.connect(
+                            $Name, $AdminQueueSize, $ControllerId, 
+                            $null, $IoQueueNumber, $IoQueueSize, $NodeAddress,
+                            $KeepAliveTimeout, $PortNumber, $StorageSystemNQN, $null, $null 
+                        );
+       
+                        if ($EsxCliResult) {
+                            Write-Host "ESXi host $($VmHost.Name) is connected to storage controller via " $Name
+                        }
+                        else {
+                            Write-Host "Failed to connect ESXi host $($VmHost.Name) to storage controller "
+                        }
+            
+                        Write-Host "Connecting Controller status: "$EsxCliResult;
+                    }
+                    catch {
+                        Write-Error "Failed to connect ESXi NVMe/TCP storage adapter to storage controller. $($_.Exception) " 
+                    }
+                }
+            }
+        } 
+        Write-Host "Rescanning NVMe/TCP storage adapter.."
+        $RescanResult = Get-VMHostStorage -VMHost $VmHost.Name -RescanAllHba 
+        Write-Host "Rescanning Completed."
+        Write-Host ""
     }
-
-    Write-Host "Rescanning NVMe/TCP storage adapter.."
-
-    $RescanResult = Get-VMHostStorage -VMHost $HostAddress -RescanAllHba 
-    
-    Write-Host "Rescanning Completed."
-
+  
+  
 } 
  
 <#
     .SYNOPSIS
-     This function disconnects an esxi host from the specified storage cluster node/target.
+     This function disconnects all ESXi host(s) from the specified storage cluster node/target.
 
-     1. ESXi host IP address or DNS
-     2. ESXi NVMe/TCP Storage adaper name 
-     3. Storage SystemNQN
+     1. vSphere Cluster Name
+     2. Storage SystemNQN
 
-    .PARAMETER HostAddress
-     ESXi host IP Address 
-
-    .PARAMETER HostAdapter
-     ESXi host storage adapter name
-
+    .PARAMETER ClusterName
+     vSphere Cluster Name
+    
     .PARAMETER StorageSystemNQN
      Storage system NQN
 
     .EXAMPLE
-     Disconnect-NVMeTCPTarget -HostAddress "192.168.0.1" -HostAdapter "vmhba64"  -StorageSystemNQN "nqn.2016-01.com.lightbitslabs:uuid:46edb489-ba18-4dd4-a157-1d8eb8c32e21"
+     Disconnect-NVMeTCPTarget -ClusterName "Cluster-001"  -StorageSystemNQN "nqn.2016-01.com.lightbitslabs:uuid:46edb489-ba18-4dd4-a157-1d8eb8c32e21"
 
     .INPUTS
-     ESXi Address, Storage Adapter, Storage systemNQN
+     vSphere Cluster Name, Storage SystemNQN
 
     .OUTPUTS
      None.
@@ -764,66 +772,75 @@ function Disconnect-NVMeTCPTarget {
     (
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'ESXi host network address')]
-        [string] $HostAddress,
-
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'NVMe/TCP Storage Adapter Name')]
-        [string] $HostAdapter,
-
+            HelpMessage = 'vSphere Cluster Name')]
+        [String] $ClusterName,
+                
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Target storage SystemNQN')]
-        [string]     $StorageSystemNQN
-
-
-
-
+        [string] $StorageSystemNQN
     )
 
-    Write-Host "Disconnecting controllers from targets on given ESXi host " $HostAddress;
+    Write-Host "Disconnecting ESXi host(s) from storage target under Cluster " $ClusterName
     Write-Host " " ;
-    
-    $hostEsxcli = $null;
 
-    try {
-        <#Do this if a terminating exception happens#>
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $ClusterName does not exist."
+    }
 
-        $HostEsxcli = Get-EsxCli -VMHost $HostAddress ;
-        Write-Host "EsxCli connected to host $($HostAddress)"
-        if ($null -eq $HostEsxcli) {
-            throw;
+    $VmHosts = $Cluster | Get-VMHost
+    foreach ($VmHost in $VMHosts) {
+
+        if ($VmHost.ConnectionState -ne "Connected") {
+            Write-Host "ESXi host $($VmHost.Name)  must be in connected state, ignoring operation because of current state "$VmHost.ConnectionState
+            Write-Host ""
+            continue
         }
-    }
-    catch {
-        throw "Failed to execute Get-EsxCli cmdlet on host $($HostAddress). Make sure valid ESXi IP/DNS is provided. $($_.Exception)"
-    }
 
-    try {
+        $StorageAdapters = $VmHost | Get-VMHostHba    
+        if (!$StorageAdapters) {
+            Write-Host "No Storage adapter to disconnect"
+            continue
 
-        $Controllers = $HostEsxcli.nvme.controller.list();
+        }
 
-        if ($Controllers -and $Controllers.Count -ge 0) {
+        $HostEsxcli = $null;  
+        try {
+            $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name 
+        }
+        catch {
+            Write-Error "Failed to execute Get-EsxCli cmdlet on host $($VmHost.Name), continue diconnecting rest of the host(s) "
+            continue 
+        }
+      
+        Write-Host "Connected to host via PowerCLI-esxcli $($VmHost.Name)" 
+        if ($HostEsxcli) {
+            $Controllers = $HostEsxcli.nvme.controller.list();
+            if ($Controllers -and $Controllers.Count -ge 0) {
+                foreach ($item in $Controllers) {
+               
+                    try { 
+                        Write-Host "Diconnecting "$item.Adapter
+                        $result = $HostEsxcli.nvme.fabrics.disconnect($item.Adapter, $item.ControllerNumber, $StorageSystemNQN);
+                        Write-Host "Diconnecting Controller status: "$result;
+                    }
+                    catch {
+                        Write-Host "Failed to disconnect controller $($_.Exception)" 
+                    }
 
-            foreach ($item in $Controllers) {
-                $result = $HostEsxcli.nvme.fabrics.disconnect($item.Adapter, $item.ControllerNumber, $StorageSystemNQN);
-                Write-Host "Diconnecting Controller status: "$result;
+                }
+       
+                Write-Host "Rescanning NVMe/TCP storage adapter.."
+                $RescanResult = Get-VMHostStorage -VMHost $VmHost.Name -RescanAllHba 
+                Write-Host "Rescanning Completed."
             }
        
-            Write-Host "Rescanning NVMe/TCP storage adapter.."
-            $RescanResult = Get-VMHostStorage -VMHost $HostAddress -RescanAllHba 
-            
-            Write-Host "Rescanning Completed."
-
+            else {
+                Write-Host "No NVMe/TCP controller found on given host " $VmHost.Name    
+            } 
         }
-       
-        else {
-            Write-Host "No NVMe/TCP controller found on given host " $HostAddress    
-        } 
+
+        Write-Host ""
     }
-    catch {
-        throw "Failed to execute EsxCli on host $($HostAddress). Make sure valid ESXi IP/DNS is provided. $($_.Exception)"
-    } 
-    Write-Host ""
 }
