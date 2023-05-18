@@ -129,8 +129,8 @@ function Set-VmfsIscsi {
     }
 
     $SignatureVerificationData = "$Timestamp`n$ClusterName`n$ScsiIpAddress`n"
-    $isSignatureValid = [OperationProtection.OperationProtection]::VerifySignature($SignatureVerificationData, $SignatureBase64);
-    if ($isSignatureValid -eq $false) {
+    $IsSignatureValid = [OperationProtection.OperationProtection]::VerifySignature($SignatureVerificationData, $SignatureBase64);
+    if ($IsSignatureValid -eq $false) {
         throw "Unable to verify the request signature."
     }
 
