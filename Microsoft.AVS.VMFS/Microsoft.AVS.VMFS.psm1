@@ -844,3 +844,73 @@ function Disconnect-NVMeTCPTarget {
         Write-Host ""
     }
 }
+
+<#
+    .SYNOPSIS
+     This function creates port groups for a given Distributed Switch.
+
+     1. Distributed Switch Name
+     2. List of PortGroup Name
+
+    .PARAMETER DSwitchName
+     Distributed Switch Name
+    
+    .PARAMETER PortGroupsCount
+     List of PortGroup Name
+
+    .EXAMPLE
+     New-NVMeTCPPortGroups -DSwitchName "DSwitchName-001"  -PortGroupsName "PGroup1", "PGroup2" 
+
+    .INPUTS
+     Distributed Switch Name, List of PortGroup Name
+
+    .OUTPUTS
+     None.
+#>
+function New-NVMeTCPPortGroups {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+   
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Distributed Switch Name')]
+        [String] $DSwitchName,
+                
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'List of portgroup Name')]
+        [string[]] $PortGroupsName  
+    )
+
+    Write-Host "Creating PortGroups for a given Distributed Switch " $DSwitchName
+    Write-Host " " ;
+
+    $DSName = Get-VDSwitch -Name $DSwitchName -ErrorAction Ignore
+    if (-not $DSName) {
+        throw "Distributed $DSwitchName does not exist."
+    }
+
+    if ($null -eq $PortGroupsName ) {
+        throw "Provide Distributed portgroup Names."
+    }
+
+    
+    foreach ($item in $PortGroupsName) {
+            
+        try {
+                     
+            $PGroup = New-VDPortgroup -VDSwitch $DSName   -Name $item
+            Write-Host "PortGroup created successfully: " $PGroup
+           
+        }
+        catch {
+
+            Write-Error "Failed to create Distributed Port Group $(PortGroupNamePattern),
+                     continue connecting creating rest of the portgroups"
+                    
+        }
+    }
+
+}
