@@ -1,64 +1,5 @@
 using module Microsoft.AVS.Management
 
-$OperationProtectionSource = @"
-using System;
-using System.IO;
-using System.Collections;
-using System.Security.Cryptography;
-using System.Text;
-
-namespace OperationProtection
-{
-    public class OperationProtection
-    {
-        public static byte[] ComputeSha256Hash(string data) {
-            SHA256 sha256 = SHA256.Create();
-            byte[] dataBytes = Encoding.ASCII.GetBytes(data);
-            return sha256.ComputeHash(dataBytes);
-        }
-
-        public static bool VerifySignature(string data, string signatureBase64)
-        {
-            string currentDir, validKeysDir;
-            DirectoryInfo parentDirInfo;
-            try
-            {
-                currentDir = Directory.GetCurrentDirectory();
-                parentDirInfo = Directory.GetParent(currentDir);
-                validKeysDir = Path.Combine(parentDirInfo.FullName, "valid-keys");
-
-                string[] validKeyFilePaths = Directory.GetFiles(validKeysDir);
-                byte[] hash = ComputeSha256Hash(data);
-                byte[] signature = Convert.FromBase64String(signatureBase64);
-
-                foreach (string validKeyFilePath in validKeyFilePaths)
-                {
-                    string keyData = File.ReadAllText(validKeyFilePath);
-                    RSA rsa = RSA.Create();
-                    rsa.ImportFromPem(keyData.ToCharArray());
-
-                    RSAPKCS1SignatureDeformatter rsaDeformatter = new RSAPKCS1SignatureDeformatter(rsa);
-                    rsaDeformatter.SetHashAlgorithm("SHA256");
-
-                    if (rsaDeformatter.VerifySignature(hash, signature))
-                    {
-                        return true;
-                    }
-                }
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-
-            return false;
-        }
-    }
-}
-"@
-
-Add-Type -TypeDefinition $OperationProtectionSource -Language CSharp
-
 <#
     .SYNOPSIS
      This function updates all hosts in the specified cluster to have the following iSCSI configurations:
@@ -129,7 +70,7 @@ function Set-VmfsIscsi {
     }
 
     $SignatureVerificationData = "$Timestamp`n$ClusterName`n$ScsiIpAddress`n"
-    $IsSignatureValid = [OperationProtection.OperationProtection]::VerifySignature($SignatureVerificationData, $SignatureBase64);
+    $IsSignatureValid = [Microsoft.AVS.Management.OperationProtection]::VerifySignature($SignatureVerificationData, $SignatureBase64)
     if ($IsSignatureValid -eq $false) {
         throw "Unable to verify the request signature."
     }

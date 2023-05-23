@@ -5,6 +5,68 @@
 . $PSScriptRoot\AVSvSANUtils.ps1
 
 <#
+    OperationProtection class to verify the signature of a request prior to executing a cmdlet.
+#>
+$OperationProtectionSource = @"
+using System;
+using System.IO;
+using System.Collections;
+using System.Security.Cryptography;
+using System.Text;
+
+namespace Microsoft.AVS.Management
+{
+    public class OperationProtection
+    {
+        public static byte[] ComputeSha256Hash(string data) {
+            SHA256 sha256 = SHA256.Create();
+            byte[] dataBytes = Encoding.ASCII.GetBytes(data);
+            return sha256.ComputeHash(dataBytes);
+        }
+
+        public static bool VerifySignature(string data, string signatureBase64)
+        {
+            string currentDir, validKeysDir;
+            DirectoryInfo parentDirInfo;
+            try
+            {
+                currentDir = Directory.GetCurrentDirectory();
+                parentDirInfo = Directory.GetParent(currentDir);
+                validKeysDir = Path.Combine(parentDirInfo.FullName, "valid-keys");
+
+                string[] validKeyFilePaths = Directory.GetFiles(validKeysDir);
+                byte[] hash = ComputeSha256Hash(data);
+                byte[] signature = Convert.FromBase64String(signatureBase64);
+
+                foreach (string validKeyFilePath in validKeyFilePaths)
+                {
+                    string keyData = File.ReadAllText(validKeyFilePath);
+                    RSA rsa = RSA.Create();
+                    rsa.ImportFromPem(keyData.ToCharArray());
+
+                    RSAPKCS1SignatureDeformatter rsaDeformatter = new RSAPKCS1SignatureDeformatter(rsa);
+                    rsaDeformatter.SetHashAlgorithm("SHA256");
+
+                    if (rsaDeformatter.VerifySignature(hash, signature))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+
+            return false;
+        }
+    }
+}
+"@
+
+Add-Type -TypeDefinition $OperationProtectionSource -Language CSharp
+
+<#
 AVSAttribute applied to a commandlet function indicates:
 - whether the SDDC should be marked as Building while the function executes.
 - default timeout for the commandlet, maximum: 3h.
