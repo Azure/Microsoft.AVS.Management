@@ -798,6 +798,13 @@ function Disconnect-NVMeTCPTarget {
             continue
         }
 
+        $ProvisionedDevices = Get-Datastore -VMHost $VmHost.Name | where-object{$_.ExtensionData.Info.Vmfs.Extent.DiskName -like  'eui.*'}
+        if(($Null -ne $ProvisionedDevices) -and ($ProvisionedDevices.Length -gt 0)){
+            Write-Host "Storage device(s) found on host $($VmHost.Name) from target, skipping to disconnect."
+            Write-Host ""
+            continue 
+        }
+
         $StorageAdapters = $VmHost | Get-VMHostHba    
         if (!$StorageAdapters) {
             Write-Host "No Storage adapter to disconnect"
