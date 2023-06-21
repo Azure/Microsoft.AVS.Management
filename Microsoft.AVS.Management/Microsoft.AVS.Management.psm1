@@ -10,7 +10,7 @@
 $OperationProtectionSource = @"
 using System;
 using System.IO;
-using System.Collections;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -26,13 +26,13 @@ namespace Microsoft.AVS.Management
 
         public static bool VerifySignature(string data, string signatureBase64)
         {
-            string currentDir, validKeysDir;
-            DirectoryInfo parentDirInfo;
+            string assemblyLocation, currentDir, appRootDir, validKeysDir;
             try
             {
-                currentDir = Directory.GetCurrentDirectory();
-                parentDirInfo = Directory.GetParent(currentDir);
-                validKeysDir = Path.Combine(parentDirInfo.FullName, "valid-keys");
+                assemblyLocation = Assembly.GetEntryAssembly().Location;
+                currentDir = Path.GetDirectoryName(assemblyLocation);
+                appRootDir = currentDir.Split("\\bin")[0];
+                validKeysDir = Path.Combine(appRootDir, "valid-keys");
 
                 string[] validKeyFilePaths = Directory.GetFiles(validKeysDir);
                 byte[] hash = ComputeSha256Hash(data);
