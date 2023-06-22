@@ -372,7 +372,7 @@ function Resize-VmfsVolume {
      NAA ID of device associated with the existing VMFS volume
 
     .PARAMETER DatastoreName
-     Datastore name
+     Datastore name (optional). If not provided, an automatically generated name will be used.
 
     .EXAMPLE
      Restore-VmfsVolume -ClusterName "myClusterName" -DeviceNaaId $DeviceNaaId
