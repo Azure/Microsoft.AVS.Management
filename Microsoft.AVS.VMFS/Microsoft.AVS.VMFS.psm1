@@ -185,7 +185,7 @@ function New-VmfsDatastore {
         $DatastoreSystem = Get-View -Id $Esxi.ConfigManager.DatastoreSystem
         $Device = $DatastoreSystem.QueryAvailableDisksForVmfs($null) | Where-Object { ($_.CanonicalName -eq $DeviceNaaId) }
         $DatastoreCreateOptions = $DatastoreSystem.QueryVmfsDatastoreCreateOptions($Device.DevicePath, $null)
-        
+
         $VmfsDatastoreCreateSpec = New-Object VMware.Vim.VmfsDatastoreCreateSpec
         $VmfsDatastoreCreateSpec.DiskUuid = $Device.Uuid
         $VmfsDatastoreCreateSpec.Partition = $DatastoreCreateOptions[0].Spec.Partition
@@ -193,14 +193,14 @@ function New-VmfsDatastore {
         $VmfsDatastoreCreateSpec.Partition.TotalSectors = $TotalSectors
         $VmfsDatastoreCreateSpec.Vmfs = New-Object VMware.Vim.HostVmfsSpec
         $VmfsDatastoreCreateSpec.Vmfs.VolumeName = $DatastoreName
-        
+
         $HostScsiDiskPartition = New-Object VMware.Vim.HostScsiDiskPartition
         $HostScsiDiskPartition.DiskName = $DeviceNaaId
         $HostScsiDiskPartition.Partition = $DatastoreCreateOptions[0].Info.Layout.Partition[0].Partition
-        
+
         $VmfsDatastoreCreateSpec.Vmfs.Extent = $HostScsiDiskPartition
         $VmfsDatastoreCreateSpec.vmfs.MajorVersion = $DatastoreCreateOptions[0].Spec.Vmfs.MajorVersion
-        
+
         $DatastoreSystem.CreateVmfsDatastore($VmfsDatastoreCreateSpec)
     } catch {
         Write-Error $Global:Error[0]
@@ -250,7 +250,7 @@ function Dismount-VmfsDatastore {
         [String]
         $DatastoreName
     )
-    
+
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
     if (-not $Cluster) {
         throw "Cluster $ClusterName does not exist."
@@ -279,7 +279,7 @@ function Dismount-VmfsDatastore {
             $VmfsUuid = $Datastore.ExtensionData.info.Vmfs.uuid
             $ScsiLunUuid = ($Datastore | Get-ScsiLun).ExtensionData.uuid | Select-Object -last 1
             $HostStorageSystem = Get-View $VMHost.Extensiondata.ConfigManager.StorageSystem
-            
+
             $HostStorageSystem.UnmountVmfsVolume($VmfsUuid) | Out-Null
             $HostStorageSystem.DetachScsiLun($ScsiLunUuid) | Out-Null
             $VMHost | Get-VMHostStorage -RescanAllHba -RescanVmfs | Out-Null
@@ -293,7 +293,7 @@ function Dismount-VmfsDatastore {
 
     .PARAMETER ClusterName
      Cluster name
-    
+
     .PARAMETER DeviceNaaId
      NAA ID of device associated with the existing VMFS volume
 
@@ -344,7 +344,7 @@ function Resize-VmfsVolume {
             break
         }
     }
-  
+
     if (-not $DatastoreToResize) {
         throw "Failed to re-size VMFS volume."
     }
@@ -367,9 +367,12 @@ function Resize-VmfsVolume {
 
     .PARAMETER ClusterName
      Cluster name
-    
+
     .PARAMETER DeviceNaaId
      NAA ID of device associated with the existing VMFS volume
+
+    .PARAMETER DatastoreName
+     Datastore name (optional). If not provided, an automatically generated name will be used.
 
     .EXAMPLE
      Restore-VmfsVolume -ClusterName "myClusterName" -DeviceNaaId $DeviceNaaId
@@ -396,7 +399,13 @@ function Restore-VmfsVolume {
             HelpMessage = 'NAA ID of device associated with the existing VMFS volume')]
         [ValidateNotNull()]
         [String]
-        $DeviceNaaId
+        $DeviceNaaId,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'New datastore name')]
+        [String]
+        $DatastoreName
     )
 
     if ($DeviceNaaId -notlike 'naa.624a9370*') {
@@ -406,6 +415,13 @@ function Restore-VmfsVolume {
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
     if (-not $Cluster) {
         throw "Cluster $ClusterName does not exist."
+    }
+
+    if (-not $DatastoreName) {
+        $Datastore = Get-Datastore -Name $DatastoreName -ErrorAction Ignore
+        if ($Datastore) {
+            throw "Datastore '$Datastore' already exists."
+        }
     }
 
     $Esxi = $Cluster | Get-VMHost | Where-Object { ($_.ConnectionState -eq 'Connected') } | Select-Object -last 1
@@ -445,6 +461,18 @@ function Restore-VmfsVolume {
     $EsxCli.storage.vmfs.snapshot.resignature.invoke($ResigOp) | Out-Null
 
     Start-Sleep -s 5
+
+    # If a new datastore name is specified by the user
+    if (-not [string]::IsNullOrEmpty($DatastoreName)) {
+        $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
+        $ds = $Esxi | Get-Datastore -ErrorAction stop | Where-Object { $_.ExtensionData.Info.Vmfs.Extent.DiskName -eq $DeviceNaaId }
+        # Snapshot datastore will always start with "snap*""
+        if (-not $ds.Name -like "snap*") {
+            throw "Can't rename datastore $($ds.Name), the datastore is not restored from snapshot..."
+        }
+        Write-Host "Renaming $($ds.Name) to $DatastoreName...."
+        $ds | Set-Datastore -Name $DatastoreName -ErrorAction stop | Out-Null
+    }
 
     $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
 }
@@ -575,39 +603,39 @@ function Remove-VMHostStaticIScsiTargets {
 
      1. vSphere Cluster Name
      2. Storage Node EndPoint Network address
-     3. Storage SystemNQN 
+     3. Storage SystemNQN
      4. NVMe/TCP Admin Queue Size (Optional)
-     5. Controller Id (Optional) 
+     5. Controller Id (Optional)
      6. IO Queue Number (Optional)
      7. IO Queue Size (Optional)
      8. Keep Alive Timeout (Optional)
      9. Target Port Number (Optional)
-     
-     
+
+
     .PARAMETER ClusterName
-     vSphere Cluster Name 
+     vSphere Cluster Name
 
     .PARAMETER NodeAddress
      Storage Node EndPoint Address
 
     .PARAMETER StorageSystemNQN
      Storage system NQN
-    
+
     .PARAMETER  AdminQueueSize
      NVMe/TCP Admin Queue Size, default 32
 
     .PARAMETER  ControllerId
-     NVMe/TCP Controller ID, default 65535 
+     NVMe/TCP Controller ID, default 65535
 
     .PARAMETER  IoQueueNumber
      IO Queue Number, default 8
 
     .PARAMETER IoQueueSize
      IO Queue Size, default 256
-     
+
     .PARAMETER KeepAliveTimeout
      Keep Alive Timeout, default 256
-     
+
     .PARAMETER  PortNumber
      Target Port Number, default 4420
 
@@ -629,7 +657,7 @@ function Connect-NVMeTCPTarget {
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
         [String] $ClusterName,
-        
+
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Target storage Node datapath address')]
@@ -672,7 +700,7 @@ function Connect-NVMeTCPTarget {
         [int]     $PortNumber = 4420
 
     )
-       
+
     Write-Host "Connecting to target via Storage Adapter from ESXi host(s) under Cluster " $ClusterName
     Write-Host " " ;
 
@@ -682,7 +710,7 @@ function Connect-NVMeTCPTarget {
     }
 
     $VmHosts = $Cluster | Get-VMHost
-    
+
     foreach ($VmHost in $VMHosts) {
 
         if ($VmHost.ConnectionState -ne "Connected") {
@@ -690,58 +718,58 @@ function Connect-NVMeTCPTarget {
             Write-Host ""
             continue
         }
-        
-        $StorageAdapters = $VmHost | Get-VMHostHba    
+
+        $StorageAdapters = $VmHost | Get-VMHostHba
         $HostEsxcli = $null;
         try {
-            $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name 
+            $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name
         }
         catch {
             Write-Error "Failed to execute Get-EsxCli cmdlet on host $($VmHost.Name), continue connecting rest of the host(s) "
-            continue 
+            continue
         }
-     
-        Write-Host "Connected to host via PowerCLI-esxcli $($VmHost.Name)" 
+
+        Write-Host "Connected to host via PowerCLI-esxcli $($VmHost.Name)"
 
         foreach ($StorageAdapter in $StorageAdapters) {
 
             if (($StorageAdapter.Status -eq "online") -and ($StorageAdapter.Driver -eq "nvmetcp")) {
-            
+
                 if ($HostEsxcli) {
-                    $Name = $StorageAdapter.Name.ToString().Trim() 
+                    $Name = $StorageAdapter.Name.ToString().Trim()
                     Write-Host "Connecting Adapter $($Name) to storage controller"
                     try {
-                 
+
                         $EsxCliResult = $HostEsxcli.nvme.fabrics.connect(
-                            $Name, $AdminQueueSize, $ControllerId, 
+                            $Name, $AdminQueueSize, $ControllerId,
                             $null, $IoQueueNumber, $IoQueueSize, $NodeAddress,
-                            $KeepAliveTimeout, $PortNumber, $StorageSystemNQN, $null, $null 
+                            $KeepAliveTimeout, $PortNumber, $StorageSystemNQN, $null, $null
                         );
-       
+
                         if ($EsxCliResult) {
                             Write-Host "ESXi host $($VmHost.Name) is connected to storage controller via " $Name
                         }
                         else {
                             Write-Host "Failed to connect ESXi host $($VmHost.Name) to storage controller "
                         }
-            
+
                         Write-Host "Connecting Controller status: "$EsxCliResult;
                     }
                     catch {
-                        Write-Error "Failed to connect ESXi NVMe/TCP storage adapter to storage controller. $($_.Exception) " 
+                        Write-Error "Failed to connect ESXi NVMe/TCP storage adapter to storage controller. $($_.Exception) "
                     }
                 }
             }
-        } 
+        }
         Write-Host "Rescanning NVMe/TCP storage adapter.."
-        $RescanResult = Get-VMHostStorage -VMHost $VmHost.Name -RescanAllHba 
+        $RescanResult = Get-VMHostStorage -VMHost $VmHost.Name -RescanAllHba
         Write-Host "Rescanning Completed."
         Write-Host ""
     }
-  
-  
-} 
- 
+
+
+}
+
 <#
     .SYNOPSIS
      This function disconnects all ESXi host(s) from the specified storage cluster node/target.
@@ -751,7 +779,7 @@ function Connect-NVMeTCPTarget {
 
     .PARAMETER ClusterName
      vSphere Cluster Name
-    
+
     .PARAMETER StorageSystemNQN
      Storage system NQN
 
@@ -767,14 +795,14 @@ function Connect-NVMeTCPTarget {
 function Disconnect-NVMeTCPTarget {
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false)]
-   
+
     Param
     (
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
         [String] $ClusterName,
-                
+
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Target storage SystemNQN')]
@@ -802,50 +830,50 @@ function Disconnect-NVMeTCPTarget {
         if(($Null -ne $ProvisionedDevices) -and ($ProvisionedDevices.Length -gt 0)){
             Write-Host "Storage device(s) found on host $($VmHost.Name) from target, skipping to disconnect."
             Write-Host ""
-            continue 
+            continue
         }
 
-        $StorageAdapters = $VmHost | Get-VMHostHba    
+        $StorageAdapters = $VmHost | Get-VMHostHba
         if (!$StorageAdapters) {
             Write-Host "No Storage adapter to disconnect"
             continue
 
         }
 
-        $HostEsxcli = $null;  
+        $HostEsxcli = $null;
         try {
-            $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name 
+            $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name
         }
         catch {
             Write-Error "Failed to execute Get-EsxCli cmdlet on host $($VmHost.Name), continue diconnecting rest of the host(s) "
-            continue 
+            continue
         }
-      
-        Write-Host "Connected to host via PowerCLI-esxcli $($VmHost.Name)" 
+
+        Write-Host "Connected to host via PowerCLI-esxcli $($VmHost.Name)"
         if ($HostEsxcli) {
             $Controllers = $HostEsxcli.nvme.controller.list();
             if ($Controllers -and $Controllers.Count -ge 0) {
                 foreach ($item in $Controllers) {
-               
-                    try { 
+
+                    try {
                         Write-Host "Diconnecting "$item.Adapter
                         $result = $HostEsxcli.nvme.fabrics.disconnect($item.Adapter, $item.ControllerNumber, $StorageSystemNQN);
                         Write-Host "Diconnecting Controller status: "$result;
                     }
                     catch {
-                        Write-Host "Failed to disconnect controller $($_.Exception)" 
+                        Write-Host "Failed to disconnect controller $($_.Exception)"
                     }
 
                 }
-       
+
                 Write-Host "Rescanning NVMe/TCP storage adapter.."
-                $RescanResult = Get-VMHostStorage -VMHost $VmHost.Name -RescanAllHba 
+                $RescanResult = Get-VMHostStorage -VMHost $VmHost.Name -RescanAllHba
                 Write-Host "Rescanning Completed."
             }
-       
+
             else {
-                Write-Host "No NVMe/TCP controller found on given host " $VmHost.Name    
-            } 
+                Write-Host "No NVMe/TCP controller found on given host " $VmHost.Name
+            }
         }
 
         Write-Host ""
