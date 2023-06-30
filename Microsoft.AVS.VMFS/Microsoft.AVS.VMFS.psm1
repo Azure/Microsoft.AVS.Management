@@ -181,8 +181,9 @@ function New-VmfsDatastore {
         Write-Host "Creating datastore $DatastoreName..."
 
         $TotalSectors = $SizeInBytes / 512
-        $Esxi = Get-View -ViewType HostSystem | Where-Object { ($_.Runtime.ConnectionState -eq 'connected') } | Select-Object -last 1
-        $DatastoreSystem = Get-View -Id $Esxi.ConfigManager.DatastoreSystem
+        $Esxi = $Cluster | Get-VMHost | Where-Object { ($_.ConnectionState -eq 'Connected') } | Select-Object -last 1
+        $EsxiView = Get-View -ViewType HostSystem -Filter @{"Name" = $Esxi.name}
+        $DatastoreSystem = Get-View -Id $EsxiView.ConfigManager.DatastoreSystem
         $Device = $DatastoreSystem.QueryAvailableDisksForVmfs($null) | Where-Object { ($_.CanonicalName -eq $DeviceNaaId) }
         $DatastoreCreateOptions = $DatastoreSystem.QueryVmfsDatastoreCreateOptions($Device.DevicePath, $null)
 
