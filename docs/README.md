@@ -229,6 +229,10 @@ The final QA cycle would be:
     - Setup the context
     - Test
 
+## Introducing breaking change in Microsoft management packages
+For minor (non-breaking) changes we either let the build number increment or if we are introducing new functionality that we may need to referece we bump the minor version component.
+For breaking changes please open a [RFC](/RFCs/template.md) PR and get the agreement of the stakeholders.
+
 ## Testing via Run Command and preparing for release
 At this point you can tell us that it’s ready to be reviewed.
 - We’ll review the package, import it into our private repository and list it for execution via Run Command/ARM API. Additional checklist may be required, work with your PM to determine.
