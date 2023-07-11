@@ -162,10 +162,6 @@ function New-VmfsDatastore {
         throw "Invalid Size $SizeInBytes provided. Size should be between 1 GB and 62 TB."
     }
 
-    if ($DeviceNaaId -notlike 'naa.624a9370*') {
-        throw "Invalid Device NAA ID $DeviceNaaId provided."
-    }
-
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
     if (-not $Cluster) {
         throw "Cluster $ClusterName does not exist."
