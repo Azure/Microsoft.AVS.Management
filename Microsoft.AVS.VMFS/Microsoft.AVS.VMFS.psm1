@@ -876,3 +876,99 @@ function Disconnect-NVMeTCPTarget {
         Write-Host ""
     }
 }
+
+
+<#
+    .SYNOPSIS
+     This function removes VMFS datastore on a given ESXi Cluster.
+
+     1. vSphere Cluster Name
+     2. Datastore Name
+     
+    .PARAMETER HostAddress
+     vSphere Cluster Name
+
+    .PARAMETER DatastoreName
+     Datastore Name
+
+    
+    .EXAMPLE
+     Remove-VmfsDatastore -ClusterName "vSphere-cluster-001"  -DatastoreName "datastore-name-01" 
+
+    .INPUTS
+     vSphere Cluster Name, Datastore name 
+
+    .OUTPUTS
+     None.
+#>
+
+function Remove-VmfsDatastore {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+   
+    Param
+    (
+  
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'vSphere Cluster Name')]
+        [string] $ClusterName,
+
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = ' Existing datastore name')]
+        [string] $DatastoreName
+    )
+       
+    Write-Host "Removing datastore $($DatastoreName) accessible to ESXi host(s) in the cluster "  $ClusterName
+    $AvailableDatastore = $null
+    
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $ClusterName does not exist."
+    }
+
+    $AvailableDatastore = Get-Datastore -Name $DatastoreName -ErrorAction ignore
+    if (-not $AvailableDatastore) {
+        throw "Datastore $DatastoreName does not exist."
+      
+    }
+
+    $VmHosts = $Cluster | Get-VMHost
+    $IsDatastoreRemoved=$false
+
+    foreach ($VmHost in $VMHosts) {
+
+        if ($VmHost.ConnectionState -eq "Connected") {
+            try {
+                Write-Host "Removing datastore using esxi host $($VmHost.Name) as reference host."
+                Remove-Datastore -VMHost $VmHost.Name -Datastore $DatastoreName -Confirm:$false    
+                $AvailableDatastore = $null
+                $AvailableDatastore = Get-Datastore -Name $DatastoreName -ErrorAction ignore
+                if (-not $AvailableDatastore) {
+                    Write-Host "Datastore removed. "
+                    $IsDatastoreRemoved=$true                      
+                }                             
+            }
+            catch {
+                Write-Host "Failed to remove datasore $($DatastoreName)."
+            }
+        }  
+        
+        if ($IsDatastoreRemoved){
+            Write-Host "Rescanning datastore "
+            $RescanResult = Get-VMHostStorage -VMHost $VmHost.Name -RescanAllHba 
+            Write-Host $RescanResult
+            break;
+        }
+       
+    } 
+      
+    if (-not($IsDatastoreRemoved)){
+        Write-Host "Datastore was found but counld't remove, ensure at least one connected ESXi host in the cluster has access to the given datastore" 
+        
+    }
+
+   Write-Host " " ;
+     
+}
