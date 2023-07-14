@@ -8,11 +8,13 @@
 AVSAttribute applied to a commandlet function indicates:
 - whether the SDDC should be marked as Building while the function executes.
 - default timeout for the commandlet, maximum: 3h.
+- whether a commandlet is intended to be only for automation or is visible to all customers.
 AVS SDDC in Building state prevents other changes from being made to the SDDC until the function completes/fails.
 #>
 class AVSAttribute : Attribute {
     [bool]$UpdatesSDDC = $false
     [TimeSpan]$Timeout
+    [bool]$AutomationOnly = $false
     AVSAttribute($timeoutMinutes) { $this.Timeout = New-TimeSpan -Minutes $timeoutMinutes }
 }
 

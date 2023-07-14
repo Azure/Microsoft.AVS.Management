@@ -25,7 +25,7 @@ using module Microsoft.AVS.Management
 #>
 function Set-VmfsIscsi {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param (
         [Parameter(
             Mandatory=$true,
@@ -121,7 +121,7 @@ function Set-VmfsIscsi {
 #>
 function New-VmfsDatastore {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param (
         [Parameter(
             Mandatory=$true,
@@ -231,7 +231,7 @@ function New-VmfsDatastore {
 #>
 function Dismount-VmfsDatastore {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param (
         [Parameter(
             Mandatory=$true,
@@ -305,7 +305,7 @@ function Dismount-VmfsDatastore {
 #>
 function Resize-VmfsVolume {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param (
         [Parameter(
             Mandatory=$true,
@@ -382,7 +382,7 @@ function Resize-VmfsVolume {
 #>
 function Restore-VmfsVolume {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param (
         [Parameter(
             Mandatory=$true,
@@ -493,7 +493,7 @@ function Restore-VmfsVolume {
 #>
 function Sync-VMHostStorage {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param (
         [Parameter(
                 Mandatory=$true,
@@ -524,7 +524,7 @@ function Sync-VMHostStorage {
 #>
 function Sync-ClusterVMHostStorage {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param (
         [Parameter(
                 Mandatory=$true,
@@ -563,7 +563,7 @@ function Sync-ClusterVMHostStorage {
 #>
 function Remove-VMHostStaticIScsiTargets {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param (
         [Parameter(
                 Mandatory=$true,
@@ -647,7 +647,7 @@ function Remove-VMHostStaticIScsiTargets {
 #>
 function Connect-NVMeTCPTarget {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param
     (
         [Parameter(
@@ -791,7 +791,7 @@ function Connect-NVMeTCPTarget {
 #>
 function Disconnect-NVMeTCPTarget {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
 
     Param
     (

@@ -90,7 +90,7 @@ Secrets and additional attributes:
 - Use `PSCredential` and `SecureString` if taking credentials or secrets as inputs. These parameters are encrypted while inflight and at rest and will never be echoed back to the user.
 - The functions and parameters must have user-friendly description, using standard PS facilities.
 - All names must follow PowerShell [naming guidelines](https://learn.microsoft.com/en-us/powershell/scripting/developer/cmdlet/required-development-guidelines?view=powershell-7.3#use-only-approved-verbs-rd01).
-- Apply `AVSAttribute` as show in [this example](https://www.powershellgallery.com/packages/Microsoft.AVS.Management/1.0.31/Content/Microsoft.AVS.Management.psm1) to specify the default timeout and SDDC status for your scripts.
+- Apply `AVSAttribute` as show in [this example](https://www.powershellgallery.com/packages/Microsoft.AVS.Management/1.0.31/Content/Microsoft.AVS.Management.psm1) to specify the default timeout, SDDC status and whether it is intended to be invoked only through automation for your scripts.
 
 Other supported parameter types:
 - `System.String`
