@@ -14,7 +14,7 @@ AVS SDDC in Building state prevents other changes from being made to the SDDC un
 class AVSAttribute : Attribute {
     [bool]$UpdatesSDDC = $false
     [TimeSpan]$Timeout
-    [bool]$IsAutomation = $false
+    [bool]$AutomationOnly = $false
     AVSAttribute($timeoutMinutes) { $this.Timeout = New-TimeSpan -Minutes $timeoutMinutes }
 }
 
