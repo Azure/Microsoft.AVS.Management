@@ -240,7 +240,7 @@ At this point you can tell us that it’s ready to be reviewed.
 - Re-publish the package with `-preview` suffix to do a Private Preview with your customers.
 - Re-publish the package w/o `-preview` suffix to make your package available to general public.
  
-After this initial onboarding we require that the vendor sets up CI testing that executes the commandlets via AVS SDK to make sure future packages pass the lifecycle test and to shield you from any possible changes on the AVS side. Promotion from `-preview` to generally available package will be conditional on the test report that shows that all commandlets perform as expected.
+After this initial onboarding we require that the vendor sets up [CI testing](https://github.com/Azure/Microsoft.AVS.Management-FCT) that executes the commandlets via AVS SDK to make sure future packages pass the lifecycle test and to shield you from any possible changes on the AVS side. Promotion from `-preview` to generally available package will be conditional on the test report that shows that all commandlets perform as expected.
 
 ## FAQ
 **Q**: Does the Run Command container have access to the Internet?</br>
