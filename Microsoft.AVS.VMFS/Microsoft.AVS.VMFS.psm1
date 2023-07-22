@@ -923,51 +923,77 @@ function Remove-VmfsDatastore {
     Write-Host "Removing datastore $($DatastoreName) accessible to ESXi host(s) in the cluster "  $ClusterName
     $AvailableDatastore = $null
     
+    $ClusterName = $ClusterName.Trim()
+
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
     if (-not $Cluster) {
         throw "Cluster $ClusterName does not exist."
     }
 
     $AvailableDatastore = Get-Datastore -Name $DatastoreName -ErrorAction ignore
-    if (-not $AvailableDatastore) {
-        throw "Datastore $DatastoreName does not exist."
+    if ( (-not $AvailableDatastore)  -or ($AvailableDatastore.State -eq "Unavailable")) {
+        throw "Datastore $DatastoreName does not exist Or datastore is in Unvailable state."
       
     }
 
-    $VmHosts = $Cluster | Get-VMHost
-    $IsDatastoreRemoved=$false
+    $VMs = Get-VM -Datastore $DatastoreName -ErrorAction ignore
+    if ($VMs){
+        throw "Datastore $DatastoreName is hosting worker virtual machines and can't be deleted"
+      
+    }
 
-    foreach ($VmHost in $VMHosts) {
+    $VmHosts = $Cluster | Get-VMHost -State "Connected"
+    $RelatedVmHosts = Get-VMHost -Datastore $DatastoreName -State "Connected"
 
-        if ($VmHost.ConnectionState -eq "Connected") {
-            try {
-                Write-Host "Removing datastore using esxi host $($VmHost.Name) as reference host."
-                Remove-Datastore -VMHost $VmHost.Name -Datastore $DatastoreName -Confirm:$false    
-                $AvailableDatastore = $null
-                $AvailableDatastore = Get-Datastore -Name $DatastoreName -ErrorAction ignore
-                if (-not $AvailableDatastore) {
-                    Write-Host "Datastore removed. "
-                    $IsDatastoreRemoved=$true                      
-                }                             
+    $DeleteDs = $true
+
+    foreach ($RltdHost in $RelatedVmHosts){
+            if($RltdHost.Parent.Name.Trim() -ne $ClusterName){
+                $DeleteDs = $false
+                break;
             }
-            catch {
-                Write-Host "Failed to remove datasore $($DatastoreName)."
-            }
-        }  
-        
-        if ($IsDatastoreRemoved){
-            Write-Host "Rescanning datastore "
-            $RescanResult = Get-VMHostStorage -VMHost $VmHost.Name -RescanAllHba 
-            Write-Host $RescanResult
-            break;
-        }
+    }
+   
+   $IsDatastoreRemoved=$false 
+   if($DeleteDs){
+    try {
+        Write-Host "Removing datastore using esxi host $($RelatedVmHosts[0].Name) as reference host."
+        Remove-Datastore -VMHost $RelatedVmHosts[0].Name -Datastore $DatastoreName -Confirm:$false    
+        $AvailableDatastore = $null
+        $AvailableDatastore = Get-Datastore -Name $DatastoreName -ErrorAction ignore
+        if (-not $AvailableDatastore) {
+            Write-Host "Datastore removed. "
+            $IsDatastoreRemoved=$true                      
+        }                             
+    }
+    catch {
+        throw "Failed to remove datasore $($DatastoreName)."
+    }
+  }
+
+ else{ 
+    
+     Write-Host "Datastore is shared, Unmounting datastore from each host under the cluster $($ClusterName)"
+     $VmfsUuid = $AvailableDatastore.ExtensionData.info.Vmfs.uuid
+     foreach ($VmHost in $VMHosts) {
        
-    } 
-      
-    if (-not($IsDatastoreRemoved)){
-        Write-Host "Datastore was found but counld't remove, ensure at least one connected ESXi host in the cluster has access to the given datastore" 
-        
-    }
+        try {
+            $HostStorageSystem = Get-View $VmHost.Extensiondata.ConfigManager.StorageSystem
+            $HostStorageSystem.UnmountVmfsVolume($VmfsUuid) | Out-Null  
+                
+        }
+        catch {
+          Write-Host "Failed to unmount datastore from host "$VmHost.Name   
+        }
+     }
+  }       
+  
+  Write-Host "Rescanning datastore "
+  $RescanResult = Get-VMHostStorage -VMHost $RelatedVmHosts[0].Name -RescanAllHba 
+
+  if (-not($IsDatastoreRemoved)){
+        Write-Host "Datastore was found but did't remove, instead unmounted from ESXi hosts under the given cluster." 
+   }
 
    Write-Host " " ;
      
