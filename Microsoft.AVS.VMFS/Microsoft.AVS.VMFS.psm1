@@ -890,7 +890,6 @@ function Disconnect-NVMeTCPTarget {
 
     .PARAMETER DatastoreName
      Datastore Name
-
     
     .EXAMPLE
      Remove-VmfsDatastore -ClusterName "vSphere-cluster-001"  -DatastoreName "datastore-name-01" 
@@ -998,3 +997,88 @@ function Remove-VmfsDatastore {
    Write-Host " " ;
      
 }
+
+
+<#
+   .DESCRIPTION
+    Mount a VMFS datastore to all ESXi host(s) under the given vSphere cluster.
+
+   .PARAMETER ClusterName
+    vSphere Cluster name
+
+   .PARAMETER DatastoreName
+    Datastore name
+
+   .EXAMPLE
+    Mount-VmfsDatastore -ClusterName "myCluster" -DatastoreName "myDatastore"
+
+   .INPUTS
+    vCenter vSphere cluster name and datastore name.
+
+   .OUTPUTS
+    None.
+ #>
+function Mount-VmfsDatastore {
+  [CmdletBinding()]
+  [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+  Param (
+         [ Parameter(
+            Mandatory=$true,
+            HelpMessage = 'vSphere Cluster name in vCenter')]
+            [ValidateNotNull()]
+            [String]
+            $ClusterName,
+            [Parameter(
+                Mandatory=$true,
+                HelpMessage = 'Name of VMFS datastore to be mounted on host(s) in vCenter')]
+            [ValidateNotNull()]
+            [String]
+            $DatastoreName
+        )
+
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $ClusterName does not exist."
+    }
+
+    $Datastore = Get-Datastore -Name $DatastoreName -ErrorAction Ignore
+    if (-not $Datastore) {
+                throw "Datastore $DatastoreName does not exist."
+    }
+    
+    if ("VMFS" -ne $Datastore.Type) {
+         throw "Datastore $DatastoreName is of type $($Datastore.Type). This cmdlet can only process VMFS datastores."
+    }
+
+    Write-Host "Mounting datastore $DatastoreName to all host(s) in the given vSphere cluster."
+        
+    $HostViewDiskName = $Datastore.ExtensionData.Info.vmfs.extent[0].Diskname
+    if ($null -eq $HostViewDiskName){
+         throw "Could't find backing device for the datastore $($DatastoreName)"
+    }
+        
+    $VmHosts = $Cluster | Get-VMHost
+    
+    foreach ($VmHost in $VmHosts){
+          
+      $Devices = $VmHost.ExtensionData.config.StorageDevice.ScsiLun | Where-Object { $_.DevicePath -like "*$($HostViewDiskName)*" }
+      if ($null -eq $Devices){
+          Write-Host "Could't find device on ESXi host $($VmHost.Name) for device UUID  $($HostViewDiskName), skipping to mount datastore"
+         continue
+      }
+
+      $HostView = Get-View $VmHost
+      $StorageSys = Get-View $HostView.ConfigManager.StorageSystem
+      Write-Host "Mounting VMFS Datastore $($Datastore.Name) on host $($HostView.Name)"
+      try{
+          $StorageSys.MountVmfsVolume($Datastore.ExtensionData.Info.vmfs.uuid);
+      }
+      catch{
+           Write-Error "Failed to VMFS Datastore $($Datastore.Name) on host $($HostView.Name)"
+      }      
+
+      Write-Host "Datastore $($Datastore.Name) mounted successfully on host, rescanning now.. $($hostview.Name)."
+      $VmHost | Get-VMHostStorage -RescanAllHba -RescanVmfs | Out-Null
+    }
+               
+  }
