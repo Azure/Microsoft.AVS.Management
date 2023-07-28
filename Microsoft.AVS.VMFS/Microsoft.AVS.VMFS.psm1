@@ -261,7 +261,7 @@ function Dismount-VmfsDatastore {
         throw "Datastore $DatastoreName is of type $($Datastore.Type). This cmdlet can only process VMFS datastores."
     }
 
-    Write-Host "Unmounting datastore $DatastoreName from all hosts and detaching the SCSI device associated with it..."
+    Write-Host "Unmounting datastore $DatastoreName from all hosts, detaching SCSI devices, NVMe/TCP devices are not detached."
     $VMHosts = $Cluster | Get-VMHost
     foreach ($VMHost in $VMHosts) {
         $IsDatastoreConnectedToHost = Get-Datastore -VMHost $VMHost | Where-Object {$_.name -eq $DatastoreName}
@@ -278,7 +278,16 @@ function Dismount-VmfsDatastore {
             $HostStorageSystem = Get-View $VMHost.Extensiondata.ConfigManager.StorageSystem
 
             $HostStorageSystem.UnmountVmfsVolume($VmfsUuid) | Out-Null
-            $HostStorageSystem.DetachScsiLun($ScsiLunUuid) | Out-Null
+            Write-Host "Datastore unmounted."
+
+            $HostViewDiskName = $Datastore.ExtensionData.Info.vmfs.extent[0].Diskname;
+            if(($null -ne $HostViewDiskName) -and ($HostViewDiskName.StartsWith("eui."))){
+               Write-Host "Device UUID $($VmfsUuid) is an NVMe/TCP volume, not required to be detached, and can be mounted back to host as needed."  
+            }
+            else {
+                  $HostStorageSystem.DetachScsiLun($ScsiLunUuid) | Out-Null
+            }      
+            Write-Host "Rescanning now.."
             $VMHost | Get-VMHostStorage -RescanAllHba -RescanVmfs | Out-Null
         }
     }
@@ -1083,3 +1092,85 @@ function Mount-VmfsDatastore {
     }
                
   }
+
+
+<#
+    .SYNOPSIS
+     This function list all VMFS datastores accessible to host(s) under the given ESXi Cluster.
+          
+    .PARAMETER ClusterName
+     vSphere Cluster Name
+    
+    .EXAMPLE
+     Get-VmfsDatastore -ClusterName "vSphere-cluster-001"  
+
+    .INPUTS
+     vSphere Cluster Name
+
+    .OUTPUTS
+     None.
+#>
+
+function Get-VmfsDatastore {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+   
+    Param
+    (
+      [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'vSphere Cluster Name')]
+      [string] $ClusterName
+
+    )
+       
+    Write-Host "Collecting all available VMFS datastores accessible to ESXi host(s) in the cluster "  $ClusterName
+    Write-Host ""    
+    $ClusterName = $ClusterName.Trim()
+
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $($ClusterName) does not exist."
+    }
+
+    $VmHosts = $Cluster | Get-VMHost -ErrorAction Ignore 
+    if (-not $VmHosts) {
+        throw "No ESXi host found under $($ClusterName)."
+    }
+
+
+    $Datastores = Get-VMHost -Name $VmHosts | Get-Datastore | Where-Object {$_.Type -match "VMFS"} | Get-Unique
+
+    if ( -not $Datastores) {
+        Write-Host "No Datastore found under the given cluster."
+        return
+      
+    }
+
+    $NamedOutputs = @{}
+
+    foreach ($Datastore in $Datastores){
+      $VmfsUuid = $Datastore.ExtensionData.info.Vmfs.uuid 
+      $HostViewDiskName = $Datastore.ExtensionData.Info.vmfs.extent[0].Diskname;
+      $NamedOutputs[$Datastore.Name] = "
+           { 
+           Name : $($Datastore.Name),
+           Capacity : $($Datastore.CapacityGB),
+           FreeSpace : $($Datastore.FreeSpaceGB), 
+           Type : $($Datastore.Type),
+           UUID : $($VmfsUuid),
+           Device : $($HostViewDiskName),      
+           State : $($Datastore.State),      
+           }"
+    }
+  
+   if($NamedOutputs.Count -gt 0){
+  
+      Write-host $NamedOutputs | ConvertTo-Json -Depth 10
+   }
+
+   Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
+
+   Write-Host " "
+     
+}
