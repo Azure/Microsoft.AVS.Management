@@ -1097,8 +1097,6 @@ function Mount-VmfsDatastore {
 <#
     .SYNOPSIS
      This function list all VMFS datastores accessible to host(s) under the given ESXi Cluster.
-
-     1. vSphere Cluster Name
           
     .PARAMETER ClusterName
      vSphere Cluster Name
@@ -1149,20 +1147,30 @@ function Get-VmfsDatastore {
       
     }
 
-    foreach ($Datastore in $Datastores){
+    $NamedOutputs = @{}
 
+    foreach ($Datastore in $Datastores){
       $VmfsUuid = $Datastore.ExtensionData.info.Vmfs.uuid 
       $HostViewDiskName = $Datastore.ExtensionData.Info.vmfs.extent[0].Diskname;
-      
-      Write-Output "Name : $($Datastore.Name)"
-      Write-Output "Capacity(GB) : $($Datastore.CapacityGB)"
-      Write-Output "FreeSpace(GB) : $($Datastore.FreeSpaceGB)"
-      Write-Output "Type : $($Datastore.Type)"
-      Write-Output "UUID : $($VmfsUuid)"
-      Write-Output "Device : $($HostViewDiskName)"      
-      Write-Output "State : $($Datastore.State)"      
-      Write-Host "  "  
+      $NamedOutputs[$Datastore.Name] = "
+           { 
+           Name : $($Datastore.Name),
+           Capacity : $($Datastore.CapacityGB),
+           FreeSpace : $($Datastore.FreeSpaceGB), 
+           Type : $($Datastore.Type),
+           UUID : $($VmfsUuid),
+           Device : $($HostViewDiskName),      
+           State : $($Datastore.State),      
+           }"
     }
   
+   if($NamedOutputs.Count -gt 0){
+  
+      Write-host $NamedOutputs | ConvertTo-Json -Depth 10
+   }
+
+   Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
+
+   Write-Host " "
      
 }
