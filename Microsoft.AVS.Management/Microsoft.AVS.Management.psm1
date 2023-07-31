@@ -1083,7 +1083,7 @@ function Add-GroupToSRMAdmins {
     }
     elseif ($ExternalSources.count -gt 1) {
         if (-Not ($PSBoundParameters.ContainsKey('Domain'))) {
-            Write-Host "Multiple external identites exist and domain not suplied. Will attempt to search all ADs attached for $GroupName"
+            Write-Host "Multiple external identites exist and domain not supplied. Will attempt to search all ADs attached for $GroupName"
         }
         else {
             $FoundDomainMatch = $false
