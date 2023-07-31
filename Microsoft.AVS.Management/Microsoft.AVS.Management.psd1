@@ -90,6 +90,8 @@
          "Remove-ExternalIdentitySources"
          "Add-GroupToCloudAdmins"
          "Remove-GroupFromCloudAdmins"
+         "Add-GroupToSRMAdmins"
+         "Remove-GroupFromSRMAdmins"
          "Get-CloudAdminGroups"
          "Update-IdentitySourceCredential"
          "Set-HcxScaledCpuAndMemorySetting"
