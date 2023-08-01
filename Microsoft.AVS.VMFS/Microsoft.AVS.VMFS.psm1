@@ -1174,3 +1174,71 @@ function Get-VmfsDatastore {
    Write-Host " "
      
 }
+
+
+    <#
+    .SYNOPSIS
+     This function collects all ESXi host(s) along with detailed inventory under a given vSphere Cluster.
+    
+    .PARAMETER -ClusterName
+     vSphere Cluster Name
+    
+    .EXAMPLE
+     Get-VmfsHosts -ClusterName "vSphere-cluster-001"   
+
+    .INPUTS
+     vSphere Cluster Name
+
+    .OUTPUTS
+     NamedOutputs Detailed ESXi host(s) inventory 
+#>
+
+function Get-VmfsHosts {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'vSphere Cluster Name')]
+        [String] $ClusterName
+
+    )
+
+    Write-Host "Collecting detailed inventory of all ESXi host(s) under vSphere Cluster $($ClusterName), takes seconds .."
+    Write-Host " " ;
+
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $($ClusterName) does not exist."
+    }
+
+      
+    $NamedOutputs = @{}
+    $VmHosts = $Cluster | Get-VMHost 
+
+    foreach ($VmHost in $VmHosts) {
+
+     $NamedOutputs[$VmHost.Name] = "
+     {     
+      Name : $($VmHost.Name),
+      Version : $($VmHost.Version),
+      ConnectionState : $($VmHost.ConnectionState), 
+      PowerState : $($VmHost.PowerState),
+      State : $($VmHost.State),
+      HostNQN : $($VmHost.Hardware.SystemInfo.QualifiedName.Value),       
+      Uuid : $($VmHost.ExtensionData.Hardware.SystemInfo.Uuid), 
+      Datastores: $($VmHost.ExtensionData.Datastore),
+      Extension : $($VmHost.ExtensionData.config | ConvertTo-JSON -Depth 10)
+     }"
+   }
+
+   if($NamedOutputs.Count -gt 0){
+      Write-host $NamedOutputs | ConvertTo-Json -Depth 10
+   }
+
+   Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global    
+   Write-Host ""
+    
+}
