@@ -2645,14 +2645,14 @@ Function New-AVSStoragePolicy {
 
 <#
     .Synopsis
-        This allows the customer to change DRS from the default setting to one step more conservative.
+        This allows the customer to change DRS from the default setting to 1-4 with 4 being the least conservative.
     .PARAMETER Drs
-        The DRS setting to apply to the cluster.  3 is the default setting, 4 is one step more conservative (meaning less agressive in moving VMs).
+        The DRS setting to apply to the cluster.  3 is the default setting, 2 is one step more conservative (meaning less agressive in moving VMs).
     .PARAMETER ClustersToChange
         The clusters to apply the DRS setting to.  This can be a single cluster or a comma separated list of clusters or a wildcard.
     .EXAMPLE
-        Set-CustomDRS -ClustersToChange "Cluster-1, Cluster-2" -Drs 4
-        Set-CustomDRS -ClustersToChange "*" -Drs 3  # This returns it to the default setting
+        Set-CustomDRS -ClustersToChange "Cluster-1, Cluster-2" -DrsChoice 2
+        Set-CustomDRS -ClustersToChange "*" -DrsChoice 3  # This returns it to the default setting
 #>
 function Set-CustomDRS {
 
@@ -2661,10 +2661,18 @@ function Set-CustomDRS {
         [Parameter(Mandatory = $true)]
         [String]$ClustersToChange,
         [Parameter(Mandatory = $true,
-            HelpMessage = "The DRS setting. Default of 3 or more conservative of 4.")]
+            HelpMessage = "The DRS setting. Default of 3 or more conservative of 2 or less conservative 4.")]
         [ValidateRange(3, 4)]
-        [int] $Drs
+        [int] $DrsChoice
     )
+
+    switch ($DrsChoice) {
+        4 { $drs = 2 }
+        3 { $drs = 3 }
+        2 { $drs = 4 }
+        1 { $drs = 5 }
+        Default { $drs = 3 }
+    }
 
     # Settings for DRS
     $spec = New-Object VMware.Vim.ClusterConfigSpecEx
