@@ -2662,7 +2662,7 @@ function Set-CustomDRS {
         [String]$ClustersToChange,
         [Parameter(Mandatory = $true,
             HelpMessage = "The DRS setting. Default of 3 or more conservative of 2 or less conservative 4.")]
-        [ValidateRange(3, 4)]
+        [ValidateRange(1, 4)]
         [int] $Drs
     )
 
