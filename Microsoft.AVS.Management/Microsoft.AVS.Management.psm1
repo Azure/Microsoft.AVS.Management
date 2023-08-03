@@ -2651,8 +2651,8 @@ Function New-AVSStoragePolicy {
     .PARAMETER ClustersToChange
         The clusters to apply the DRS setting to.  This can be a single cluster or a comma separated list of clusters or a wildcard.
     .EXAMPLE
-        Set-CustomDRS -ClustersToChange "Cluster-1, Cluster-2" -DrsChoice 2
-        Set-CustomDRS -ClustersToChange "*" -DrsChoice 3  # This returns it to the default setting
+        Set-CustomDRS -ClustersToChange "Cluster-1, Cluster-2" -Drs 2
+        Set-CustomDRS -ClustersToChange "*" -Drs 3  # This returns it to the default setting
 #>
 function Set-CustomDRS {
 
@@ -2663,21 +2663,21 @@ function Set-CustomDRS {
         [Parameter(Mandatory = $true,
             HelpMessage = "The DRS setting. Default of 3 or more conservative of 2 or less conservative 4.")]
         [ValidateRange(3, 4)]
-        [int] $DrsChoice
+        [int] $Drs
     )
 
-    switch ($DrsChoice) {
-        4 { $drs = 2 }
-        3 { $drs = 3 }
-        2 { $drs = 4 }
-        1 { $drs = 5 }
-        Default { $drs = 3 }
+    switch ($Drs) {
+        4 { $drsChange = 2 }
+        3 { $drsChange = 3 }
+        2 { $drsChange = 4 }
+        1 { $drsChange = 5 }
+        Default { $drsChange = 3 }
     }
 
     # Settings for DRS
     $spec = New-Object VMware.Vim.ClusterConfigSpecEx
     $spec.DrsConfig = New-Object VMware.Vim.ClusterDrsConfigInfo
-    $spec.DrsConfig.VmotionRate = $drs
+    $spec.DrsConfig.VmotionRate = $drsChange
     $spec.DrsConfig.Enabled = $true
     $spec.DrsConfig.Option = New-Object VMware.Vim.OptionValue[] (2)
     $spec.DrsConfig.Option[0] = New-Object VMware.Vim.OptionValue
