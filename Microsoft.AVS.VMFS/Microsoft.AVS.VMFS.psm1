@@ -1242,3 +1242,312 @@ function Get-VmfsHosts {
    Write-Host ""
     
 }
+
+
+<#
+    .SYNOPSIS
+     This function collects Storage Adapter info for ESXi host(s) in a given vSphere Cluster.
+    
+    .PARAMETER -ClusterName
+     vSphere Cluster Name
+    
+    .EXAMPLE
+     Get-StorageAdapters -ClusterName "vSphere-cluster-001"   
+
+    .INPUTS
+     vSphere Cluster Name
+
+    .OUTPUTS
+     NamedOutputs detailed storage adapters inventory 
+#>
+
+function Get-StorageAdapters {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'vSphere Cluster Name')]
+        [String] $ClusterName
+
+    )
+
+    Write-Host "Collecting storage adapters inventory of all ESXi host(s) under vSphere Cluster $($ClusterName)"
+    Write-Host " " ;
+
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore 
+    if (-not $Cluster) {
+        throw "Cluster $($ClusterName) does not exist."
+    }
+      
+    $NamedOutputs = @{}
+    $VmHosts = $Cluster | Get-VMHost 
+    foreach ($VmHost in $VmHosts) {
+        $Adapters = $Null
+        try {
+            $Adapters = Get-VMHostHba -VMHost $VmHost.Name -ErrorAction Ignore     
+        }
+        catch {
+            Write-Error "Failed to collect VMKernel Info on host $($VmHost.Name), continue collecting about rest of the host(s)."
+            continue
+        }
+
+        $StorageAdapters = New-Object System.Collections.ArrayList     
+        if (-not $Adapters) {
+            continue
+        }
+          
+        foreach ($Adapter in $Adapters) {
+            $St = $Adapter | Select-Object -Property * -ExcludeProperty "VMHost" 
+            $StorageAdapters.Add($St) | Out-Null
+
+        } 
+        $NamedOutputs.Add($VmHost.Name.Trim(), ($StorageAdapters | ConvertTo-Json -Depth 10))
+    }
+   
+    if ($NamedOutputs.Count -gt 0) {
+        Write-host $NamedOutputs | ConvertTo-Json -Depth 10
+    }
+    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global    
+    Write-Host ""
+    
+}
+
+<#
+    .SYNOPSIS
+     This function collects storage vmkernel adapter for ESXi host(s) in a given vSphere Cluster.
+    
+    .PARAMETER -ClusterName
+     vSphere Cluster Name
+    
+    .EXAMPLE
+     Get-VmKernel -ClusterName "vSphere-cluster-001"   
+
+    .INPUTS
+     vSphere Cluster Name
+
+    .OUTPUTS
+     NamedOutputs detailed storage vmkernel adapters inventory. 
+#>
+
+function Get-VmKernels {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'vSphere Cluster Name')]
+        [String] $ClusterName
+
+    )
+
+    Write-Host "Collecting VMKernel adapters inventory of all ESXi host(s) under vSphere Cluster $($ClusterName)"
+    Write-Host " " ;
+
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore 
+    if (-not $Cluster) {
+        throw "Cluster $($ClusterName) does not exist."
+    }
+
+      
+    $NamedOutputs = @{}
+    $VmHosts = $Cluster | Get-VMHost 
+
+    foreach ($VmHost in $VmHosts) {
+        $KernelAdapters = $null
+        try {
+            $KernelAdapters = Get-VMHostNetworkAdapter -VMHost $VmHost.Name -VMKernel    
+        }
+        catch {
+            Write-Error "Failed to collect VMKernel info on host $($VmHost.Name), continue collecting from other host(s)."
+            continue
+        }
+              
+        $VmKernelAdapters = New-Object System.Collections.ArrayList     
+        if (-not $KernelAdapters) {
+            continue
+        }
+           
+        foreach ($Adapter in $KernelAdapters) {
+            $Vmk = $Adapter | Select-Object -Property * -ExcludeProperty "VMHost" 
+            $VmKernelAdapters.Add($Vmk) | Out-Null
+
+        } 
+        $NamedOutputs.Add($VmHost.Name.Trim(), ($VmKernelAdapters | ConvertTo-Json -Depth 10))
+    }
+   
+    if ($NamedOutputs.Count -gt 0) {
+        Write-host $NamedOutputs | ConvertTo-Json -Depth 10
+    }
+    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global    
+    Write-Host ""
+
+}    
+
+<#
+    .SYNOPSIS
+     This function enables NVMeTCP storage services on given vmkernel adapter for a host.
+    
+    .PARAMETER -HostAddress
+     ESXi host network address
+
+    .PARAMETER VmKernel
+     Storage VMKernel name
+        
+    .EXAMPLE
+     Set-NVMeTCP -HostAddress "192.168.10.11" -VmKernel "vmk0"   
+
+    .INPUTS
+     ESXi host network address
+     Storage VMKernel name
+
+    .OUTPUTS
+     NamedOutputs operation result. 
+#>
+
+function Set-NVMeTCP {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'ESXi host network address')]
+        [String] $HostAddress,
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Existing VMKernel adapter name')]
+        [String] $VmKernel
+            
+    )
+
+    Write-Host "Enabling NVMeTCP services on given VMKernal adapter for host $($HostAddress)"
+    Write-Host " " ;
+
+    $VmHost = Get-VMHost -Name $HostAddress -ErrorAction Ignore 
+    if (-not $VmHost) {
+        throw "ESXi $($HostAddress) does not exist."
+    }
+    
+    $VmKernel = $VmKernel.Trim()
+    $NamedOutputs = @{}
+
+    $KernelAdapters = $null
+    try {
+        $KernelAdapters = Get-VMHostNetworkAdapter -VMHost $VmHost.Name -VMKernel -Name $VmKernel  
+    }
+    catch {
+        Write-Host "Failed to collect VMKernel adapters controller $($_.Exception)"
+        throw "Failed to collect VMKernel adapters controller $($_.Exception)"
+    }
+         
+    if (-not $KernelAdapters -or $KernelAdapters.Count -eq 0) {
+        throw "Didn't find VMKernel adapters on host"
+    } 
+
+    $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name -ErrorAction stop
+
+    $isEnabled = $HostEsxcli.network.ip.interface.tag.add($VmKernel, 'NVMeTCP')
+        
+    if ($isEnabled) {
+        Get-VMHostStorage -VMHost $HostAddress -RescanAllHba | Out-Null  
+        $NamedOutputs.Add($VmKernel, "NVMe/TCP Service enabled successfully.")
+    }
+    else {
+        $NamedOutputs.Add($VmKernel, "Failed to enable NVMe/TCP Service on host.")
+    }
+       
+    if ($NamedOutputs.Count -gt 0) {
+        Write-host $NamedOutputs | ConvertTo-Json -Depth 10
+    }
+    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global    
+    Write-Host ""
+
+}  
+ 
+
+<#
+    .SYNOPSIS
+     This function creates new NVMe/TCP storage adapter on given ESXi host.
+    
+    .PARAMETER -HostAddress
+     ESXi host network address
+
+    .PARAMETER VmKernel
+     Storage Nic name
+        
+    .EXAMPLE
+     New-NVMeTCPAdapter -HostAddress "192.168.10.11" -VmNic "vmnic0"   
+
+    .INPUTS
+     ESXi host network address
+     Storage NIC name
+
+    .OUTPUTS
+     NamedOutputs operation result. 
+#>
+
+function New-NVMeTCPAdapter {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'ESXi host network address')]
+        [String] $HostAddress,
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Existing Physical NIC  name')]
+        [String] $VmNic
+            
+    )
+
+    Write-Host "Creating a new NVMe/TCP adapter using storage nic on host $($HostAddress)"
+    Write-Host " " ;
+
+    $VmHost = Get-VMHost -Name $HostAddress -ErrorAction Ignore 
+    if (-not $VmHost) {
+        throw "ESXi $($HostAddress) does not exist."
+    }
+    
+    $VmNic = $VmNic.Trim()
+    $NamedOutputs = @{}
+
+    $Nics = $null
+    try {
+        $Nics = Get-VMHostNetworkAdapter -VMHost $VmHost.Name -Physical -Name $VmNic  
+    }
+    catch {
+        Write-Host "Failed to collect physical inventory Nic  $($_.Exception)"
+        throw "Failed to collect physical inventory Nic  $($_.Exception)"
+    }
+         
+    if (-not $Nics -or $Nics.Count -eq 0) {
+        throw "Didn't find Nic adapters on host"
+    } 
+  
+    $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name -ErrorAction stop
+    $IsCreated = $HostEsxcli.nvme.fabrics.enable($VmNic, 'TCP');
+    if ($IsCreated) {
+        $NamedOutputs.Add($VmNic, "NVMe/TCP adapter created successfully.")
+        Get-VMHostStorage -VMHost $HostAddress -RescanAllHba | Out-Null 
+    }
+    else {
+        $NamedOutputs.Add($VmNic, "Failed to create NVMe/TCP adapter.")
+    }
+ 
+    if ($NamedOutputs.Count -gt 0) {
+        Write-host $NamedOutputs | ConvertTo-Json -Depth 10
+    }
+
+    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global    
+    Write-Host ""
+
+}  
