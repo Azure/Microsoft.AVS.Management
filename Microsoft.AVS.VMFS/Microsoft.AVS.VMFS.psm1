@@ -1227,7 +1227,7 @@ function Get-VmfsHosts {
       ConnectionState : $($VmHost.ConnectionState), 
       PowerState : $($VmHost.PowerState),
       State : $($VmHost.State),
-      HostNQN : $($VmHost.Hardware.SystemInfo.QualifiedName.Value),       
+      HostNQN : $($VmHost.ExtensionData.Hardware.SystemInfo.QualifiedName.Value),       
       Uuid : $($VmHost.ExtensionData.Hardware.SystemInfo.Uuid), 
       Datastores: $($VmHost.ExtensionData.Datastore),
       Extension : $($VmHost.ExtensionData.config | ConvertTo-JSON -Depth 10)
