@@ -1323,7 +1323,7 @@ function Get-StorageAdapters {
      vSphere Cluster Name
     
     .EXAMPLE
-     Get-VmKernel -ClusterName "vSphere-cluster-001"   
+     Get-VmKernelAdapters -ClusterName "vSphere-cluster-001"   
 
     .INPUTS
      vSphere Cluster Name
@@ -1332,7 +1332,7 @@ function Get-StorageAdapters {
      NamedOutputs detailed storage vmkernel adapters inventory. 
 #>
 
-function Get-VmKernels {
+function Get-VmKernelAdapters {
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false)]
 

@@ -83,8 +83,8 @@
         "Get-VmfsDatastore",
         "Get-VmfsHosts",
         "Get-StorageAdapters",
-        "Get-VmKernels",
-        "New-NVMeTCPAdapter",
+        "Get-VmKernelAdapters",
+        "Set-NVMeTCP",
         "New-NVMeTCPAdapter"
     )
 
