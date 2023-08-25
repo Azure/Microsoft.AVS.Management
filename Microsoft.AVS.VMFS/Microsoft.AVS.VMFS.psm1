@@ -1230,14 +1230,11 @@ function Get-VmfsHosts {
       HostNQN : $($VmHost.ExtensionData.Hardware.SystemInfo.QualifiedName.Value),       
       Uuid : $($VmHost.ExtensionData.Hardware.SystemInfo.Uuid), 
       Datastores: $($VmHost.ExtensionData.Datastore),
-      Extension : $($VmHost.ExtensionData.config | ConvertTo-JSON -Depth 10)
+      Extension : $($VmHost.ExtensionData.config.StorageDevice.NvmeTopology | ConvertTo-JSON -Depth 2)
      }"
    }
 
-   if($NamedOutputs.Count -gt 0){
-      Write-host $NamedOutputs | ConvertTo-Json -Depth 10
-   }
-
+   
    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global    
    Write-Host ""
     
@@ -1304,12 +1301,10 @@ function Get-StorageAdapters {
             $StorageAdapters.Add($St) | Out-Null
 
         } 
-        $NamedOutputs.Add($VmHost.Name.Trim(), ($StorageAdapters | ConvertTo-Json -Depth 10))
+        $NamedOutputs.Add($VmHost.Name.Trim(), ($StorageAdapters | ConvertTo-Json -Depth 2))
     }
    
-    if ($NamedOutputs.Count -gt 0) {
-        Write-host $NamedOutputs | ConvertTo-Json -Depth 10
-    }
+    
     Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global    
     Write-Host ""
     
@@ -1377,12 +1372,10 @@ function Get-VmKernelAdapters {
             $VmKernelAdapters.Add($Vmk) | Out-Null
 
         } 
-        $NamedOutputs.Add($VmHost.Name.Trim(), ($VmKernelAdapters | ConvertTo-Json -Depth 10))
+        $NamedOutputs.Add($VmHost.Name.Trim(), ($VmKernelAdapters | ConvertTo-Json -Depth 2))
     }
    
-    if ($NamedOutputs.Count -gt 0) {
-        Write-host $NamedOutputs | ConvertTo-Json -Depth 10
-    }
+    
     Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global    
     Write-Host ""
 
