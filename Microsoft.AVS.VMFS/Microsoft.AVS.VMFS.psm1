@@ -739,7 +739,7 @@ function Connect-NVMeTCPTarget {
 
         foreach ($StorageAdapter in $StorageAdapters) {
 
-            if (($StorageAdapter.Status -eq "online") -and ($StorageAdapter.Driver -eq "nvmetcp")) {
+            if (($StorageAdapter.Driver -eq "nvmetcp")) {
 
                 if ($HostEsxcli) {
                     $Name = $StorageAdapter.Name.ToString().Trim()
