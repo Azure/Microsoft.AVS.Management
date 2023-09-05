@@ -27,21 +27,21 @@ function New-VvolDatastore {
     [AVSAttribute(10, UpdatesSDDC = $false)]
     Param (
         [Parameter(
-            Mandatory=$true,
+            Mandatory = $true,
             HelpMessage = 'Cluster name in vCenter')]
         [ValidateNotNull()]
         [String]
         $ClusterName,
 
         [Parameter(
-            Mandatory=$true,
+            Mandatory = $true,
             HelpMessage = 'Name of vVol datastore to be created in vCenter')]
         [ValidateNotNull()]
         [String]
         $DatastoreName,
 
         [Parameter(
-            Mandatory=$true,
+            Mandatory = $true,
             HelpMessage = 'Storage container ID of device used to create a new vVol datastore')]
         [ValidateNotNull()]
         [String]
@@ -65,7 +65,7 @@ function New-VvolDatastore {
         $spec = New-Object VMware.Vim.HostDatastoreSystemVvolDatastoreSpec
         $spec.Name = $datastoreName
         $spec.ScId = $scId
-        $Datastore = $esxi | Get-Datastore | Where-Object {$_.Type -eq "VVol"} | Where-Object { $_.ExtensionData.Info.VVolds.Scid -eq $scId }
+        $Datastore = $esxi | Get-Datastore | Where-Object { $_.Type -eq "VVol" } | Where-Object { $_.ExtensionData.Info.VVolds.Scid -eq $scId }
         Write-Host "Mounting datastore $DatastoreName to host $($Esxi.Name)..."
         $datastoreSystem.CreateVvolDatastore($spec)
     }
@@ -84,7 +84,7 @@ function New-VvolDatastore {
 
     .EXAMPLE
      Remove-VVolDatastore -ClusterName "myCluster" -DatastoreName "myDatastore"
-    
+
     .INPUTS
      vCenter cluster name, datastore name
 
@@ -96,14 +96,14 @@ function Remove-VvolDatastore {
     [AVSAttribute(10, UpdatesSDDC = $false)]
     Param (
         [Parameter(
-            Mandatory=$true,
+            Mandatory = $true,
             HelpMessage = 'Cluster name in vCenter')]
         [ValidateNotNull()]
         [String]
         $ClusterName,
 
         [Parameter(
-            Mandatory=$true,
+            Mandatory = $true,
             HelpMessage = 'Name of vVol datastore to be created in vCenter')]
         [ValidateNotNull()]
         [String]
@@ -189,21 +189,21 @@ function New-VvolVasaProvider {
     [AVSAttribute(10, UpdatesSDDC = $false)]
     Param (
         [Parameter(
-            Mandatory=$true,
+            Mandatory = $true,
             HelpMessage = 'Name of VASA provider to be created in vCenter')]
         [ValidateNotNull()]
         [String]
         $ProviderName,
 
         [Parameter(
-            Mandatory=$true,
+            Mandatory = $true,
             HelpMessage = 'URL of the VASA provider service')]
         [ValidateNotNull()]
         [String]
         $ProviderUrl,
 
         [Parameter(
-            Mandatory=$true,
+            Mandatory = $true,
             HelpMessage = 'Credential of the VASA provider service')]
         [ValidateNotNull()]
         [PSCredential]
@@ -241,7 +241,7 @@ function Remove-VvolVasaProvider {
     [AVSAttribute(10, UpdatesSDDC = $false)]
     Param (
         [Parameter(
-            Mandatory=$true,
+            Mandatory = $true,
             HelpMessage = 'Name of VASA provider to be created in vCenter')]
         [ValidateNotNull()]
         [String]
@@ -293,7 +293,7 @@ function New-VvolStoragePolicy {
     [AVSAttribute(10, UpdatesSDDC = $false)]
     Param(
         [Parameter(
-            Mandatory=$true,
+            Mandatory = $true,
             HelpMessage = 'Storage policy in Json string')]
         [ValidateNotNull()]
         [String]$PolicyConfigJsonString
@@ -353,7 +353,7 @@ function Remove-VvolStoragePolicy {
     [AVSAttribute(10, UpdatesSDDC = $false)]
     Param(
         [Parameter(
-            Mandatory=$true,
+            Mandatory = $true,
             HelpMessage = 'Storage policy name')]
         [ValidateNotNull()]
         [String]$PolicyName
@@ -367,5 +367,4 @@ function Remove-VvolStoragePolicy {
     Write-Host "Removing policy $PolicyName..."
     Remove-SpbmStoragePolicy -StoragePolicy $Policy -Confirm:$false -ErrorAction Stop | Out-Null
 }
-  
-  
+
