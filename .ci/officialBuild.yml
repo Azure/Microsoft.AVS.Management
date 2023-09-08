@@ -5,6 +5,9 @@ parameters:
 - name: publishVmfsPackage
   type: boolean
   default: true
+- name: publishVvolsPackage
+  type: boolean
+  default: true
 
 trigger:
 - main
@@ -35,6 +38,14 @@ stages:
       stageForSigningFolder: ${{ variables.vmfsStageForSigningFolder }}
       stageForUnsignedFolder: ${{ variables.vmfsStageForUnsignedFolder }}
 
+- ${{ if eq(parameters.publishVvolsPackage, true) }}:
+  - template: templates/common-officialBuild-build-stages.yml@self
+    parameters:
+      moduleFolderName: ${{ variables.vvolsModuleFolderName }}
+      moduleDisplayName: ${{ variables.vvolsModuleDisplayName }}
+      stageForSigningFolder: ${{ variables.vvolsStageForSigningFolder }}
+      stageForUnsignedFolder: ${{ variables.vvolsStageForUnsignedFolder }}
+
 - template: templates/common-officialBuild-compliance-stages.yml@self
 
 - ${{ if eq(parameters.publishManagementPackage, true) }}:
@@ -52,3 +63,11 @@ stages:
       moduleDisplayName: ${{ variables.vmfsModuleDisplayName }}
       stageForSigningFolder: ${{ variables.vmfsStageForSigningFolder }}
       stageForUnsignedFolder: ${{ variables.vmfsStageForUnsignedFolder }}
+
+- ${{ if eq(parameters.publishVvolsPackage, true) }}:
+  - template: templates/common-officialBuild-release-stages.yml@self
+    parameters:
+      moduleFolderName: ${{ variables.vvolsModuleFolderName }}
+      moduleDisplayName: ${{ variables.vvolsModuleDisplayName }}
+      stageForSigningFolder: ${{ variables.vvolsStageForSigningFolder }}
+      stageForUnsignedFolder: ${{ variables.vvolsStageForUnsignedFolder }}
