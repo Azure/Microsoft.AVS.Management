@@ -1544,3 +1544,40 @@ function New-NVMeTCPAdapter {
     Write-Host ""
 
 }  
+
+
+<#
+    .DESCRIPTION
+     Set default Multipath Policy to Round Robin.
+
+    .PARAMETER DatastoreName
+     Datastore name
+
+    .EXAMPLE
+     Set-DatastoreMultipathingPolicy -DatastoreName "myDatastore"
+
+    .INPUTS
+     vCenter datastore name.
+
+    .OUTPUTS
+     None.
+#>
+function Set-DatastoreMultipathingPolicy {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$DatastoreName
+    )
+    try {
+        $datastore = Get-Datastore -Name $DatastoreName -ErrorAction Stop
+        $policy = Get-ScsiLun -Datastore $datastore | Get-View | Select-Object -First 1 -ExpandProperty MultipathPolicy
+        $policy.ChangePolicy("VMW_PSP_RR")
+        Write-Host "Successfully set Multipath Policy to Round Robin for datastore $DatastoreName."
+    }
+    catch {
+        Write-Error "Failed to set Multipath Policy for datastore $DatastoreName. Error: $($_.Exception.Message)"
+    }
+}
+
+ 
