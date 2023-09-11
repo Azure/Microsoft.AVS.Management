@@ -1548,36 +1548,56 @@ function New-NVMeTCPAdapter {
 
 <#
     .DESCRIPTION
-     Set default Multipath Policy to Round Robin for Pure Datastore.
+     Set default Multipath Policy to Round Robin for Pure Storage Datastore.
 
-    .PARAMETER PureDatastoreName
-     Pure Datastore name
+    .PARAMETER DatastoreName
+     Datastore name
 
     .EXAMPLE
-     Set-PureDatastoreMultipathingPolicy -PureDatastoreName "myPureDatastore"
+     Set-PureStorageDatastoreMultipathingPolicy -DatastoreName "myDatastore"
 
     .INPUTS
-     vCenter pure datastore name.
+     vCenter datastore name.
 
     .OUTPUTS
      None.
 #>
-function Set-PureDatastoreMultipathingPolicy {
+
+function Set-PureStorageDatastoreMultipathingPolicy {
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
-    param(
-        [Parameter(Mandatory=$true)]
-        [string]$PureDatastoreName
+
+    param
+    (
+        [Parameter(Mandatory = $true,
+        HelpMessage = 'Datastore Name')]
+        [string]$DatastoreName
+
     )
+
     try {
-        $datastore = Get-Datastore -Name $PureDatastoreName -ErrorAction Stop
-        $policy = Get-ScsiLun -Datastore $datastore | Get-View | Select-Object -First 1 -ExpandProperty MultipathPolicy
-        $policy.ChangePolicy("VMW_PSP_RR")
-        Write-Host "Successfully set Multipath Policy to Round Robin for pure datastore $PureDatastoreName."
+        $Datastore = Get-Datastore -Name $DatastoreName -ErrorAction Stop
+        if (-not $Datastore) {
+            throw "Datastore $DatastoreName does not exist."
+        }
+
+        if ("VMFS" -ne $Datastore.Type) {
+            throw "Datastore $DatastoreName is of type $($Datastore.Type). This cmdlet can only process VMFS datastores."
+        }
+
+        Write-Host "Fetching vendor for datastore $DatastoreName."
+        $Vendor = $Datastore.ExtensionData.Info.vendor
+        if ($Vendor -ne "PURE Storage") {
+            throw "Datastore $DatastoreName is not a Pure Storage datastore."
+        }
+
+        $Policy = Get-ScsiLun -Datastore $Datastore | Get-View | Select-Object -First 1 -ExpandProperty MultipathPolicy
+        $Policy.ChangePolicy("VMW_PSP_RR")
+        Write-Host "Successfully set Multipath Policy to Round Robin for pure datastore $DatastoreName."
     }
     catch {
-        Write-Error "Failed to set Multipath Policy for pure datastore $PureDatastoreName. Error: $($_.Exception.Message)"
+        Write-Error "Failed to set Multipath Policy to Round Robin for pure datastore $DatastoreName. Error: $($_.Exception)"
+        throw "Failed to set Multipath Policy for to Round Robin pure datastore $DatastoreName. Error: $($_.Exception)"
     }
-}
 
- 
+}
