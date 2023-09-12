@@ -110,8 +110,11 @@ function Set-VmfsIscsi {
     .PARAMETER Size
      Datastore capacity size in bytes
 
+     .PARAMETER MultipathPolicy
+     Set Multipath Policy (optional). If not provided default VMFS Policy "VMW_PSP_MRU" is used.
+
     .EXAMPLE
-     New-VmfsDatastore -ClusterName "myCluster" -DatastoreName "myDatastore" -DeviceNaaId $DeviceNaaId -Size <size-in-bytes>
+     New-VmfsDatastore -ClusterName "myCluster" -DatastoreName "myDatastore" -DeviceNaaId $DeviceNaaId -Size <size-in-bytes> -MultipathPolicy "myMultipathPolicy"
 
     .INPUTS
      vCenter cluster name, datastore name, device NAA ID and datastore size.
@@ -150,6 +153,13 @@ function New-VmfsDatastore {
         [ValidateNotNull()]
         [String]
         $Size
+
+        [Parameter(
+            Mandatory=$false,
+            HelpMessage = 'Set Multipath policy')]
+        [ValidateNotNull()]
+        [String]
+        $MultipathPolicy = "VMW_PSP_MRU",
     )
 
     try {
@@ -199,6 +209,7 @@ function New-VmfsDatastore {
         $VmfsDatastoreCreateSpec.vmfs.MajorVersion = $DatastoreCreateOptions[0].Spec.Vmfs.MajorVersion
 
         $DatastoreSystem.CreateVmfsDatastore($VmfsDatastoreCreateSpec)
+        Set-VMFSDatastoreMultipathPolicy -DatastoreName $DatastoreName -MultipathPolicy $MultipathPolicy
     } catch {
         Write-Error $Global:Error[0]
     }
@@ -1553,8 +1564,11 @@ function New-NVMeTCPAdapter {
     .PARAMETER DatastoreName
      Datastore name
 
+    .PARAMETER MultipathPolicy
+     Multipath Policy
+
     .EXAMPLE
-     Set-PureStorageDatastoreMultipathingPolicy -DatastoreName "myDatastore"
+     Set-VMFSDatastoreMultipathPolicy -DatastoreName "myDatastore" -MultipathPolicy "RoundRobin"
 
     .INPUTS
      vCenter datastore name.
@@ -1563,41 +1577,33 @@ function New-NVMeTCPAdapter {
      None.
 #>
 
-function Set-PureStorageDatastoreMultipathingPolicy {
+function Set-VMFSDatastoreMultipathPolicy {
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
 
     param
     (
         [Parameter(Mandatory = $true,
-        HelpMessage = 'Datastore Name')]
-        [string]$DatastoreName
+            HelpMessage = 'Datastore Name')]
+        [string]$DatastoreName,
 
+        [Parameter(Mandatory = $true,
+            HelpMessage = 'Multipath Policy')]
+        [string]$MultipathPolicy
     )
 
     try {
-        $Datastore = Get-Datastore -Name $DatastoreName -ErrorAction Stop
-        if (-not $Datastore) {
-            throw "Datastore $DatastoreName does not exist."
+        $Datastore = Get-Datastore -Name $DatastoreName
+        $ValidMultipathPolicies = Get-ScsiLun -VmHost $Datastore.VMHost | Select-Object -ExpandProperty MultipathPolicy | Sort-Object -Unique
+        if ($ValidMultipathPolicies -notcontains $MultipathPolicy) {
+            throw Write-Error "Invalid multipath policy '$MultipathPolicy' specified. Valid policies are: $($ValidMultipathPolicies -join ', ')."
         }
-
-        if ("VMFS" -ne $Datastore.Type) {
-            throw "Datastore $DatastoreName is of type $($Datastore.Type). This cmdlet can only process VMFS datastores."
-        }
-
-        Write-Host "Fetching vendor for datastore $DatastoreName."
-        $Vendor = $Datastore.ExtensionData.Info.vendor
-        if ($Vendor -ne "PURE Storage") {
-            throw "Datastore $DatastoreName is not a Pure Storage datastore."
-        }
-
-        $Policy = Get-ScsiLun -Datastore $Datastore | Get-View | Select-Object -First 1 -ExpandProperty MultipathPolicy
-        $Policy.ChangePolicy("VMW_PSP_RR")
-        Write-Host "Successfully set Multipath Policy to Round Robin for pure datastore $DatastoreName."
+ 
+        Set-Datastore -Datastore $Datastore -DefaultMultipathPolicy $MultipathPolicy
+        Write-Host "Successfully set Multipath Policy to $MultipathPolicy for datastore $DatastoreName."
     }
     catch {
-        Write-Error "Failed to set Multipath Policy to Round Robin for pure datastore $DatastoreName. Error: $($_.Exception)"
-        throw "Failed to set Multipath Policy for to Round Robin pure datastore $DatastoreName. Error: $($_.Exception)"
+        throw "Failed to set Multipath Policy to $MultipathPolicy for datastore $DatastoreName. Error: $($_.Exception)"
     }
 
 }
