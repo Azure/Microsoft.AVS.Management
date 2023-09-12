@@ -120,6 +120,10 @@ function Remove-VvolDatastore {
         throw "Unable to remove a datastore. Datastore '$DatastoreName' does not exist."
     }
 
+    $VM = $Datastore | Get-VM
+    if ($VM) {
+        throw "Unable to remove a datastore. Datastore '$DatastoreName' is already in use. Please make sure that no Virtual Machines are using this datastore."
+    }
     if ("VVOL" -ne $Datastore.Type) {
         throw "Datastore $DatastoreName is of type $($Datastore.Type). This cmdlet can only process VVol datastores"
     }
@@ -253,6 +257,12 @@ function Remove-VvolVasaProvider {
         throw "Unable to remove a VASA provider. Vasa provider '$ProviderName' does not exist."
     }
 
+    # Find datastores connected to the vasa provider
+    $Datastore = Get-Datastore | Where-Object { $_.ExtensionData.Info.VVolDS.VasaProviderInfo.Provider.Name -eq $VasaProvider.Name }
+    if ($Datastore) {
+        throw "Unable to remove a VASA provider. Vasa provider '$ProviderName' is connected to one or more datastores. Please remove the connected datastores first."
+    }
+
     Remove-VasaProvider -Provider $VasaProvider -Confirm:$false -ErrorAction Stop | Out-Null
 
     Write-Host "VASA provider $ProviderName removed successfully."
@@ -265,7 +275,9 @@ function Remove-VvolVasaProvider {
 
     .PARAMETER PolicyConfigJsonString
      Storage policy in Json string. The command will traverse through the SPBM rules and creat a storage policy containing all of the rules.
-     The example string is as below:
+
+    .EXAMPLE
+    $policyConfigJsonString = @"
     {
         "SchemaVersion": "1.0.0",
         "Vendor": "Pure Storage",
@@ -275,11 +287,8 @@ function Remove-VvolVasaProvider {
             "com.purestorage.storage.policy.FlashArrayGroup":["fa1","fa2"],
             "com.purestorage.storage.replication.LocalSnapshotPolicyCapable": true,
             "com.purestorage.storage.replication.LocalSnapshotInterval":"00:00:00"
-            ...
         }
-    }
-
-    .EXAMPLE
+    "@"
      New-VvolStoragePolicy -PolicyConfigJsonString $policyConfigJsonString
 
     .INPUTS

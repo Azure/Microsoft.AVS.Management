@@ -1,5 +1,5 @@
 #
-# Module manifest for module 'Microsoft.AVS.VMFS'
+# Module manifest for module 'Microsoft.AVS.VVOLS'
 #
 
 @{
@@ -26,7 +26,7 @@
     Copyright         = ''
 
     # Description of the functionality provided by this module
-    Description       = 'Azure VMware Solutions VMFS Package (Automation only).'
+    Description       = 'Azure VMware Solutions VVOLS Package.'
 
     # Minimum version of the PowerShell engine required by this module
     PowerShellVersion = '5.1'
@@ -48,7 +48,7 @@
 
     # Modules that must be imported into the global environment prior to importing this module
     RequiredModules   = @(
-        @{ "ModuleName" = "Microsoft.AVS.Management"; "ModuleVersion" = "5.2.39" }
+        @{ "ModuleName" = "Microsoft.AVS.Management"; "ModuleVersion" = "5.3.88" }
     )
 
     # Assemblies that must be loaded prior to importing this module
@@ -81,7 +81,7 @@
     CmdletsToExport   = @()
 
     # Variables to export from this module
-    VariablesToExport = '*'
+    VariablesToExport = ''
 
     # Aliases to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no aliases to export.
     AliasesToExport   = @()
