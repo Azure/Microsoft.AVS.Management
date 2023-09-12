@@ -254,7 +254,7 @@ function Remove-VvolVasaProvider {
 
     $VasaProvider = Get-VasaProvider -Name $ProviderName -ErrorAction Ignore
     if (-not $VasaProvider) {
-        throw "Unable to remove a VASA provider. Vasa provider '$ProviderName' does not exist."
+        throw "Unable to remove a VASA provider '$ProviderName'. Vasa provider '$ProviderName' does not exist."
     }
 
     # Find datastores connected to the vasa provider
@@ -312,6 +312,9 @@ function New-VvolStoragePolicy {
     # Extract values from the object
     $Vendor = $PolicyConfig.Vendor
     $PolicyName = $PolicyConfig.PolicyName
+    if (-not $PolicyName) {
+        throw "Unable to create a storage policy. Policy name is not specified."
+    }
     $PolicyDescription = $PolicyConfig.PolicyDescription
     $SchemaVersion = $PolicyConfig.SchemaVersion
 
@@ -376,4 +379,3 @@ function Remove-VvolStoragePolicy {
     Write-Host "Removing policy $PolicyName..."
     Remove-SpbmStoragePolicy -StoragePolicy $Policy -Confirm:$false -ErrorAction Stop | Out-Null
 }
-
