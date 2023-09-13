@@ -159,7 +159,7 @@ function New-VmfsDatastore {
             HelpMessage = 'Set Multipath policy')]
         [ValidateNotNull()]
         [String]
-        $MultipathPolicy = "VMW_PSP_MRU",
+        $MultipathPolicy,
     )
 
     try {
@@ -209,7 +209,10 @@ function New-VmfsDatastore {
         $VmfsDatastoreCreateSpec.vmfs.MajorVersion = $DatastoreCreateOptions[0].Spec.Vmfs.MajorVersion
 
         $DatastoreSystem.CreateVmfsDatastore($VmfsDatastoreCreateSpec)
-        Set-VMFSDatastoreMultipathPolicy -DatastoreName $DatastoreName -MultipathPolicy $MultipathPolicy
+
+        if (-not [string]::IsNullOrEmpty($MultipathPolicy)) {
+            Set-VMFSDatastoreMultipathPolicy -DatastoreName $DatastoreName -MultipathPolicy $MultipathPolicy
+        }
     } catch {
         Write-Error $Global:Error[0]
     }
