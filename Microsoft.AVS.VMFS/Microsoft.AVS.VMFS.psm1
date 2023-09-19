@@ -152,14 +152,14 @@ function New-VmfsDatastore {
             HelpMessage = 'Capacity of new datastore in bytes')]
         [ValidateNotNull()]
         [String]
-        $Size
+        $Size,
 
         [Parameter(
             Mandatory=$false,
             HelpMessage = 'Set Multipath policy')]
-        [ValidateNotNull()]
         [String]
-        $MultipathPolicy,
+        $MultipathPolicy
+
     )
 
     try {
@@ -210,9 +210,16 @@ function New-VmfsDatastore {
 
         $DatastoreSystem.CreateVmfsDatastore($VmfsDatastoreCreateSpec)
 
-        if (-not [string]::IsNullOrEmpty($MultipathPolicy)) {
-            Set-VMFSDatastoreMultipathPolicy -DatastoreName $DatastoreName -MultipathPolicy $MultipathPolicy
+        $ValidMultipathPolicies = @("Fixed", "MostRecentlyUsed", "RoundRobin")
+        $IsValidMultipathPolicy = $MultipathPolicy -in $ValidMultipathPolicies
+
+        if ([string]::IsNullOrEmpty($MultipathPolicy) -or (-not $IsValidMultipathPolicy)){
+            Write-Warning "Either no or invalid multipath policy specified. Valid policies are: $($ValidMultipathPolicies -join ', '). Using default policy."
         }
+	    else {
+            Set-VMFSDatastoreMultipathPolicy -DatastoreName $DatastoreName -MultipathPolicy $MultipathPolicy
+	    }
+
     } catch {
         Write-Error $Global:Error[0]
     }
@@ -1588,22 +1595,33 @@ function Set-VMFSDatastoreMultipathPolicy {
     (
         [Parameter(Mandatory = $true,
             HelpMessage = 'Datastore Name')]
+        [ValidateNotNullOrEmpty()]
         [string]$DatastoreName,
 
-        [Parameter(Mandatory = $true,
+        [Parameter(Mandatory = $false,
             HelpMessage = 'Multipath Policy')]
         [string]$MultipathPolicy
     )
 
     try {
-        $Datastore = Get-Datastore -Name $DatastoreName
-        $ValidMultipathPolicies = Get-ScsiLun -VmHost $Datastore.VMHost | Select-Object -ExpandProperty MultipathPolicy | Sort-Object -Unique
-        if ($ValidMultipathPolicies -notcontains $MultipathPolicy) {
-            throw Write-Error "Invalid multipath policy '$MultipathPolicy' specified. Valid policies are: $($ValidMultipathPolicies -join ', ')."
+        $ScsiLuns = Get-Datastore $DatastoreName | Get-ScsiLun
+        foreach ($ScsiLun in $ScsiLuns) {
+            $ScsiLunPaths = Get-ScsiLunPath -ScsiLun $ScsiLun
+            $ActivePathsCount = ($ScsiLunPaths | Where-Object {$_.State -eq "Active" -or $_.State -eq "Standby"}).Count
+
+            if ($ActivePathsCount -ge 2) {
+
+                if ($MultipathPolicy -eq "Fixed") {
+                    Set-ScsiLun -ScsiLun $ScsiLun -MultipathPolicy $MultipathPolicy -PreferredPath $ScsiLunPaths[0]
+                } else {
+                    Set-ScsiLun -ScsiLun $ScsiLun -MultipathPolicy $MultipathPolicy
+                }
+
+                Write-Host "Multipath policy $MultipathPolicy set for LUN $($ScsiLun.CanonicalName)."
+            } else {
+                Write-Host "Multipathing is not active for LUN $($ScsiLun.CanonicalName)."
+            }
         }
- 
-        Set-Datastore -Datastore $Datastore -DefaultMultipathPolicy $MultipathPolicy
-        Write-Host "Successfully set Multipath Policy to $MultipathPolicy for datastore $DatastoreName."
     }
     catch {
         throw "Failed to set Multipath Policy to $MultipathPolicy for datastore $DatastoreName. Error: $($_.Exception)"
