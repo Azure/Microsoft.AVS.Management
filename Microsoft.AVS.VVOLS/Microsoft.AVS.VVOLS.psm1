@@ -390,6 +390,9 @@ function Remove-VvolStoragePolicy {
     .PARAMETER TestFailover
     Optional. Indicates whether to actually perform a failover(false) or to only perform a test failover(true). If not provided will only perform failover test.
 
+    .PARAMETER PointInTimeReplicaName
+    Optional. Point-in-time replica name. If not provided, the latest point-in-time replica will be used.
+
     .EXAMPLE
     Start-ReplicationFailover -ReplicationGroupID "myRepGroupID" -TestFailover $true
 
@@ -541,10 +544,10 @@ function Start-ReplicationReverse {
     }
 
     Write-Host "Starting reverse replication for replication group $ReplicationGroupID..."
-    $new_source_group = Start-SpbmReplicationReverse -ReplicationGroup $repGroup.Name
+    $newSourceGroup = Start-SpbmReplicationReverse -ReplicationGroup $repGroup.Name
 
     $NamedOutputs = @{}
-    $NamedOutputs["new_source_group"] = $new_source_group.Name
+    $NamedOutputs["new_source_group"] = $newSourceGroup.Name
     Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
 }
 
@@ -556,10 +559,10 @@ function Start-ReplicationReverse {
     Replication group ID
 
     .PARAMETER PointInTimeReplicaName
-    Optional. Point-in-time replica name. If not provided, the latest point-in-time replica will be used.
+    Point-in-time replica name. If not provided, the latest point-in-time replica will be used.
 
     .EXAMPLE
-    Sync-ReplicationGroup -ReplicationGroupID "myRepGroupID"
+    Sync-ReplicationGroup -ReplicationGroupID "myRepGroupID" -PointInTimeReplicaName "myReplica"
 
     .INPUTS
     Replication Group ID
