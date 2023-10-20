@@ -2711,7 +2711,7 @@ Function Set-AVSVSANClusterUNMAPTRIM {
     .DESCRIPTION
         This function enables vSAN UNMAP/TRIM on the cluster defined by the -Name parameter.
         Once enabled, supported Guest OS VM's must be powered off and powered back on.  A reboot will not suffice.
-        See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub5
+        See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub6
     .PARAMETER Name
         Name of Clusters as defined in vCenter.  Valid values are blank or a comma separated list of cluster names.
         Set-AVSVSANClusterUNMAPTRIM -Name Cluster-1,Cluster-2,Cluster-3
@@ -2721,7 +2721,7 @@ Function Set-AVSVSANClusterUNMAPTRIM {
     .PARAMETER Enable
         Set to true to enable UNMAP/TRIM on target cluster(s). Default is false.
         WARNING - There is a performance impact when UNMAP/TRIM is enabled.
-        See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub5
+        See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub6
     .EXAMPLE
         Set-AVSVSANClusterUNMAPTRIM -Name 'Cluster-1,Cluster-2,Cluster-3'
         Enables UNMAP/TRIM on Clusters-1,2,3
@@ -2741,11 +2741,14 @@ Function Set-AVSVSANClusterUNMAPTRIM {
         $Enable
     )
     begin {
-        $Name = Limit-WildcardsandCodeInjectionCharacters -Name $Name
-        $Array = Convert-StringToArray $Name
+        If ([string]::IsNullOrEmpty($Name)){}
+        Else {
+            $Name = Limit-WildcardsandCodeInjectionCharacters -String $Name
+            $Array = Convert-StringToArray -String $Name
+        }
         $TagName = "VSAN UNMAP/TRIM"
         $InfoMessage = "Info - There may be a performance impact when UNMAP/TRIM is enabled.
-            See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub5"
+            See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub6"
     }
     process {
         If ([string]::IsNullOrEmpty($Array)) {
@@ -2777,4 +2780,19 @@ Function Set-AVSVSANClusterUNMAPTRIM {
             }
         }
     }
+}
+
+Function Get-AVSVSANClusterUNMAPTRIM {
+    <#
+    .DESCRIPTION
+        This function gets vSAN UNMAP/TRIM configuration status on all clusters.
+    #>
+
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    param ()
+    begin {}
+    process {
+            Get-Cluster | Get-VsanClusterConfiguration | Select-Object Name, GuestTrimUnmap
+        }
 }

@@ -86,7 +86,7 @@ Function Limit-WildcardsandCodeInjectionCharacters {
         .EXAMPLE
             Limit-WildcardsandCodeInjectionCharacters -String "|Encryption?*"
             Returns "Encryption"
-    
+
         #>
     [CmdletBinding()]
     param (
@@ -101,7 +101,7 @@ Function Limit-WildcardsandCodeInjectionCharacters {
     Process {
         Return $String
     }
-    
+
 }
 
 Function Convert-StringToArray {
@@ -111,15 +111,15 @@ Function Convert-StringToArray {
         .PARAMETER String
             String value to convert into an array.
         .PARAMETER Delimiter
-            Delimiter to use to split the string into an array. 
+            Delimiter to use to split the string into an array.
             Default is ","
         .PARAMETER TrimandCleanup
-            Removes any empty entries and preceding/trailing spaces. 
+            Removes any empty entries and preceding/trailing spaces.
             Default is $true.
     #>
-    
+
     [CmdletBinding(DefaultParameterSetName = "Encryption")]
-    param ( 
+    param (
         [Parameter(Mandatory = $true)]
         [string]
         $String,
@@ -136,12 +136,12 @@ Function Convert-StringToArray {
             $true { $Array = $String.Split($Delimiter, [System.StringSplitOptions]::RemoveEmptyEntries).Trim() }
             $false { $Array = $String.Split($Delimiter) }
         }
-        
+
     }
     Process {
         Return $Array
     }
-    
+
 }
 
 Function Add-AVSTag{
@@ -151,13 +151,13 @@ Function Add-AVSTag{
         .PARAMETER Name
             Name of Tag to create or add.
         .PARAMETER Description
-            Description of Tag.
+            Description of Tag.  Description of existing tag will be updated if it already exists.
         .PARAMETER Entity
             vCenter Object to add tag to.
     #>
-    
+
     [CmdletBinding()]
-    param ( 
+    param (
         [Parameter(Mandatory = $true)]
         [string]
         $Name,
@@ -177,8 +177,9 @@ Function Add-AVSTag{
         If (!$Tag) {
             $Tag = New-Tag -Name $Name -Description $Description -Category $TagCategory
         }
+        Else {Set-Tag -Description $Description -Tag $Tag}
         }
-        
+
     Process {
         try {
             New-TagAssignment -Tag $Tag -Entity $Entity -ErrorAction Stop
@@ -189,5 +190,5 @@ Function Add-AVSTag{
         }
 
     }
-    
+
 }
