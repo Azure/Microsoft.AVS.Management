@@ -56,7 +56,7 @@
         @{"ModuleName" = "VMware.VimAutomation.Core"; "RequiredVersion" = "12.7.0.20091293" }
         @{"ModuleName" = "VMware.VimAutomation.Storage"; "RequiredVersion" = "12.7.0.20091292"}
         @{"ModuleName" = "VMware.VimAutomation.Hcx"; "RequiredVersion" = "12.7.0.20091291"}
-        @{"ModuleName" = "posh-ssh"; "RequiredVersion" = "3.0.0"}
+        @{"ModuleName" = "posh-ssh"; "RequiredVersion" = "3.1.1"}
     )
 
     # @(@{ModuleName="myDependentModule"; ModuleVersion="2.0"; Guid="cfc45206-1e49-459d-a8ad-5b571ef94857"})
