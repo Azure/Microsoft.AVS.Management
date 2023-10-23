@@ -379,3 +379,222 @@ function Remove-VvolStoragePolicy {
     Write-Host "Removing policy $PolicyName..."
     Remove-SpbmStoragePolicy -StoragePolicy $Policy -Confirm:$false -ErrorAction Stop | Out-Null
 }
+
+<#
+    .SYNOPSIS
+    Start a Replication Group failover or test failover
+
+    .PARAMETER ReplicationGroupID
+    Replication group ID
+
+    .PARAMETER TestFailover
+    Optional. Indicates whether to actually perform a failover(false) or to only perform a test failover(true). If not provided will only perform failover test.
+
+    .PARAMETER PointInTimeReplicaName
+    Optional. Point-in-time replica name. If not provided, the latest point-in-time replica will be used.
+
+    .EXAMPLE
+    Start-ReplicationFailover -ReplicationGroupID "myRepGroupID" -TestFailover $true
+
+    .INPUTS
+    Replication Group ID
+
+    .OUTPUTS
+    Replicated Virtual Machine names.
+#>
+function Start-ReplicationFailover {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param(
+        [Parameter(
+                Mandatory = $true,
+                HelpMessage = 'Replication group ID')]
+        [ValidateNotNull()]
+        [String] $ReplicationGroupID,
+
+        [Parameter(
+                mandatory = $false,
+                HelpMessage = 'Point-in-time replica name')]
+        [String] $PointInTimeReplicaName,
+
+        [Parameter(
+                mandatory = $false,
+                HelpMessage = 'Whether to perform a test failover or not')]
+        [bool] $TestFailover
+    )
+    $repGroup = Get-SpbmReplicationGroup -ID $ReplicationGroupID
+
+    if (-not $repGroup) {
+        throw "Could not find replication group '$ReplicationGroupID'."
+    }
+    elseif ($repGroup.State -ne "Target") {
+        throw "Replication group '$ReplicationGroupID' need to be a replication group in 'Target' state."
+    }
+
+    if ($PointInTimeReplicaName) {
+        $replica = Get-SpbmPointInTimeReplica -Name $PointInTimeReplicaName -ErrorAction Ignore
+        if (-not $replica) {
+            throw "Could not find point-in-time replica '$PointInTimeReplicaName'."
+        }
+    }
+
+    ## Failing over the replication group for the VMs and setting the operations to a variable ##
+    if ($TestFailover) {
+        # does test failover, rep group status become InTest
+        Write-Host "Starting test failover for replication group $ReplicationGroupID..."
+        if ($PointInTimeReplicaName) {
+            $replicatedVMFiles = Start-SpbmReplicationTestFailover -ReplicationGroup $repGroup -PointInTimeReplica $replica -Confirm:$false
+        }
+        else {
+            $replicatedVMFiles = Start-SpbmReplicationTestFailover -ReplicationGroup $repGroup -Confirm:$false
+        }
+    }
+    else {
+        # does actual failover, rep group status become FailedOver
+        Write-Host "Starting failover for replication group $ReplicationGroupID..."
+        if ($PointInTimeReplicaName) {
+            $replicatedVMFiles = Start-SpbmReplicationFailover -ReplicationGroup $repGroup -PointInTimeReplica $replica -Confirm:$false
+        }
+        else {
+            $replicatedVMFiles = Start-SpbmReplicationFailover -ReplicationGroup $repGroup -Confirm:$false
+        }
+    }
+
+    $NamedOutputs = @{}
+    $i = 0
+    foreach ($VMFile in $replicatedVMFiles) {
+        $NamedOutputs["vm_$i"] = $VMFile
+    }
+
+    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
+}
+
+<#
+    .SYNOPSIS
+    Stop a Replication Group test failover
+
+    .PARAMETER ReplicationGroupID
+    Replication group ID
+
+    .EXAMPLE
+    Stop-ReplicationTestFailover -ReplicationGroupID "myRepGroupID"
+
+    .INPUTS
+    Replication Group ID
+
+    .OUTPUTS
+    None.
+#>
+function Stop-ReplicationTestFailover {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param(
+        [Parameter(
+                Mandatory = $true,
+                HelpMessage = 'Replication group ID')]
+        [ValidateNotNull()]
+        [String]$ReplicationGroupID
+    )
+    $repGroup = Get-SpbmReplicationGroup -ID $ReplicationGroupID
+
+    if (-not $repGroup) {
+        throw "Could not find replication group '$ReplicationGroupID'."
+    }
+    elseif ($repGroup.State -ne "InTest") {
+        throw "Replication group '$ReplicationGroupID' need to be a replication group in 'InTest' state."
+    }
+
+    Write-Host "Stopping test failover for replication group $ReplicationGroupID..."
+    Stop-SpbmReplicationTestFailover -ReplicationGroup $repGroup -Confirm:$false
+}
+
+<#
+    .SYNOPSIS
+    Start a Replication Group reverse
+
+    .PARAMETER ReplicationGroupID
+    Replication group ID
+
+    .EXAMPLE
+    Start-ReplicationReverse -ReplicationGroupID "myRepGroupID"
+
+    .INPUTS
+    Replication Group ID
+
+    .OUTPUTS
+    Reversed Replication Group Name.
+#>
+function Start-ReplicationReverse {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param(
+        [Parameter(
+                Mandatory = $true,
+                HelpMessage = 'Replication group ID')]
+        [ValidateNotNull()]
+        [String]$ReplicationGroupID
+    )
+    $repGroup = Get-SpbmReplicationGroup -ID $ReplicationGroupID
+
+    if (-not $repGroup) {
+        throw "Could not find replication group '$ReplicationGroupID'."
+    }
+    elseif ($repGroup.State -ne "FailedOver") {
+        throw "Replication group '$ReplicationGroupID' need to be a replication group in 'FailedOver' state."
+    }
+
+    Write-Host "Starting reverse replication for replication group $ReplicationGroupID..."
+    $newSourceGroup = Start-SpbmReplicationReverse -ReplicationGroup $repGroup.Name
+
+    $NamedOutputs = @{}
+    $NamedOutputs["new_source_group"] = $newSourceGroup.Name
+    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
+}
+
+<#
+    .SYNOPSIS
+    Synchronize a replication group. Must be run on a "Target" Replication Group.
+
+    .PARAMETER ReplicationGroupID
+    Replication group ID
+
+    .PARAMETER PointInTimeReplicaName
+    Point-in-time replica name. If not provided, the latest point-in-time replica will be used.
+
+    .EXAMPLE
+    Sync-ReplicationGroup -ReplicationGroupID "myRepGroupID" -PointInTimeReplicaName "myReplica"
+
+    .INPUTS
+    Replication Group ID
+
+    .OUTPUTS
+    None.
+#>
+function Sync-ReplicationGroup {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param(
+        [Parameter(
+                Mandatory = $true,
+                HelpMessage = 'Replication group ID')]
+        [ValidateNotNull()]
+        [String]$ReplicationGroupID,
+
+        [Parameter(
+                Mandatory = $true,
+                HelpMessage = 'Point-in-time replica name')]
+        [ValidateNotNull()]
+        [String]$PointInTimeReplicaName
+    )
+
+    $repGroup = Get-SpbmReplicationGroup -ID $ReplicationGroupID
+    if (-not $repGroup) {
+        throw "Could not find replication group '$ReplicationGroupID'."
+    }
+    elseif ($repGroup.State -ne "Target") {
+        throw "Replication group '$ReplicationGroupID' need to be a replication group in 'Target' state."
+    }
+
+    Write-Host "Starting replication sync for replication group $ReplicationGroupID..."
+    Sync-SpbmReplicationGroup -ReplicationGroup $repGroup -PointInTimeReplicaName $PointInTimeReplicaName
+}
