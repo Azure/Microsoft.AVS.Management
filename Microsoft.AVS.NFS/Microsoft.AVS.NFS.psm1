@@ -26,7 +26,7 @@ using module Microsoft.AVS.Management
 #>
 function New-NFSDatastore {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param (
          [ Parameter(
             Mandatory=$true,
@@ -54,6 +54,8 @@ function New-NFSDatastore {
             $NfsHost
         )
 
+    # Setting the default NFS version to 3. When required, we can extend to support 4.1 version as well. 
+    $DefaultNfsVersion = "3"
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
     if (-not $Cluster) {
         throw "Cluster $($ClusterName) does not exist."
@@ -72,7 +74,7 @@ function New-NFSDatastore {
     foreach ($VmHost in $VmHosts){
           
       try {
-          New-Datastore -Name $DatastoreName -Nfs -FileSystemVersion '4.1' -VMHost $VmHost -NfsHost $NfsHost -Path $NfsSharePath -ErrorAction Stop
+          New-Datastore -Name $DatastoreName -Nfs -FileSystemVersion $DefaultNfsVersion -VMHost $VmHost -NfsHost $NfsHost -Path $NfsSharePath -ErrorAction Stop
       }
       catch {
            Write-Error "Failed to NFS Datastore $($DatastoreName) on host  $($VmHost.Name). Error: $($_.Exception.Message)"
@@ -105,7 +107,7 @@ function New-NFSDatastore {
 #>
 function Remove-NFSDatastore {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param (
          [ Parameter(
             Mandatory=$true,
@@ -130,8 +132,11 @@ function Remove-NFSDatastore {
     if (-not $Datastore) {
         throw "Datastore $DatastoreName does not exist."
     }
-    if ("NFS41" -ne $Datastore.Type) {
+    if ($datastore.type -notlike "*NFS*") {
         throw "Datastore $DatastoreName is of type $($Datastore.Type). This cmdlet can only process NFS datastores."
+    }
+    if ((Get-Datastore -Name $name | Get-VM).Count > 0) {
+        throw "Virtual machines found on Datastore $DatastoreName. Please remove all virtual machines from the datastore before removing the datastore."
     }
 
     $VmHosts = $Cluster | Get-VMHost
