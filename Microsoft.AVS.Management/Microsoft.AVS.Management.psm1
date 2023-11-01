@@ -1155,12 +1155,12 @@ function Add-GroupToSRMAdministrators {
     $SRMAdminMembers = @()
     foreach ($a in $(Get-SsoGroup -Group $SRMAdmins)) { $tuple = [System.Tuple]::Create("$($a.Name)", "$($a.Domain)"); $SRMAdminMembers += $tuple }
     if ($GroupToAddTuple -in $SRMAdminMembers) {
-        Write-Host "Group $($GroupToAddTuple.Item1)@$($($GroupToAddTuple.Item2)) has already been added to SRMAdmins."
+        Write-Host "Group $($GroupToAddTuple.Item1)@$($($GroupToAddTuple.Item2)) has already been added to SRM Administrators."
         return
     }
 
     try {
-        Write-Host "Adding group $GroupName to SRMAdmins..."
+        Write-Host "Adding group $GroupName to SRM Administrators..."
         Add-GroupToSsoGroup -Group $GroupToAdd -TargetGroup $SRMAdmins -ErrorAction Stop
     }
     catch {
@@ -1440,12 +1440,12 @@ function Add-GroupToVRMAdministrators {
     $VRMAdminMembers = @()
     foreach ($a in $(Get-SsoGroup -Group $VRMAdmins)) { $tuple = [System.Tuple]::Create("$($a.Name)", "$($a.Domain)"); $VRMAdminMembers += $tuple }
     if ($GroupToAddTuple -in $VRMAdminMembers) {
-        Write-Host "Group $($GroupToAddTuple.Item1)@$($($GroupToAddTuple.Item2)) has already been added to VRMAdmins."
+        Write-Host "Group $($GroupToAddTuple.Item1)@$($($GroupToAddTuple.Item2)) has already been added to VRM Administrators."
         return
     }
 
     try {
-        Write-Host "Adding group $GroupName to VRMAdmins..."
+        Write-Host "Adding group $GroupName to VRM Administrators..."
         Add-GroupToSsoGroup -Group $GroupToAdd -TargetGroup $VRMAdmins -ErrorAction Stop
     }
     catch {
