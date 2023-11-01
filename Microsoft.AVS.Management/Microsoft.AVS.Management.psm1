@@ -1032,7 +1032,7 @@ function Remove-GroupFromCloudAdmins {
      Add a group from the external identity to the SRM Administrators group
 
     .Parameter GroupName
-     The group in the customer external identity source to be added to SRM Administrators. Users in this group will have SRMAdmin access. Group name should be formatted without the domain name, e.g. group-to-give-access
+     The group in the customer external identity source to be added to SRM Administrators. Users in this group will have SRM Administrators access. Group name should be formatted without the domain name, e.g. group-to-give-access
 
     .Parameter Domain
      Name of the external domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories. For example, MyActiveDirectory.Com
@@ -1176,10 +1176,10 @@ function Add-GroupToSRMAdministrators {
 
 <#
     .Synopsis
-     Remove a previously added group from an external identity from the SRMAdmins group
+     Remove a previously added group from an external identity from the SRM Administrators group
 
     .Parameter GroupName
-     The group in the customer external identity source to be removed from SRMAdmins. Group name should be formatted without the domain name, e.g. group-to-give-access
+     The group in the customer external identity source to be removed from SRM Administrators. Group name should be formatted without the domain name, e.g. group-to-give-access
 
     .Parameter Domain
      Name of the external domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories. For example, MyActiveDirectory.Com
@@ -1317,7 +1317,7 @@ function Remove-GroupFromSRMAdministrators {
      Add a group from the external identity to the VRM Administrators group
 
     .Parameter GroupName
-     The group in the customer external identity source to be added to VRM Administrators. Users in this group will have VRMAdmin access. Group name should be formatted without the domain name, e.g. group-to-give-access
+     The group in the customer external identity source to be added to VRM Administrators. Users in this group will have VRM Administrators access. Group name should be formatted without the domain name, e.g. group-to-give-access
 
     .Parameter Domain
      Name of the external domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories. For example, MyActiveDirectory.Com
@@ -1461,10 +1461,10 @@ function Add-GroupToVRMAdministrators {
 
 <#
     .Synopsis
-     Remove a previously added group from an external identity from the VRMAdmins group
+     Remove a previously added group from an external identity from the VRM Administrators group
 
     .Parameter GroupName
-     The group in the customer external identity source to be removed from VRMAdmins. Group name should be formatted without the domain name, e.g. group-to-give-access
+     The group in the customer external identity source to be removed from VRM Administrators. Group name should be formatted without the domain name, e.g. group-to-give-access
 
     .Parameter Domain
      Name of the external domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories. For example, MyActiveDirectory.Com
