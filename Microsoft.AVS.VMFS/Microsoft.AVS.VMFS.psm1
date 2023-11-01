@@ -110,8 +110,11 @@ function Set-VmfsIscsi {
     .PARAMETER Size
      Datastore capacity size in bytes
 
+     .PARAMETER MultipathPolicy
+     Set Multipath Policy (optional). If not provided default VMFS Policy "VMW_PSP_MRU" is used.
+
     .EXAMPLE
-     New-VmfsDatastore -ClusterName "myCluster" -DatastoreName "myDatastore" -DeviceNaaId $DeviceNaaId -Size <size-in-bytes>
+     New-VmfsDatastore -ClusterName "myCluster" -DatastoreName "myDatastore" -DeviceNaaId $DeviceNaaId -Size <size-in-bytes> -MultipathPolicy "myMultipathPolicy"
 
     .INPUTS
      vCenter cluster name, datastore name, device NAA ID and datastore size.
@@ -149,7 +152,14 @@ function New-VmfsDatastore {
             HelpMessage = 'Capacity of new datastore in bytes')]
         [ValidateNotNull()]
         [String]
-        $Size
+        $Size,
+
+        [Parameter(
+            Mandatory=$false,
+            HelpMessage = 'Set Multipath policy')]
+        [String]
+        $MultipathPolicy
+
     )
 
     try {
@@ -199,6 +209,17 @@ function New-VmfsDatastore {
         $VmfsDatastoreCreateSpec.vmfs.MajorVersion = $DatastoreCreateOptions[0].Spec.Vmfs.MajorVersion
 
         $DatastoreSystem.CreateVmfsDatastore($VmfsDatastoreCreateSpec)
+
+        $ValidMultipathPolicies = @("Fixed", "MostRecentlyUsed", "RoundRobin")
+        $IsValidMultipathPolicy = $MultipathPolicy -in $ValidMultipathPolicies
+
+        if ([string]::IsNullOrEmpty($MultipathPolicy) -or (-not $IsValidMultipathPolicy)){
+            Write-Warning "Either no or invalid multipath policy specified. Valid policies are: $($ValidMultipathPolicies -join ', '). Using default policy."
+        }
+	    else {
+            Set-VMFSDatastoreMultipathPolicy -DatastoreName $DatastoreName -MultipathPolicy $MultipathPolicy
+	    }
+
     } catch {
         Write-Error $Global:Error[0]
     }
@@ -1544,3 +1565,66 @@ function New-NVMeTCPAdapter {
     Write-Host ""
 
 }  
+
+
+<#
+    .DESCRIPTION
+     Set default Multipath Policy to Round Robin for Pure Storage Datastore.
+
+    .PARAMETER DatastoreName
+     Datastore name
+
+    .PARAMETER MultipathPolicy
+     Multipath Policy
+
+    .EXAMPLE
+     Set-VMFSDatastoreMultipathPolicy -DatastoreName "myDatastore" -MultipathPolicy "RoundRobin"
+
+    .INPUTS
+     vCenter datastore name.
+
+    .OUTPUTS
+     None.
+#>
+
+function Set-VMFSDatastoreMultipathPolicy {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+
+    param
+    (
+        [Parameter(Mandatory = $true,
+            HelpMessage = 'Datastore Name')]
+        [ValidateNotNullOrEmpty()]
+        [string]$DatastoreName,
+
+        [Parameter(Mandatory = $false,
+            HelpMessage = 'Multipath Policy')]
+        [string]$MultipathPolicy
+    )
+
+    try {
+        $ScsiLuns = Get-Datastore $DatastoreName | Get-ScsiLun
+        foreach ($ScsiLun in $ScsiLuns) {
+            $ScsiLunPaths = Get-ScsiLunPath -ScsiLun $ScsiLun
+            $ActivePathsCount = ($ScsiLunPaths | Where-Object {$_.State -eq "Active" -or $_.State -eq "Standby"}).Count
+
+            if ($ActivePathsCount -ge 2) {
+
+                if ($MultipathPolicy -eq "Fixed") {
+                    Set-ScsiLun -ScsiLun $ScsiLun -MultipathPolicy $MultipathPolicy -PreferredPath $ScsiLunPaths[0]
+                } else {
+                    Set-ScsiLun -ScsiLun $ScsiLun -MultipathPolicy $MultipathPolicy
+                }
+
+                Write-Host "Multipath policy $MultipathPolicy set for LUN $($ScsiLun.CanonicalName)."
+            } else {
+                Write-Host "Multipathing is not active for LUN $($ScsiLun.CanonicalName)."
+            }
+        }
+    }
+    catch {
+        throw "Failed to set Multipath Policy to $MultipathPolicy for datastore $DatastoreName. Error: $($_.Exception)"
+    }
+
+}
