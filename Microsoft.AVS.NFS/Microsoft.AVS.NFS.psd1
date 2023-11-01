@@ -1,5 +1,5 @@
 #
-# Module manifest for module 'Microsoft.AVS.VMFS'
+# Module manifest for module 'Microsoft.AVS.NFS'
 #
 
 @{
