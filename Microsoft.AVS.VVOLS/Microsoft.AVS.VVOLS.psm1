@@ -24,7 +24,7 @@ using module Microsoft.AVS.Management
 #>
 function New-VvolDatastore {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param (
         [Parameter(
             Mandatory = $true,
@@ -93,7 +93,7 @@ function New-VvolDatastore {
 #>
 function Remove-VvolDatastore {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param (
         [Parameter(
             Mandatory = $true,
@@ -158,7 +158,7 @@ function Remove-VvolDatastore {
 #>
 function Update-VMHostCertificate {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param ()
 
     $service_instance = Get-View ServiceInstance
@@ -190,7 +190,7 @@ function Update-VMHostCertificate {
 #>
 function New-VvolVasaProvider {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param (
         [Parameter(
             Mandatory = $true,
@@ -242,7 +242,7 @@ function New-VvolVasaProvider {
 #>
 function Remove-VvolVasaProvider {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param (
         [Parameter(
             Mandatory = $true,
@@ -299,7 +299,7 @@ function Remove-VvolVasaProvider {
 #>
 function New-VvolStoragePolicy {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param(
         [Parameter(
             Mandatory = $true,
@@ -362,7 +362,7 @@ function New-VvolStoragePolicy {
 #>
 function Remove-VvolStoragePolicy {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param(
         [Parameter(
             Mandatory = $true,
@@ -404,7 +404,7 @@ function Remove-VvolStoragePolicy {
 #>
 function Start-ReplicationFailover {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param(
         [Parameter(
                 Mandatory = $true,
@@ -487,7 +487,7 @@ function Start-ReplicationFailover {
 #>
 function Stop-ReplicationTestFailover {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param(
         [Parameter(
                 Mandatory = $true,
@@ -526,7 +526,7 @@ function Stop-ReplicationTestFailover {
 #>
 function Start-ReplicationReverse {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param(
         [Parameter(
                 Mandatory = $true,
@@ -572,7 +572,7 @@ function Start-ReplicationReverse {
 #>
 function Sync-ReplicationGroup {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param(
         [Parameter(
                 Mandatory = $true,
