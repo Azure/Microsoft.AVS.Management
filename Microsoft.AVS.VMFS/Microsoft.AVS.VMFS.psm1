@@ -423,7 +423,7 @@ function Restore-VmfsVolume {
         throw "Cluster $ClusterName does not exist."
     }
 
-    if (-not $DatastoreName) {
+    if ($DatastoreName) {
         $Datastore = Get-Datastore -Name $DatastoreName -ErrorAction Ignore
         if ($Datastore) {
             throw "Datastore '$Datastore' already exists."
