@@ -8,6 +8,9 @@ parameters:
 - name: publishVvolsPackage
   type: boolean
   default: true
+- name: publishNfsPackage
+  type: boolean
+  default: true
 
 trigger:
 - main
@@ -46,6 +49,14 @@ stages:
       stageForSigningFolder: ${{ variables.vvolsStageForSigningFolder }}
       stageForUnsignedFolder: ${{ variables.vvolsStageForUnsignedFolder }}
 
+- ${{ if eq(parameters.publishNfsPackage, true) }}:
+  - template: templates/common-officialBuild-build-stages.yml@self
+    parameters:
+      moduleFolderName: ${{ variables.nfsModuleFolderName }}
+      moduleDisplayName: ${{ variables.nfsModuleDisplayName }}
+      stageForSigningFolder: ${{ variables.nfsStageForSigningFolder }}
+      stageForUnsignedFolder: ${{ variables.nfsStageForUnsignedFolder }}
+
 - template: templates/common-officialBuild-compliance-stages.yml@self
 
 - ${{ if eq(parameters.publishManagementPackage, true) }}:
@@ -71,3 +82,11 @@ stages:
       moduleDisplayName: ${{ variables.vvolsModuleDisplayName }}
       stageForSigningFolder: ${{ variables.vvolsStageForSigningFolder }}
       stageForUnsignedFolder: ${{ variables.vvolsStageForUnsignedFolder }}
+
+- ${{ if eq(parameters.publishNfsPackage, true) }}:
+  - template: templates/common-officialBuild-release-stages.yml@self
+    parameters:
+      moduleFolderName: ${{ variables.nfsModuleFolderName }}
+      moduleDisplayName: ${{ variables.nfsModuleDisplayName }}
+      stageForSigningFolder: ${{ variables.nfsStageForSigningFolder }}
+      stageForUnsignedFolder: ${{ variables.nfsStageForUnsignedFolder }}
