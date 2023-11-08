@@ -913,7 +913,7 @@ function Disconnect-NVMeTCPTarget {
 
 function Remove-VmfsDatastore {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
    
     Param
     (
