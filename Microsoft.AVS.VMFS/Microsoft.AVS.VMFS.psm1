@@ -1404,7 +1404,7 @@ function Get-VmKernelAdapters {
 
 function Set-NVMeTCP {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
 
     Param
     (
@@ -1487,7 +1487,7 @@ function Set-NVMeTCP {
 
 function New-NVMeTCPAdapter {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
 
     Param
     (
