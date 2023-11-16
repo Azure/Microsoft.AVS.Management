@@ -464,6 +464,7 @@ function Start-ReplicationFailover {
     $i = 0
     foreach ($VMFile in $replicatedVMFiles) {
         $NamedOutputs["vm_$i"] = $VMFile
+        $i = $i + 1
     }
 
     Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
