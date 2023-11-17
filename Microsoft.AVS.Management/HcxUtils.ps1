@@ -109,13 +109,25 @@ function Get-HcxMetaData {
 <#
     .Synopsis
     Get and return HCX Virtual machine
+
+    .Parameter Connection
+    Specifies which connection to use
+
     .Example
-    Get-HcxManagerVM
+    Get-HcxManagerVM -Connection $VcConnection
 #>
 function Get-HcxManagerVM {
+    Param (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Specify the connection to use')]
+        [ValidateNotNullOrEmpty()]
+        $Connection
+    )
+
     Write-Host "Identifying HCX VM"
     $HcxVm = $null
-    $VmsList = Get-VM
+    $VmsList = Get-VM -Server $Connection
 
     foreach ($Vm in $VmsList) {
         if($Vm.Name.Contains("HCX-MGR")) {
