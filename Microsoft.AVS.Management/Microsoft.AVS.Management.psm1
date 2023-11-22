@@ -1284,13 +1284,13 @@ function Confirm-ConnectVIServer {
     )
     $Attempts = 3
     $Backoff = 5
-    $IsConnected = $false
+
     while ($Attempts -gt 0) {
         try {
-            $ViServer = Connect-VIServer -Server "vc" -Credential $Credential -Force
+            $ViServer = Connect-VIServer -Server $VC_ADDRESS -Credential $Credential -Force
             if ($ViServer.IsConnected) {
-                $IsConnected = $ViServer.IsConnected
-                break
+                Write-Host "Connection to VI Server successful."
+                return $ViServer
             }
         }
         catch {
@@ -1300,7 +1300,9 @@ function Confirm-ConnectVIServer {
         Start-Sleep $Backoff
         $Attempts--
     }
-    return $IsConnected
+
+    Write-Host "Failed to connect to VI Server."
+    return $ViServer
 }
 
 <#
@@ -1347,15 +1349,14 @@ function Restart-HCXManager {
         )
         $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
         $VcenterConnection = Confirm-ConnectVIServer -Credential $HcxAdminCredential
-
-        if (-not $VcenterConnection) {
+        if ($null -eq $VcenterConnection -or -not $VcenterConnection.IsConnected) {
             throw "Error Connecting to Vcenter with $($HcxAdminCredential.userName)"
         }
 
         Write-Host "INPUTS: HardReboot=$HardReboot, Force=$Force, Port=$Port, Timeout=$Timeout"
 
         $HcxServer = 'hcx'
-        $hcxVm = Get-HcxManagerVM
+        $hcxVm = Get-HcxManagerVM -Connection $VcenterConnection
         if (-not $hcxVm) {
             throw "HCX VM could not be found. Please check if the HCX addon is installed."
         }
@@ -1477,7 +1478,7 @@ function Set-HcxScaledCpuAndMemorySetting {
             "VirtualMachine.Interact.PowerOn")
         $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
         $VcenterConnection = Confirm-ConnectVIServer -Credential $HcxAdminCredential
-        if (-not $VcenterConnection) {
+        if ($null -eq $VcenterConnection -or -not $VcenterConnection.IsConnected) {
             throw "Error Connecting to Vcenter with $($HcxAdminCredential.userName)"
         }
 
@@ -1488,7 +1489,7 @@ function Set-HcxScaledCpuAndMemorySetting {
         $HcxScaledtNumCpu = 8
         $HcxScaledMemoryGb = 24
 
-        $HcxVm = Get-HcxManagerVM
+        $HcxVm = Get-HcxManagerVM -Connection $VcenterConnection
         if (-not $HcxVm) {
             throw "HCX VM could not be found. Please check if the HCX addon is installed."
         }
@@ -1538,33 +1539,41 @@ function Set-HcxScaledCpuAndMemorySetting {
                 }
             }
         }
-        Write-Host "$Appliances appliances found."
+        Write-Host "$($Appliances.Count) appliances found."
 
         Write-Host "Retrieving HCX Guest VM Data"
-        $HcxVmGuest = Get-VMGuest -VM $HcxVM
+        $HcxVmGuest = Get-VMGuest -VM $HcxVM -Server $VcenterConnection
 
         $MonitoredDisks = @("/common")
         Invoke-DiskUtilizationThresholdCheck -DiskUtilizationTreshold $DiskUtilizationTreshold -MonitoredDisks $MonitoredDisks -Disks $HcxVmGuest.Disks
 
+        $timeout = 60
+        $startTime = Get-Date
+
         Write-Host "Shutting Down Guest OS"
-        Stop-VMGuest -VM $HcxVm -Confirm:$false | Out-Null
-        while ($(Get-VMGuest -VM $HcxVm).State -ne 'NotRunning') {
+        Stop-VMGuest -VM $HcxVm -Confirm:$false -Server $VcenterConnection | Out-Null
+        while ($(Get-VMGuest -VM $HcxVm -Server $VcenterConnection).State -ne 'NotRunning') {
             Start-Sleep -Seconds 5
-            Write-Host "$($HcxVm.Name)'s Guest OS powerstate=$($(Get-VMGuest -VM $HcxVm).State)"
+            Write-Host "$($HcxVm.Name)'s Guest OS powerstate=$($(Get-VMGuest -VM $HcxVm -Server $VcenterConnection).State)"
+
+            $elapsedTime = (Get-Date) - $startTime
+            if ($elapsedTime.TotalSeconds -ge $timeout) {
+                throw "Timeout reached. Unable to stop the VM's guest OS within the specified time."
+            }
         }
         Write-Host "Guest OS is shut down"
 
         Write-Host "Configuring memory and cpu settings"
-        Set-VM -VM $HcxVm -MemoryGB $HcxScaledMemoryGb -NumCpu $HcxScaledtNumCpu -Confirm:$false | Out-Null
+        Set-VM -VM $HcxVm -MemoryGB $HcxScaledMemoryGb -NumCpu $HcxScaledtNumCpu -Confirm:$false -Server $VcenterConnection | Out-Null
 
         Write-Host "Starting $($hcxVm.Name)..."
-        Start-VM -VM $HcxVm -Confirm:$false | Out-Null
+        Start-VM -VM $HcxVm -Confirm:$false -Server $VcenterConnection | Out-Null
         Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
 
         Write-Host "Waiting for successful connection to HCX appliance..."
         $hcxConnection = Test-HcxConnection -Server $HcxServer -Count 12 -Port $Port -Credential $HcxAdminCredential -HcxVm $HcxVm
 
-        $HcxVm = Get-VM -Name $HcxVm.Name
+        $HcxVm = Get-VM -Name $HcxVm.Name -Server $VcenterConnection
         Write-Host "$($hcxVm.Name)'s CPU: $($HcxVm.NumCpu) and Memory: $($HcxVm.MemoryGb) Gb Settings"
         Write-Host "Configuration complete"
     }
