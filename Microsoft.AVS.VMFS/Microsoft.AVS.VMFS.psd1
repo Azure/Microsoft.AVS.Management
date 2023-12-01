@@ -29,7 +29,7 @@
     Description = 'Azure VMware Solutions VMFS Package'
 
     # Minimum version of the PowerShell engine required by this module
-    PowerShellVersion = '5.1'
+    PowerShellVersion = '7.2'
 
     # Name of the PowerShell host required by this module
     # PowerShellHostName = ''
@@ -48,7 +48,7 @@
 
     # Modules that must be imported into the global environment prior to importing this module
     RequiredModules = @(
-        @{ "ModuleName" = "Microsoft.AVS.Management"; "ModuleVersion" = "5.3.99" }
+        @{ "ModuleName" = "Microsoft.AVS.Management"; "ModuleVersion" = "6.0.112" }
     )
 
     # Assemblies that must be loaded prior to importing this module

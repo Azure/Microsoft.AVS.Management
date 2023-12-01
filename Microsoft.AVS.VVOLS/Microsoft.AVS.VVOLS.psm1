@@ -1,5 +1,3 @@
-using module Microsoft.AVS.Management
-
 <#
     .SYNOPSIS
      Creates a new vVol datastore and mounts to a VMware cluster.

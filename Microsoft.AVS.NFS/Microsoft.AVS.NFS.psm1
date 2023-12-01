@@ -1,4 +1,3 @@
-using module Microsoft.AVS.Management
 <#
     .SYNOPSIS
      This function mounts the NFS datastore on all hosts in the cluster.
