@@ -531,7 +531,7 @@ function Sync-VMHostStorage {
 #>
 function Sync-ClusterVMHostStorage {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
     Param (
         [Parameter(
                 Mandatory=$true,
