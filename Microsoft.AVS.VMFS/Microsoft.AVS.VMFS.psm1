@@ -1,4 +1,4 @@
-using module Microsoft.AVS.Management
+using module @{ ModuleName = 'Microsoft.AVS.Management'; RequiredVersion = '5.3.99' }
 
 <#
     .SYNOPSIS
