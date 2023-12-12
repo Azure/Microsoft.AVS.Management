@@ -1,3 +1,5 @@
+using module @{ ModuleName = 'Microsoft.AVS.Management'; RequiredVersion = '5.3.99' }
+
 <#
     .SYNOPSIS
      This function updates all hosts in the specified cluster to have the following iSCSI configurations:
@@ -531,7 +533,7 @@ function Sync-VMHostStorage {
 #>
 function Sync-ClusterVMHostStorage {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
     Param (
         [Parameter(
                 Mandatory=$true,

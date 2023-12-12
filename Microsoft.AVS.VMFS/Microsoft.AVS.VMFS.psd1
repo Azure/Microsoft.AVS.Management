@@ -48,7 +48,7 @@
 
     # Modules that must be imported into the global environment prior to importing this module
     RequiredModules = @(
-        @{ "ModuleName" = "Microsoft.AVS.Management"; "ModuleVersion" = "6.0.112" }
+        @{ "ModuleName" = "Microsoft.AVS.Management"; "ModuleVersion" = "5.3.99" }
     )
 
     # Assemblies that must be loaded prior to importing this module
@@ -76,16 +76,12 @@
         "Sync-VMHostStorage",
         "Sync-ClusterVMHostStorage",
         "Remove-VMHostStaticIScsiTargets",
-        "Connect-NVMeTCPTarget",
-        "Disconnect-NVMeTCPTarget",
         "Remove-VmfsDatastore",
         "Mount-VmfsDatastore",
         "Get-VmfsDatastore",
         "Get-VmfsHosts",
         "Get-StorageAdapters",
-        "Get-VmKernelAdapters",
-        "Set-NVMeTCP",
-        "New-NVMeTCPAdapter"
+        "Get-VmKernelAdapters"
     )
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
