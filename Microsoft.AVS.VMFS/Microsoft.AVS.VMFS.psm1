@@ -1,3 +1,5 @@
+using module Microsoft.AVS.Management
+
 <#
     .SYNOPSIS
      This function updates all hosts in the specified cluster to have the following iSCSI configurations:
