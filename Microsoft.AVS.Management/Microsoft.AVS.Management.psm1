@@ -2715,14 +2715,14 @@ function Remove-CustomRole {
     )
     $donotremovearray = @("NsxViAdministrator","vStatsAdmin","VirtualMachinePowerUser","VirtualMachineUser","ResourcePoolAdministrator","VMwareConsolidatedBackupUser","DatastoreConsumer","NetworkConsumer","VirtualMachineConsoleUser","AutoUpdateUser","InventoryService.Tagging.TaggingAdmin","SyncUsers","vSphere Client Solution User","WorkloadStorageManagement","vSphereKubernetesManager","com.vmware.Content.Registry.Admin","SupervisorServiceCluster","SupervisorServiceRootFolder","SupervisorServiceGlobal","VMOperatorController","VMOperatorControllerGlobal","NSOperatorController","vCLSAdmin","vStatsUser","VMServicesAdministrator","NSX Administrator","com.vmware.Content.Admin","CloudAdmin","NsxAuditor")
     if ($donotremovearray -contains $roleToRemove) {
-        Write-Information "Cannot remove '$roleToRemove'. Removal not allowed."
+        Write-Error "Cannot remove '$roleToRemove'. Removal not allowed."
     } else {
         $role = Get-VIRole -Name $roleToRemove
         if ($role) {
             Remove-VIRole -Role $role -Confirm:$false
             Write-Information "Removed '$roleToRemove'."
         } else {
-            Write-Information "Role '$roleToRemove' not found."
+            Write-Error "Role '$roleToRemove' not found."
         }
     }
 }
