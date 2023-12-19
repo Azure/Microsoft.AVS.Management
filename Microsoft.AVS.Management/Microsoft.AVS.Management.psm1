@@ -390,7 +390,7 @@ function Debug-LDAPSIdentitySources {
                             Write-Host "$($SSHRes.Output | out-string)"
                         }
                     } else {
-                        Write-Host "* vCenter-to-LDAP TCP test failed with result code $($SSHRes.res.ExitStatus)."
+                        Write-Host "* vCenter-to-LDAP TCP test failed with result code $($SSHRes.ExitStatus)."
                     }
                 } else {
                     Write-Host "URL $url does not look like an LDAP URL!"
