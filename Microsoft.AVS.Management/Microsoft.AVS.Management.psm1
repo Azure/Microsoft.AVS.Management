@@ -2709,7 +2709,8 @@ function Remove-CustomRole {
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false)]
     param (
-        [Parameter(Mandatory = $true)]
+        [Parameter(Mandatory = $true,
+            HelpMessage = "The name of the role to remove. This must be a custom role.")]
         [string]
         $roleToRemove
     )
@@ -2719,6 +2720,10 @@ function Remove-CustomRole {
     } else {
         $role = Get-VIRole -Name $roleToRemove
         if ($role) {
+            if ($role.IsSystem -eq $true) {
+                Write-Information "Cannot remove '$roleToRemove'. Role is a system role."
+                return
+            }
             Remove-VIRole -Role $role -Confirm:$false
             Write-Information "Removed '$roleToRemove'."
         } else {
