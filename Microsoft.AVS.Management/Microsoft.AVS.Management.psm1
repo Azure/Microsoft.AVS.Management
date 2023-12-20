@@ -2720,7 +2720,7 @@ function Remove-CustomRole {
     } else {
         $role = Get-VIRole -Name $roleToRemove
         if ($role) {
-            if ($role.IsSystem -eq $true) {
+            if ($role.IsSystem) {
                 Write-Information "Cannot remove '$roleToRemove'. Role is a system role."
                 return
             }
