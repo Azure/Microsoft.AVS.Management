@@ -115,6 +115,7 @@ The script execution pipeline supports following PowerShell streams:
 
 Use the stream appropriate for the purpose, suppress outputs with `Out-Null` for information that doesn't not help with the installation or troubleshooting. 
 Be aware that content of these streams is always stored as strings. Objects emitted into these streams should either be primitives (strings, ints, etc), of type `HashTable` or be explicitly converted to string by your script, otherwise they may fail to deserialize and won't be captured.
+> Note that in PowerShell an expression that produces a value (for example, `Stop-VM` or `$true`) will emit that value into `Output` stream unless it's either captured in a variable or piped into `Out-Null`. We observe that this may disrupt outputs to other streams, so make sure to be intentional and eliminate any unintended outputs.
 
 Use `-ErrorAction Stop` or equivalent means to terminate with an error and indicate the final status to the user.
 
