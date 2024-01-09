@@ -73,7 +73,7 @@ If necessary, use the installation script to create a separate vCenter user and 
 ### Protecting service credentials
 If deploying an appliance in customer infrastruture that needs service credentials with privileges above `cloudadmins` role the vendor must ensure that the credentials are never exposed - not in-flight, nor at rest.
 - The appliance user must not be able to gain root access or direct access to the storage or file system where credentials are stored.
-- The appliance must be deployed in a folder with NoAccess permission to `CloudAdmins` SSO group. See `[AVSSecureFolder]::Root()` and `[AVSSecureFolder]::GetOrCreate()`.
+- The appliance must be deployed in a folder with ReadOnly permission to `CloudAdmins` SSO group. See `[AVSSecureFolder]::Root()` and `[AVSSecureFolder]::GetOrCreate()`.
 - The objects deployed into the secure folder must subseqently be re-secured with `[AVSSecureFolder]::Secure()` method.
 - The credentials must be passed as OVA properties to the appliance, including the rotation scenario.
 - The credentials must never be logged, no diagnostic bundle may include the credentials.

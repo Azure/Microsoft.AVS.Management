@@ -36,11 +36,11 @@ class AVSSecureFolder {
     #>
     hidden static ApplyPermissions($objects) {
         $admin = Get-VIRole -Name "Admin" -ErrorAction Stop
-        $noAccess = Get-VIRole -Name "NoAccess" -ErrorAction Stop
+        $readOnly = Get-VIRole -Name "ReadOnly" -ErrorAction Stop
         $scripting = Get-VIAccount -Id "scripting" -Domain "vsphere.local" -ErrorAction Stop
         $group = Get-VIAccount -Group -Id "CloudAdmins" -Domain "vsphere.local" -ErrorAction Stop
         $objects | New-VIPermission -Principal $scripting -Role $admin -Propagate $true
-        $objects | New-VIPermission -Principal $group -Role $noAccess -Propagate $true
+        $objects | New-VIPermission -Principal $group -Role $readOnly -Propagate $true
     }
 
     <#
