@@ -4,6 +4,47 @@
 . $PSScriptRoot\AVSGenericUtils.ps1
 . $PSScriptRoot\AVSvSANUtils.ps1
 
+<# Download certificate from SAS token url #>
+function Get-Certificates {
+    Param
+    (
+        [Parameter(
+            Mandatory = $true)]
+        [System.Security.SecureString]
+        $SSLCertificatesSasUrl
+    )
+
+    [string] $CertificatesSASPlainString = ConvertFrom-SecureString -SecureString $SSLCertificatesSasUrl -AsPlainText
+    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
+    [string[]] $CertificatesSASList = $CertificatesSASPlainString.Split(",", $options)
+    Write-Host "Number of Certs passed $($CertificatesSASList.count)"
+    if ($CertificatesSASList.count -eq 0) {
+        throw "If adding an LDAPS identity source, please ensure you pass in at least one certificate"
+    }
+    if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and $CertificatesSASList.count -lt 2) {
+        throw "If passing in a secondary/fallback URL, ensure that at least two certificates are passed."
+    }
+    $DestinationFileArray = @()
+    $Index = 1
+    foreach ($CertSas in $CertificatesSASList) {
+        Write-Host "Downloading Cert $Index..."
+        $CertDir = $pwd.Path
+        $CertLocation = "$CertDir/cert$Index.cer"
+        try {
+            $Response = Invoke-WebRequest -Uri $CertSas -OutFile $CertLocation
+            $StatusCode = $Response.StatusCode
+            Write-Host("Certificate downloaded. $StatusCode")
+            $DestinationFileArray += $CertLocation
+        }
+        catch {
+            throw "Failed to download certificate #$($Index): $($PSItem.Exception.Message). Ensure the SAS string is still valid"
+        }
+        $Index = $Index + 1
+    }
+    Write-Host "Number of certificates downloaded: $($DestinationFileArray.count)"
+    return $DestinationFileArray
+}
+
 function Get-StoragePolicyInternal {
     Param
     (
