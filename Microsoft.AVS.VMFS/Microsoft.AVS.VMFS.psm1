@@ -158,8 +158,8 @@ function New-VmfsDatastore {
         throw "Invalid Size $Size provided."
     }
 
-    if (($SizeInBytes -lt 1073741824) -or ($SizeInBytes -gt 68169720922112)) {
-        throw "Invalid Size $SizeInBytes provided. Size should be between 1 GB and 62 TB."
+    if (($SizeInBytes -lt 1GB) -or ($SizeInBytes -gt 64TB)) {
+        throw "Invalid Size $SizeInBytes provided. Size should be between 1 GB and 64 TB."
     }
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
