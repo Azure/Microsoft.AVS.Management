@@ -83,6 +83,7 @@
          "Set-ClusterDefaultStoragePolicy"
          "Get-StoragePolicies"
          "New-LDAPIdentitySource"
+         "Debug-LDAPSIdentitySources"
          "New-LDAPSIdentitySource"
          "Update-IdentitySourceCertificates"
          "Update-IdentitySourceCredential"

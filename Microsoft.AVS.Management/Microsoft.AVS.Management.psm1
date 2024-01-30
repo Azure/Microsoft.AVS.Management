@@ -298,6 +298,152 @@ function Get-CertificateFromDomainController {
 
 <#
     .Synopsis
+     Recommended: Debug functionality of all OpenLDAP and Active Directory Identity Sources for use with vCenter Server Single Sign-On.
+
+    .Example
+    # Debug the OpenLDAP and Active Directory Identity Sources configured in vCenter
+    Debug-LDAPSIdentitySources
+#>
+function Debug-LDAPSIdentitySources {
+    [AVSAttribute(2, UpdatesSDDC = $false)]
+
+    Write-Host "*"
+    Write-Host "* LDAP Identity Source Diagnostic Test Tool (ldapcheck)"
+    Write-Host "* Executed at $((Get-Date).ToUniversalTime())"
+    Write-Host "*"
+
+    $sources = Get-IdentitySource -External -ErrorAction Stop
+    $sources | ForEach-Object {
+        if(($_.Type -eq "OpenLdap") -or ($_.Type -eq "ActiveDirectory")) {
+
+            Write-Host "* -------------------------------------------------------------"
+            Write-Host "* OpenLDAP Identity Source $($_.Name) detected."
+
+            $urls = @()
+            if(-not ($_.PrimaryUrl -eq $null)) {
+                $urls += $_.PrimaryUrl
+                Write-Host "* The Primary URL is  $($_.PrimaryUrl)."
+            }
+            if(-not ($_.FailoverUrl -eq $null)) {
+                $urls += $_.FailoverUrl
+                Write-Host "* The Failover URL is $($_.FailoverUrl)."
+            }
+            
+            foreach($url in $urls) {
+                Write-Host "* Checking LDAP URL: $url"
+                
+                # Check URL looks okay:
+                # i.e. ldaps://ldap1.ldap.avs.azure.com
+                if($url.ToLower() -match '(?<protocol>ldap|ldaps)://(?<hostname>[a-z0-9\.]+)(?<portspec>$|:[0-9]+)') {
+                    $ldap_protocol = $Matches.protocol
+                    $ldap_hostname = $Matches.hostname
+                    $ldap_portspec = $Matches.portspec
+                    Write-Host "  LDAP Protocol:        $ldap_protocol"
+                    Write-Host "  LDAP Server Hostname: $ldap_hostname"
+                    Write-Host "  LDAP Port Specified:  $ldap_portspec"
+
+                    # Check if the LDAP hostname is in /etc/hosts
+                    try {
+                        $Command = "grep $ldap_hostname /etc/hosts"
+                        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+                    }
+                    catch {
+                        throw "ERROR: Unable to execute grep command on vCenter."
+                    }
+                    $SSHOutput = $SSHRes.Output | out-string        
+                    Write-Host "* vCenter /etc/hosts hostname resolution check returned: $($SSHRes.Output)"
+
+                    # Call Host to check DNS resolution of LDAP server from vCenter"
+                    try {
+                        $Command = "host $ldap_hostname"
+                        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+                    }
+                    catch {throw "ERROR: Unable to execute host command on vCenter."}
+                    Write-Host "* vCenter DNS hostname resolution check returned: $($SSHRes.Output)"
+
+                    # Now let's look at the port numbers            
+                    if($ldap_portspec -ne "") {
+                        $ldap_port = $ldap_portspec -match ":([0-9]+)"
+                        Write-Host "  LDAP Port number:      $ldap_port"
+                    } else {
+                        switch($ldap_protocol) {
+                            "ldap"  {$ldap_port = 389}
+                            "ldaps" {$ldap_port = 636}
+                            "default" {$ldap_port = -1}
+                        }
+                        Write-Host "* LDAP Port to test:    $ldap_port"
+                    }
+
+                    # Call NetCat to test if the LDAP port is open 
+                    try {
+                        $Command = "nc -vz $ldap_hostname $ldap_port"
+                        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+                    }
+                    catch {throw "ERROR: Unable to execute nc command on vCenter."}
+                    
+                    if($SSHRes.ExitStatus -eq 1) {
+                        Write-Error "* vCenter-to-LDAP TCP test FAILED."
+
+                        # Netcat failed to access the TCP port.
+                        # Let's have vCenter ping the LDAP server (even though ICMP isn't required)"
+                        try {
+                            $Command = "ping -c 3 $ldap_hostname"
+                            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+                        }
+                        catch {throw "ERROR: Unable to execute ping command on vCenter."}
+                        Write-Host "* vCenter-to-LDAP Ping test returned:"
+                        Write-Host "$($SSHRes.Output | out-string)"
+
+                        if($($SSHRes.Output | Out-String) -match " (?<percentage>[0-9]+)% packet loss") {
+                            $ping_loss = $Matches.percentage
+                            if($ping_loss -eq "0") {
+                                Write-Host "* vCenter was able to ping the LDAP server without a problem."
+                            } elseif($ping_loss -eq "100") {
+                                Write-Error "* vCenter was unable to ping LDAP server."
+                                
+                                # Okay, this is bad. vCenter can't contact the LDAP server with TCP
+                                # nor ping, so let's do a traceroute for the network folks to look at:
+                                try {
+                                    $Command = "traceroute $ldap_hostname"
+                                    $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+                                }
+                                catch {throw "ERROR: Unable to execute traceroute command on vCenter."}
+                                Write-Host "* vCenter-to-LDAP Traceroute test returned:"
+                                Write-Host "$($SSHRes.Output | out-string)"
+                            } else {
+                                Write-Warning "* Partial packet loss pinging LDAP server."
+                            }
+                        } else {
+                            Write-Error "* Unable to interpret ping results."
+                        }
+                    } elseif($SSHRes.ExitStatus -eq 0) {
+                        Write-Host "* vCenter-to-LDAP TCP test successful. Port is open."
+
+                        if($ldap_protocol -eq "ldaps") {
+                            Write-Host "* Attempting SSL Connect test."
+                            # Netcat says the TCP port is open, so let's attempt an SSL connection:
+                            try {
+                                $Command = "openssl s_client -connect $($ldap_hostname):$($ldap_port) -showcerts < /dev/null"
+                                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+                            }
+                            catch {throw "ERROR: Unable to execute openssl command on vCenter."}
+                            Write-Host "* SSL connect test returned:"
+                            Write-Host "$($SSHRes.Output | out-string)"
+                        }
+                    } else {
+                        Write-Error "* vCenter-to-LDAP TCP test failed with result code $($SSHRes.ExitStatus)."
+                    }
+                } else {
+                    Write-Error "URL $url does not look like an LDAP URL."
+                }
+            }
+        }
+    }
+    Write-Host "* Script terminated at $((Get-Date).ToUniversalTime())"
+}
+
+<#
+    .Synopsis
      Recommended: Add a secure external identity source (Active Directory over LDAPS) for use with vCenter Server Single Sign-On.
 
     .Parameter Name
