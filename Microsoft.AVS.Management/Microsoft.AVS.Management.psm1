@@ -341,9 +341,9 @@ function Debug-LDAPSIdentitySources {
                     catch {throw "ERROR: Unable to execute nc command on vCenter."}
                     
                     if($SSHRes.ExitStatus -eq 1) {
-                        Write-Host "* vCenter-to-LDAP TCP test FAILED!"
+                        Write-Error "* vCenter-to-LDAP TCP test FAILED."
 
-                        # Netcat failed to access the TCP port!
+                        # Netcat failed to access the TCP port.
                         # Let's have vCenter ping the LDAP server (even though ICMP isn't required)"
                         try {
                             $Command = "ping -c 3 $ldap_hostname"
@@ -356,9 +356,9 @@ function Debug-LDAPSIdentitySources {
                         if($($SSHRes.Output | Out-String) -match " (?<percentage>[0-9]+)% packet loss") {
                             $ping_loss = $Matches.percentage
                             if($ping_loss -eq "0") {
-                                Write-Host "* vCenter was able to ping the LDAP server without a problem!"
+                                Write-Host "* vCenter was able to ping the LDAP server without a problem."
                             } elseif($ping_loss -eq "100") {
-                                Write-Host "* vCenter was unable to ping LDAP server!"
+                                Write-Error "* vCenter was unable to ping LDAP server."
                                 
                                 # Okay, this is bad. vCenter can't contact the LDAP server with TCP
                                 # nor ping, so let's do a traceroute for the network folks to look at:
@@ -370,13 +370,13 @@ function Debug-LDAPSIdentitySources {
                                 Write-Host "* vCenter-to-LDAP Traceroute test returned:"
                                 Write-Host "$($SSHRes.Output | out-string)"
                             } else {
-                                Write-Host "* Partial packet loss pinging LDAP server!"
+                                Write-Warning "* Partial packet loss pinging LDAP server."
                             }
                         } else {
-                            Write-Host "* Unable to interpret ping results!"
+                            Write-Error "* Unable to interpret ping results."
                         }
                     } elseif($SSHRes.ExitStatus -eq 0) {
-                        Write-Host "* vCenter-to-LDAP TCP test successful. Port is open!"
+                        Write-Host "* vCenter-to-LDAP TCP test successful. Port is open."
 
                         if($ldap_protocol -eq "ldaps") {
                             Write-Host "* Attempting SSL Connect test."
@@ -390,10 +390,10 @@ function Debug-LDAPSIdentitySources {
                             Write-Host "$($SSHRes.Output | out-string)"
                         }
                     } else {
-                        Write-Host "* vCenter-to-LDAP TCP test failed with result code $($SSHRes.ExitStatus)."
+                        Write-Error "* vCenter-to-LDAP TCP test failed with result code $($SSHRes.ExitStatus)."
                     }
                 } else {
-                    Write-Host "URL $url does not look like an LDAP URL!"
+                    Write-Error "URL $url does not look like an LDAP URL."
                 }
             }
         }
