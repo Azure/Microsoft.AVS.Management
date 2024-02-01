@@ -708,11 +708,11 @@ function Update-IdentitySourceCertificates {
             }
             else {
                 $remoteComputers = @()
-                if($null -ne $IdentitySource.PrimaryUrl) {
+                if ($null -ne $IdentitySource.PrimaryUrl) {
                     $remoteComputers += $IdentitySource.PrimaryUrl
                     Write-Host "* The Primary URL is  $($IdentitySource.PrimaryUrl)."
                 }
-                if($null -ne $IdentitySource.FailoverUrl) {
+                if ($null -ne $IdentitySource.FailoverUrl) {
                     $remoteComputers += $IdentitySource.FailoverUrl
                     Write-Host "* The Failover URL is $($IdentitySource.FailoverUrl)."
                 }
