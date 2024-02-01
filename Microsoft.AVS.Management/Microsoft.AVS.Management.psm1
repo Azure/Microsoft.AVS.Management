@@ -712,6 +712,10 @@ function Update-IdentitySourceCertificates {
                     $remoteComputers += $IdentitySource.PrimaryUrl
                     Write-Host "* The Primary URL is  $($IdentitySource.PrimaryUrl)."
                 }
+                else {
+                    Write-Error "Internal Error: The primary url of identity source is null." -ErrorAction Stop
+                }
+                
                 if ($null -ne $IdentitySource.FailoverUrl) {
                     $remoteComputers += $IdentitySource.FailoverUrl
                     Write-Host "* The Failover URL is $($IdentitySource.FailoverUrl)."
