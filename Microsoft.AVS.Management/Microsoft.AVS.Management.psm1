@@ -306,7 +306,7 @@ function Get-CertificateFromDomainController {
 #>
 function Debug-LDAPSIdentitySources {
     [AVSAttribute(2, UpdatesSDDC = $false)]
-
+    Param()
     Write-Host "*"
     Write-Host "* LDAP Identity Source Diagnostic Test Tool (ldapcheck)"
     Write-Host "* Executed at $((Get-Date).ToUniversalTime())"
