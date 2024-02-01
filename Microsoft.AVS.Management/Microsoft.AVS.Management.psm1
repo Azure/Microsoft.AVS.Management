@@ -251,6 +251,48 @@ function New-LDAPIdentitySource {
 
 <#
     .Synopsis
+     Save certificates to local files
+#>
+function Save-CertificateToLocalFile {
+    param (
+        [Parameter(
+            Mandatory = $true)]
+        [ValidateNotNull()]
+        [string[]]
+        $remoteComputers
+    )
+    $DestinationFileArray = @()
+    $exportFolder = "$home/"
+    foreach ($computerUrl in $remoteComputers) {
+        try {
+            if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) { throw }
+            $ParsedUrl = [System.Uri]$computerUrl
+        }
+        catch {
+            throw "Incorrect Url format entered from: $computerUrl"
+        }
+        if ($ParsedUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ParsedUrl.Host -as [ipaddress])) {
+            throw "Incorrect Url format. $computerUrl is an IP address. Consider using hostname exactly as specified on the issued certificate."
+        }
+
+        $SSHOutput = Get-CertificateFromDomainController -ParsedUrl $ParsedUrl -computerUrl $computerUrl
+
+        if ($SSHOutput -notmatch '(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)') {
+            throw "The certificate from $computerUrl has an incorrect format"
+        }
+        else {
+            $certs = select-string -inputobject $SSHOutput -pattern "(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)" -allmatches
+            $cert = $certs.matches[0]
+            $exportPath = $exportFolder + ($ParsedUrl.Host.split(".")[0]) + ".cer"
+            $cert.Value | Out-File $exportPath -Encoding ascii
+            $DestinationFileArray += $exportPath
+        }
+    }
+    return $DestinationFileArray
+}
+
+<#
+    .Synopsis
      Download the certificate from a domain controller
 #>
 function Get-CertificateFromDomainController {
@@ -587,37 +629,11 @@ function New-LDAPSIdentitySource {
         $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl -ErrorAction Stop
     }
     else {
-        $exportFolder = "$home/"
         $remoteComputers = , $PrimaryUrl
         if ($PSBoundParameters.ContainsKey('SecondaryUrl')) {
             $remoteComputers += $SecondaryUrl
         }
-
-        foreach ($computerUrl in $remoteComputers) {
-            try {
-                if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) { throw }
-                $ParsedUrl = [System.Uri]$computerUrl
-            }
-            catch {
-                throw "Incorrect Url format entered from: $computerUrl"
-            }
-            if ($ParsedUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ParsedUrl.Host -as [ipaddress])) {
-                throw "Incorrect Url format. $computerUrl is an IP address. Consider using hostname exactly as specified on the issued certificate."
-            }
-
-            $SSHOutput = Get-CertificateFromDomainController -ParsedUrl $ParsedUrl -computerUrl $computerUrl
-
-            if ($SSHOutput -notmatch '(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)') {
-                throw "The certificate from $computerUrl has an incorrect format"
-            }
-            else {
-                $certs = select-string -inputobject $SSHOutput -pattern "(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)" -allmatches
-                $cert = $certs.matches[0]
-                $exportPath = $exportFolder + ($ParsedUrl.Host.split(".")[0]) + ".cer"
-                $cert.Value | Out-File $exportPath -Encoding ascii
-                $DestinationFileArray += $exportPath
-            }
-        }
+        $DestinationFileArray = Save-CertificateToLocalFile $remoteComputers
     }
 
     [System.Array]$Certificates =
@@ -677,8 +693,8 @@ function Update-IdentitySourceCertificates {
         $DomainName,
 
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
+            Mandatory = $false,
+            HelpMessage = 'Optional: The certs will be downloaded from domain controllers if not specified. A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
         [System.Security.SecureString]
         $SSLCertificatesSasUrl
     )
@@ -687,7 +703,21 @@ function Update-IdentitySourceCertificates {
     if ($null -ne $ExternalIdentitySources) {
         $IdentitySource = $ExternalIdentitySources | Where-Object { $_.Name -eq $DomainName }
         if ($null -ne $IdentitySource) {
-            $DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl -ErrorAction Stop
+            if ($PSBoundParameters.ContainsKey('SSLCertificatesSasUrl')) {
+                $DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl -ErrorAction Stop
+            }
+            else {
+                $remoteComputers = @()
+                if($null -ne $IdentitySource.PrimaryUrl) {
+                    $remoteComputers += $IdentitySource.PrimaryUrl
+                    Write-Host "* The Primary URL is  $($IdentitySource.PrimaryUrl)."
+                }
+                if($null -ne $IdentitySource.FailoverUrl) {
+                    $remoteComputers += $IdentitySource.FailoverUrl
+                    Write-Host "* The Failover URL is $($IdentitySource.FailoverUrl)."
+                }
+                $DestinationFileArray = Save-CertificateToLocalFile $remoteComputers
+            }
             [System.Array]$Certificates =
             foreach ($CertFile in $DestinationFileArray) {
                 try {
