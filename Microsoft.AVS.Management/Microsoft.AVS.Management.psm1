@@ -261,7 +261,7 @@ function Get-CertificateFromDomainContollerToLocalFile {
         [string[]]
         $remoteComputers
     )
-    
+
     $DestinationFileArray = @()
     $exportFolder = "./"
     foreach ($computerUrl in $remoteComputers) {
@@ -270,11 +270,12 @@ function Get-CertificateFromDomainContollerToLocalFile {
         }
         $ParsedUrl = [System.Uri]$computerUrl
         if ($ParsedUrl.Port -lt 0 -OR $ParsedUrl.Host -eq "" -OR $ParsedUrl.Scheme -eq "") {
-            throw "Incorrect Url format entered from: $computerUrl" 
+            throw "Incorrect Url format entered from: $computerUrl. The correct Url format is protocol://host:port (Example: ldaps://yourserver.com:636)." 
         }
-        $ResultUrl = $ParsedUrl.Scheme + '://' + $ParsedUrl.Host + ':' + $ParsedUrl.Port
+        
+        $ResultUrl = $ParsedUrl.GetLeftPart('Authority')
         if ($ResultUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ResultUrl.Host -as [ipaddress])) {
-            throw "Incorrect Url format. $computerUrl is an IP address. Consider using hostname exactly as specified on the issued certificate."
+            throw "Incorrect Url format. $computerUrl is an IP address. Please use the hostname exactly as specified on the issued certificate."
         }
 
         try {
