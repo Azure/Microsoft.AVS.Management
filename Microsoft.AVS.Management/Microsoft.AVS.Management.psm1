@@ -251,9 +251,9 @@ function New-LDAPIdentitySource {
 
 <#
     .Synopsis
-     Save certificates to local files
+     Download certificates from domain controllers and save them to local files
 #>
-function Save-CertificateToLocalFile {
+function Get-CertificateFromDomainContollerToLocalFile {
     param (
         [Parameter(
             Mandatory = $true)]
@@ -261,21 +261,47 @@ function Save-CertificateToLocalFile {
         [string[]]
         $remoteComputers
     )
+    
     $DestinationFileArray = @()
-    $exportFolder = "$home/"
+    $exportFolder = "./"
     foreach ($computerUrl in $remoteComputers) {
-        try {
-            if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) { throw }
-            $ParsedUrl = [System.Uri]$computerUrl
+        if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) { 
+            throw "Incorrect Url format entered from: $computerUrl" 
         }
-        catch {
-            throw "Incorrect Url format entered from: $computerUrl"
+        $ParsedUrl = [System.Uri]$computerUrl
+        if ($ParsedUrl.Port -lt 0 -OR $ParsedUrl.Host -eq "" -OR $ParsedUrl.Scheme -eq "") {
+            throw "Incorrect Url format entered from: $computerUrl" 
         }
-        if ($ParsedUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ParsedUrl.Host -as [ipaddress])) {
+        $ResultUrl = $ParsedUrl.Scheme + '://' + $ParsedUrl.Host + ':' + $ParsedUrl.Port
+        if ($ResultUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ResultUrl.Host -as [ipaddress])) {
             throw "Incorrect Url format. $computerUrl is an IP address. Consider using hostname exactly as specified on the issued certificate."
         }
 
-        $SSHOutput = Get-CertificateFromDomainController -ParsedUrl $ParsedUrl -computerUrl $computerUrl
+        try {
+            try {
+                $Command = 'nslookup ' + $ResultUrl.Host + ' -type=soa'
+                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+            }
+            catch {
+                throw "The FQDN $($ResultUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
+            }
+    
+            try {
+                $Command = 'nc -vz ' + $ResultUrl.Host + ' ' + $ResultUrl.Port
+                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+            }
+            catch {
+                throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ResultUrl.Port) is open."
+            }
+    
+            Write-Host ("Starting to Download Cert from " + $computerUrl)
+            $Command = 'echo "1" | openssl s_client -connect ' + $ResultUrl.Host + ':' + $ResultUrl.Port + ' -showcerts'
+            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+            $SSHOutput = $SSHRes.Output | out-string
+        }
+        catch {
+            throw "Failure to download the certificate from $computerUrl. $_"
+        }
 
         if ($SSHOutput -notmatch '(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)') {
             throw "The certificate from $computerUrl has an incorrect format"
@@ -283,59 +309,12 @@ function Save-CertificateToLocalFile {
         else {
             $certs = select-string -inputobject $SSHOutput -pattern "(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)" -allmatches
             $cert = $certs.matches[0]
-            $exportPath = $exportFolder + ($ParsedUrl.Host.split(".")[0]) + ".cer"
+            $exportPath = $exportFolder + ($ResultUrl.Host.split(".")[0]) + ".cer"
             $cert.Value | Out-File $exportPath -Encoding ascii
             $DestinationFileArray += $exportPath
         }
     }
     return $DestinationFileArray
-}
-
-<#
-    .Synopsis
-     Download the certificate from a domain controller
-#>
-function Get-CertificateFromDomainController {
-    param (
-        [Parameter(
-            Mandatory = $true)]
-        [ValidateNotNull()]
-        [System.Uri]
-        $ParsedUrl,
-
-        [Parameter(
-            Mandatory = $true)]
-        [ValidateNotNull()]
-        [string]
-        $computerUrl
-    )
-
-    try {
-        try {
-            $Command = 'nslookup ' + $ParsedUrl.Host + ' -type=soa'
-            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-        }
-        catch {
-            throw "The FQDN $($ParsedUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
-        }
-
-        try {
-            $Command = 'nc -vz ' + $ParsedUrl.Host + ' ' + $ParsedUrl.Port
-            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-        }
-        catch {
-            throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ParsedUrl.Port) is open."
-        }
-
-        Write-Host ("Starting to Download Cert from " + $computerUrl)
-        $Command = 'echo "1" | openssl s_client -connect ' + $ParsedUrl.Host + ':' + $ParsedUrl.Port + ' -showcerts'
-        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-        $SSHOutput = $SSHRes.Output | out-string
-    }
-    catch {
-        throw "Failure to download the certificate from $computerUrl. $_"
-    }
-    return $SSHOutput
 }
 
 <#
@@ -633,7 +612,7 @@ function New-LDAPSIdentitySource {
         if ($PSBoundParameters.ContainsKey('SecondaryUrl')) {
             $remoteComputers += $SecondaryUrl
         }
-        $DestinationFileArray = Save-CertificateToLocalFile $remoteComputers
+        $DestinationFileArray = Get-CertificateFromDomainContollerToLocalFile $remoteComputers
     }
 
     [System.Array]$Certificates =
@@ -720,7 +699,7 @@ function Update-IdentitySourceCertificates {
                     $remoteComputers += $IdentitySource.FailoverUrl
                     Write-Host "* The Failover URL is $($IdentitySource.FailoverUrl)."
                 }
-                $DestinationFileArray = Save-CertificateToLocalFile $remoteComputers
+                $DestinationFileArray = Get-CertificateFromDomainContollerToLocalFile $remoteComputers
             }
             [System.Array]$Certificates =
             foreach ($CertFile in $DestinationFileArray) {
