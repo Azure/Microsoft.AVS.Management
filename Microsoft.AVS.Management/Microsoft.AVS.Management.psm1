@@ -263,7 +263,7 @@ function Get-CertificateFromServerToLocalFile {
     )
 
     $DestinationFileArray = @()
-    $exportFolder = "./"
+    $exportFolder = $pwd.Path + "/"
     foreach ($computerUrl in $remoteComputers) {
         if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) { 
             throw "Incorrect Url format entered from: $computerUrl" 
