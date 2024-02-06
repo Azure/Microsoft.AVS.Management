@@ -253,7 +253,7 @@ function New-LDAPIdentitySource {
     .Synopsis
      Download certificates from domain controllers and save them to local files
 #>
-function Get-CertificateFromDomainContollerToLocalFile {
+function Get-CertificateFromServerToLocalFile {
     param (
         [Parameter(
             Mandatory = $true)]
@@ -613,7 +613,7 @@ function New-LDAPSIdentitySource {
         if ($PSBoundParameters.ContainsKey('SecondaryUrl')) {
             $remoteComputers += $SecondaryUrl
         }
-        $DestinationFileArray = Get-CertificateFromDomainContollerToLocalFile $remoteComputers
+        $DestinationFileArray = Get-CertificateFromServerToLocalFile $remoteComputers
     }
 
     [System.Array]$Certificates =
@@ -700,7 +700,7 @@ function Update-IdentitySourceCertificates {
                     $remoteComputers += $IdentitySource.FailoverUrl
                     Write-Host "* The Failover URL is $($IdentitySource.FailoverUrl)."
                 }
-                $DestinationFileArray = Get-CertificateFromDomainContollerToLocalFile $remoteComputers
+                $DestinationFileArray = Get-CertificateFromServerToLocalFile $remoteComputers
             }
             [System.Array]$Certificates =
             foreach ($CertFile in $DestinationFileArray) {
