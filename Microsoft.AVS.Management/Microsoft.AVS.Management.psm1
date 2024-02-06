@@ -251,49 +251,71 @@ function New-LDAPIdentitySource {
 
 <#
     .Synopsis
-     Download the certificate from a domain controller
+     Download certificates from domain controllers and save them to local files
 #>
-function Get-CertificateFromDomainController {
+function Get-CertificateFromServerToLocalFile {
     param (
         [Parameter(
             Mandatory = $true)]
         [ValidateNotNull()]
-        [System.Uri]
-        $ParsedUrl,
-
-        [Parameter(
-            Mandatory = $true)]
-        [ValidateNotNull()]
-        [string]
-        $computerUrl
+        [string[]]
+        $remoteComputers
     )
 
-    try {
-        try {
-            $Command = 'nslookup ' + $ParsedUrl.Host + ' -type=soa'
-            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+    $DestinationFileArray = @()
+    $exportFolder = $pwd.Path + "/"
+    foreach ($computerUrl in $remoteComputers) {
+        if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) { 
+            throw "Incorrect Url format entered from: $computerUrl" 
         }
-        catch {
-            throw "The FQDN $($ParsedUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
+        $ParsedUrl = [System.Uri]$computerUrl
+        if ($ParsedUrl.Port -lt 0 -OR $ParsedUrl.Host -eq "" -OR $ParsedUrl.Scheme -eq "") {
+            throw "Incorrect Url format entered from: $computerUrl. The correct Url format is protocol://host:port (Example: ldaps://yourserver.com:636)." 
+        }
+        $ResultUrlString = $ParsedUrl.GetLeftPart([UriPartial]::Authority)
+        $ResultUrl = [System.Uri]$ResultUrlString
+        if ($ResultUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ResultUrl.Host -as [ipaddress])) {
+            throw "Incorrect Url format. $computerUrl is an IP address. Please use the hostname exactly as specified on the issued certificate."
         }
 
         try {
-            $Command = 'nc -vz ' + $ParsedUrl.Host + ' ' + $ParsedUrl.Port
+            try {
+                $Command = 'nslookup ' + $ResultUrl.Host + ' -type=soa'
+                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+            }
+            catch {
+                throw "The FQDN $($ResultUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
+            }
+    
+            try {
+                $Command = 'nc -vz ' + $ResultUrl.Host + ' ' + $ResultUrl.Port
+                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+            }
+            catch {
+                throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ResultUrl.Port) is open."
+            }
+    
+            Write-Host ("Starting to Download Cert from " + $computerUrl)
+            $Command = 'echo "1" | openssl s_client -connect ' + $ResultUrl.Host + ':' + $ResultUrl.Port + ' -showcerts'
             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+            $SSHOutput = $SSHRes.Output | out-string
         }
         catch {
-            throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ParsedUrl.Port) is open."
+            throw "Failure to download the certificate from $computerUrl. $_"
         }
 
-        Write-Host ("Starting to Download Cert from " + $computerUrl)
-        $Command = 'echo "1" | openssl s_client -connect ' + $ParsedUrl.Host + ':' + $ParsedUrl.Port + ' -showcerts'
-        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-        $SSHOutput = $SSHRes.Output | out-string
+        if ($SSHOutput -notmatch '(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)') {
+            throw "The certificate from $computerUrl has an incorrect format"
+        }
+        else {
+            $certs = select-string -inputobject $SSHOutput -pattern "(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)" -allmatches
+            $cert = $certs.matches[0]
+            $exportPath = $exportFolder + ($ResultUrl.Host.split(".")[0]) + ".cer"
+            $cert.Value | Out-File $exportPath -Encoding ascii
+            $DestinationFileArray += $exportPath
+        }
     }
-    catch {
-        throw "Failure to download the certificate from $computerUrl. $_"
-    }
-    return $SSHOutput
+    return $DestinationFileArray
 }
 
 <#
@@ -587,37 +609,11 @@ function New-LDAPSIdentitySource {
         $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl -ErrorAction Stop
     }
     else {
-        $exportFolder = "$home/"
         $remoteComputers = , $PrimaryUrl
         if ($PSBoundParameters.ContainsKey('SecondaryUrl')) {
             $remoteComputers += $SecondaryUrl
         }
-
-        foreach ($computerUrl in $remoteComputers) {
-            try {
-                if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) { throw }
-                $ParsedUrl = [System.Uri]$computerUrl
-            }
-            catch {
-                throw "Incorrect Url format entered from: $computerUrl"
-            }
-            if ($ParsedUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ParsedUrl.Host -as [ipaddress])) {
-                throw "Incorrect Url format. $computerUrl is an IP address. Consider using hostname exactly as specified on the issued certificate."
-            }
-
-            $SSHOutput = Get-CertificateFromDomainController -ParsedUrl $ParsedUrl -computerUrl $computerUrl
-
-            if ($SSHOutput -notmatch '(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)') {
-                throw "The certificate from $computerUrl has an incorrect format"
-            }
-            else {
-                $certs = select-string -inputobject $SSHOutput -pattern "(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)" -allmatches
-                $cert = $certs.matches[0]
-                $exportPath = $exportFolder + ($ParsedUrl.Host.split(".")[0]) + ".cer"
-                $cert.Value | Out-File $exportPath -Encoding ascii
-                $DestinationFileArray += $exportPath
-            }
-        }
+        $DestinationFileArray = Get-CertificateFromServerToLocalFile $remoteComputers
     }
 
     [System.Array]$Certificates =
@@ -677,8 +673,8 @@ function Update-IdentitySourceCertificates {
         $DomainName,
 
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
+            Mandatory = $false,
+            HelpMessage = 'Optional: The certs will be downloaded from domain controllers if not specified. A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
         [System.Security.SecureString]
         $SSLCertificatesSasUrl
     )
@@ -687,7 +683,25 @@ function Update-IdentitySourceCertificates {
     if ($null -ne $ExternalIdentitySources) {
         $IdentitySource = $ExternalIdentitySources | Where-Object { $_.Name -eq $DomainName }
         if ($null -ne $IdentitySource) {
-            $DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl -ErrorAction Stop
+            if ($PSBoundParameters.ContainsKey('SSLCertificatesSasUrl')) {
+                $DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl -ErrorAction Stop
+            }
+            else {
+                $remoteComputers = @()
+                if ($null -ne $IdentitySource.PrimaryUrl) {
+                    $remoteComputers += $IdentitySource.PrimaryUrl
+                    Write-Host "* The Primary URL is  $($IdentitySource.PrimaryUrl)."
+                }
+                else {
+                    Write-Error "Internal Error: The primary url of identity source is null." -ErrorAction Stop
+                }
+                
+                if ($null -ne $IdentitySource.FailoverUrl) {
+                    $remoteComputers += $IdentitySource.FailoverUrl
+                    Write-Host "* The Failover URL is $($IdentitySource.FailoverUrl)."
+                }
+                $DestinationFileArray = Get-CertificateFromServerToLocalFile $remoteComputers
+            }
             [System.Array]$Certificates =
             foreach ($CertFile in $DestinationFileArray) {
                 try {
