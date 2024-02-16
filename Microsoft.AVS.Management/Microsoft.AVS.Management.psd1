@@ -53,10 +53,10 @@
     # Modules that must be imported into the global environment prior to importing this module
     RequiredModules   = @(
         @{"ModuleName" = "VMware.vSphere.SsoAdmin"; "RequiredVersion" = "1.3.9" },
-        @{"ModuleName" = "VMware.VimAutomation.Core"; "RequiredVersion" = "12.7.0.20091293" }
-        @{"ModuleName" = "VMware.VimAutomation.Storage"; "RequiredVersion" = "12.7.0.20091292"}
-        @{"ModuleName" = "VMware.VimAutomation.Hcx"; "RequiredVersion" = "12.7.0.20091291"}
-        @{"ModuleName" = "posh-ssh"; "RequiredVersion" = "3.1.1"}
+        @{"ModuleName" = "VMware.VimAutomation.Core"; "RequiredVersion" = "13.2.0.22643732" }
+        @{"ModuleName" = "VMware.VimAutomation.Storage"; "RequiredVersion" = "13.2.0.22643728"}
+        @{"ModuleName" = "VMware.VimAutomation.Hcx"; "RequiredVersion" = "13.0.0.20803747"}
+        @{"ModuleName" = "posh-ssh"; "RequiredVersion" = "3.1.3"}
     )
 
     # @(@{ModuleName="myDependentModule"; ModuleVersion="2.0"; Guid="cfc45206-1e49-459d-a8ad-5b571ef94857"})
