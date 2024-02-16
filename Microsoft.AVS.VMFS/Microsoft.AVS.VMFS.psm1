@@ -357,8 +357,8 @@ function Resize-VmfsVolume {
         $DeviceNaaId
     )
 
-    if ($DeviceNaaId -notlike 'naa.624a9370*') {
-        throw "Invalid Device NAA ID $DeviceNaaId provided."
+    if (-not $DeviceNaaId) {
+        throw "Invalid Device ID $DeviceNaaId provided."
     }
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
