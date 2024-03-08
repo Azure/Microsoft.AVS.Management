@@ -3,6 +3,7 @@
 . $PSScriptRoot\HcxUtils.ps1
 . $PSScriptRoot\AVSGenericUtils.ps1
 . $PSScriptRoot\AVSvSANUtils.ps1
+. $PSScriptRoot\ResourcePoolUtils.ps1
 
 <# Download certificate from SAS token url #>
 function Get-Certificates {
@@ -1569,7 +1570,8 @@ function Set-HcxScaledCpuAndMemorySetting {
         $privileges = @("VirtualMachine.Config.CPUCount",
             "VirtualMachine.Config.Memory",
             "VirtualMachine.Interact.PowerOff",
-            "VirtualMachine.Interact.PowerOn")
+            "VirtualMachine.Interact.PowerOn",
+            "Resource.EditPool")
         $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
         $VcenterConnection = Confirm-ConnectVIServer -Credential $HcxAdminCredential
         if ($null -eq $VcenterConnection -or -not $VcenterConnection.IsConnected) {
@@ -1582,6 +1584,9 @@ function Set-HcxScaledCpuAndMemorySetting {
         $DiskUtilizationTreshold = 90
         $HcxScaledtNumCpu = 8
         $HcxScaledMemoryGb = 24
+        $ResourcePoolName = 'MGMT-ResourcePool'
+        $ResourcePoolCpuReservationIncrease = 8000
+        $ResourcePoolMemoryReservationIncrease = 12000
 
         $HcxVm = Get-HcxManagerVM -Connection $VcenterConnection
         if (-not $HcxVm) {
@@ -1658,6 +1663,14 @@ function Set-HcxScaledCpuAndMemorySetting {
         Write-Host "Guest OS is shut down"
 
         Write-Host "Configuring memory and cpu settings"
+        $params = @{
+            Server = $VcenterConnection
+            ResourcePoolName = $ResourcePoolName
+            MemReservationMBIncrease = $ResourcePoolMemoryReservationIncrease
+            CpuReservationMhzIncrease = $ResourcePoolCpuReservationIncrease
+        }
+        Set-ResourcePoolReservation @params
+
         Set-VM -VM $HcxVm -MemoryGB $HcxScaledMemoryGb -NumCpu $HcxScaledtNumCpu -Confirm:$false -Server $VcenterConnection | Out-Null
 
         Write-Host "Starting $($hcxVm.Name)..."
