@@ -1123,6 +1123,576 @@ function Remove-GroupFromCloudAdmins {
 
 <#
     .Synopsis
+     Add a group from the external identity to the SRM Administrators group
+
+    .Parameter GroupName
+     The group in the customer external identity source to be added to SRM Administrators. Users in this group will have SRM Administrators access. Group name should be formatted without the domain name, e.g. group-to-give-access
+
+    .Parameter Domain
+     Name of the external domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories. For example, MyActiveDirectory.Com
+
+    .Example
+    # Add the group named vsphere-admins to SRM Administrators
+     Add-GroupToSRMAdministrators -GroupName 'srmgrp-admins'
+#>
+function Add-GroupToSRMAdministrators {
+    [CmdletBinding(PositionalBinding = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Name of the group to add to SRM Administrators')]
+        [ValidateNotNull()]
+        [string]
+        $GroupName,
+
+        [Parameter(Mandatory = $false)]
+        [string]
+        $Domain
+    )
+
+    $ExternalSources
+    $GroupToAdd
+    $Domain
+
+    try {
+        $ExternalSources = Get-IdentitySource -External -ErrorAction Stop
+    }
+    catch {
+        throw "Unable to get external identity source. Message: $($PSItem.Exception.Message)" 
+    }
+
+    # Searching the external identities for the domain
+    if ($null -eq $ExternalSources -or 0 -eq $ExternalSources.count) {
+        throw "No external identity source found. Please run New-LDAPSIdentitySource first" 
+    }
+    elseif ($ExternalSources.count -eq 1) {
+        if ($PSBoundParameters.ContainsKey('Domain')) {
+            if ($Domain -ne $ExternalSources.Name) {
+                throw "The Domain passed in ($Domain) does not match the external directory: $($ExternalSources.Name). Try again with -Domain $($ExternalSources.Name)"
+            }
+        }
+    }
+    elseif ($ExternalSources.count -gt 1) {
+        if (-Not ($PSBoundParameters.ContainsKey('Domain'))) {
+            Write-Host "Multiple external identites exist and domain not supplied. Will attempt to search all ADs attached for $GroupName"
+        }
+        else {
+            $FoundDomainMatch = $false
+            foreach ($AD in $ExternalSources) {
+                if ($AD.Name -eq $Domain) {
+                    $FoundDomainMatch = $true
+                    break
+                }
+            }
+            if (-Not $FoundDomainMatch) {
+                Write-Warning "Searched the External Directories: $($ExternalSources | Format-List | Out-String) for $Domain and did not find a match"
+                throw "Was not able to find $Domain in any of the External Directories"
+            }
+        }
+    }
+
+    # Searching for the group in the specified domain, if provided, or all domains, if none provided
+    if ($null -eq $Domain -or -Not ($PSBoundParameters.ContainsKey('Domain'))) {
+        $FoundMatch = $false
+        foreach ($AD in $ExternalSources) {
+            Write-Host "Searching $($AD.Name) for $GroupName"
+            try {
+                $GroupFound = Get-SsoGroup -Name $GroupName -Domain $AD.Name -ErrorAction Stop
+            }
+            catch {
+                Write-Host "Could not find $GroupName in $($AD.Name). Continuing.."
+            }
+            if ($null -ne $GroupFound -and -Not $FoundMatch) {
+                Write-Host "Found $GroupName in $($AD.Name)."
+                $Domain = $AD.Name
+                $GroupToAdd = $GroupFound
+                $FoundMatch = $true
+            }
+            elseif ($null -ne $GroupFound -and $FoundMatch) {
+                Write-Host "Found $GroupName in $($AD.Name) as well."
+                Write-Error "Group $GroupName exists in multiple domains . Please re-run and specify domain" -ErrorAction Stop
+                return
+            }
+            elseif ($null -eq $GroupFound) {
+                Write-Host "$GroupName not found in $($AD.Name)"
+            }
+        }
+        if ($null -eq $GroupToAdd) {
+            Write-Error "$GroupName was not found in any external identity that has been configured. Please ensure that the group name is typed correctly." -ErrorAction Stop
+        }
+    }
+    else {
+        try {
+            Write-Host "Searching $Domain for $GroupName..."
+            $GroupToAdd = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop
+        }
+        catch {
+            throw "Exception $($PSItem.Exception.Message): Unable to get group $GroupName from $Domain"
+        }
+    }
+
+    if ($null -eq $GroupToAdd) {
+        Write-Error "$GroupName was not found in the domain. Please ensure that the group is spelled correctly" -ErrorAction Stop
+    }
+    else {
+        Write-Host "Adding $GroupToAdd to SRM Administrators...."
+    }
+
+    $SRMAdmins = Get-SsoGroup -Name 'SRM Administrators' -Domain 'vsphere.local'
+    if ($null -eq $SRMAdmins) {
+        throw "Internal Error fetching SRM Administrators group. Contact support" -ErrorAction Stop
+    }
+
+    $GroupToAddTuple = [System.Tuple]::Create("$($GroupToAdd.Name)", "$($GroupToAdd.Domain)")
+    $SRMAdminMembers = @()
+    foreach ($a in $(Get-SsoGroup -Group $SRMAdmins)) { $tuple = [System.Tuple]::Create("$($a.Name)", "$($a.Domain)"); $SRMAdminMembers += $tuple }
+    if ($GroupToAddTuple -in $SRMAdminMembers) {
+        Write-Host "Group $($GroupToAddTuple.Item1)@$($($GroupToAddTuple.Item2)) has already been added to SRM Administrators."
+        return
+    }
+
+    try {
+        Write-Host "Adding group $GroupName to SRM Administrators..."
+        Add-GroupToSsoGroup -Group $GroupToAdd -TargetGroup $SRMAdmins -ErrorAction Stop
+    }
+    catch {
+        $SRMAdminMembers = Get-SsoGroup -Group $SRMAdmins -ErrorAction Continue
+        Write-Warning "SRM Administrators Members: $SRMAdminMembers" -ErrorAction Continue
+        throw "Unable to add group to SRM Administrators. Error: $($PSItem.Exception.Message)"
+    }
+
+    Write-Host "Successfully added $GroupName to SRM Administrators."
+    $SRMAdminMembers = Get-SsoGroup -Group $SRMAdmins -ErrorAction Continue
+    Write-Output "SRM Administrators Members: $SRMAdminMembers"
+}
+
+<#
+    .Synopsis
+     Remove a previously added group from an external identity from the SRM Administrators group
+
+    .Parameter GroupName
+     The group in the customer external identity source to be removed from SRM Administrators. Group name should be formatted without the domain name, e.g. group-to-give-access
+
+    .Parameter Domain
+     Name of the external domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories. For example, MyActiveDirectory.Com
+
+    .Example
+    # Remove the group named vsphere-admins from SRM Administrators
+     Remove-GroupFromSRMAdministrators -GroupName 'srmgrp-admins'
+#>
+function Remove-GroupFromSRMAdministrators {
+    [CmdletBinding(PositionalBinding = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Name of the group to remove from SRM Administrators')]
+        [ValidateNotNull()]
+        [string]
+        $GroupName,
+
+        [Parameter(Mandatory = $false)]
+        [string]
+        $Domain
+    )
+
+    $ExternalSources
+    $GroupToRemove
+    $Domain
+
+    try {
+        $ExternalSources = Get-IdentitySource -External -ErrorAction Stop
+    }
+    catch {
+        throw "Unable to get external identity source. Message: $($PSItem.Exception.Message)"
+    }
+
+    # Searching the external identities for the domain
+    if ($null -eq $ExternalSources -or 0 -eq $ExternalSources.count) {
+        Write-Error "No external identity source found. Please run New-LDAPSIdentitySource first" -ErrorAction Stop
+    }
+    elseif ($ExternalSources.count -eq 1) {
+        if ($PSBoundParameters.ContainsKey('Domain')) {
+            if ($Domain -ne $ExternalSources.Name) {
+                Write-Error "The Domain passed in ($Domain) does not match the external directory: $($ExternalSources.Name)" -ErrorAction Stop
+            }
+        }
+    }
+    elseif ($ExternalSources.count -gt 1) {
+        if (-Not ($PSBoundParameters.ContainsKey('Domain'))) {
+            Write-Host "Multiple external identites exist and domain not supplied. Will attempt to search all ADs attached for $GroupName"
+        }
+        else {
+            $FoundDomainMatch = $false
+            foreach ($AD in $ExternalSources) {
+                if ($AD.Name -eq $Domain) {
+                    $FoundDomainMatch = $true
+                    break
+                }
+            }
+            if (-Not $FoundDomainMatch) {
+                Write-Warning "Searched the External Directories: $($ExternalSources | Format-List | Out-String) for $Domain and did not find a match"
+                Write-Error "Was not able to find $Domain in any of the External Directories" -ErrorAction Stop
+            }
+        }
+    }
+
+    # Searching for the group in the specified domain, if provided, or all domains, if none provided
+    if ($null -eq $Domain -or -Not ($PSBoundParameters.ContainsKey('Domain'))) {
+        $FoundMatch = $false
+        foreach ($AD in $ExternalSources) {
+            Write-Host "Searching $($AD.Name) for $GroupName"
+            try {
+                $GroupFound = Get-SsoGroup -Name $GroupName -Domain $AD.Name -ErrorAction Stop
+            }
+            catch {
+                Write-Host "Could not find $GroupName in $($AD.Name). Continuing.."
+            }
+            if ($null -ne $GroupFound -and -Not $FoundMatch) {
+                Write-Host "Found $GroupName in $($AD.Name)."
+                $Domain = $AD.Name
+                $GroupToRemove = $GroupFound
+                $FoundMatch = $true
+            }
+            elseif ($null -ne $GroupFound -and $FoundMatch) {
+                Write-Host "Found $GroupName in $($AD.Name) as well."
+                Write-Error "Group $GroupName exists in multiple domains . Please re-run and specify domain" -ErrorAction Stop
+                return
+            }
+            elseif ($null -eq $GroupFound) {
+                Write-Host "$GroupName not found in $($AD.Name)"
+            }
+        }
+        if ($null -eq $GroupToRemove) {
+            throw "$GroupName was not found in any external identity that has been configured. Please ensure that the group name is typed correctly."
+        }
+    }
+    else {
+        try {
+            Write-Host "Searching $Domain for $GroupName..."
+            $GroupToRemove = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop
+        }
+        catch {
+            throw "Exception $($PSItem.Exception.Message): Unable to get group $GroupName from $Domain"
+        }
+    }
+
+    if ($null -eq $GroupToRemove) {
+        Write-Error "$GroupName was not found in $Domain. Please ensure that the group is spelled correctly" -ErrorAction Stop
+    }
+    else {
+        Write-Host "Removing $GroupToRemove from SRM Administrators...."
+    }
+
+    $SRMAdmins = Get-SsoGroup -Name 'SRM Administrators' -Domain 'vsphere.local'
+    if ($null -eq $SRMAdmins) {
+        throw "Internal Error fetching SRM Administrators group. Contact support"
+    }
+
+    try {
+        Remove-GroupFromSsoGroup -Group $GroupToRemove -TargetGroup $SRMAdmins -ErrorAction Stop
+    }
+    catch {
+        $SRMAdminMembers = Get-SsoGroup -Group $SRMAdmins -ErrorAction Continue
+        Write-Error "Current SRM Administrators Members: $SRMAdminMembers" -ErrorAction Continue
+        throw "Unable to remove group from SRM Administrators. Is it there at all? Error: $($PSItem.Exception.Message)"
+    }
+
+    Write-Information "Group $GroupName successfully removed from SRM Administrators."
+    $SRMAdminMembers = Get-SsoGroup -Group $SRMAdmins -ErrorAction Continue
+    Write-Output "Current SRM Administrators Members: $SRMAdminMembers"
+}
+
+<#
+    .Synopsis
+     Add a group from the external identity to the VRM Administrators group
+
+    .Parameter GroupName
+     The group in the customer external identity source to be added to VRM Administrators. Users in this group will have VRM Administrators access. Group name should be formatted without the domain name, e.g. group-to-give-access
+
+    .Parameter Domain
+     Name of the external domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories. For example, MyActiveDirectory.Com
+
+    .Example
+    # Add the group named vsphere-admins to VRM Administrators
+     Add-GroupToVRMAdministrators -GroupName 'vrmgrp-admins'
+#>
+function Add-GroupToVRMAdministrators {
+    [CmdletBinding(PositionalBinding = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Name of the group to add to VRM Administrators')]
+        [ValidateNotNull()]
+        [string]
+        $GroupName,
+
+        [Parameter(Mandatory = $false)]
+        [string]
+        $Domain
+    )
+
+    $ExternalSources
+    $GroupToAdd
+    $Domain
+
+    try {
+        $ExternalSources = Get-IdentitySource -External -ErrorAction Stop
+    }
+    catch {
+        throw "Unable to get external identity source. Message: $($PSItem.Exception.Message)" 
+    }
+
+    # Searching the external identities for the domain
+    if ($null -eq $ExternalSources -or 0 -eq $ExternalSources.count) {
+        throw "No external identity source found. Please run New-LDAPSIdentitySource first" 
+    }
+    elseif ($ExternalSources.count -eq 1) {
+        if ($PSBoundParameters.ContainsKey('Domain')) {
+            if ($Domain -ne $ExternalSources.Name) {
+                throw "The Domain passed in ($Domain) does not match the external directory: $($ExternalSources.Name). Try again with -Domain $($ExternalSources.Name)"
+            }
+        }
+    }
+    elseif ($ExternalSources.count -gt 1) {
+        if (-Not ($PSBoundParameters.ContainsKey('Domain'))) {
+            Write-Host "Multiple external identites exist and domain not supplied. Will attempt to search all ADs attached for $GroupName"
+        }
+        else {
+            $FoundDomainMatch = $false
+            foreach ($AD in $ExternalSources) {
+                if ($AD.Name -eq $Domain) {
+                    $FoundDomainMatch = $true
+                    break
+                }
+            }
+            if (-Not $FoundDomainMatch) {
+                Write-Warning "Searched the External Directories: $($ExternalSources | Format-List | Out-String) for $Domain and did not find a match"
+                throw "Was not able to find $Domain in any of the External Directories"
+            }
+        }
+    }
+
+    # Searching for the group in the specified domain, if provided, or all domains, if none provided
+    if ($null -eq $Domain -or -Not ($PSBoundParameters.ContainsKey('Domain'))) {
+        $FoundMatch = $false
+        foreach ($AD in $ExternalSources) {
+            Write-Host "Searching $($AD.Name) for $GroupName"
+            try {
+                $GroupFound = Get-SsoGroup -Name $GroupName -Domain $AD.Name -ErrorAction Stop
+            }
+            catch {
+                Write-Host "Could not find $GroupName in $($AD.Name). Continuing.."
+            }
+            if ($null -ne $GroupFound -and -Not $FoundMatch) {
+                Write-Host "Found $GroupName in $($AD.Name)."
+                $Domain = $AD.Name
+                $GroupToAdd = $GroupFound
+                $FoundMatch = $true
+            }
+            elseif ($null -ne $GroupFound -and $FoundMatch) {
+                Write-Host "Found $GroupName in $($AD.Name) as well."
+                Write-Error "Group $GroupName exists in multiple domains . Please re-run and specify domain" -ErrorAction Stop
+                return
+            }
+            elseif ($null -eq $GroupFound) {
+                Write-Host "$GroupName not found in $($AD.Name)"
+            }
+        }
+        if ($null -eq $GroupToAdd) {
+            Write-Error "$GroupName was not found in any external identity that has been configured. Please ensure that the group name is typed correctly." -ErrorAction Stop
+        }
+    }
+    else {
+        try {
+            Write-Host "Searching $Domain for $GroupName..."
+            $GroupToAdd = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop
+        }
+        catch {
+            throw "Exception $($PSItem.Exception.Message): Unable to get group $GroupName from $Domain"
+        }
+    }
+
+    if ($null -eq $GroupToAdd) {
+        Write-Error "$GroupName was not found in the domain. Please ensure that the group is spelled correctly" -ErrorAction Stop
+    }
+    else {
+        Write-Host "Adding $GroupToAdd to VRM Administrators...."
+    }
+
+    $VRMAdmins = Get-SsoGroup -Name 'VRM Administrators' -Domain 'vsphere.local'
+    if ($null -eq $VRMAdmins) {
+        throw "Internal Error fetching VRM Administrators group. Contact support" -ErrorAction Stop
+    }
+
+    $GroupToAddTuple = [System.Tuple]::Create("$($GroupToAdd.Name)", "$($GroupToAdd.Domain)")
+    $VRMAdminMembers = @()
+    foreach ($a in $(Get-SsoGroup -Group $VRMAdmins)) { $tuple = [System.Tuple]::Create("$($a.Name)", "$($a.Domain)"); $VRMAdminMembers += $tuple }
+    if ($GroupToAddTuple -in $VRMAdminMembers) {
+        Write-Host "Group $($GroupToAddTuple.Item1)@$($($GroupToAddTuple.Item2)) has already been added to VRM Administrators."
+        return
+    }
+
+    try {
+        Write-Host "Adding group $GroupName to VRM Administrators..."
+        Add-GroupToSsoGroup -Group $GroupToAdd -TargetGroup $VRMAdmins -ErrorAction Stop
+    }
+    catch {
+        $VRMAdminMembers = Get-SsoGroup -Group $VRMAdmins -ErrorAction Continue
+        Write-Warning "VRM Administrators Members: $VRMAdminMembers" -ErrorAction Continue
+        throw "Unable to add group to VRM Administrators. Error: $($PSItem.Exception.Message)"
+    }
+
+    Write-Host "Successfully added $GroupName to VRM Administrators."
+    $VRMAdminMembers = Get-SsoGroup -Group $VRMAdmins -ErrorAction Continue
+    Write-Output "VRM Administrators Members: $VRMAdminMembers"
+}
+
+<#
+    .Synopsis
+     Remove a previously added group from an external identity from the VRM Administrators group
+
+    .Parameter GroupName
+     The group in the customer external identity source to be removed from VRM Administrators. Group name should be formatted without the domain name, e.g. group-to-give-access
+
+    .Parameter Domain
+     Name of the external domain that GroupName is in. If not provided, will attempt to locate the group in all the configured active directories. For example, MyActiveDirectory.Com
+
+    .Example
+    # Remove the group named vsphere-admins from VRM Administrators
+     Remove-GroupFromVRMAdministrators -GroupName 'vrmgrp-admins'
+#>
+function Remove-GroupFromVRMAdministrators {
+    [CmdletBinding(PositionalBinding = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Name of the group to remove from VRM Administrators')]
+        [ValidateNotNull()]
+        [string]
+        $GroupName,
+
+        [Parameter(Mandatory = $false)]
+        [string]
+        $Domain
+    )
+
+    $ExternalSources
+    $GroupToRemove
+    $Domain
+
+    try {
+        $ExternalSources = Get-IdentitySource -External -ErrorAction Stop
+    }
+    catch {
+        throw "Unable to get external identity source. Message: $($PSItem.Exception.Message)"
+    }
+
+    # Searching the external identities for the domain
+    if ($null -eq $ExternalSources -or 0 -eq $ExternalSources.count) {
+        Write-Error "No external identity source found. Please run New-LDAPSIdentitySource first" -ErrorAction Stop
+    }
+    elseif ($ExternalSources.count -eq 1) {
+        if ($PSBoundParameters.ContainsKey('Domain')) {
+            if ($Domain -ne $ExternalSources.Name) {
+                Write-Error "The Domain passed in ($Domain) does not match the external directory: $($ExternalSources.Name)" -ErrorAction Stop
+            }
+        }
+    }
+    elseif ($ExternalSources.count -gt 1) {
+        if (-Not ($PSBoundParameters.ContainsKey('Domain'))) {
+            Write-Host "Multiple external identites exist and domain not supplied. Will attempt to search all ADs attached for $GroupName"
+        }
+        else {
+            $FoundDomainMatch = $false
+            foreach ($AD in $ExternalSources) {
+                if ($AD.Name -eq $Domain) {
+                    $FoundDomainMatch = $true
+                    break
+                }
+            }
+            if (-Not $FoundDomainMatch) {
+                Write-Warning "Searched the External Directories: $($ExternalSources | Format-List | Out-String) for $Domain and did not find a match"
+                Write-Error "Was not able to find $Domain in any of the External Directories" -ErrorAction Stop
+            }
+        }
+    }
+
+    # Searching for the group in the specified domain, if provided, or all domains, if none provided
+    if ($null -eq $Domain -or -Not ($PSBoundParameters.ContainsKey('Domain'))) {
+        $FoundMatch = $false
+        foreach ($AD in $ExternalSources) {
+            Write-Host "Searching $($AD.Name) for $GroupName"
+            try {
+                $GroupFound = Get-SsoGroup -Name $GroupName -Domain $AD.Name -ErrorAction Stop
+            }
+            catch {
+                Write-Host "Could not find $GroupName in $($AD.Name). Continuing.."
+            }
+            if ($null -ne $GroupFound -and -Not $FoundMatch) {
+                Write-Host "Found $GroupName in $($AD.Name)."
+                $Domain = $AD.Name
+                $GroupToRemove = $GroupFound
+                $FoundMatch = $true
+            }
+            elseif ($null -ne $GroupFound -and $FoundMatch) {
+                Write-Host "Found $GroupName in $($AD.Name) as well."
+                Write-Error "Group $GroupName exists in multiple domains . Please re-run and specify domain" -ErrorAction Stop
+                return
+            }
+            elseif ($null -eq $GroupFound) {
+                Write-Host "$GroupName not found in $($AD.Name)"
+            }
+        }
+        if ($null -eq $GroupToRemove) {
+            throw "$GroupName was not found in any external identity that has been configured. Please ensure that the group name is typed correctly."
+        }
+    }
+    else {
+        try {
+            Write-Host "Searching $Domain for $GroupName..."
+            $GroupToRemove = Get-SsoGroup -Name $GroupName -Domain $Domain -ErrorAction Stop
+        }
+        catch {
+            throw "Exception $($PSItem.Exception.Message): Unable to get group $GroupName from $Domain"
+        }
+    }
+
+    if ($null -eq $GroupToRemove) {
+        Write-Error "$GroupName was not found in $Domain. Please ensure that the group is spelled correctly" -ErrorAction Stop
+    }
+    else {
+        Write-Host "Removing $GroupToRemove from VRM Administrators...."
+    }
+
+    $VRMAdmins = Get-SsoGroup -Name 'VRM Administrators' -Domain 'vsphere.local'
+    if ($null -eq $VRMAdmins) {
+        throw "Internal Error fetching VRM Administrators group. Contact support"
+    }
+
+    try {
+        Remove-GroupFromSsoGroup -Group $GroupToRemove -TargetGroup $VRMAdmins -ErrorAction Stop
+    }
+    catch {
+        $VRMAdminMembers = Get-SsoGroup -Group $VRMAdmins -ErrorAction Continue
+        Write-Error "Current VRM Administrators Members: $VRMAdminMembers" -ErrorAction Continue
+        throw "Unable to remove group from VRM Administrators. Is it there at all? Error: $($PSItem.Exception.Message)"
+    }
+
+    Write-Information "Group $GroupName successfully removed from VRM Administrators."
+    $VRMAdminMembers = Get-SsoGroup -Group $VRMAdmins -ErrorAction Continue
+    Write-Output "Current VRM Administrators Members: $VRMAdminMembers"
+}
+
+<#
+    .Synopsis
      Get all groups that have been added to the cloud admin group
     .Example
     # Get all users in CloudAdmins
