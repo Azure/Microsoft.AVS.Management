@@ -1682,6 +1682,11 @@ function Set-HcxScaledCpuAndMemorySetting {
 
         $HcxVm = Get-VM -Name $HcxVm.Name -Server $VcenterConnection
         Write-Host "$($hcxVm.Name)'s CPU: $($HcxVm.NumCpu) and Memory: $($HcxVm.MemoryGb) Gb Settings"
+
+        if ($HcxVm.NumCpu -ne $HcxScaledtNumCpu -or $HcxVm.MemoryGb -ne $HcxScaledMemoryGb) {
+            throw "Failed to set HCX VM: $($HcxVm.Name) to the desired configuration of $($HcxScaledtNumCpu) CPUs and $($HcxScaledMemoryGb) GB Memory."
+        }
+
         Write-Host "Configuration complete"
     }
     catch {

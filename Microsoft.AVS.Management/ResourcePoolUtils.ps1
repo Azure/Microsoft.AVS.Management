@@ -106,10 +106,10 @@ function Set-ResourcePoolReservation {
     $newMemReservation = $currentMemReservation + $MemReservationMBIncrease
     $newCpuReservation = $currentCpuReservation + $CpuReservationMhzIncrease
 
-    Write-Host "Current CPU Reservation: $currentCpuReservation MHz, New CPU Reservation: $newCpuReservation MHz"
-    Write-Host "Current Memory Reservation: $currentMemReservation MB, New Memory Reservation: $newMemReservation MB"
+    Write-Host "Current CPU Reservation: $currentCpuReservation MHz, New CPU Reservation: $newCpuReservation MHz; Delta $CpuReservationMhzIncrease MHz"
+    Write-Host "Current Memory Reservation: $currentMemReservation MB, New Memory Reservation: $newMemReservation MB; Delta $MemReservationMBIncrease MB"
 
-    Set-ResourcePool -ResourcePool $resourcePool -CpuReservationMhz $newCpuReservation -MemReservationMB $newMemReservation -Server $Server | out-null
+    Set-ResourcePool -ResourcePool $resourcePool -CpuReservationMhz $newCpuReservation -MemReservationMB $newMemReservation -Server $Server -ErrorAction Stop | out-null
 
     $updatedResourcePool = Get-ResourcePoolByName -Server $Server -ResourcePoolName $ResourcePoolName
     if ($updatedResourcePool.CpuReservationMhz -ne $newCpuReservation -or
