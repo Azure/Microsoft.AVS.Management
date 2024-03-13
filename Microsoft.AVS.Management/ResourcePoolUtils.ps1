@@ -106,8 +106,8 @@ function Set-ResourcePoolReservation {
     $newMemReservation = $currentMemReservation + $MemReservationMBIncrease
     $newCpuReservation = $currentCpuReservation + $CpuReservationMhzIncrease
 
-    Write-Host "Current CPU Reservation: $currentCpuReservation MHz, New CPU Reservation: $newCpuReservation MHz; Delta $CpuReservationMhzIncrease MHz"
-    Write-Host "Current Memory Reservation: $currentMemReservation MB, New Memory Reservation: $newMemReservation MB; Delta $MemReservationMBIncrease MB"
+    Write-Host "Resource-Pool-Scale: Current CPU Reservation: $currentCpuReservation MHz, New CPU Reservation: $newCpuReservation MHz; Delta $CpuReservationMhzIncrease MHz"
+    Write-Host "Resource-Pool-Scale: Current Memory Reservation: $currentMemReservation MB, New Memory Reservation: $newMemReservation MB; Delta $MemReservationMBIncrease MB"
 
     Set-ResourcePool -ResourcePool $resourcePool -CpuReservationMhz $newCpuReservation -MemReservationMB $newMemReservation -Server $Server -ErrorAction Stop | out-null
 
