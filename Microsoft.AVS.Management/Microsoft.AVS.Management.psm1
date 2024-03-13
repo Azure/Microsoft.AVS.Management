@@ -1673,15 +1673,15 @@ function Set-HcxScaledCpuAndMemorySetting {
 
         Set-VM -VM $HcxVm -MemoryGB $HcxScaledMemoryGb -NumCpu $HcxScaledtNumCpu -Confirm:$false -Server $VcenterConnection | Out-Null
 
-        Write-Host "Starting $($hcxVm.Name)..."
+        Write-Host "Starting $($HcxVm.Name)..."
         Start-VM -VM $HcxVm -Confirm:$false -Server $VcenterConnection | Out-Null
-        Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
+        Write-Host "$($HcxVm.Name)'s powerstate=$($HcxVm.PowerState)"
 
         Write-Host "Waiting for successful connection to HCX appliance..."
         $hcxConnection = Test-HcxConnection -Server $HcxServer -Count 12 -Port $Port -Credential $HcxAdminCredential -HcxVm $HcxVm
 
         $HcxVm = Get-VM -Name $HcxVm.Name -Server $VcenterConnection
-        Write-Host "HCX-Scale: $($hcxVm.Name)'s CPU: $($HcxVm.NumCpu) and Memory: $($HcxVm.MemoryGb) Gb Settings"
+        Write-Host "HCX-Scale: $($HcxVm.Name)'s CPU: $($HcxVm.NumCpu) and Memory: $($HcxVm.MemoryGb) Gb Settings"
 
         if ($HcxVm.NumCpu -ne $HcxScaledtNumCpu -or $HcxVm.MemoryGb -ne $HcxScaledMemoryGb) {
             throw "Failed to set HCX VM: $($HcxVm.Name) to the desired configuration of $($HcxScaledtNumCpu) CPUs and $($HcxScaledMemoryGb) GB Memory."
