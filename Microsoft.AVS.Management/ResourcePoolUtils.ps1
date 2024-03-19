@@ -105,6 +105,11 @@ function Set-ResourcePoolReservation {
     $CpuReservationMhzTotal = $NewCpuReservation * 1000
     $CpuSharesTotal = $NewCpuReservation * 2000
 
+    $Defaults = Get-DefaultResourcePoolConfig
+    $NewMemReservation = [Math]::Max($NewMemReservation, $Defaults.mem_reservation)
+    $CpuReservationMhzTotal = [Math]::Max($CpuReservationMhzTotal, $Defaults.cpu_reservation)
+    $CpuSharesTotal = [Math]::Max($CpuSharesTotal, $Defaults.cpu_allocation_shares)
+
     Write-Host "ResourcePool-Scale: Current CPU Reservation: $($ResourcePool.CpuReservationMhz) MHz, New CPU Reservation: $CpuReservationMhzTotal MHz; Delta $($CpuReservationMhzTotal - $ResourcePool.CpuReservationMhz) MHz"
     Write-Host "ResourcePool-Scale: Current CPU Shares: $($ResourcePool.NumCpuShares), New CPU Shared: $CpuSharesTotal; Delta Shares $($CpuSharesTotal - $ResourcePool.NumCpuShares)"
     Write-Host "ResourcePool-Scale: Current Memory Reservation: $($ResourcePool.MemReservationGB) GB, New Memory Reservation: $NewMemReservation GB; Delta $($NewMemReservation - $ResourcePool.MemReservationGB) GB"
@@ -116,4 +121,39 @@ function Set-ResourcePoolReservation {
         $UpdatedResourcePool.MemReservationGB -ne $NewMemReservation) {
         throw "Failed to update reservations correctly for $($UpdatedResourcePool.Name)"
     }
+}
+
+<#
+    .SYNOPSIS
+    Retrieves the default configuration settings for a resource pool.
+
+    .DESCRIPTION
+    The Get-DefaultResourcePoolConfig function returns a hashtable containing default configuration settings for resource pools.
+
+    .PARAMETER None
+    This function does not take any parameters.
+
+    .OUTPUTS
+    System.Collections.Hashtable
+    Returns a hashtable with the default configuration settings for resource pools, including:
+    - cpu_reservation: The default CPU reservation in MHz.
+    - cpu_shares: The default CPU shares level (custom).
+    - cpu_allocation_shares: The default CPU allocation shares.
+    - mem_reservation: The default memory reservation in GB.
+    - mem_shares: The default memory shares level (high).
+
+    .EXAMPLE
+    $defaultConfig = Get-DefaultResourcePoolConfig
+    This example retrieves the default resource pool configuration settings and stores them in the `$defaultConfig` variable.
+#>
+function Get-DefaultResourcePoolConfig {
+    $ResourcePoolDefaults = @{
+        cpu_reservation = 46000
+        cpu_shares = 'custom'
+        cpu_allocation_shares = 92000
+        mem_reservation = 176
+        mem_shares = 'high'
+    }
+
+    return $ResourcePoolDefaults
 }
