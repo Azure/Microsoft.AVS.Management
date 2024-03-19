@@ -23,7 +23,7 @@
     Specifies the server from which to retrieve the resource pool. This parameter is mandatory.
 
     .PARAMETER ResourcePoolName
-    Specifies the name of the resource pool to retrieve. This parameter is mandatory and accepts a string value.
+    Specifies the name of the resource pool to retrieve. This parameter  accepts a string value.
 
     .EXAMPLE
     Get-ResourcePoolByName -Server "ServerName" -ResourcePoolName "MyResourcePool"
@@ -38,17 +38,17 @@ function Get-ResourcePoolByName {
         $Server,
 
         [Parameter(
-            Mandatory = $true,
+            Mandatory = $false,
             HelpMessage = 'Specify the name of the resource pool')]
-        [string]$ResourcePoolName
+        [string]$ResourcePoolName = 'MGMT-ResourcePool'
     )
 
-    $resourcePool = Get-ResourcePool -Name $ResourcePoolName -Server $Server -ErrorAction Stop
+    $ResourcePool = Get-ResourcePool -Name $ResourcePoolName -Server $Server -ErrorAction Stop
 
-    if ($null -eq $resourcePool) {
+    if ($null -eq $ResourcePool) {
         throw "Resource pool '$ResourcePoolName' not found on server '$Server'."
     } else {
-            return $resourcePool
+            return $ResourcePool
     }
 }
 
@@ -62,18 +62,18 @@ function Get-ResourcePoolByName {
     .PARAMETER Server
     Specifies the server on which the resource pool is located. This parameter is mandatory.
 
-    .PARAMETER ResourcePoolName
-    Specifies the name of the resource pool whose reservations are to be updated. This parameter is mandatory.
+    .PARAMETER ResourcePool
+    Specifies the resource pool whose reservations are to be updated. This parameter is mandatory.
 
-    .PARAMETER MemReservationMBIncrease
-    Specifies the amount by which to increase the memory reservation, in megabytes (MB). This parameter is mandatory.
+    .PARAMETER MemReservationGB
+    Specifies the amount by which to increase the memory reservation, in gigabytes (GB). This parameter is mandatory.
 
-    .PARAMETER CpuReservationMhzIncrease
+    .PARAMETER CpuReservationMhz
     Specifies the amount by which to increase the CPU reservation, in megahertz (MHz). This parameter is mandatory.
 
     .EXAMPLE
-    Set-ResourcePoolReservation -Server 'Server1' -ResourcePoolName 'ResourcePoolA' -MemReservationMBIncrease 500 -CpuReservationMhzIncrease 1000
-    This command increases the memory reservation of 'ResourcePoolA' on 'Server1' by 500 MB and the CPU reservation by 1000 MHz.
+    Set-ResourcePoolReservation -Server 'Server1' -ResourcePool 'ResourcePoolA' MemReservationGB 5 CpuReservationMhz 10
+    This command increases the memory reservation of 'ResourcePoolA' on 'Server1' by 5 GB and the CPU reservation by 10 MHz.
 #>
 function Set-ResourcePoolReservation {
     param (
@@ -85,35 +85,35 @@ function Set-ResourcePoolReservation {
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'Specify the name of the resource pool')]
-        [string]$ResourcePoolName,
+            HelpMessage = 'Specify the resource pool')]
+        $ResourcePool,
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'Specify the increase in memory reservation in MB')]
-        [int]$MemReservationMBIncrease,
+            HelpMessage = 'Specify the memory reservation in GB')]
+        [int]$MemReservationGB,
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'Specify the increase in CPU reservation in MHz')]
-        [int]$CpuReservationMhzIncrease
+            HelpMessage = 'Specify the CPU reservation in MHz')]
+        [int]$CpuReservationMhz
     )
 
-    $resourcePool = Get-ResourcePoolByName -Server $Server -ResourcePoolName $ResourcePoolName
-    $currentMemReservation = $resourcePool.MemReservationMB
-    $currentCpuReservation = $resourcePool.CpuReservationMhz
+    $ResourcePoolVms = $ResourcePool | Get-VM
+    [int]$NewMemReservation = ($ResourcePoolVms.MemoryGb | Measure-Object -Sum).Sum + $MemReservationGB
+    [int]$NewCpuReservation = ($ResourcePoolVms.NumCpu | Measure-Object -Sum).Sum + $CpuReservationMhz
+    $CpuReservationMhzTotal = $NewCpuReservation * 1000
+    $CpuSharesTotal = $NewCpuReservation * 2000
 
-    $newMemReservation = $currentMemReservation + $MemReservationMBIncrease
-    $newCpuReservation = $currentCpuReservation + $CpuReservationMhzIncrease
+    Write-Host "ResourcePool-Scale: Current CPU Reservation: $($ResourcePool.CpuReservationMhz) MHz, New CPU Reservation: $CpuReservationMhzTotal MHz; Delta $($CpuReservationMhzTotal - $ResourcePool.CpuReservationMhz) MHz"
+    Write-Host "ResourcePool-Scale: Current CPU Shares: $($ResourcePool.NumCpuShares), New CPU Shared: $CpuSharesTotal; Delta Shares $($CpuSharesTotal - $ResourcePool.NumCpuShares)"
+    Write-Host "ResourcePool-Scale: Current Memory Reservation: $($ResourcePool.MemReservationGB) GB, New Memory Reservation: $NewMemReservation GB; Delta $($NewMemReservation - $ResourcePool.MemReservationGB) GB"
 
-    Write-Host "Resource-Pool-Scale: Current CPU Reservation: $currentCpuReservation MHz, New CPU Reservation: $newCpuReservation MHz; Delta $CpuReservationMhzIncrease MHz"
-    Write-Host "Resource-Pool-Scale: Current Memory Reservation: $currentMemReservation MB, New Memory Reservation: $newMemReservation MB; Delta $MemReservationMBIncrease MB"
+    Set-ResourcePool -ResourcePool $ResourcePool -CpuReservationMhz $CpuReservationMhzTotal -CpuSharesLevel:Custom -NumCpuShares $CpuSharesTotal -MemReservationGB $NewMemReservation -MemSharesLevel:High -Server $Server -ErrorAction Stop | out-null
 
-    Set-ResourcePool -ResourcePool $resourcePool -CpuReservationMhz $newCpuReservation -MemReservationMB $newMemReservation -Server $Server -ErrorAction Stop | out-null
-
-    $updatedResourcePool = Get-ResourcePoolByName -Server $Server -ResourcePoolName $ResourcePoolName
-    if ($updatedResourcePool.CpuReservationMhz -ne $newCpuReservation -or
-        $updatedResourcePool.MemReservationMB -ne $newMemReservation) {
-        throw "Failed to update reservations correctly for '$ResourcePoolName'."
+    $UpdatedResourcePool = Get-ResourcePoolByName -Server $Server
+    if ($UpdatedResourcePool.CpuReservationMhz -ne $CpuReservationMhzTotal -or
+        $UpdatedResourcePool.MemReservationGB -ne $NewMemReservation) {
+        throw "Failed to update reservations correctly for $($UpdatedResourcePool.Name)"
     }
 }
