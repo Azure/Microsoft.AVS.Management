@@ -1582,11 +1582,8 @@ function Set-HcxScaledCpuAndMemorySetting {
         $HcxServer = 'hcx'
         $HcxPreferredVersion = '4.3.2'
         $DiskUtilizationTreshold = 90
-        $HcxScaledtNumCpu = 8
+        $HcxScaledNumCpu = 8
         $HcxScaledMemoryGb = 24
-        $ResourcePoolName = 'MGMT-ResourcePool'
-        $ResourcePoolCpuReservationIncrease = 8000
-        $ResourcePoolMemoryReservationIncrease = 12000
 
         $HcxVm = Get-HcxManagerVM -Connection $VcenterConnection
         if (-not $HcxVm) {
@@ -1595,8 +1592,8 @@ function Set-HcxScaledCpuAndMemorySetting {
         if ($HcxVm.PowerState -ne "PoweredOn") {
             throw "$($HcxVm.Name) must be powered on. Current powerstate is $($HcxVm.PowerState)."
         }
-        if (($HcxVm.NumCpu -eq $HcxScaledtNumCpu) -and
-        ($HcxVm.MemoryGb -eq $HcxScaledMemoryGb)) {
+        if (($HcxVm.NumCpu -ge $HcxScaledNumCpu) -and
+        ($HcxVm.MemoryGb -ge $HcxScaledMemoryGb)) {
             throw "HCX VM: $($HcxVm.Name) is already scaled to $($HcxVm.NumCpu) CPUs and $($HcxVm.MemoryGb) Memory."
         }
 
@@ -1610,7 +1607,6 @@ function Set-HcxScaledCpuAndMemorySetting {
         if ($migratingVmsCount -gt 0) {
             throw "There are $migratingVmsCount active migrations. Resume operation at a later time"
         }
-
         Write-Host "$migratingVmsCount active migrations found."
 
         $XHmAuthorization = Get-AuthorizationToken -Credential $HcxAdminCredential -HcxServer $HcxServer
@@ -1619,12 +1615,10 @@ function Set-HcxScaledCpuAndMemorySetting {
         if ($HcxCurrentVersion -lt $HcxPreferredVersion) {
             throw "Current HCX version: $HcxCurrentVersion is less than the prefered version: $HcxPreferredVersion"
         }
-
         Write-Host "Current HCX Version: $HcxCurrentVersion"
 
         Write-Host "Retrieving Appliances"
         $Appliances = Get-HCXAppliance
-
         if ($Appliances.Count -gt 0) {
             $VersionPerAppliance = @{
                 Interconnect   = $HcxPreferredVersion;
@@ -1646,6 +1640,27 @@ function Set-HcxScaledCpuAndMemorySetting {
         $MonitoredDisks = @("/common")
         Invoke-DiskUtilizationThresholdCheck -DiskUtilizationTreshold $DiskUtilizationTreshold -MonitoredDisks $MonitoredDisks -Disks $HcxVmGuest.Disks
 
+        $ResourcePool = Get-ResourcePoolByName -Server $VcenterConnection
+        $AvailableMemoryGB = $ResourcePool.extensiondata.Runtime.memory.unreservedforVM / 1024 / 1024 / 1024
+        $AvailableCpuMHz = $ResourcePool.extensiondata.Runtime.cpu.unreservedforVM
+        $CpuModifier = $HcxScaledNumCpu - $HcxVm.NumCpu
+        $MemoryModifier = $HcxScaledMemoryGb - $HcxVm.MemoryGB
+        if ($AvailableMemoryGB -lt $HcxScaledMemoryGb) {
+            throw "Not enough memory available to support new HCX size.  Memory available is $AvailableMemoryGB GB, memory required is $MemoryModifier GB."
+        }
+        if ($AvailableCpuMHz -lt $HcxScaledNumCpu) {
+            throw` "Not enough CPU available to support new HCX size.  CPU available is $AvailableCpuMHz MHz, CPU required is $CpuModifier MHz."
+        }
+
+        Write-Host "Configuring memory and cpu settings - Memory: $MemoryModifier CPU: $CpuModifier"
+        $params = @{
+            Server = $VcenterConnection
+            ResourcePool = $ResourcePool
+            MemReservationGB = $MemoryModifier
+            CpuReservationMhz = $CpuModifier
+        }
+        Set-ResourcePoolReservation @params
+
         $timeout = 60
         $startTime = Get-Date
 
@@ -1662,16 +1677,7 @@ function Set-HcxScaledCpuAndMemorySetting {
         }
         Write-Host "Guest OS is shut down"
 
-        Write-Host "Configuring memory and cpu settings"
-        $params = @{
-            Server = $VcenterConnection
-            ResourcePoolName = $ResourcePoolName
-            MemReservationMBIncrease = $ResourcePoolMemoryReservationIncrease
-            CpuReservationMhzIncrease = $ResourcePoolCpuReservationIncrease
-        }
-        Set-ResourcePoolReservation @params
-
-        Set-VM -VM $HcxVm -MemoryGB $HcxScaledMemoryGb -NumCpu $HcxScaledtNumCpu -Confirm:$false -Server $VcenterConnection | Out-Null
+        Set-VM -VM $HcxVm -MemoryGB $HcxScaledMemoryGb -NumCpu $HcxScaledNumCpu -Confirm:$false -Server $VcenterConnection | Out-Null
 
         Write-Host "Starting $($HcxVm.Name)..."
         Start-VM -VM $HcxVm -Confirm:$false -Server $VcenterConnection | Out-Null
@@ -1680,11 +1686,11 @@ function Set-HcxScaledCpuAndMemorySetting {
         Write-Host "Waiting for successful connection to HCX appliance..."
         $hcxConnection = Test-HcxConnection -Server $HcxServer -Count 12 -Port $Port -Credential $HcxAdminCredential -HcxVm $HcxVm
 
-        $HcxVm = Get-VM -Name $HcxVm.Name -Server $VcenterConnection
-        Write-Host "HCX-Scale: $($HcxVm.Name)'s CPU: $($HcxVm.NumCpu) and Memory: $($HcxVm.MemoryGb) Gb Settings"
+        $UpdatedHcxVm = Get-VM -Name $HcxVm.Name -Server $VcenterConnection
+        Write-Host "HCX-Scale: $($UpdatedHcxVm.Name)'s Original CPU: $($HcxVm.NumCpu) and Memory: $($HcxVm.MemoryGb) Gb Settings. New CPU: $($UpdatedHcxVm.NumCpu) and Memory: $($UpdatedHcxVm.MemoryGb) Gb Settings"
 
-        if ($HcxVm.NumCpu -ne $HcxScaledtNumCpu -or $HcxVm.MemoryGb -ne $HcxScaledMemoryGb) {
-            throw "Failed to set HCX VM: $($HcxVm.Name) to the desired configuration of $($HcxScaledtNumCpu) CPUs and $($HcxScaledMemoryGb) GB Memory."
+        if ($UpdatedHcxVm.NumCpu -ne $HcxScaledNumCpu -or $UpdatedHcxVm.MemoryGb -ne $HcxScaledMemoryGb) {
+            throw "Failed to set HCX VM: $($UpdatedHcxVm.Name) to the desired configuration of $($HcxScaledNumCpu) CPUs and $($HcxScaledMemoryGb) GB Memory."
         }
 
         Write-Host "Configuration complete"
