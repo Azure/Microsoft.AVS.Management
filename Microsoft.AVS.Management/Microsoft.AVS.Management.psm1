@@ -1643,21 +1643,26 @@ function Set-HcxScaledCpuAndMemorySetting {
         $ResourcePool = Get-ResourcePoolByName -Server $VcenterConnection
         $AvailableMemoryGB = $ResourcePool.extensiondata.Runtime.memory.unreservedforVM / 1024 / 1024 / 1024
         $AvailableCpuMHz = $ResourcePool.extensiondata.Runtime.cpu.unreservedforVM
+        $MemoryReservationGb = $HcxScaledMemoryGb - $HcxVm.MemoryGB
         $CpuModifier = $HcxScaledNumCpu - $HcxVm.NumCpu
-        $MemoryModifier = $HcxScaledMemoryGb - $HcxVm.MemoryGB
-        if ($AvailableMemoryGB -lt $HcxScaledMemoryGb) {
-            throw "Not enough memory available to support new HCX size.  Memory available is $AvailableMemoryGB GB, memory required is $MemoryModifier GB."
+        $CpuReservationMhz = $CpuModifier * 1000
+        $CpuReservationShares = $CpuModifier * 2000
+
+        if ($AvailableMemoryGB -lt $MemoryReservationGb) {
+            throw "Not enough memory available to support new HCX size.  Memory available is $AvailableMemoryGB GB, memory required is $MemoryReservationGb GB."
         }
-        if ($AvailableCpuMHz -lt $HcxScaledNumCpu) {
-            throw` "Not enough CPU available to support new HCX size.  CPU available is $AvailableCpuMHz MHz, CPU required is $CpuModifier MHz."
+        if ($AvailableCpuMHz -lt $CpuReservationMhz) {
+            throw "Not enough CPU available to support new HCX size.  CPU available is $AvailableCpuMHz MHz, CPU required is $CpuReservationMhz MHz."
         }
 
-        Write-Host "Configuring memory and cpu settings - Memory: $MemoryModifier CPU: $CpuModifier"
+        Write-Host "Configuring memory and cpu settings - Memory: $MemoryReservationGb CPU: $CpuReservationMhz Shares: $CpuReservationShares"
+
         $params = @{
             Server = $VcenterConnection
             ResourcePool = $ResourcePool
-            MemReservationGB = $MemoryModifier
-            CpuReservationMhz = $CpuModifier
+            MemoryReservation = $MemoryReservationGb
+            CpuReservation = $CpuReservationMhz
+            SharesReservation = $CpuReservationShares
         }
         Set-ResourcePoolReservation @params
 
