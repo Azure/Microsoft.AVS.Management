@@ -1570,3 +1570,87 @@ function New-NVMeTCPAdapter {
     Write-Host ""
 
 }
+
+<#
+    .SYNOPSIS
+     This function collects all VMs on the provided datastore and creates snapshot of each virtual machine.
+    
+    .PARAMETER -ClusterName
+     vSphere Cluster Name
+    
+    .PARAMETER -DatastoreName
+     Datastore name
+     
+
+    .EXAMPLE
+     New-VmfsVmSnapshot -ClusterName "vSphere-cluster-001" -DatastoreName "myDatastore"   
+
+    .INPUTS
+     vSphere cluster name, datastore name
+
+    .OUTPUTS
+     None.
+#>
+
+function New-VmfsVmSnapshot {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'vSphere Cluster Name')]
+        [String] $ClusterName,
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'datastore name')]
+        [String] $datastoreName
+
+    )
+
+    Write-Host "Creating snapshot of all VMs on the given datastore accessible to cluster $($ClusterName)"
+    Write-Host " " ;
+
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $($ClusterName) does not exist."
+    }
+
+    $Datastore = Get-Datastore -Name $DatastoreName -RelatedObject $Cluster -ErrorAction Ignore
+    if (-not $Datastore) {
+        throw "Datastore $DatastoreName does not exist."
+    }
+
+      
+    $NamedOutputs = @{}
+    $Vms = Get-VM -Datastore $Datastore
+
+    foreach ($Vm in $Vms) {
+        $timeStamp = Get-Date -Format o | ForEach-Object { $_ -replace ":", "-" }
+        $SnapshotName = $Vm.Name + "-" + $timeStamp 
+        
+        if (!$Vm.ExtensionData) {
+            Write-Host "Skipping to create snapshot of virtual machine $($Vm.Name), becuase of unavailable configuration."
+            continue
+        }
+
+        if (($Vm.ExtensionData.OverallStatus -ne "green") -or ($Vm.ExtensionData.guestHeartbeatStatus -ne "green")) {
+            Write-Host "Skipping to create snapshot of virtual machine $($Vm.Name) becuase health status is not OK."
+            continue
+        }
+           
+        try {
+            $Snapshot = New-Snapshot -VM $Vm -Quiesce -Name $SnapshotName -ErrorAction Ignore
+            Write-Host "Snapshot $($Snapshot.Name) created."
+        }
+        catch {
+            Write-Host "Failed to creat snapshot for $($Vm.Name) $($_.Exception)"
+            throw "Failed to creat snapshot for $($Vm.Name) $($_.Exception)"
+        }
+    }
+
+    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global    
+    Write-Host ""
+    
+}

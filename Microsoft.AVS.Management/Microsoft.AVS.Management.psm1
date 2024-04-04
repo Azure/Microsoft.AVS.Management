@@ -3,6 +3,7 @@
 . $PSScriptRoot\HcxUtils.ps1
 . $PSScriptRoot\AVSGenericUtils.ps1
 . $PSScriptRoot\AVSvSANUtils.ps1
+. $PSScriptRoot\ResourcePoolUtils.ps1
 
 <# Download certificate from SAS token url #>
 function Get-Certificates {
@@ -1569,7 +1570,8 @@ function Set-HcxScaledCpuAndMemorySetting {
         $privileges = @("VirtualMachine.Config.CPUCount",
             "VirtualMachine.Config.Memory",
             "VirtualMachine.Interact.PowerOff",
-            "VirtualMachine.Interact.PowerOn")
+            "VirtualMachine.Interact.PowerOn",
+            "Resource.EditPool")
         $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
         $VcenterConnection = Confirm-ConnectVIServer -Credential $HcxAdminCredential
         if ($null -eq $VcenterConnection -or -not $VcenterConnection.IsConnected) {
@@ -1580,7 +1582,7 @@ function Set-HcxScaledCpuAndMemorySetting {
         $HcxServer = 'hcx'
         $HcxPreferredVersion = '4.3.2'
         $DiskUtilizationTreshold = 90
-        $HcxScaledtNumCpu = 8
+        $HcxScaledNumCpu = 8
         $HcxScaledMemoryGb = 24
 
         $HcxVm = Get-HcxManagerVM -Connection $VcenterConnection
@@ -1590,8 +1592,8 @@ function Set-HcxScaledCpuAndMemorySetting {
         if ($HcxVm.PowerState -ne "PoweredOn") {
             throw "$($HcxVm.Name) must be powered on. Current powerstate is $($HcxVm.PowerState)."
         }
-        if (($HcxVm.NumCpu -eq $HcxScaledtNumCpu) -and
-        ($HcxVm.MemoryGb -eq $HcxScaledMemoryGb)) {
+        if (($HcxVm.NumCpu -ge $HcxScaledNumCpu) -and
+        ($HcxVm.MemoryGb -ge $HcxScaledMemoryGb)) {
             throw "HCX VM: $($HcxVm.Name) is already scaled to $($HcxVm.NumCpu) CPUs and $($HcxVm.MemoryGb) Memory."
         }
 
@@ -1605,7 +1607,6 @@ function Set-HcxScaledCpuAndMemorySetting {
         if ($migratingVmsCount -gt 0) {
             throw "There are $migratingVmsCount active migrations. Resume operation at a later time"
         }
-
         Write-Host "$migratingVmsCount active migrations found."
 
         $XHmAuthorization = Get-AuthorizationToken -Credential $HcxAdminCredential -HcxServer $HcxServer
@@ -1614,12 +1615,10 @@ function Set-HcxScaledCpuAndMemorySetting {
         if ($HcxCurrentVersion -lt $HcxPreferredVersion) {
             throw "Current HCX version: $HcxCurrentVersion is less than the prefered version: $HcxPreferredVersion"
         }
-
         Write-Host "Current HCX Version: $HcxCurrentVersion"
 
         Write-Host "Retrieving Appliances"
         $Appliances = Get-HCXAppliance
-
         if ($Appliances.Count -gt 0) {
             $VersionPerAppliance = @{
                 Interconnect   = $HcxPreferredVersion;
@@ -1641,6 +1640,32 @@ function Set-HcxScaledCpuAndMemorySetting {
         $MonitoredDisks = @("/common")
         Invoke-DiskUtilizationThresholdCheck -DiskUtilizationTreshold $DiskUtilizationTreshold -MonitoredDisks $MonitoredDisks -Disks $HcxVmGuest.Disks
 
+        $ResourcePool = Get-ResourcePoolByName -Server $VcenterConnection
+        $AvailableMemoryGB = $ResourcePool.extensiondata.Runtime.memory.unreservedforVM / 1024 / 1024 / 1024
+        $AvailableCpuMHz = $ResourcePool.extensiondata.Runtime.cpu.unreservedforVM
+        $MemoryReservationGb = $HcxScaledMemoryGb - $HcxVm.MemoryGB
+        $CpuModifier = $HcxScaledNumCpu - $HcxVm.NumCpu
+        $CpuReservationMhz = $CpuModifier * 1000
+        $CpuReservationShares = $CpuModifier * 2000
+
+        if ($AvailableMemoryGB -lt $MemoryReservationGb) {
+            throw "Not enough memory available to support new HCX size.  Memory available is $AvailableMemoryGB GB, memory required is $MemoryReservationGb GB."
+        }
+        if ($AvailableCpuMHz -lt $CpuReservationMhz) {
+            throw "Not enough CPU available to support new HCX size.  CPU available is $AvailableCpuMHz MHz, CPU required is $CpuReservationMhz MHz."
+        }
+
+        Write-Host "Configuring memory and cpu settings - Memory: $MemoryReservationGb CPU: $CpuReservationMhz Shares: $CpuReservationShares"
+
+        $params = @{
+            Server = $VcenterConnection
+            ResourcePool = $ResourcePool
+            MemoryReservation = $MemoryReservationGb
+            CpuReservation = $CpuReservationMhz
+            SharesReservation = $CpuReservationShares
+        }
+        Set-ResourcePoolReservation @params
+
         $timeout = 60
         $startTime = Get-Date
 
@@ -1657,18 +1682,22 @@ function Set-HcxScaledCpuAndMemorySetting {
         }
         Write-Host "Guest OS is shut down"
 
-        Write-Host "Configuring memory and cpu settings"
-        Set-VM -VM $HcxVm -MemoryGB $HcxScaledMemoryGb -NumCpu $HcxScaledtNumCpu -Confirm:$false -Server $VcenterConnection | Out-Null
+        Set-VM -VM $HcxVm -MemoryGB $HcxScaledMemoryGb -NumCpu $HcxScaledNumCpu -Confirm:$false -Server $VcenterConnection | Out-Null
 
-        Write-Host "Starting $($hcxVm.Name)..."
+        Write-Host "Starting $($HcxVm.Name)..."
         Start-VM -VM $HcxVm -Confirm:$false -Server $VcenterConnection | Out-Null
-        Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
+        Write-Host "$($HcxVm.Name)'s powerstate=$($HcxVm.PowerState)"
 
         Write-Host "Waiting for successful connection to HCX appliance..."
         $hcxConnection = Test-HcxConnection -Server $HcxServer -Count 12 -Port $Port -Credential $HcxAdminCredential -HcxVm $HcxVm
 
-        $HcxVm = Get-VM -Name $HcxVm.Name -Server $VcenterConnection
-        Write-Host "$($hcxVm.Name)'s CPU: $($HcxVm.NumCpu) and Memory: $($HcxVm.MemoryGb) Gb Settings"
+        $UpdatedHcxVm = Get-VM -Name $HcxVm.Name -Server $VcenterConnection
+        Write-Host "HCX-Scale: $($UpdatedHcxVm.Name)'s Original CPU: $($HcxVm.NumCpu) and Memory: $($HcxVm.MemoryGb) Gb Settings. New CPU: $($UpdatedHcxVm.NumCpu) and Memory: $($UpdatedHcxVm.MemoryGb) Gb Settings"
+
+        if ($UpdatedHcxVm.NumCpu -ne $HcxScaledNumCpu -or $UpdatedHcxVm.MemoryGb -ne $HcxScaledMemoryGb) {
+            throw "Failed to set HCX VM: $($UpdatedHcxVm.Name) to the desired configuration of $($HcxScaledNumCpu) CPUs and $($HcxScaledMemoryGb) GB Memory."
+        }
+
         Write-Host "Configuration complete"
     }
     catch {
