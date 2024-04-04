@@ -82,6 +82,10 @@
         "Get-VmfsHosts",
         "Get-StorageAdapters",
         "Get-VmKernelAdapters",
+        "Connect-NVMeTCPTarget",
+        "Disconnect-NVMeTCPTarget",
+        "Set-NVMeTCP",
+        "New-NVMeTCPAdapter",
         "New-VmfsVmSnapshot"
     )
 
