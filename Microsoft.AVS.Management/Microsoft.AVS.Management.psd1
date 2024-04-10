@@ -57,6 +57,7 @@
         @{"ModuleName" = "VMware.VimAutomation.Storage"; "RequiredVersion" = "13.2.0.22643728"}
         @{"ModuleName" = "VMware.VimAutomation.Hcx"; "RequiredVersion" = "13.0.0.20803747"}
         @{"ModuleName" = "posh-ssh"; "RequiredVersion" = "3.1.3"}
+        @{"ModuleName" = "Microsoft.AVS.HCX"; "RequiredVersion" = "1.1.157-dev"}
     )
 
     # @(@{ModuleName="myDependentModule"; ModuleVersion="2.0"; Guid="cfc45206-1e49-459d-a8ad-5b571ef94857"})
@@ -93,8 +94,6 @@
          "Remove-GroupFromCloudAdmins"
          "Get-CloudAdminGroups"
          "Update-IdentitySourceCredential"
-         "Set-HcxScaledCpuAndMemorySetting"
-         "Restart-HcxManager"
          "Set-ToolsRepo"
          "Set-vSANCompressDedupe"
          "New-AVSStoragePolicy"
