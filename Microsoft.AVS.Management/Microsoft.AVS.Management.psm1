@@ -1,9 +1,6 @@
 <# Private Function Import #>
-. $PSScriptRoot\UserUtils.ps1
-. $PSScriptRoot\HcxUtils.ps1
 . $PSScriptRoot\AVSGenericUtils.ps1
 . $PSScriptRoot\AVSvSANUtils.ps1
-. $PSScriptRoot\ResourcePoolUtils.ps1
 
 <# Download certificate from SAS token url #>
 function Get-Certificates {
@@ -266,12 +263,12 @@ function Get-CertificateFromServerToLocalFile {
     $DestinationFileArray = @()
     $exportFolder = $pwd.Path + "/"
     foreach ($computerUrl in $remoteComputers) {
-        if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) { 
-            throw "Incorrect Url format entered from: $computerUrl" 
+        if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) {
+            throw "Incorrect Url format entered from: $computerUrl"
         }
         $ParsedUrl = [System.Uri]$computerUrl
         if ($ParsedUrl.Port -lt 0 -OR $ParsedUrl.Host -eq "" -OR $ParsedUrl.Scheme -eq "") {
-            throw "Incorrect Url format entered from: $computerUrl. The correct Url format is protocol://host:port (Example: ldaps://yourserver.com:636)." 
+            throw "Incorrect Url format entered from: $computerUrl. The correct Url format is protocol://host:port (Example: ldaps://yourserver.com:636)."
         }
         $ResultUrlString = $ParsedUrl.GetLeftPart([UriPartial]::Authority)
         $ResultUrl = [System.Uri]$ResultUrlString
@@ -287,7 +284,7 @@ function Get-CertificateFromServerToLocalFile {
             catch {
                 throw "The FQDN $($ResultUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
             }
-    
+
             try {
                 $Command = 'nc -vz ' + $ResultUrl.Host + ' ' + $ResultUrl.Port
                 $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
@@ -295,7 +292,7 @@ function Get-CertificateFromServerToLocalFile {
             catch {
                 throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ResultUrl.Port) is open."
             }
-    
+
             Write-Host ("Starting to Download Cert from " + $computerUrl)
             $Command = 'echo "1" | openssl s_client -connect ' + $ResultUrl.Host + ':' + $ResultUrl.Port + ' -showcerts'
             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
@@ -343,18 +340,18 @@ function Debug-LDAPSIdentitySources {
             Write-Host "* OpenLDAP Identity Source $($_.Name) detected."
 
             $urls = @()
-            if(-not ($_.PrimaryUrl -eq $null)) {
+            if(-not ($null -eq $_.PrimaryUrl)) {
                 $urls += $_.PrimaryUrl
                 Write-Host "* The Primary URL is  $($_.PrimaryUrl)."
             }
-            if(-not ($_.FailoverUrl -eq $null)) {
+            if(-not ($null -eq $_.FailoverUrl)) {
                 $urls += $_.FailoverUrl
                 Write-Host "* The Failover URL is $($_.FailoverUrl)."
             }
-            
+
             foreach($url in $urls) {
                 Write-Host "* Checking LDAP URL: $url"
-                
+
                 # Check URL looks okay:
                 # i.e. ldaps://ldap1.ldap.avs.azure.com
                 if($url.ToLower() -match '(?<protocol>ldap|ldaps)://(?<hostname>[a-z0-9\.]+)(?<portspec>$|:[0-9]+)') {
@@ -373,8 +370,8 @@ function Debug-LDAPSIdentitySources {
                     catch {
                         throw "ERROR: Unable to execute grep command on vCenter."
                     }
-                    $SSHOutput = $SSHRes.Output | out-string        
-                    Write-Host "* vCenter /etc/hosts hostname resolution check returned: $($SSHRes.Output)"
+                    $SSHOutput = $SSHRes.Output | out-string
+                    Write-Host "* vCenter /etc/hosts hostname resolution check returned: $SSHOutput"
 
                     # Call Host to check DNS resolution of LDAP server from vCenter"
                     try {
@@ -384,7 +381,7 @@ function Debug-LDAPSIdentitySources {
                     catch {throw "ERROR: Unable to execute host command on vCenter."}
                     Write-Host "* vCenter DNS hostname resolution check returned: $($SSHRes.Output)"
 
-                    # Now let's look at the port numbers            
+                    # Now let's look at the port numbers
                     if($ldap_portspec -ne "") {
                         $ldap_port = $ldap_portspec -match ":([0-9]+)"
                         Write-Host "  LDAP Port number:      $ldap_port"
@@ -397,13 +394,13 @@ function Debug-LDAPSIdentitySources {
                         Write-Host "* LDAP Port to test:    $ldap_port"
                     }
 
-                    # Call NetCat to test if the LDAP port is open 
+                    # Call NetCat to test if the LDAP port is open
                     try {
                         $Command = "nc -vz $ldap_hostname $ldap_port"
                         $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
                     }
                     catch {throw "ERROR: Unable to execute nc command on vCenter."}
-                    
+
                     if($SSHRes.ExitStatus -eq 1) {
                         Write-Error "* vCenter-to-LDAP TCP test FAILED."
 
@@ -423,7 +420,7 @@ function Debug-LDAPSIdentitySources {
                                 Write-Host "* vCenter was able to ping the LDAP server without a problem."
                             } elseif($ping_loss -eq "100") {
                                 Write-Error "* vCenter was unable to ping LDAP server."
-                                
+
                                 # Okay, this is bad. vCenter can't contact the LDAP server with TCP
                                 # nor ping, so let's do a traceroute for the network folks to look at:
                                 try {
@@ -696,7 +693,7 @@ function Update-IdentitySourceCertificates {
                 else {
                     Write-Error "Internal Error: The primary url of identity source is null." -ErrorAction Stop
                 }
-                
+
                 if ($null -ne $IdentitySource.FailoverUrl) {
                     $remoteComputers += $IdentitySource.FailoverUrl
                     Write-Host "* The Failover URL is $($IdentitySource.FailoverUrl)."
@@ -1354,363 +1351,6 @@ function Set-ClusterDefaultStoragePolicy {
                 continue
             }
         }
-    }
-}
-
-<#
-    .Synopsis
-    Verify a connection to VIServer with retries and a backoff timer in the case of unexpected exceptions.
-    .Parameter Credential
-    Specifies credential used to connect to VIServer
-    .Example
-    Confirm-ConnectVIServer -Credential -HcxAdminCredential
-#>
-function Confirm-ConnectVIServer {
-    [CmdletBinding()]
-    Param
-    (
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Credential used to connect to VI Server')]
-        [ValidateNotNull()]
-        [System.Management.Automation.PSCredential]
-        [System.Management.Automation.Credential()]
-        $Credential
-    )
-    $Attempts = 3
-    $Backoff = 5
-
-    while ($Attempts -gt 0) {
-        try {
-            $ViServer = Connect-VIServer -Server $VC_ADDRESS -Credential $Credential -Force
-            if ($ViServer.IsConnected) {
-                Write-Host "Connection to VI Server successful."
-                return $ViServer
-            }
-        }
-        catch {
-            Write-Host $_.Exception
-        }
-        Write-Host "Sleeping for $Backoff seconds before trying again."
-        Start-Sleep $Backoff
-        $Attempts--
-    }
-
-    Write-Host "Failed to connect to VI Server."
-    return $ViServer
-}
-
-<#
-    .Synopsis
-    Restarts the HCX Manager VM
-    .Parameter Force
-    Flag to force the restart of the hcxmanager without checking for power state, migrations, or replications.
-    For example, A stuck migration could be preventing the restart without this parameter.
-    .Parameter HardReboot
-    Warning: This Parameter should be used as a last ditch effort where a soft-reboot wouldn't work.
-    Hard Reboots the VM instead of restarting the Guest OS.
-    .Parameter Timeout
-    Number of seconds the script is allowed to wait for sucessful connection to the hcx appliance before timing out.
-    .Example
-    # Skips Migrations and replications and hard reboots the system.
-    Restart-HcxManager -Force -HardReboot
-#>
-function Restart-HCXManager {
-    [AVSAttribute(30, UpdatesSDDC = $false)]
-    Param(
-        [parameter(
-            Mandatory = $false,
-            HelpMessage = "Force restart without checking for migrations and replications.")]
-        [switch]
-        $Force,
-        [Parameter(
-            Mandatory = $false,
-            HelpMessage = 'Reboot the Virtual Machine instead of restarting the Guest OS')]
-        [ValidateNotNull()]
-        [switch]
-        $HardReboot
-    )
-    try {
-        $DefaultViConnection = $DefaultVIServers
-        $UserName = 'tempHcxAdmin'
-        $UserRole = 'tempHcxAdminRole'
-        $Group = 'Administrators'
-        $Port = 443
-
-        Write-Host "Creating new temp scripting user"
-        $privileges = @("VirtualMachine.Interact.PowerOff",
-            "VirtualMachine.Interact.PowerOn",
-            "VirtualMachine.Interact.Reset"
-        )
-        $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
-        $VcenterConnection = Confirm-ConnectVIServer -Credential $HcxAdminCredential
-        if ($null -eq $VcenterConnection -or -not $VcenterConnection.IsConnected) {
-            throw "Error Connecting to Vcenter with $($HcxAdminCredential.userName)"
-        }
-
-        Write-Host "INPUTS: HardReboot=$HardReboot, Force=$Force, Port=$Port, Timeout=$Timeout"
-
-        $HcxServer = 'hcx'
-        $hcxVm = Get-HcxManagerVM -Connection $VcenterConnection
-        if (-not $hcxVm) {
-            throw "HCX VM could not be found. Please check if the HCX addon is installed."
-        }
-        Add-UserToGroup -userName $UserName -group $Group
-
-        if ($hcxVm.PowerState -ne "PoweredOn") {
-            if (-not $Force) {
-                throw "$($hcxVm.Name) must be powered on to restart. Current powerstate is $($hcxVm.PowerState)."
-            }
-            Write-Host "Forcing PowerOn PowerState=$($hcxVm.PowerState), Force=$Force"
-            Start-VM $hcxVm | Out-Null
-            $ForcedPowerOn = $true
-        }
-
-        if (-not $Force) {
-            Write-Host "Connecting to HCX Server at port $Port..."
-            $elapsed = Measure-Command -Expression { Connect-HCXServer -Server $HcxServer -Port $Port -Credential $HcxAdminCredential -ErrorAction Stop }
-            Write-Host "Connected to HCX Server at port $Port elapsed=$elapsed."
-            Write-Host "Checking for active migrations."
-
-            $migratingVmsCount = (Get-HCXMigration -State MIGRATING -Server $HcxServer).Count
-
-            if ($migratingVmsCount -gt 0) {
-                throw "VM cannot restart while migrations are in progress. There are $migratingVmsCount active migrations."
-            }
-
-            Write-Host "$migratingVmsCount active migrations found."
-
-            $XHmAuthorization = Get-AuthorizationToken -Credential $HcxAdminCredential -HcxServer $HcxServer
-            $keysToLookFor = @("activeReplicationCnt", "configuringReplicationCnt", "recoveringReplicationCnt", "syncingReplicationCnt")
-            $JsonBody = @{"type" = "summary" } | ConvertTo-Json
-
-            Write-Host "Checking for Active Replications"
-
-            $replicationSummary = Invoke-RestMethod -Method 'POST' `
-                -Uri https://${hcxServer}/hybridity/api/replications?action=query `
-                -Authentication Basic -SkipCertificateCheck -Credential $HcxAdminCredential `
-                -ContentType 'application/json' -Body $JsonBody -Verbose `
-                -Headers @{ 'x-hm-authorization' = "$xHmAuthorization" } `
-            | ConvertTo-Json | ConvertFrom-Json -AsHashtable
-
-            foreach ($key in $keysToLookFor) {
-                if (!$replicationSummary.containsKey($key)) {
-                    throw "$key not found in replication summary response."
-                }
-
-                $replicationType = $replicationSummary[$key]
-                if ($replicationType.Count -eq 0) {
-                    $runningReplicationCount = 0
-                }
-                else {
-                    $runningReplicationCount = $replicationType["outgoing"]
-                }
-                if ($replicationType.containsKey("incoming")) {
-                    $runningReplicationCount += $replicationType["incoming"]
-                }
-                if ($runningReplicationCount -gt 0) {
-                    throw "VM cannot restart while replications are in progress. $key=$runningReplicationCount"
-                }
-                Write-Host "$key=$runningReplicationCount"
-            }
-            Write-Host "$runningReplicationCount total running replications found."
-        }
-        else {
-            Write-Host "WARNING: Force option given, VM will restart regardless of migration and replication status."
-        }
-        if (-not $ForcedPowerOn) {
-            if ($HardReboot) {
-                Write-Host "Restarting $($hcxVm.Name)..."
-                Restart-VM -VM $hcxVm -Confirm:$false | Out-Null
-                Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
-            }
-            else {
-                Write-Host "Restarting Guest OS..."
-                Restart-VMGuest -VM $hcxVm | Out-Null
-                Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
-            }
-        }
-        $hcxConnection = Test-HcxConnection -Server $HcxServer -Port $Port -Count 12 -Credential $HcxAdminCredential -HcxVm $hcxVm
-    }
-    catch {
-        Write-Error $_
-    }
-    finally {
-        $global:DefaultVIServers = $DefaultViConnection
-        if ($hcxConnection) {
-            Write-Host "Disconnecting from HCX Server."
-            Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force
-        }
-        Remove-TempUser -userName $UserName -userRole $UserRole
-    }
-}
-
-<#
-    .Synopsis
-    Scale the HCX manager vm to the new resource allocation of 8 vCPU and 24 GB RAM (Default 4 vCPU/12GB)
-#>
-function Set-HcxScaledCpuAndMemorySetting {
-    [AVSAttribute(30, UpdatesSDDC = $false)]
-    Param(
-        [parameter(
-            Mandatory = $false,
-            HelpMessage = "HCX manager will be rebooted and will not be available during scaling.")]
-        [bool]
-        $AgreeToRestartHCX = $false
-    )
-    try {
-        $DefaultViConnection = $DefaultVIServers
-        $UserName = 'tempHcxAdmin'
-        $UserRole = 'tempHcxAdminRole'
-        $Group = 'Administrators'
-
-        Assert-CustomerRestartAwareness -AgreeToRestartHCX $AgreeToRestartHCX
-
-        Write-Host "Creating new temp scripting user"
-        $privileges = @("VirtualMachine.Config.CPUCount",
-            "VirtualMachine.Config.Memory",
-            "VirtualMachine.Interact.PowerOff",
-            "VirtualMachine.Interact.PowerOn",
-            "Resource.EditPool")
-        $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
-        $VcenterConnection = Confirm-ConnectVIServer -Credential $HcxAdminCredential
-        if ($null -eq $VcenterConnection -or -not $VcenterConnection.IsConnected) {
-            throw "Error Connecting to Vcenter with $($HcxAdminCredential.userName)"
-        }
-
-        $Port = 443
-        $HcxServer = 'hcx'
-        $HcxPreferredVersion = '4.3.2'
-        $DiskUtilizationTreshold = 90
-        $HcxScaledNumCpu = 8
-        $HcxScaledMemoryGb = 24
-
-        $HcxVm = Get-HcxManagerVM -Connection $VcenterConnection
-        if (-not $HcxVm) {
-            throw "HCX VM could not be found. Please check if the HCX addon is installed."
-        }
-        if ($HcxVm.PowerState -ne "PoweredOn") {
-            throw "$($HcxVm.Name) must be powered on. Current powerstate is $($HcxVm.PowerState)."
-        }
-        if (($HcxVm.NumCpu -ge $HcxScaledNumCpu) -and
-        ($HcxVm.MemoryGb -ge $HcxScaledMemoryGb)) {
-            throw "HCX VM: $($HcxVm.Name) is already scaled to $($HcxVm.NumCpu) CPUs and $($HcxVm.MemoryGb) Memory."
-        }
-
-        Write-Host "Connecting to HCX Server at port $Port..."
-        Add-UserToGroup -userName $UserName -group $Group
-        $elapsed = Measure-Command -Expression { Connect-HCXServer -Server $HcxServer -Port $Port -Credential $HcxAdminCredential -ErrorAction Stop }
-        Write-Host "Connected to HCX Server at port $Port elapsed=$elapsed."
-
-        Write-Host "Checking for active migrations."
-        $migratingVmsCount = (Get-HCXMigration -State MIGRATING -Server $HcxServer).Count
-        if ($migratingVmsCount -gt 0) {
-            throw "There are $migratingVmsCount active migrations. Resume operation at a later time"
-        }
-        Write-Host "$migratingVmsCount active migrations found."
-
-        $XHmAuthorization = Get-AuthorizationToken -Credential $HcxAdminCredential -HcxServer $HcxServer
-        $HcxMetaData = Get-HcxMetaData -HcxServer $HcxServer -XHmAuthorization $XHmAuthorization
-        $HcxCurrentVersion = $HcxMetaData.endpoint.version
-        if ($HcxCurrentVersion -lt $HcxPreferredVersion) {
-            throw "Current HCX version: $HcxCurrentVersion is less than the prefered version: $HcxPreferredVersion"
-        }
-        Write-Host "Current HCX Version: $HcxCurrentVersion"
-
-        Write-Host "Retrieving Appliances"
-        $Appliances = Get-HCXAppliance
-        if ($Appliances.Count -gt 0) {
-            $VersionPerAppliance = @{
-                Interconnect   = $HcxPreferredVersion;
-                L2Concentrator = $HcxPreferredVersion
-            }
-
-            foreach ($Appliance in $appliances) {
-                if ($VersionPerAppliance.ContainsKey("$($Appliance."Type")") -and
-                    $Appliance."CurrentVersion" -lt $VersionPerAppliance["$($Appliance."Type")"]) {
-                    throw "Current Appliance: $($Appliance."Type") version: $($Appliance."CurrentVersion") is less than the prefered version: $HcxPreferredVersion"
-                }
-            }
-        }
-        Write-Host "$($Appliances.Count) appliances found."
-
-        Write-Host "Retrieving HCX Guest VM Data"
-        $HcxVmGuest = Get-VMGuest -VM $HcxVM -Server $VcenterConnection
-
-        $MonitoredDisks = @("/common")
-        Invoke-DiskUtilizationThresholdCheck -DiskUtilizationTreshold $DiskUtilizationTreshold -MonitoredDisks $MonitoredDisks -Disks $HcxVmGuest.Disks
-
-        $ResourcePool = Get-ResourcePoolByName -Server $VcenterConnection
-        $AvailableMemoryGB = $ResourcePool.extensiondata.Runtime.memory.unreservedforVM / 1024 / 1024 / 1024
-        $AvailableCpuMHz = $ResourcePool.extensiondata.Runtime.cpu.unreservedforVM
-        $MemoryReservationGb = $HcxScaledMemoryGb - $HcxVm.MemoryGB
-        $CpuModifier = $HcxScaledNumCpu - $HcxVm.NumCpu
-        $CpuReservationMhz = $CpuModifier * 1000
-        $CpuReservationShares = $CpuModifier * 2000
-
-        if ($AvailableMemoryGB -lt $MemoryReservationGb) {
-            throw "Not enough memory available to support new HCX size.  Memory available is $AvailableMemoryGB GB, memory required is $MemoryReservationGb GB."
-        }
-        if ($AvailableCpuMHz -lt $CpuReservationMhz) {
-            throw "Not enough CPU available to support new HCX size.  CPU available is $AvailableCpuMHz MHz, CPU required is $CpuReservationMhz MHz."
-        }
-
-        Write-Host "Configuring memory and cpu settings - Memory: $MemoryReservationGb CPU: $CpuReservationMhz Shares: $CpuReservationShares"
-
-        $params = @{
-            Server = $VcenterConnection
-            ResourcePool = $ResourcePool
-            MemoryReservation = $MemoryReservationGb
-            CpuReservation = $CpuReservationMhz
-            SharesReservation = $CpuReservationShares
-        }
-        Set-ResourcePoolReservation @params
-
-        $timeout = 60
-        $startTime = Get-Date
-
-        Write-Host "Shutting Down Guest OS"
-        Stop-VMGuest -VM $HcxVm -Confirm:$false -Server $VcenterConnection | Out-Null
-        while ($(Get-VMGuest -VM $HcxVm -Server $VcenterConnection).State -ne 'NotRunning') {
-            Start-Sleep -Seconds 5
-            Write-Host "$($HcxVm.Name)'s Guest OS powerstate=$($(Get-VMGuest -VM $HcxVm -Server $VcenterConnection).State)"
-
-            $elapsedTime = (Get-Date) - $startTime
-            if ($elapsedTime.TotalSeconds -ge $timeout) {
-                throw "Timeout reached. Unable to stop the VM's guest OS within the specified time."
-            }
-        }
-        Write-Host "Guest OS is shut down"
-
-        Set-VM -VM $HcxVm -MemoryGB $HcxScaledMemoryGb -NumCpu $HcxScaledNumCpu -Confirm:$false -Server $VcenterConnection | Out-Null
-
-        Write-Host "Starting $($HcxVm.Name)..."
-        Start-VM -VM $HcxVm -Confirm:$false -Server $VcenterConnection | Out-Null
-        Write-Host "$($HcxVm.Name)'s powerstate=$($HcxVm.PowerState)"
-
-        Write-Host "Waiting for successful connection to HCX appliance..."
-        $hcxConnection = Test-HcxConnection -Server $HcxServer -Count 12 -Port $Port -Credential $HcxAdminCredential -HcxVm $HcxVm
-
-        $UpdatedHcxVm = Get-VM -Name $HcxVm.Name -Server $VcenterConnection
-        Write-Host "HCX-Scale: $($UpdatedHcxVm.Name)'s Original CPU: $($HcxVm.NumCpu) and Memory: $($HcxVm.MemoryGb) Gb Settings. New CPU: $($UpdatedHcxVm.NumCpu) and Memory: $($UpdatedHcxVm.MemoryGb) Gb Settings"
-
-        if ($UpdatedHcxVm.NumCpu -ne $HcxScaledNumCpu -or $UpdatedHcxVm.MemoryGb -ne $HcxScaledMemoryGb) {
-            throw "Failed to set HCX VM: $($UpdatedHcxVm.Name) to the desired configuration of $($HcxScaledNumCpu) CPUs and $($HcxScaledMemoryGb) GB Memory."
-        }
-
-        Write-Host "Configuration complete"
-    }
-    catch {
-        Write-Error $_
-    }
-    finally {
-        $global:DefaultVIServers = $DefaultViConnection
-
-        if ($hcxConnection) {
-            Write-Host "Disconnecting from HCX Server."
-            Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force
-        }
-        Remove-TempUser -userName $UserName -userRole $UserRole
     }
 }
 

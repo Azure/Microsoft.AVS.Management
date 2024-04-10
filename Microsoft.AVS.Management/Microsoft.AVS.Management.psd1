@@ -12,7 +12,7 @@
     RootModule        = 'Microsoft.AVS.Management.psm1'
 
     # Version number of this module.
-    ModuleVersion     = '6.0.0'
+    ModuleVersion     = '7.0.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -55,7 +55,6 @@
         @{"ModuleName" = "VMware.vSphere.SsoAdmin"; "RequiredVersion" = "1.3.9" },
         @{"ModuleName" = "VMware.VimAutomation.Core"; "RequiredVersion" = "13.2.0.22643732" }
         @{"ModuleName" = "VMware.VimAutomation.Storage"; "RequiredVersion" = "13.2.0.22643728"}
-        @{"ModuleName" = "VMware.VimAutomation.Hcx"; "RequiredVersion" = "13.0.0.20803747"}
         @{"ModuleName" = "posh-ssh"; "RequiredVersion" = "3.1.3"}
     )
 
@@ -93,8 +92,6 @@
          "Remove-GroupFromCloudAdmins"
          "Get-CloudAdminGroups"
          "Update-IdentitySourceCredential"
-         "Set-HcxScaledCpuAndMemorySetting"
-         "Restart-HcxManager"
          "Set-ToolsRepo"
          "Set-vSANCompressDedupe"
          "New-AVSStoragePolicy"
