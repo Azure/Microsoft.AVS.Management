@@ -263,12 +263,12 @@ function Get-CertificateFromServerToLocalFile {
     $DestinationFileArray = @()
     $exportFolder = $pwd.Path + "/"
     foreach ($computerUrl in $remoteComputers) {
-        if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) { 
-            throw "Incorrect Url format entered from: $computerUrl" 
+        if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) {
+            throw "Incorrect Url format entered from: $computerUrl"
         }
         $ParsedUrl = [System.Uri]$computerUrl
         if ($ParsedUrl.Port -lt 0 -OR $ParsedUrl.Host -eq "" -OR $ParsedUrl.Scheme -eq "") {
-            throw "Incorrect Url format entered from: $computerUrl. The correct Url format is protocol://host:port (Example: ldaps://yourserver.com:636)." 
+            throw "Incorrect Url format entered from: $computerUrl. The correct Url format is protocol://host:port (Example: ldaps://yourserver.com:636)."
         }
         $ResultUrlString = $ParsedUrl.GetLeftPart([UriPartial]::Authority)
         $ResultUrl = [System.Uri]$ResultUrlString
@@ -284,7 +284,7 @@ function Get-CertificateFromServerToLocalFile {
             catch {
                 throw "The FQDN $($ResultUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
             }
-    
+
             try {
                 $Command = 'nc -vz ' + $ResultUrl.Host + ' ' + $ResultUrl.Port
                 $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
@@ -292,7 +292,7 @@ function Get-CertificateFromServerToLocalFile {
             catch {
                 throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ResultUrl.Port) is open."
             }
-    
+
             Write-Host ("Starting to Download Cert from " + $computerUrl)
             $Command = 'echo "1" | openssl s_client -connect ' + $ResultUrl.Host + ':' + $ResultUrl.Port + ' -showcerts'
             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
@@ -340,18 +340,18 @@ function Debug-LDAPSIdentitySources {
             Write-Host "* OpenLDAP Identity Source $($_.Name) detected."
 
             $urls = @()
-            if(-not ($_.PrimaryUrl -eq $null)) {
+            if(-not ($null -eq $_.PrimaryUrl)) {
                 $urls += $_.PrimaryUrl
                 Write-Host "* The Primary URL is  $($_.PrimaryUrl)."
             }
-            if(-not ($_.FailoverUrl -eq $null)) {
+            if(-not ($null -eq $_.FailoverUrl)) {
                 $urls += $_.FailoverUrl
                 Write-Host "* The Failover URL is $($_.FailoverUrl)."
             }
-            
+
             foreach($url in $urls) {
                 Write-Host "* Checking LDAP URL: $url"
-                
+
                 # Check URL looks okay:
                 # i.e. ldaps://ldap1.ldap.avs.azure.com
                 if($url.ToLower() -match '(?<protocol>ldap|ldaps)://(?<hostname>[a-z0-9\.]+)(?<portspec>$|:[0-9]+)') {
@@ -370,8 +370,8 @@ function Debug-LDAPSIdentitySources {
                     catch {
                         throw "ERROR: Unable to execute grep command on vCenter."
                     }
-                    $SSHOutput = $SSHRes.Output | out-string        
-                    Write-Host "* vCenter /etc/hosts hostname resolution check returned: $($SSHRes.Output)"
+                    $SSHOutput = $SSHRes.Output | out-string
+                    Write-Host "* vCenter /etc/hosts hostname resolution check returned: $SSHOutput"
 
                     # Call Host to check DNS resolution of LDAP server from vCenter"
                     try {
@@ -381,7 +381,7 @@ function Debug-LDAPSIdentitySources {
                     catch {throw "ERROR: Unable to execute host command on vCenter."}
                     Write-Host "* vCenter DNS hostname resolution check returned: $($SSHRes.Output)"
 
-                    # Now let's look at the port numbers            
+                    # Now let's look at the port numbers
                     if($ldap_portspec -ne "") {
                         $ldap_port = $ldap_portspec -match ":([0-9]+)"
                         Write-Host "  LDAP Port number:      $ldap_port"
@@ -394,13 +394,13 @@ function Debug-LDAPSIdentitySources {
                         Write-Host "* LDAP Port to test:    $ldap_port"
                     }
 
-                    # Call NetCat to test if the LDAP port is open 
+                    # Call NetCat to test if the LDAP port is open
                     try {
                         $Command = "nc -vz $ldap_hostname $ldap_port"
                         $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
                     }
                     catch {throw "ERROR: Unable to execute nc command on vCenter."}
-                    
+
                     if($SSHRes.ExitStatus -eq 1) {
                         Write-Error "* vCenter-to-LDAP TCP test FAILED."
 
@@ -420,7 +420,7 @@ function Debug-LDAPSIdentitySources {
                                 Write-Host "* vCenter was able to ping the LDAP server without a problem."
                             } elseif($ping_loss -eq "100") {
                                 Write-Error "* vCenter was unable to ping LDAP server."
-                                
+
                                 # Okay, this is bad. vCenter can't contact the LDAP server with TCP
                                 # nor ping, so let's do a traceroute for the network folks to look at:
                                 try {
@@ -693,7 +693,7 @@ function Update-IdentitySourceCertificates {
                 else {
                     Write-Error "Internal Error: The primary url of identity source is null." -ErrorAction Stop
                 }
-                
+
                 if ($null -ne $IdentitySource.FailoverUrl) {
                     $remoteComputers += $IdentitySource.FailoverUrl
                     Write-Host "* The Failover URL is $($IdentitySource.FailoverUrl)."
