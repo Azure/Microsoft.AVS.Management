@@ -8,7 +8,7 @@
         <Nullable>enable</Nullable>
     </PropertyGroup>
     <ItemGroup>
-        <PackageReference Include="Azure.Identity" Version="1.10.2" />
+        <PackageReference Include="Azure.Identity" Version="1.11.0" />
         <PackageReference Include="Azure.Messaging.EventGrid" Version="4.13.0" />
         <PackageReference Include="Azure.ResourceManager.Avs" Version="1.1.1" />
         <PackageReference Include="Microsoft.Azure.Functions.Extensions" Version="1.1.0" />
