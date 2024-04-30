@@ -33,7 +33,7 @@
     Description       = 'Various cmdlets for adminstrator level tasks in managing Azure VMware Solutions'
 
     # Minimum version of the PowerShell engine required by this module
-    # PowerShellVersion = ''
+    PowerShellVersion = '7.4'
 
     # Name of the PowerShell host required by this module
     # PowerShellHostName = ''
