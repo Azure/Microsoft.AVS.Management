@@ -122,6 +122,140 @@ function Set-VmfsIscsi {
 
 <#
     .SYNOPSIS
+     This function updates all hosts in the specified cluster to have the following iSCSI configurations:
+
+     1. SCSI IP address are added as static iSCSI addresses.
+     2. iSCSI Software Adapter is enabled.
+     3. Apply iSCSI best practices configuration on static targets.
+
+    .PARAMETER ClusterName
+     Cluster name
+
+    .PARAMETER ScsiIpAddress
+     IP Address to add as static iSCSI target
+
+     .PARAMETER ScsiName
+     iSCSI target name
+
+     .PARAMETER LoginTimeout
+     Optional. Login timeout in seconds (default 30)
+
+    .PARAMETER NoopOutTimeout
+    Optional. NoopOut timeout in seconds (default 30)
+
+    .PARAMETER RecoveryTimeout
+    Optional. Recovery timeout in seconds (default 45)
+
+    .EXAMPLE
+     Set-VmfsIscsi -ClusterName "myCluster" -ScsiIpAddress "192.168.0.1" -IscsitName "iqn.1998-01.com.vmware:target-1"
+
+    .INPUTS
+     vCenter cluster name, Primary SCSI IP Addresses. iSCSI target name
+
+    .OUTPUTS
+     None.
+#>
+function Set-VmfsStaticIscsi {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    Param (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Cluster name in vCenter')]
+        [ValidateNotNull()]
+        [String]
+        $ClusterName,
+
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Primary IP Address to add as static iSCSI target')]
+        [ValidateNotNull()]
+        [String]
+        $ScsiIpAddress,
+
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'iSCSI target name')]
+        [String] $ScsiName,
+
+        [Parameter (
+            Mandatory = $false,
+            HelpMessage = 'Login timeout in seconds'
+        )]
+        [ValidateRange(1, 60)]
+        [int] $LoginTimeout = 30,
+
+        [Parameter (
+            Mandatory = $false,
+            HelpMessage = 'NoopOut timeout in seconds'
+        )]
+        [ValidateRange(10, 30)]
+        [int] $NoopOutTimeout = 30,
+
+        [Parameter (
+            Mandatory = $false,
+            HelpMessage = 'Recovery timeout in seconds'
+        )]
+        [ValidateRange(1, 120)]
+        [int] $RecoveryTimeout = 45
+    )
+    try {
+        [ipaddress] $ScsiIpAddress
+    }
+    catch {
+        throw "Invalid SCSI IP address $ScsiIpAddress provided."
+    }
+
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $ClusterName does not exist."
+    }
+
+    $VMHosts = $Cluster | Get-VMHost
+    foreach ($VMHost in $VMHosts) {
+        $Iscsi = $VMHost | Get-VMHostStorage
+        if ($Iscsi.SoftwareIScsiEnabled -ne $true) {
+            $VMHost | Get-VMHostStorage | Set-VMHostStorage -SoftwareIScsiEnabled $True | Out-Null
+        }
+
+        $IscsiAdapter = $VMHost | Get-VMHostHba -Type iScsi | Where-Object { $_.Model -eq "iSCSI Software Adapter" }
+        if (!(Get-IScsiHbaTarget -IScsiHba $IscsiAdapter -Type "Static" -ErrorAction stop | Where-Object { $_.Address -cmatch $ScsiIpAddress })) {
+            New-IScsiHbaTarget -IScsiHba $IscsiAdapter -Type "Static" -Address $ScsiIpAddress -IScsiName $ScsiName -ErrorAction stop
+            Write-Verbose "Added static iSCSI target $ScsiName with address $ScsiIpAddress to $VMHost"
+        }
+
+        $EsxCli = $VMHost | Get-EsxCli -v2
+
+        function Set-StaticIscsiConfig($Name, $Value) {
+            $IscsiArgs = $EsxCli.iscsi.adapter.target.portal.param.get.CreateArgs()
+            $IscsiArgs.adapter = $IscsiAdapter.Device
+            $IscsiArgs.address = $ScsiIpAddress
+            $IscsiArgs.name = $ScsiName
+            $CurrentValue = $EsxCli.iscsi.adapter.target.portal.param.get.invoke($IscsiArgs) | Where-Object { $_.name -eq $Name }
+            if ($CurrentValue.Current -ne $Value) {
+                $IscsiArgs = $EsxCli.iscsi.adapter.target.portal.param.set.CreateArgs()
+                $IscsiArgs.adapter = $IscsiAdapter.Device
+                $IscsiArgs.address = $ScsiIpAddress
+                $IscsiArgs.name = $ScsiName
+                $IscsiArgs.inherit = $false
+                $IscsiArgs.value = $Value
+                $IscsiArgs.key = $Name
+                $EsxCli.iscsi.adapter.target.portal.param.set.invoke($IscsiArgs) | Out-Null
+                Write-verbose "Set $Name to $Value for $ScsiName"
+            }
+        }
+
+        Set-StaticIscsiConfig -Name "DelayedAck" -Value "false"
+        Set-StaticIscsiConfig -Name "LoginTimeout" -Value $LoginTimeout
+        Set-StaticIscsiConfig -Name "NoopOutTimeout" -Value $NoopOutTimeout
+        Set-StaticIscsiConfig -Name "RecoveryTimeout" -Value $RecoveryTimeout
+    }
+
+    Write-Host "Successfully configured VMFS iSCSI for cluster $ClusterName."
+}
+
+<#
+    .SYNOPSIS
      Creates a new VMFS datastore and mounts to a VMware cluster.
 
     .PARAMETER ClusterName
@@ -1574,16 +1708,16 @@ function New-NVMeTCPAdapter {
 <#
     .SYNOPSIS
      This function collects all VMs on the provided datastore and creates snapshot of each virtual machine.
-    
+
     .PARAMETER -ClusterName
      vSphere Cluster Name
-    
+
     .PARAMETER -DatastoreName
      Datastore name
-     
+
 
     .EXAMPLE
-     New-VmfsVmSnapshot -ClusterName "vSphere-cluster-001" -DatastoreName "myDatastore"   
+     New-VmfsVmSnapshot -ClusterName "vSphere-cluster-001" -DatastoreName "myDatastore"
 
     .INPUTS
      vSphere cluster name, datastore name
@@ -1595,7 +1729,7 @@ function New-NVMeTCPAdapter {
 function New-VmfsVmSnapshot {
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
-    
+
     Param
     (
         [Parameter(
@@ -1622,14 +1756,14 @@ function New-VmfsVmSnapshot {
         throw "Datastore $DatastoreName does not exist."
     }
 
-      
+
     $NamedOutputs = @{}
     $Vms = Get-VM -Datastore $Datastore
 
     foreach ($Vm in $Vms) {
         $timeStamp = Get-Date -Format o | ForEach-Object { $_ -replace ":", "-" }
-        $SnapshotName = $Vm.Name + "-" + $timeStamp 
-        
+        $SnapshotName = $Vm.Name + "-" + $timeStamp
+
         if (!$Vm.ExtensionData) {
             Write-Host "Skipping to create snapshot of virtual machine $($Vm.Name), becuase of unavailable configuration."
             continue
@@ -1639,7 +1773,7 @@ function New-VmfsVmSnapshot {
             Write-Host "Skipping to create snapshot of virtual machine $($Vm.Name) becuase health status is not OK."
             continue
         }
-           
+
         try {
             $Snapshot = New-Snapshot -VM $Vm -Quiesce -Name $SnapshotName -ErrorAction Ignore
             Write-Host "Snapshot $($Snapshot.Name) created."
@@ -1650,7 +1784,7 @@ function New-VmfsVmSnapshot {
         }
     }
 
-    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global    
+    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
     Write-Host ""
-    
+
 }
