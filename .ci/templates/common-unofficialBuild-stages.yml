@@ -11,7 +11,7 @@ stages:
     vmImage: ubuntu-20.04
   jobs:
   - job: Build_and_Publish_Job
-    displayName: 'Build Unofficial AVS-Automation-AdminTools for ${{ parameters.moduleFolderName }}'
+    displayName: 'Validate ${{ parameters.moduleFolderName }}'
     steps:
     - task: AzureCLI@2
       inputs:

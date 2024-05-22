@@ -10,7 +10,7 @@ parameters:
 
 stages:
 - stage: 'Official_Build_${{ parameters.moduleDisplayName }}' # Valid stage name cannot contain the character '.'
-  displayName: 'Build and Publish Package for ${{ parameters.moduleFolderName }}'
+  displayName: 'Build ${{ parameters.moduleFolderName }}'
   dependsOn: []
   pool:
     vmImage: ubuntu-20.04
