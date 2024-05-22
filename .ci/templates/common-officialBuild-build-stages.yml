@@ -15,11 +15,29 @@ stages:
   pool:
     vmImage: windows-2019
   jobs:
-  # Build
-  #########################################################################################
   - job: 'Build'
     displayName: 'Build Official AVS-Automation-AdminTools for ${{ parameters.moduleFolderName }}'
     steps:
+    - task: AzureCLI@2
+      inputs:
+        azureSubscription: Scripting Metadata
+        scriptLocation: 'inlineScript'
+        scriptType: 'pscore'
+        inlineScript: |
+          $accessToken = az account get-access-token --query accessToken --resource 499b84ac-1321-427f-aa17-267ca6975798 -o tsv
+          Write-Host "##vso[task.setsecret]$accessToken"
+          Write-Host "##vso[task.setvariable variable=adoAccessToken;issecret=true]$accessToken"
+          $env:AZURE_DEVOPS_EXT_PAT=$accessToken
+          az artifacts universal download `
+            --organization $(feedAuthority) `
+            --project=$(feedProject) `
+            --scope project `
+            --feed $(metadataFeed) `
+            --name shuttle `
+            --version $(shuttleVersion) `
+            --path shuttle          
+        displayName: Prepare shuttle
+
     - task: PowerShell@2
       displayName: 'Set Build Version for ${{ parameters.moduleFolderName }}'
       inputs:
@@ -44,9 +62,10 @@ stages:
         filePath: 'tests/prevalidateModules.ps1'
         arguments: '${{ parameters.moduleFolderName }}'
         pwsh: true
-    - publish: $(System.DefaultWorkingDirectory)/${{ parameters.moduleFolderName }}
-      artifact: ${{ parameters.stageForSigningFolder }}
-      displayName: Stage Files for Signing
-    - publish: $(System.DefaultWorkingDirectory)
-      artifact: ${{ parameters.stageForUnsignedFolder }}
-      displayName: Stage Unsigned Module
+    - powershell: |
+        echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)" > shuttle/baseline
+        dotnet shuttle/Shuttle.dll generate
+      env:
+        AZURE_DEVOPS_EXT_PAT: $(adoAccessToken)
+        METADATA: $(feedAuthority)/$(feedProject)/_artifacts/feed/$(metadataFeed)
+      displayName: 'Generate metadata'

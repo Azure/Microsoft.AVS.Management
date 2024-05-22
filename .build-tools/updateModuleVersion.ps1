@@ -17,11 +17,9 @@ $script:targetModuleParams = @{}
 if($IsPR){
     Write-Host "Executing PR versioning"
     $targetModuleParams = @{ModuleVersion = "$updatedModuleVersion"; Prerelease = "-aPR"; Path = "$manifestAbsolutePath"}
-
 }else{
     Write-Host "Executing official versioning"
     $targetModuleParams = @{ModuleVersion = "$updatedModuleVersion"; Path = "$manifestAbsolutePath"}
-
 }
 
 Update-ModuleManifest @targetModuleParams
@@ -31,9 +29,9 @@ if (!$?) {
     Throw "Module version must be updated before proceeding with build."
     
 }else {
+    Write-Host "##vso[task.setvariable variable=moduleVersion]$updatedModuleVersion"
     Write-Output "---- SUCCEED: updated the module version to $((Import-PowerShellDataFile $manifestAbsolutePath).ModuleVersion)----"
     Get-Content "$manifestAbsolutePath"
-
 }
 
 Write-Output "----END: updateModuleVersion----"
