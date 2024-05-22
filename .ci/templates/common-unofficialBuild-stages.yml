@@ -8,7 +8,7 @@ stages:
 - stage: 'Unofficial_Build_${{ parameters.moduleDisplayName }}' # Valid stage name cannot contain the character '.'
   displayName: 'Build and Publish Package for ${{ parameters.moduleFolderName }}'
   pool:
-    vmImage: windows-2019
+    vmImage: ubuntu-20.04
   jobs:
   - job: Build_and_Publish_Job
     displayName: 'Build Unofficial AVS-Automation-AdminTools for ${{ parameters.moduleFolderName }}'

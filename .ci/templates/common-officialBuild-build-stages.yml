@@ -13,7 +13,7 @@ stages:
   displayName: 'Build and Publish Package for ${{ parameters.moduleFolderName }}'
   dependsOn: []
   pool:
-    vmImage: windows-2019
+    vmImage: ubuntu-20.04
   jobs:
   - job: 'Build'
     displayName: 'Build Official AVS-Automation-AdminTools for ${{ parameters.moduleFolderName }}'
