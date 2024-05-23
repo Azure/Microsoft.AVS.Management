@@ -597,3 +597,171 @@ function Sync-ReplicationGroup {
     Write-Host "Starting replication sync for replication group $ReplicationGroupID..."
     Sync-SpbmReplicationGroup -ReplicationGroup $repGroup -PointInTimeReplicaName $PointInTimeReplicaName
 }
+
+Function Get-SSLThumbprint {
+    param (
+        [String]$RemotePluginIp,
+        [String]$RemotePluginPort
+    )
+    # Callback to accept all certificates
+    $callback = {
+        param($senderA, $certificate, $chain, $sslPolicyErrors)
+        return $true
+    }
+
+    $tcpClient = New-Object System.Net.Sockets.TcpClient($RemotePluginIp, $RemotePluginPort)
+    $sslStream = New-Object System.Net.Security.SslStream($tcpClient.GetStream(), $false, $callback)
+
+    $sslStream.AuthenticateAsClient($RemotePluginIp)
+
+    $certificate = $sslStream.RemoteCertificate
+    $thumbprint = $certificate.GetCertHashString()
+
+    if ($null -eq $thumbprint) {
+        Write-Verbose "Unable to get thumbprint from '$RemotePluginIp' server and '$RemotePluginPort' port." ERROR
+        exit 1
+    }
+    # Convert thumbprint to have each octet separated by semicolon
+    $thumbprint = $thumbprint -replace '(.{2})', '$1:'
+    $thumbprint = $thumbprint.TrimEnd(':')
+
+    return $thumbprint
+}
+
+Function Register-RemotePlugin {
+    param(
+        [VMware.Vim.ExtensionManager]$ExtensionMgr,
+        [String]$RemotePluginHost,
+        [String]$NewPluginVersion
+    )
+
+    $pluginIp = $RemotePluginHost
+    $pluginPort = '8443' # use default port if one is not provided
+    $hostPort = $RemotePluginHost.Split(":")
+    if (2 -eq $hostPort.Length) {
+        $pluginIp = $hostPort[0]
+        $pluginPort = $hostPort[1]
+    }
+
+    $installedHtmlVersion = ($ExtensionMgr.FindExtension("com.purestorage.integrations.vmware.pureplugin")).version
+    if ($null -eq $installedHtmlVersion) {
+        Write-Verbose "No previous remote plugin installed, will proceed with fist time installation"
+    }
+    else {
+        Write-Verbose "Previous Plugin version is $installedHtmlVersion, will attempt to upgrade to $NewPluginVersion"
+    }
+
+    # Get plugin thumbprint
+    $serverThumbprint = Get-SSLThumbprint $pluginIp $pluginPort
+    Write-Verbose "Plugin Server thumbprint is $serverThumbprint"
+
+    $pluginUrl = 'https://' + $RemotePluginHost + '/plugin-manifest.zip'
+    Write-Verbose "registering plugin using url $pluginUrl"
+
+    #build extension to register. Will pull the SSL thumprint from the target address
+    $description = New-Object VMware.Vim.Description
+    $description.label = "Pure Storage Manager"
+    $description.summary = "Pure Storage Management Plugin for the vSphere Client"
+
+    $extensionClientInfo = New-Object VMware.Vim.ExtensionClientInfo
+    $extensionClientInfo.Company = "Pure Storage, Inc."
+    $extensionClientInfo.Description = $description
+    $extensionClientInfo.Type = "vsphere-client-remote"
+    $extensionClientInfo.Version = $NewPluginVersion
+    $extensionClientInfo.Url = $pluginUrl
+
+    $extensionServerInfo = New-Object VMware.Vim.ExtensionServerInfo
+    $extensionServerInfo.AdminEmail = "noreply@purestorage.com"
+    $extensionServerInfo.Company = "Pure Storage, Inc."
+    $extensionServerInfo.Description = $description
+    $extensionServerInfo.Url = $pluginUrl
+    $extensionServerInfo.ServerThumbprint = ($serverThumbprint)
+    $extensionServerInfo.Type = "HTTPS"
+
+    $extensionSpec = New-Object VMware.Vim.Extension
+    $extensionSpec.key = "com.purestorage.integrations.vmware.pureplugin"
+    $extensionSpec.version = $NewPluginVersion
+    $extensionSpec.Description = $description
+    $extensionSpec.Client += $extensionClientInfo
+    $extensionSpec.Server += $extensionServerInfo
+    $extensionSpec.LastHeartbeatTime = get-date
+
+
+    #install or upgrade the vSphere plugin
+    if ($null -ne $installedHtmlVersion) {
+        Write-Verbose "Updating plugin from version $installedHtmlVersion"
+        $ExtensionMgr.UpdateExtension($extensionSpec)
+    }
+    else {
+        Write-Verbose "Registering new plugin"
+        $ExtensionMgr.RegisterExtension($extensionSpec)
+    }
+}
+
+<#
+    .SYNOPSIS
+     This function unregisteres the vSphere remote plugin extension from AVS
+
+    .EXAMPLE
+     Unregister-PureStorageAvsRemotePlugin
+
+    .INPUTS
+     No inputs are required
+
+    .OUTPUTS
+     None
+#>
+Function Unregister-PureStorageAvsRemotePlugin {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    param()
+
+    $services = Get-view 'ServiceInstance'
+    $extensionMgr = Get-view $services.Content.ExtensionManager
+    $extensionMgr.UnregisterExtension("com.purestorage.integrations.vmware.pureplugin")
+
+    Write-Host "PureStorage Remote Plugin un-registered successfully"
+}
+
+<#
+    .SYNOPSIS
+     This function registers the vSphere remote plugin extension with AVS
+
+    .PARAMETER PluginHost
+     The hostname of vSphere remote plugin managed app
+
+    .PARAMETER PluginVersion
+     The version of the plugin that is being deployed
+
+    .EXAMPLE
+     Register-PureStorageAvsRemotePlugin -PluginHost 'my-remote-plugin:8443' -PluginVersion '1.0.0'
+
+    .INPUTS
+     vSphere remote plugin hostname and version
+
+    .OUTPUTS
+     None
+#>
+Function Register-PureStorageAvsRemotePlugin {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    param(
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'vSphere remote plugin hostname')]
+        [ValidateNotNull()]
+        [String]$PluginHost,
+
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'version of vSphere remote plugin being deployed')]
+        [ValidateNotNull()]
+        [String]$PluginVersion
+    )
+    $services = Get-view 'ServiceInstance'
+    $extensionMgr = Get-view $services.Content.ExtensionManager
+
+    Register-RemotePlugin $extensionMgr $PluginHost $PluginVersion
+
+    Write-Host "PureStorage Remote Plugin (Version: $PluginVersion) registered successfully"
+}
