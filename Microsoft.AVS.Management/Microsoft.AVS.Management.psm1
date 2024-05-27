@@ -2568,3 +2568,38 @@ Function Get-AVSVSANClusterUNMAPTRIM {
             Get-Cluster | Get-VsanClusterConfiguration | Select-Object Name, GuestTrimUnmap
         }
 }
+
+function Remove-CustomRole {
+    <#
+    .DESCRIPTION
+        This function allows customer to remove a custom role from the SDDC.
+        Useful in case of roles created with greater privileges than Cloudadmin that can no longer be removed from the UI.
+    #>
+
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    param (
+        [Parameter(Mandatory = $true,
+            HelpMessage = "The name of the role to remove. This must be a custom role.")]
+        [string]
+        $roleToRemove
+    )
+    $donotremovearray = @("NsxViAdministrator","vStatsAdmin","VirtualMachinePowerUser","VirtualMachineUser","ResourcePoolAdministrator","VMwareConsolidatedBackupUser","DatastoreConsumer","NetworkConsumer","VirtualMachineConsoleUser","AutoUpdateUser","InventoryService.Tagging.TaggingAdmin","SyncUsers","vSphere Client Solution User","WorkloadStorageManagement","vSphereKubernetesManager","com.vmware.Content.Registry.Admin","SupervisorServiceCluster","SupervisorServiceRootFolder","SupervisorServiceGlobal","VMOperatorController","VMOperatorControllerGlobal","NSOperatorController","vCLSAdmin","vStatsUser","VMServicesAdministrator","NSX Administrator","com.vmware.Content.Admin","CloudAdmin","NsxAuditor")
+    if ($donotremovearray -contains $roleToRemove) {
+        Write-Error "Cannot remove '$roleToRemove'. Removal not allowed."
+    } else {
+        $role = Get-VIRole -Name $roleToRemove
+        if ($role) {
+            if ($role.IsSystem) {
+                Write-Error "Cannot remove '$roleToRemove'. Role is a system role."
+                return
+            }
+            Remove-VIRole -Role $role -Confirm:$false
+            Write-Information "Removed '$roleToRemove'."
+        } else {
+            Write-Error "Role '$roleToRemove' not found."
+        }
+    }
+}
+
+
