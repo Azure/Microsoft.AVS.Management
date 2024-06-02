@@ -2,9 +2,6 @@
     .SYNOPSIS
      This function expands an ElasticSAN datastore capacity in AVS vCenter.
 
-    .PARAMETER ClusterName
-     Cluster name
-
     .PARAMETER DatastoreName
      Name of the ElasticSAN datastore to be expanded.
 
@@ -19,15 +16,8 @@
 #>
 function Expand-ElasticSanDatastore {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $false)]
     Param (
-        [Parameter(
-            Mandatory=$true,
-            HelpMessage = 'Cluster name in vCenter')]
-        [ValidateNotNull()]
-        [String]
-        $ClusterName,
-
         [Parameter(
             Mandatory=$true,
             HelpMessage = 'Name of the ElasticSAN based datastore as seen on vCenter')]
@@ -40,13 +30,7 @@ function Expand-ElasticSanDatastore {
         throw "Invalid datastore name $DatastoreName provided."
     }
 
-    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
-    if (-not $Cluster) {
-        throw "Cluster $ClusterName does not exist."
-    }
-
-    Write-Host "Retrieved cluster $ClusterName information. Searching for input datastore."
-    $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba | Out-Null
+    Write-Host "Expand-ElasticSanDatastore command issued. Retrieving datastores to search for $DatastoreName"
     $Datastores = Get-Datastore -Name $DatastoreName -ErrorAction stop
     Write-Host "Retrieved list of datastores. Searching for the desired datastore for expand operation."
 
