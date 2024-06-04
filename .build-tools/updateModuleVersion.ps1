@@ -2,15 +2,15 @@
 
 param (
     [Parameter(Mandatory=$true)][string]$manifestAbsolutePath,
+    [Parameter(Mandatory=$true)][string]$buildNumber,
     [switch]$IsPR = $false
 )
-
 Write-Output "----START: updateModuleVersion----"
 Write-Output "Given path to manifest: $manifestAbsolutePath"
 Get-Content "$manifestAbsolutePath"
 
 $manifestVersionAsArray = (Import-PowerShellDataFile $manifestAbsolutePath).ModuleVersion -split "\."
-$updatedModuleVersion = @( $manifestVersionAsArray[0], $manifestVersionAsArray[1],  $env:BUILD_BUILDNUMBER ) | Join-String -Separator '.'
+$updatedModuleVersion = @( $manifestVersionAsArray[0], $manifestVersionAsArray[1],  $buildNumber ) | Join-String -Separator '.'
 Write-Output "---- Updating the module version to $updatedModuleVersion----"
 $script:targetModuleParams = @{}
 

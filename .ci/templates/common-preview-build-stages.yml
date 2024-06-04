@@ -39,16 +39,12 @@ stages:
         displayName: Prepare shuttle
 
     - task: PowerShell@2
-      displayName: 'Set Build Version for ${{ parameters.moduleFolderName }}'
-      inputs:
-        filePath: '.build-tools/setBuildVersion.ps1'
-        arguments: '$(Build.BuildNumber)'
-        pwsh: true
-    - task: PowerShell@2
       displayName: 'Restore Dependencies for ${{ parameters.moduleFolderName }}'
       inputs:
         filePath: '.build-tools/getRequiredModules.ps1'
-        arguments: '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
+        arguments: >
+          '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
+          $(Build.BuildNumber)
         pwsh: true
     - task: PowerShell@2
       displayName: 'Versioning Module for ${{ parameters.moduleFolderName }}'
