@@ -1,8 +1,30 @@
 #!/usr/bin/pwsh
 
 param (
-    [Parameter(Mandatory=$true)][string]$absolutePathToManifest
+    [Parameter(Mandatory=$true)][string]$absolutePathToManifest,
+    [Parameter(Mandatory=$true)][string]$buildNumber,
+    [string]$prereleaseString,
+    $feedParameters
 )
+function update-module-version {
+    Get-Content $manifestAbsolutePath
+
+    $manifestVersionAsArray = (Import-PowerShellDataFile $manifestAbsolutePath).ModuleVersion -split "\."
+    $updatedModuleVersion = @( $manifestVersionAsArray[0], $manifestVersionAsArray[1],  $buildNumber ) | Join-String -Separator '.'
+    $targetModuleParams = @{ModuleVersion = $updatedModuleVersion; Prerelease = $prereleaseString; Path = $absolutePathToManifest}
+    
+    Update-ModuleManifest @targetModuleParams
+    
+    if (!$?) {
+        Write-Error -Message "FAILED: Could not update module version"
+        Throw "Module version must be updated before proceeding with build."
+        
+    }else {
+        Write-Host "##vso[task.setvariable variable=moduleVersion]$updatedModuleVersion"
+        Write-Output "---- SUCCEED: updated the module version to $((Import-PowerShellDataFile $manifestAbsolutePath).ModuleVersion)----"
+        Get-Content $manifestAbsolutePath
+    }    
+}
 
 function upload-package ([string]$name, [string]$version, [string]$feed, [string]$key) {
     # We do not need to do the install before Import because it is done in the restore dependencies task.
@@ -22,8 +44,9 @@ function upload-package ([string]$name, [string]$version, [string]$feed, [string
     } else { Write-Output "$name@$version already in the feed"}
 }
 
+Write-Output "----START: publish -----"
 
-Write-Output "----START: findAndPublishDependencies-----"
+update-module-version
 $requiredModules = (Test-ModuleManifest "$absolutePathToManifest" -ErrorAction SilentlyContinue).RequiredModules
 
 if (!$?) {
@@ -34,12 +57,6 @@ if (!$?) {
     $requiredModules | Select-Object Name, Version
 }
 
-$feedParameters = @{
-        Name = "Unofficial-AVS-Automation-AdminTools"
-        SourceLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
-        PublishLocation = "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
-        InstallationPolicy = 'Trusted'
-}
 
 Write-Output "----Registering AVS Nuget Feed ----"
 Unregister-PSRepository -Name $feedParameters.Name -ErrorAction SilentlyContinue
@@ -53,5 +70,7 @@ if (!$?) {
 
 Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
 foreach($d in $requiredModules) {
-    upload-package $d.Name $d.Version $feedParameters.PublishLocation "$env:UNOFFICIAL_FEED_NUGET_APIKEY"
+    upload-package $d.Name $d.Version $feedParameters.PublishLocation ""
 }
+
+Publish-Module -Path "$absolutePathToManifestFolder" -Repository ($feedParameters).Name -NuGetApiKey "" -ErrorAction Stop

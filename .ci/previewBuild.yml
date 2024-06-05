@@ -25,68 +25,28 @@ name: $(Rev:r) # Provide build run number (i.e., Build.BuildNumber) that is used
 #######################################
 
 stages:
+- template: templates/common-compliance-stages.yml@self
+
 - ${{ if eq(parameters.publishManagementPackage, true) }}:
   - template: templates/common-preview-build-stages.yml@self
     parameters:
       moduleFolderName: ${{ variables.managementModuleFolderName }}
       moduleDisplayName: ${{ variables.managementModuleDisplayName }}
-      stageForSigningFolder: ${{ variables.managementStageForSigningFolder }}
-      stageForUnsignedFolder: ${{ variables.managementStageForUnsignedFolder }}
 
 - ${{ if eq(parameters.publishVmfsPackage, true) }}:
   - template: templates/common-preview-build-stages.yml@self
     parameters:
       moduleFolderName: ${{ variables.vmfsModuleFolderName }}
       moduleDisplayName: ${{ variables.vmfsModuleDisplayName }}
-      stageForSigningFolder: ${{ variables.vmfsStageForSigningFolder }}
-      stageForUnsignedFolder: ${{ variables.vmfsStageForUnsignedFolder }}
 
 - ${{ if eq(parameters.publishVvolsPackage, true) }}:
   - template: templates/common-preview-build-stages.yml@self
     parameters:
       moduleFolderName: ${{ variables.vvolsModuleFolderName }}
       moduleDisplayName: ${{ variables.vvolsModuleDisplayName }}
-      stageForSigningFolder: ${{ variables.vvolsStageForSigningFolder }}
-      stageForUnsignedFolder: ${{ variables.vvolsStageForUnsignedFolder }}
 
 - ${{ if eq(parameters.publishNfsPackage, true) }}:
   - template: templates/common-preview-build-stages.yml@self
     parameters:
       moduleFolderName: ${{ variables.nfsModuleFolderName }}
       moduleDisplayName: ${{ variables.nfsModuleDisplayName }}
-      stageForSigningFolder: ${{ variables.nfsStageForSigningFolder }}
-      stageForUnsignedFolder: ${{ variables.nfsStageForUnsignedFolder }}
-
-- template: templates/common-officialBuild-compliance-stages.yml@self
-
-- ${{ if eq(parameters.publishManagementPackage, true) }}:
-  - template: templates/common-officialBuild-release-stages.yml@self
-    parameters:
-      moduleFolderName: ${{ variables.managementModuleFolderName }}
-      moduleDisplayName: ${{ variables.managementModuleDisplayName }}
-      stageForSigningFolder: ${{ variables.managementStageForSigningFolder }}
-      stageForUnsignedFolder: ${{ variables.managementStageForUnsignedFolder }}
-
-- ${{ if eq(parameters.publishVmfsPackage, true) }}:
-  - template: templates/common-officialBuild-release-stages.yml@self
-    parameters:
-      moduleFolderName: ${{ variables.vmfsModuleFolderName }}
-      moduleDisplayName: ${{ variables.vmfsModuleDisplayName }}
-      stageForSigningFolder: ${{ variables.vmfsStageForSigningFolder }}
-      stageForUnsignedFolder: ${{ variables.vmfsStageForUnsignedFolder }}
-
-- ${{ if eq(parameters.publishVvolsPackage, true) }}:
-  - template: templates/common-officialBuild-release-stages.yml@self
-    parameters:
-      moduleFolderName: ${{ variables.vvolsModuleFolderName }}
-      moduleDisplayName: ${{ variables.vvolsModuleDisplayName }}
-      stageForSigningFolder: ${{ variables.vvolsStageForSigningFolder }}
-      stageForUnsignedFolder: ${{ variables.vvolsStageForUnsignedFolder }}
-
-- ${{ if eq(parameters.publishNfsPackage, true) }}:
-  - template: templates/common-officialBuild-release-stages.yml@self
-    parameters:
-      moduleFolderName: ${{ variables.nfsModuleFolderName }}
-      moduleDisplayName: ${{ variables.nfsModuleDisplayName }}
-      stageForSigningFolder: ${{ variables.nfsStageForSigningFolder }}
-      stageForUnsignedFolder: ${{ variables.nfsStageForUnsignedFolder }}
