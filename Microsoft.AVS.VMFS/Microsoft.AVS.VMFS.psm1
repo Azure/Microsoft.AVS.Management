@@ -1381,7 +1381,7 @@ function Get-VmfsHosts {
     $VmHosts = $Cluster | Get-VMHost
 
     foreach ($VmHost in $VmHosts) {
-     $Datastores = $VmHost | Get-Datastore | Where-Object { $_.Type -match "VMFS" } | Select-Object select -ExpandProperty Name 
+     $Datastores = $VmHost | Get-Datastore | Where-Object { $_.Type -match "VMFS" } | Select-Object select -ExpandProperty Name
      $NamedOutputs[$VmHost.Name] = "
      {
       Name : $($VmHost.Name),
@@ -1789,4 +1789,58 @@ function New-VmfsVmSnapshot {
     Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
     Write-Host ""
 
+}
+
+<#
+    .SYNOPSIS
+     This function repairs HA configuration on all hosts in a given vSphere Cluster.
+
+    .PARAMETER ClusterName
+     vSphere Cluster Name
+
+    .EXAMPLE
+     Repair-HAConfiguration -ClusterName "vSphere-cluster-001"
+
+    .INPUTS
+     vSphere Cluster Name
+#>
+function Repair-HAConfiguration {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'vSphere Cluster Name')]
+        [String] $ClusterName
+    )
+
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $($ClusterName) does not exist."
+    }
+
+    $VMHosts = $null
+    try {
+        $VMHosts = Get-Cluster $ClusterName | Get-VMHost
+    }
+    catch {
+        Write-Host "Failed to collect cluster hosts $($_.Exception)"
+        throw "Failed to collect cluster hosts $($_.Exception)"
+    }
+
+    $Success = $true
+    foreach ($VMHost in $VMHosts) {
+        $HostAddress = $VMHost.Name
+        Write-Host "Repairing HA configuration on host $HostAddress"
+        try {
+            $VMHost.ExtensionData.ReconfigureHostForDAS()
+        } catch {
+            Write-Error "Failed to repair HA configuration on host $HostAddress"
+            $Success = $false
+        }
+    }
+    if (-not $Success) {
+        throw "Failed to repair HA configuration on one or more hosts"
+    }
 }
