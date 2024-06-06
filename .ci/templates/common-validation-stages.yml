@@ -13,6 +13,9 @@ stages:
   - job: Validate
     displayName: 'Validate ${{ parameters.moduleFolderName }}'
     steps:
+    - script:
+        dotnet tool update -g powershell --version 7.4.2
+
     - task: AzureCLI@2
       inputs:
         azureSubscription: Scripting Metadata
@@ -31,26 +34,19 @@ stages:
             --version $(shuttleVersion) `
             --path shuttle          
         displayName: Prepare shuttle
-    - task: PowerShell@2
+    - pwsh:
+        .build-tools/getRequiredModules.ps1 '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
       displayName: 'Restore Dependencies for ${{ parameters.moduleFolderName }}'
-      inputs:
-        filePath: '.build-tools/getRequiredModules.ps1'
-        arguments: '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
-        pwsh: true
-    - task: PowerShell@2
-      displayName: 'Pre-Validate Module and Scripts for ${{ parameters.moduleFolderName }}' #PSGallery publishing guidelines: https://docs.microsoft.com/en-us/powershell/scripting/gallery/how-to/publishing-packages/publishing-a-package?view=powershell-7.1#pre-validate-your-item
-      inputs:
-        filePath: 'tests/prevalidateModules.ps1'
-        arguments: '${{ parameters.moduleFolderName }}'
-        pwsh: true
-    - powershell: |
-        .build-tools/publish.ps1 `
-          '$(System.DefaultWorkingDirectory)/${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1' `
-          $(Build.BuildNumber) `
-          '' `
-          @{ Name = "Temp"; SourceLocation = "/tmp"; PublishLocation = "/tmp"; InstallationPolicy = 'Trusted' }
+    - pwsh:
+        tests/prevalidateModules.ps1 '${{ parameters.moduleFolderName }}'
+      displayName: 'Pre-Validate Module and Scripts for ${{ parameters.moduleFolderName }}'
+    - pwsh:
+        .build-tools/publish.ps1 
+          '$(System.DefaultWorkingDirectory)/${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1' 
+          $(Build.BuildNumber) 
+          '$(System.DefaultWorkingDirectory)/tmp' 
       displayName: 'Test publish'
-    - powershell: |
+    - pwsh: |
         echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)" > shuttle/baseline
         dotnet shuttle/Shuttle.dll generate
       env:

@@ -3,26 +3,24 @@
 param (
     [Parameter(Mandatory=$true)][string]$absolutePathToManifest,
     [Parameter(Mandatory=$true)][string]$buildNumber,
-    [string]$prereleaseString,
-    $feedParameters
+    [Parameter(Mandatory=$true)][string]$feedLocation,
+    [string]$prereleaseString = ""
 )
 function update-module-version {
-    Get-Content $manifestAbsolutePath
+    Get-Content $absolutePathToManifest
 
-    $manifestVersionAsArray = (Import-PowerShellDataFile $manifestAbsolutePath).ModuleVersion -split "\."
+    $manifestVersionAsArray = (Import-PowerShellDataFile $absolutePathToManifest).ModuleVersion -split "\."
     $updatedModuleVersion = @( $manifestVersionAsArray[0], $manifestVersionAsArray[1],  $buildNumber ) | Join-String -Separator '.'
     $targetModuleParams = @{ModuleVersion = $updatedModuleVersion; Prerelease = $prereleaseString; Path = $absolutePathToManifest}
     
     Update-ModuleManifest @targetModuleParams
     
     if (!$?) {
-        Write-Error -Message "FAILED: Could not update module version"
-        Throw "Module version must be updated before proceeding with build."
-        
+        throw "Could not update module version. Module version must be updated before proceeding with build."
     }else {
         Write-Host "##vso[task.setvariable variable=moduleVersion]$updatedModuleVersion"
-        Write-Output "---- SUCCEED: updated the module version to $((Import-PowerShellDataFile $manifestAbsolutePath).ModuleVersion)----"
-        Get-Content $manifestAbsolutePath
+        Write-Output "---- SUCCEED: updated the module version to $((Import-PowerShellDataFile $absolutePathToManifest).ModuleVersion)----"
+        Get-Content $absolutePathToManifest
     }    
 }
 
@@ -36,11 +34,11 @@ function upload-package ([string]$name, [string]$version, [string]$feed, [string
     }
     $existing = Find-Package -Source $feed -Name $m.Name -AllowPrerelease -RequiredVersion $version -ErrorAction SilentlyContinue
     if($null -eq $existing) { 
-        Write-Output "Pushing dependency $m.Name@$version to $feed"
+        Write-Output "Pushing dependency $m@$version to $feed"
         Save-Package -Name $m.Name -RequiredVersion $version -Source $m.RepositorySourceLocation -Provider NuGet -Path . -ErrorAction Stop
-        $r = & dotnet @('nuget', 'push', ("{0}.{1}.nupkg" -f $m.Name,$version), '-s', $feed, '-k', $key)
-        if($? -eq $false) { throw ("Unable to publish the package $($m.Name)@$version, {0}" -f [System.Linq.Enumerable]::First($r.Split('\n'), [Func[object,bool]]{ param($l) $l.Contains("error") })) }
-        else { Write-Output "Successfully published the dependency of $name@$version" }
+        $r = & dotnet @('nuget', 'push', ("{0}.{1}.nupkg" -f $m,$version), '-s', $feed, '-k', $key)
+        if($? -eq $false) { throw ("Unable to publish the package: $m@$version, {0}" -f [System.Linq.Enumerable]::First($r.Split('\n'), [Func[object,bool]]{ param($l) $l.Contains("error") })) }
+        else { Write-Output "Successfully published: $m@$version" }
     } else { Write-Output "$name@$version already in the feed"}
 }
 
@@ -50,20 +48,24 @@ update-module-version
 $requiredModules = (Test-ModuleManifest "$absolutePathToManifest" -ErrorAction SilentlyContinue).RequiredModules
 
 if (!$?) {
-    Write-Error -Message "FAILED: Could not extract the required dependency module"
-    Throw "Dependencies must be loaded in order for the push to succeed"
+    throw "Could not extract the required dependency module. Dependencies must be loaded in order for the push to succeed"
 } else {
-    Write-Output "---- SUCCEEDED: Was able to parse the dependencies ----"
+    Write-Output "Required dependencies:"
     $requiredModules | Select-Object Name, Version
 }
 
-
 Write-Output "----Registering AVS Nuget Feed ----"
+[Uri]$uri = $null
+if( [Uri]::TryCreate($feedLocation, [UriKind]::Absolute, [ref]$uri) -eq $false) {
+    throw "Invalid feed URI: $feedLocation"
+}
+if($uri.IsFile) { mkdir -p $feedLocation }
+
+$feedParameters = @{ Name = "Dst"; SourceLocation = $feedLocation; PublishLocation = $feedLocation; InstallationPolicy = 'Trusted' }
 Unregister-PSRepository -Name $feedParameters.Name -ErrorAction SilentlyContinue
 Register-PSRepository @feedParameters
 if (!$?) {
-    Write-Error -Message "----ERROR: Unable to register repository----"
-    Throw "Must be able to register feed before publishing to it"
+    throw "Unable to register repository: Must be able to register feed before publishing to it"
 } else {
     Write-Output "----SUCCEEDED: $($feedParameters.Name) repository registered ----"
 }
@@ -72,5 +74,4 @@ Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
 foreach($d in $requiredModules) {
     upload-package $d.Name $d.Version $feedParameters.PublishLocation ""
 }
-
-Publish-Module -Path "$absolutePathToManifestFolder" -Repository ($feedParameters).Name -NuGetApiKey "" -ErrorAction Stop
+Publish-Module -Path ([IO.Path]::GetDirectoryName($absolutePathToManifest)) -Repository ($feedParameters).Name -NuGetApiKey "key" -ErrorAction Stop

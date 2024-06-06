@@ -45,27 +45,27 @@ stages:
           $(Build.BuildNumber)
         pwsh: true
     - task: PowerShell@2
-      displayName: 'Pre-Validate Module and Scripts for ${{ parameters.moduleFolderName }}' #PSGallery publishing guidelines: https://docs.microsoft.com/en-us/powershell/scripting/gallery/how-to/publishing-packages/publishing-a-package?view=powershell-7.1#pre-validate-your-item
+      displayName: 'Pre-Validate Module and Scripts for ${{ parameters.moduleFolderName }}'
       inputs:
         filePath: 'tests/prevalidateModules.ps1'
         arguments: '${{ parameters.moduleFolderName }}'
         pwsh: true
     - task: NuGetAuthenticate@1
-    - powershell: |
-        .build-tools/publish.ps1 `
-          '$(System.DefaultWorkingDirectory)/${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1' `
-          $(Build.BuildNumber) `
-          dev `
-          @{ Name = "Preview"; SourceLocation = "${{ variables.previewFeed }}"; PublishLocation = "${{ variables.previewFeed }}"; InstallationPolicy = 'Trusted' }
+    - pwsh: 
+        .build-tools/publish.ps1 
+          '$(System.DefaultWorkingDirectory)/${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1' 
+          $(Build.BuildNumber) 
+          "${{ variables.previewFeed }}"
+          dev 
       displayName: Publish Developer Version
-    - powershell: |
-        .build-tools/publish.ps1 `
-          '$(System.DefaultWorkingDirectory)/${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1' `
-          $(Build.BuildNumber) `
-          preview `
-          @{ Name = "Preview"; SourceLocation = "${{ variables.previewFeed }}"; PublishLocation = "${{ variables.previewFeed }}"; InstallationPolicy = 'Trusted' }
+    - pwsh: 
+        .build-tools/publish.ps1 
+          '$(System.DefaultWorkingDirectory)/${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1' 
+          $(Build.BuildNumber) 
+          "${{ variables.previewFeed }}"
+          preview 
       displayName: Publish Preview Version
-    - powershell: |
+    - pwsh: |
         echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)-dev" > shuttle/baseline
         echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)-preview" >> shuttle/baseline
         dotnet shuttle/Shuttle.dll generate
