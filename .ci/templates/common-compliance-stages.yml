@@ -1,5 +1,5 @@
 stages:
-- stage: 'Official_Build_Check_Compliance'
+- stage: 'Compliance_Checks'
   displayName: 'Check Compliance for Packages'
   dependsOn: []
   pool:

@@ -16,3 +16,7 @@ variables:
   vvolsStageForSigningFolder: 'forSigningVvols'
   nfsStageForUnsignedFolder: 'unsignedNfs'
   nfsStageForSigningFolder: 'forSigningNfs'
+  shuttleVersion: '1.0.57-e6c6b7e5'
+  feedAuthority: 'https://msazure.visualstudio.com'
+  feedProject: 'One'
+  metadataFeed: 'avs-scripting-metadata'
