@@ -40,9 +40,7 @@ stages:
       displayName: 'Restore Dependencies for ${{ parameters.moduleFolderName }}'
       inputs:
         filePath: '.build-tools/getRequiredModules.ps1'
-        arguments: >
-          '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
-          $(Build.BuildNumber)
+        arguments: '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
         pwsh: true
     - task: PowerShell@2
       displayName: 'Pre-Validate Module and Scripts for ${{ parameters.moduleFolderName }}'
