@@ -13,9 +13,6 @@ stages:
   - job: Validate
     displayName: 'Validate ${{ parameters.moduleFolderName }}'
     steps:
-    - script:
-        dotnet tool update -g powershell --version 7.4.2
-
     - task: AzureCLI@2
       inputs:
         azureSubscription: Scripting Metadata
