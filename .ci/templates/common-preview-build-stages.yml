@@ -7,7 +7,7 @@ parameters:
 stages:
 - stage: 'Build_${{ parameters.moduleDisplayName }}' # Valid stage name cannot contain the character '.'
   displayName: 'Build ${{ parameters.moduleFolderName }}'
-  dependsOn: []
+  dependsOn: [Compliance_Checks]
   pool:
     vmImage: ubuntu-20.04
   variables:
