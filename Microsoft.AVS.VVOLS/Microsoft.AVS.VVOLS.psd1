@@ -17,19 +17,19 @@
     GUID              = '5fa1a15b-4953-4eba-9d69-1cf8d7a94f70'
 
     # Author of this module
-    Author            = ''
+    Author            = 'Microsoft'
 
     # Company or vendor of this module
-    CompanyName       = ''
+    CompanyName       = 'Microsoft'
 
     # Copyright statement for this module
-    Copyright         = ''
+    Copyright         = '(c) Microsoft. All rights reserved.'
 
     # Description of the functionality provided by this module
     Description       = 'Azure VMware Solutions VVOLS Package.'
 
     # Minimum version of the PowerShell engine required by this module
-    PowerShellVersion = '7.2'
+    PowerShellVersion = '7.4'
 
     # Name of the PowerShell host required by this module
     # PowerShellHostName = ''
@@ -48,7 +48,7 @@
 
     # Modules that must be imported into the global environment prior to importing this module
     RequiredModules   = @(
-        @{ "ModuleName" = "Microsoft.AVS.Management"; "ModuleVersion" = "6.0.112" }
+        @{ "ModuleName" = "Microsoft.AVS.Management"; "ModuleVersion" = "7.0.133" }
     )
 
     # Assemblies that must be loaded prior to importing this module
