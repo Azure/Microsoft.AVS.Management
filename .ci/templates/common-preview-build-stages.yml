@@ -7,7 +7,7 @@ parameters:
 stages:
 - stage: 'Build_${{ parameters.moduleDisplayName }}' # Valid stage name cannot contain the character '.'
   displayName: 'Build ${{ parameters.moduleFolderName }}'
-  dependsOn: []
+  dependsOn: [Compliance_Checks]
   pool:
     vmImage: ubuntu-20.04
   variables:
@@ -64,8 +64,7 @@ stages:
           preview 
       displayName: Publish Preview Version
     - pwsh: |
-        echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)-dev" > shuttle/baseline
-        echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)-preview" >> shuttle/baseline
+        echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)" > shuttle/baseline
         dotnet shuttle/Shuttle.dll generate
       env:
         AZURE_DEVOPS_EXT_PAT: $(adoAccessToken)
