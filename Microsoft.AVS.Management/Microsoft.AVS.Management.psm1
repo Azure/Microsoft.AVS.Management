@@ -658,7 +658,7 @@ function New-LDAPSIdentitySource {
         -Certificates $Certificates -ErrorAction Stop
     }
     catch {
-        Write-Error "VCenter wasn't able to add this identity source: $_"
+        Write-Error "VCenter wasn't able to add this identity source: $_" -ErrorAction Stop
     }
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     $ExternalIdentitySources | Format-List | Out-String
