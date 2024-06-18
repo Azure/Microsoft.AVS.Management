@@ -630,11 +630,11 @@ function New-LDAPSIdentitySource {
             throw "File to certificate conversion failed. See error message for more details"
         }
     }
-
+    # check if the certicates expire or not
     foreach ($cert in $Certificates) {
         $certDate = Get-Date $cert.GetExpirationDateString()
         $currentDate = Get-Date
-        Write-Host "Verifying certificate: $cert"
+        Write-Host "Verifying certificate: $($cert.Subject)"
         if ($certDate -lt $currentDate) {
             Write-Error "The certificate is expired. The certificate is only valid not after $certDate." -ErrorAction Stop
         } else {
