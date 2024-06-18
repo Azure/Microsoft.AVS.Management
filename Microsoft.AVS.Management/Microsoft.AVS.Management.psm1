@@ -313,6 +313,7 @@ function Get-CertificateFromServerToLocalFile {
             $DestinationFileArray += $exportPath
         }
     }
+    Write-Host "Number of certificates downloaded: $($DestinationFileArray.count)"
     return $DestinationFileArray
 }
 
@@ -578,11 +579,16 @@ function New-LDAPSIdentitySource {
     if (($PrimaryUrl -match '^(ldaps:).+((:389)|(:3268))$')) {
         Write-Warning "PrimaryUrl $PrimaryUrl is nonstandard. Are you sure you meant to use the 389/3268 port and not the standard ports for LDAPS, 636 or 3269? Continuing anyway.."
     }
+    Write-Host "Connectivity to $PrimaryUrl is verified."
+
     if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and (-not ($SecondaryUrl -match '^(ldaps:).+((:389)|(:636)|(:3268)|(:3269))$'))) {
         Write-Error "SecondaryUrl $SecondaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps: and not ldap:" -ErrorAction Stop
     }
     if (($SecondaryUrl -match '^(ldaps:).+((:389)|(:3268))$')) {
         Write-Warning "SecondaryUrl $SecondaryUrl is nonstandard. Are you sure you meant to use the 389/3268 port and not the standard ports for LDAPS, 636 or 3269? Continuing anyway.."
+    }
+    if ($PSBoundParameters.ContainsKey('SecondaryUrl')) {
+        Write-Host "Connectivity to $SecondaryUrl is verified."
     }
 
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
@@ -625,8 +631,20 @@ function New-LDAPSIdentitySource {
         }
     }
 
+    foreach ($cert in $Certificates) {
+        $certDate = Get-Date $cert.GetExpirationDateString()
+        $currentDate = Get-Date
+        Write-Host "Verifying certificate: $cert"
+        if ($certDate -lt $currentDate) {
+            Write-Error "The certificate is expired. The certificate is only valid not after $certDate." -ErrorAction Stop
+        } else {
+            Write-Host "The certificate is valid."
+        }
+    }
+
     Write-Host "Adding the LDAPS Identity Source..."
-    Add-LDAPIdentitySource `
+    try {
+        Add-LDAPIdentitySource `
         -Name $Name `
         -DomainName $DomainName `
         -DomainAlias $DomainAlias `
@@ -638,6 +656,10 @@ function New-LDAPSIdentitySource {
         -Password $Password `
         -ServerType 'ActiveDirectory' `
         -Certificates $Certificates -ErrorAction Stop
+    }
+    catch {
+        Write-Error "VCenter wasn't able to add this identity source: $_"
+    }
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     $ExternalIdentitySources | Format-List | Out-String
 
