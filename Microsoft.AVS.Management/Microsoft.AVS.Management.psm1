@@ -284,7 +284,7 @@ function Get-CertificateFromServerToLocalFile {
             catch {
                 throw "The FQDN $($ResultUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
             }
-
+            Write-Host "The FQDN $($ResultUrl.Host) is resolved successfully."
             try {
                 $Command = 'nc -vz ' + $ResultUrl.Host + ' ' + $ResultUrl.Port
                 $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
@@ -292,7 +292,7 @@ function Get-CertificateFromServerToLocalFile {
             catch {
                 throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ResultUrl.Port) is open."
             }
-
+            Write-Host "Connectivity to $($ResultUrl.Host):$($ResultUrl.Port) is verified."
             Write-Host ("Starting to Download Cert from " + $computerUrl)
             $Command = 'echo "1" | openssl s_client -connect ' + $ResultUrl.Host + ':' + $ResultUrl.Port + ' -showcerts'
             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
@@ -313,6 +313,7 @@ function Get-CertificateFromServerToLocalFile {
             $DestinationFileArray += $exportPath
         }
     }
+    Write-Host "Number of certificates downloaded: $($DestinationFileArray.count)"
     return $DestinationFileArray
 }
 
@@ -615,18 +616,29 @@ function New-LDAPSIdentitySource {
     }
 
     [System.Array]$Certificates =
-    foreach ($CertFile in $DestinationFileArray) {
+    foreach ($certFile in $DestinationFileArray) {
         try {
-            [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
+            New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certfile)
         }
         catch {
             Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
             throw "File to certificate conversion failed. See error message for more details"
         }
     }
+    # check if the certicates expire or not
+    foreach ($cert in $Certificates) {
+        $currentDate = Get-Date
+        Write-Host "Verifying certificate: $($cert.Subject)"
+        if (($cert.NotBefore -lt $currentDate) -and ($cert.NotAfter -gt $currentDate)) {
+            Write-Host "The certificate is current."
+        } else {
+            Write-Error "The certificate is not current. It's only valid between $($cert.NotBefore) and $($cert.NotAfter)." -ErrorAction Stop
+        }
+    }
 
     Write-Host "Adding the LDAPS Identity Source..."
-    Add-LDAPIdentitySource `
+    try {
+        Add-LDAPIdentitySource `
         -Name $Name `
         -DomainName $DomainName `
         -DomainAlias $DomainAlias `
@@ -638,6 +650,10 @@ function New-LDAPSIdentitySource {
         -Password $Password `
         -ServerType 'ActiveDirectory' `
         -Certificates $Certificates -ErrorAction Stop
+    }
+    catch {
+        Write-Error "VCenter wasn't able to add this identity source: $_" -ErrorAction Stop
+    }
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     $ExternalIdentitySources | Format-List | Out-String
 
