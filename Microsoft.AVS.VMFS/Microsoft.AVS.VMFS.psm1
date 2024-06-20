@@ -756,11 +756,45 @@ function Remove-VMHostStaticIScsiTargets {
 
     $iSCSIAddressList = $iSCSIAddress.Split(",")
 
-    # Remove iSCSI ip address from static discovery from all of hosts if there is a match
-    $Cluster | Get-VMHost | Get-VMHostHba -Type iScsi | Get-IScsiHbaTarget | Where-Object {($_.Type -eq "Static") -and ($ISCSIAddressList -contains $_.Address)} | Remove-IScsiHbaTarget -Confirm:$false
+    $DatastoreDisks = Get-Datastore | Select-Object -ExpandProperty ExtensionData | Select-Object -ExpandProperty Info | Select-Object -ExpandProperty Vmfs | Select-Object -ExpandProperty Extent
+    $TargetsChanged = $False
 
-    # Rescan after removing the iSCSI targets
-    $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
+    # Remove iSCSI ip address from static discovery from all of hosts if there is a match
+    $HBAs =  $Cluster | Get-VMHost | Get-VMHostHba -Type iScsi
+    foreach ($HBA in $HBAs) {
+        $DeviceIds = ($HBA | Get-ScsiLun).CanonicalName
+
+        # Find if any of the devices is used as backing for a datastore
+        $IsDeviceInUse = $False
+        foreach ($DeviceId in $DeviceIds) {
+            if ($DatastoreDisks.DiskName -contains $DeviceId) {
+                $IsDeviceInUse = $True
+                break
+            }
+        }
+        if ($IsDeviceInUse) {
+            Write-Warning "Datastore disk $DeviceId for host $($HBA.VMHost.Name) is in use, skipping iSCSI target removal"
+        }
+        else {
+            $Targets = $HBA | Get-IScsiHbaTarget | Where-Object {($_.Type -eq "Static") -and ($iSCSIAddressList -contains $_.Address)}
+            foreach ($Target in $Targets) {
+                Write-Host "Removing iSCSI target $Target from host $($HBA.VMHost.Name)"
+                try {
+                    $Target | Remove-IScsiHbaTarget -Confirm:$false
+                    $TargetsChanged = $True
+                }
+                catch {
+                    Write-Error "Failed to remove iSCSI target $Target from host $($HBA.VMHost.Name) with error: $_"
+                }
+            }
+        }
+    }
+
+    if ($TargetsChanged) {
+        # Rescan after removing the iSCSI targets
+        Write-Host "Rescanning storage"
+        $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
+    }
 }
 
 <#
