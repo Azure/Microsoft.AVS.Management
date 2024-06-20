@@ -284,7 +284,7 @@ function Get-CertificateFromServerToLocalFile {
             catch {
                 throw "The FQDN $($ResultUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
             }
-            Write-Host "Connectivity to $($ResultUrl.Host) is verified."
+            Write-Host "The FQDN $($ResultUrl.Host) is resolved successfully."
             try {
                 $Command = 'nc -vz ' + $ResultUrl.Host + ' ' + $ResultUrl.Port
                 $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
@@ -632,7 +632,7 @@ function New-LDAPSIdentitySource {
         if (($cert.NotBefore -lt $currentDate) -and ($cert.NotAfter -gt $currentDate)) {
             Write-Host "The certificate is current."
         } else {
-            Write-Error "The certificate is expired. The certificate is only valid not after $certDate." -ErrorAction Stop
+            Write-Error "The certificate is not current. It's only valid between $($cert.NotBefore) and $($cert.NotAfter)." -ErrorAction Stop
         }
     }
 
