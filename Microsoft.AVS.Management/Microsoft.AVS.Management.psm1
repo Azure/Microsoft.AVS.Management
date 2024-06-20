@@ -616,9 +616,9 @@ function New-LDAPSIdentitySource {
     }
 
     [System.Array]$Certificates =
-    foreach ($CertFile in $DestinationFileArray) {
+    foreach ($certFile in $DestinationFileArray) {
         try {
-            [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
+            New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certfile)
         }
         catch {
             Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
