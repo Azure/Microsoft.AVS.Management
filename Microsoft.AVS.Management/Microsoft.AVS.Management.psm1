@@ -284,7 +284,7 @@ function Get-CertificateFromServerToLocalFile {
             catch {
                 throw "The FQDN $($ResultUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
             }
-
+            Write-Host "Connectivity to $($ResultUrl.Host) is verified."
             try {
                 $Command = 'nc -vz ' + $ResultUrl.Host + ' ' + $ResultUrl.Port
                 $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
@@ -292,7 +292,7 @@ function Get-CertificateFromServerToLocalFile {
             catch {
                 throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ResultUrl.Port) is open."
             }
-
+            Write-Host "Connectivity to $($ResultUrl.Host):$($ResultUrl.Port) is verified."
             Write-Host ("Starting to Download Cert from " + $computerUrl)
             $Command = 'echo "1" | openssl s_client -connect ' + $ResultUrl.Host + ':' + $ResultUrl.Port + ' -showcerts'
             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
@@ -579,16 +579,11 @@ function New-LDAPSIdentitySource {
     if (($PrimaryUrl -match '^(ldaps:).+((:389)|(:3268))$')) {
         Write-Warning "PrimaryUrl $PrimaryUrl is nonstandard. Are you sure you meant to use the 389/3268 port and not the standard ports for LDAPS, 636 or 3269? Continuing anyway.."
     }
-    Write-Host "Connectivity to $PrimaryUrl is verified."
-
     if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and (-not ($SecondaryUrl -match '^(ldaps:).+((:389)|(:636)|(:3268)|(:3269))$'))) {
         Write-Error "SecondaryUrl $SecondaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps: and not ldap:" -ErrorAction Stop
     }
     if (($SecondaryUrl -match '^(ldaps:).+((:389)|(:3268))$')) {
         Write-Warning "SecondaryUrl $SecondaryUrl is nonstandard. Are you sure you meant to use the 389/3268 port and not the standard ports for LDAPS, 636 or 3269? Continuing anyway.."
-    }
-    if ($PSBoundParameters.ContainsKey('SecondaryUrl')) {
-        Write-Host "Connectivity to $SecondaryUrl is verified."
     }
 
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
@@ -632,13 +627,12 @@ function New-LDAPSIdentitySource {
     }
     # check if the certicates expire or not
     foreach ($cert in $Certificates) {
-        $certDate = Get-Date $cert.GetExpirationDateString()
         $currentDate = Get-Date
         Write-Host "Verifying certificate: $($cert.Subject)"
-        if ($certDate -lt $currentDate) {
-            Write-Error "The certificate is expired. The certificate is only valid not after $certDate." -ErrorAction Stop
+        if (($cert.NotBefore -lt $currentDate) -and ($cert.NotAfter -gt $currentDate)) {
+            Write-Host "The certificate is current."
         } else {
-            Write-Host "The certificate is valid."
+            Write-Error "The certificate is expired. The certificate is only valid not after $certDate." -ErrorAction Stop
         }
     }
 
