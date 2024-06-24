@@ -2589,23 +2589,23 @@ Function Get-AVSVSANClusterUNMAPTRIM {
 Function Set-AVSVSANClusterEncryptionInTransit {
     <#
     .DESCRIPTION
-        This function enables vSAN Encyrption in transit on the cluster defined by the -Name parameter.
+        This function enables vSAN Encryption in transit on the cluster defined by the -Name parameter.
     .PARAMETER Name
         Name of Clusters as defined in vCenter.  Valid values are blank or a comma separated list of cluster names.
         Set-AVSVSANClusterEncryptionInTransit -Name Cluster-1,Cluster-2,Cluster-3
-        Enables vSAN Encyrption in transit on Clusters-1,2,3
+        Enables vSAN Encryption in transit on Clusters-1,2,3
         Set-AVSVSANClusterEncryptionInTransit -Enable:True
-        Enables vSAN Encyrption in transit on all Clusters
+        Enables vSAN Encryption in transit on all Clusters
     .PARAMETER Enable
-        Set to true to enable vSAN Encyrption in transit on target cluster(s). Default is false.
-        WARNING - There is a performance impact when vSAN Encyrption in transit is enabled.
+        Set to true to enable vSAN Encryption in transit on target cluster(s). Default is false.
+        WARNING - There is a performance impact when vSAN Encryption in transit is enabled.
         See url for more information: https://docs.vmware.com/en/VMware-vSphere/7.0/com.vmware.vsphere.vsan.doc/GUID-10099331-92E7-41AF-BCAA-88DB4B4A4B7B.html
     .EXAMPLE
         Set-AVSVSANClusterEncryptionInTransit -Name 'Cluster-1,Cluster-2,Cluster-3'
-        Enables vSAN Encyrption in transit on Clusters-1,2,3
+        Enables vSAN Encryption in transit on Clusters-1,2,3
     .EXAMPLE
         Set-AVSVSANClusterEncryptionInTransit -Enable:True
-        Enables vSAN Encyrption in transit on all Clusters
+        Enables vSAN Encryption in transit on all Clusters
     #>
 
     [CmdletBinding()]
@@ -2624,15 +2624,14 @@ Function Set-AVSVSANClusterEncryptionInTransit {
             $Name = Limit-WildcardsandCodeInjectionCharacters -String $Name
             $Array = Convert-StringToArray -String $Name
         }
-        $TagName = "VSAN Encyrption in transit"
-        $InfoMessage = "Info - There may be a performance impact when vSAN Encyrption in transit is enabled.
+        $TagName = "VSAN Encryption in transit"
+        $InfoMessage = "Info - There may be a performance impact when vSAN Encryption in transit is enabled.
             See url for more information: https://docs.vmware.com/en/VMware-vSphere/7.0/com.vmware.vsphere.vsan.doc/GUID-10099331-92E7-41AF-BCAA-88DB4B4A4B7B.html"
     }
     process {
         If ([string]::IsNullOrEmpty($Array)) {
             $Clusters = Get-Cluster
             Foreach ($Cluster in $Clusters) {
-
                 $vSANConigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
                 $vSANReconfigSpec = new-object -type VMware.Vsan.Views.VimVsanReconfigSpec
                 $vSANReconfigSpec.Modify = $true
@@ -2640,34 +2639,39 @@ Function Set-AVSVSANClusterEncryptionInTransit {
                 $vSANDataInTransitConfig.Enabled = $Enable
                 $vSANDataInTransitConfig.RekeyInterval = 1440
                 $vSANReconfigSpec.DataInTransitEncryptionConfig = $vSANDataInTransitConfig
-                $vSANConigView.VsanClusterReconfig($Cluster.ExtensionData.MoRef,$vSANReconfigSpec)
-                Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
-                Write-Information "$($Cluster.Name) set to $Enabled for vSAN Encyrption in transit"
-                If ($Enable) {
-                    Write-Information $InfoMessage
+                $task = $vSANConigView.VsanClusterReconfig($Cluster.ExtensionData.MoRef,$vSANReconfigSpec)
+                Wait-Task -Task (Get-Task -Id $task)
+                If ((Get-Task -Id $task).State -eq "Success"){
+                    Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
+                    Write-Host "$($Cluster.Name) set to $Enable for vSAN Encryption in transit"
+                    If ($Enable) {
+                        Write-Information $InfoMessage
+                    }
+                }else {
+                    Write-Error "Failed to set $($Cluster.Name) to $Enable for vSAN Encryption in transit"
                 }
             }
-            Get-Cluster | Set-VsanClusterConfiguration -GuestTrimUnmap:$Enable
         }
         Else {
             Foreach ($Entry in $Array) {
                 If ($Cluster = Get-Cluster -name $Entry) {
                     $vSANConigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
-                    $vSANReconfigSpec = new-object -type VMware.Vsan.Views.VimVsanReconfigSpec
+                    $vSANReconfigSpec = New-Object -type VMware.Vsan.Views.VimVsanReconfigSpec
                     $vSANReconfigSpec.Modify = $true
-                    $vSANDataInTransitConfig= new-object -type VMware.Vsan.Views.VsanDataInTransitEncryptionConfig
+                    $vSANDataInTransitConfig= New-Object -type VMware.Vsan.Views.VsanDataInTransitEncryptionConfig
                     $vSANDataInTransitConfig.Enabled = $Enable
                     $vSANDataInTransitConfig.RekeyInterval = 1440
                     $vSANReconfigSpec.DataInTransitEncryptionConfig = $vSANDataInTransitConfig
-                    $vSANConigView.VsanClusterReconfig($Cluster.ExtensionData.MoRef,$vSANReconfigSpec)
-                    Write-Information "$($Cluster.Name) set to $Enabled for vSAN Encyrption in transit"
-                    If ($Enable) {
-                        Write-Information $InfoMessage
+                    $task = $vSANConigView.VsanClusterReconfig($Cluster.ExtensionData.MoRef,$vSANReconfigSpec)
+                    Wait-Task -Task (Get-Task -Id $task)
+                    If ((Get-Task -Id $task).State -eq "Success"){
                         Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
-                    }
-                    If ($Enable -eq $false) {
-                        $AssignedTag = Get-TagAssignment -Tag $Tagname -Entity $Cluster
-                        Remove-TagAssignment -TagAssignment $AssignedTag -Confirm:$false
+                        Write-Host "$($Cluster.Name) set to $Enable for vSAN Encryption in transit"
+                        If ($Enable) {
+                            Write-Information $InfoMessage
+                        }
+                    }else {
+                        Write-Error "Failed to set $($Cluster.Name) to $Enable for vSAN Encryption in transit"
                     }
                 }
             }
@@ -2678,7 +2682,7 @@ Function Set-AVSVSANClusterEncryptionInTransit {
 Function Get-AVSVSANClusterEncryptionInTransit {
     <#
     .DESCRIPTION
-        This function gets vSAN Encyrption in transit configuration status on all clusters.
+        This function gets vSAN Encryption in transit configuration status on all clusters.
     #>
 
     [CmdletBinding()]
@@ -2695,6 +2699,6 @@ Function Get-AVSVSANClusterEncryptionInTransit {
                     EncryptionInTransit = $vSANConigView.VsanClusterGetConfig($Cluster.ExtensionData.MoRef).DataInTransitEncryptionConfig.Enabled
                 }
             }
-            $Config
+            $Config | Format-Table | Out-String | Write-Host
         }
 }
