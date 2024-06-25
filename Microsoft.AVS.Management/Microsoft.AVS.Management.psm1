@@ -2592,20 +2592,12 @@ Function Set-AVSVSANClusterEncryptionInTransit {
         This function enables vSAN Encryption in transit on the cluster defined by the -Name parameter.
     .PARAMETER Name
         Name of Clusters as defined in vCenter.  Valid values are blank or a comma separated list of cluster names.
-        Set-AVSVSANClusterEncryptionInTransit -Name Cluster-1,Cluster-2,Cluster-3
-        Enables vSAN Encryption in transit on Clusters-1,2,3
-        Set-AVSVSANClusterEncryptionInTransit -Enable:True
-        Enables vSAN Encryption in transit on all Clusters
     .PARAMETER Enable
-        Set to true to enable vSAN Encryption in transit on target cluster(s). Default is false.
-        WARNING - There is a performance impact when vSAN Encryption in transit is enabled.
-        See url for more information: https://docs.vmware.com/en/VMware-vSphere/7.0/com.vmware.vsphere.vsan.doc/GUID-10099331-92E7-41AF-BCAA-88DB4B4A4B7B.html
+        Set to true to enable vSAN Encryption in transit on target cluster(s). Default is false. WARNING - There is a performance impact when vSAN Encryption in transit is enabled. See url for more information: https://core.vmware.com/blog/performance-when-using-vsan-encryption-services
     .EXAMPLE
-        Set-AVSVSANClusterEncryptionInTransit -Name 'Cluster-1,Cluster-2,Cluster-3'
-        Enables vSAN Encryption in transit on Clusters-1,2,3
+        `Set-AVSVSANClusterEncryptionInTransit -Name 'Cluster-1,Cluster-2,Cluster-3'` Enables vSAN Encryption in transit on Clusters-1,2,3.
     .EXAMPLE
-        Set-AVSVSANClusterEncryptionInTransit -Enable:True
-        Enables vSAN Encryption in transit on all Clusters
+        `Set-AVSVSANClusterEncryptionInTransit -Enable:True` Enables vSAN Encryption in transit on all Clusters.
     #>
 
     [CmdletBinding()]
@@ -2632,14 +2624,14 @@ Function Set-AVSVSANClusterEncryptionInTransit {
         If ([string]::IsNullOrEmpty($Array)) {
             $Clusters = Get-Cluster
             Foreach ($Cluster in $Clusters) {
-                $vSANConigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
+                $vSANConfigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
                 $vSANReconfigSpec = new-object -type VMware.Vsan.Views.VimVsanReconfigSpec
                 $vSANReconfigSpec.Modify = $true
                 $vSANDataInTransitConfig= new-object -type VMware.Vsan.Views.VsanDataInTransitEncryptionConfig
                 $vSANDataInTransitConfig.Enabled = $Enable
                 $vSANDataInTransitConfig.RekeyInterval = 1440
                 $vSANReconfigSpec.DataInTransitEncryptionConfig = $vSANDataInTransitConfig
-                $task = $vSANConigView.VsanClusterReconfig($Cluster.ExtensionData.MoRef,$vSANReconfigSpec)
+                $task = $vSANConfigView.VsanClusterReconfig($Cluster.ExtensionData.MoRef,$vSANReconfigSpec)
                 Wait-Task -Task (Get-Task -Id $task)
                 If ((Get-Task -Id $task).State -eq "Success"){
                     Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
@@ -2655,14 +2647,14 @@ Function Set-AVSVSANClusterEncryptionInTransit {
         Else {
             Foreach ($Entry in $Array) {
                 If ($Cluster = Get-Cluster -name $Entry) {
-                    $vSANConigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
+                    $vSANConfigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
                     $vSANReconfigSpec = New-Object -type VMware.Vsan.Views.VimVsanReconfigSpec
                     $vSANReconfigSpec.Modify = $true
                     $vSANDataInTransitConfig= New-Object -type VMware.Vsan.Views.VsanDataInTransitEncryptionConfig
                     $vSANDataInTransitConfig.Enabled = $Enable
                     $vSANDataInTransitConfig.RekeyInterval = 1440
                     $vSANReconfigSpec.DataInTransitEncryptionConfig = $vSANDataInTransitConfig
-                    $task = $vSANConigView.VsanClusterReconfig($Cluster.ExtensionData.MoRef,$vSANReconfigSpec)
+                    $task = $vSANConfigView.VsanClusterReconfig($Cluster.ExtensionData.MoRef,$vSANReconfigSpec)
                     Wait-Task -Task (Get-Task -Id $task)
                     If ((Get-Task -Id $task).State -eq "Success"){
                         Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
