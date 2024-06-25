@@ -1844,3 +1844,66 @@ function Repair-HAConfiguration {
         throw "Failed to repair HA configuration on one or more hosts"
     }
 }
+
+<#
+    .SYNOPSIS
+     This function clears disconnected iSCSI targets on all hosts in a given vSphere Cluster.
+
+    .PARAMETER ClusterName
+     vSphere Cluster Name
+
+    .EXAMPLE
+     Clear-DisconnectedIscsiTargets -ClusterName "vSphere-cluster-001"
+
+    .INPUTS
+     vSphere Cluster Name
+#>
+function Clear-DisconnectedIscsiTargets {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'vSphere Cluster Name')]
+        [String] $ClusterName
+    )
+
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $($ClusterName) does not exist."
+    }
+
+    $VMHosts = $null
+    try {
+        $VMHosts = Get-Cluster $ClusterName | Get-VMHost
+    }
+    catch {
+        throw "Failed to collect cluster hosts $($_.Exception)"
+    }
+
+    foreach ($VMHost in $VMHosts) {
+        $IscsiTargetRemoved = $false
+        $HostAddress = $VMHost.Name
+        Write-Host "Clearing disconnected iSCSI targets on host $HostAddress"
+
+        $EsxCli = Get-EsxCli -VMHost $VMHost.Name -V2
+
+        $DisconnectedSessions = $Esxcli.iscsi.session.connection.list.Invoke() | Where-Object { $_.State.Trim() -ne "logged_in" }
+        foreach ($session in $DisconnectedSessions) {
+            try {
+                Write-Host "Clearing disconnected iSCSI target $($session.ConnectionAddress) on host $HostAddress"
+                $targets = Get-IScsiHbaTarget | Where-Object { $_.Address -eq $session.ConnectionAddress }
+                $targets | Remove-IScsiHbaTarget -Confirm:$false
+                $IscsiTargetRemoved = $true
+            }
+            catch {
+                Write-Error "Failed to clear disconnected iSCSI targets on host $HostAddress"
+            }
+        }
+        if ($IscsiTargetRemoved) {
+            Write-Host "Rescanning storage on host $HostAddress"
+            $VMHost | Get-VMHostStorage -RescanAllHba -RescanVmfs
+        }
+    }
+}
