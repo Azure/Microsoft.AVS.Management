@@ -2714,7 +2714,6 @@ function Remove-CustomRole {
         [string]
         $roleInput
     )
-    $donotremovearray = @("NsxViAdministrator","vStatsAdmin","VirtualMachinePowerUser","VirtualMachineUser","ResourcePoolAdministrator","VMwareConsolidatedBackupUser","DatastoreConsumer","NetworkConsumer","VirtualMachineConsoleUser","AutoUpdateUser","InventoryService.Tagging.TaggingAdmin","SyncUsers","vSphere Client Solution User","WorkloadStorageManagement","vSphereKubernetesManager","com.vmware.Content.Registry.Admin","SupervisorServiceCluster","SupervisorServiceRootFolder","SupervisorServiceGlobal","VMOperatorController","VMOperatorControllerGlobal","NSOperatorController","vCLSAdmin","vStatsUser","VMServicesAdministrator","NSX Administrator","com.vmware.Content.Admin","CloudAdmin","NsxAuditor")
     # Check if the role exists before attempting removal
     $roleToRemove = Get-VIRole | Where-Object { $_.Description -eq $roleInput }
 
