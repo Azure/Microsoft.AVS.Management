@@ -2710,26 +2710,31 @@ function Remove-CustomRole {
     [AVSAttribute(10, UpdatesSDDC = $false)]
     param (
         [Parameter(Mandatory = $true,
-            HelpMessage = "The name of the role to remove. This must be a custom role.")]
+            HelpMessage = "The name of the role to remove, as displayed in the vCenter UI (case insensitive). This must be a custom role.")]
         [string]
-        $roleToRemove
+        $roleInput
     )
     $donotremovearray = @("NsxViAdministrator","vStatsAdmin","VirtualMachinePowerUser","VirtualMachineUser","ResourcePoolAdministrator","VMwareConsolidatedBackupUser","DatastoreConsumer","NetworkConsumer","VirtualMachineConsoleUser","AutoUpdateUser","InventoryService.Tagging.TaggingAdmin","SyncUsers","vSphere Client Solution User","WorkloadStorageManagement","vSphereKubernetesManager","com.vmware.Content.Registry.Admin","SupervisorServiceCluster","SupervisorServiceRootFolder","SupervisorServiceGlobal","VMOperatorController","VMOperatorControllerGlobal","NSOperatorController","vCLSAdmin","vStatsUser","VMServicesAdministrator","NSX Administrator","com.vmware.Content.Admin","CloudAdmin","NsxAuditor")
-    if ($donotremovearray -contains $roleToRemove) {
-        Write-Error "Cannot remove '$roleToRemove'. Removal not allowed."
-    } else {
-        $role = Get-VIRole -Name $roleToRemove
-        if ($role) {
-            if ($role.IsSystem) {
-                Write-Error "Cannot remove '$roleToRemove'. Role is a system role."
-                return
+    # Check if the role exists before attempting removal
+    $roleToRemove = Get-VIRole | Where-Object { $_.Description -eq $roleInput }
+
+    # Check if the role is in the $donotremovearray or is a System role
+    if ($roleToRemove.Count -eq 1) {
+        if ((Test-AVSProtectedObjectName -Name $roleToRemove.Name) -or $roleToRemove.IsSystem -eq $true) {
+            Write-Error "'$roleInput' is either System or Built-in. Removal not allowed."
+        }
+        else {
+            try {
+                Remove-VIRole -Role $roleToRemove -Confirm:$false -Force:$false
+                Write-Host "The role '$roleInput' has been removed."
             }
-            Remove-VIRole -Role $role -Confirm:$false
-            Write-Information "Removed '$roleToRemove'."
-        } else {
-            Write-Error "Role '$roleToRemove' not found."
+            catch {
+                Write-Error "Failed to remove the role '$roleInput'."  
+            }
         }
     }
+    else {
+        Write-Host "The role '$roleInput' was not found or can refer to several roles. No removal performed."
+    }
 }
-
 
