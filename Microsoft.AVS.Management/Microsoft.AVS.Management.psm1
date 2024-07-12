@@ -2717,7 +2717,7 @@ function Remove-CustomRole {
     # Check if the role exists before attempting removal
     $roleToRemove = Get-VIRole | Where-Object { $_.Description -eq $roleInput }
 
-    # Check if the role is in the $donotremovearray or is a System role
+    # Check if the role is in the protected names list or is a System role
     if ($roleToRemove.Count -eq 1) {
         if ((Test-AVSProtectedObjectName -Name $roleToRemove.Name) -or $roleToRemove.IsSystem -eq $true) {
             Write-Error "'$roleInput' is either System or Built-in. Removal not allowed."
@@ -2728,12 +2728,17 @@ function Remove-CustomRole {
                 Write-Host "The role '$roleInput' has been removed."
             }
             catch {
-                Write-Error "Failed to remove the role '$roleInput'."  
+                Write-Error "Failed to remove the role '$roleInput'."
+                Write-Error $_.Exception.Message
             }
         }
     }
     else {
-        Write-Host "The role '$roleInput' was not found or can refer to several roles. No removal performed."
+        Write-Host "The role '$roleInput' was not found or can refer to several roles. No removal performed. Below the list of roles found:"
+        foreach ($roleItem in $roleToRemove) {
+            Write-Host "Role Name: $($roleItem.Name)"
+            Write-Host "Role Description: $($roleItem.Description)"
+        }
     }
 }
 
