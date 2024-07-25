@@ -1,0 +1,52 @@
+parameters:
+- name: publishManagementPackage
+  type: boolean
+  default: true
+- name: publishVmfsPackage
+  type: boolean
+  default: true
+- name: publishVvolsPackage
+  type: boolean
+  default: true
+- name: publishNfsPackage
+  type: boolean
+  default: true
+
+trigger:
+- main
+
+pr:
+- none
+########################################
+variables:
+- template: vars.yml
+
+name: $(Rev:r) # Provide build run number (i.e., Build.BuildNumber) that is used as patch for build version and ultimately module version
+#######################################
+
+stages:
+- template: templates/common-compliance-stages.yml@self
+
+- ${{ if eq(parameters.publishManagementPackage, true) }}:
+  - template: templates/common-preview-build-stages.yml@self
+    parameters:
+      moduleFolderName: ${{ variables.managementModuleFolderName }}
+      moduleDisplayName: ${{ variables.managementModuleDisplayName }}
+
+- ${{ if eq(parameters.publishVmfsPackage, true) }}:
+  - template: templates/common-preview-build-stages.yml@self
+    parameters:
+      moduleFolderName: ${{ variables.vmfsModuleFolderName }}
+      moduleDisplayName: ${{ variables.vmfsModuleDisplayName }}
+
+- ${{ if eq(parameters.publishVvolsPackage, true) }}:
+  - template: templates/common-preview-build-stages.yml@self
+    parameters:
+      moduleFolderName: ${{ variables.vvolsModuleFolderName }}
+      moduleDisplayName: ${{ variables.vvolsModuleDisplayName }}
+
+- ${{ if eq(parameters.publishNfsPackage, true) }}:
+  - template: templates/common-preview-build-stages.yml@self
+    parameters:
+      moduleFolderName: ${{ variables.nfsModuleFolderName }}
+      moduleDisplayName: ${{ variables.nfsModuleDisplayName }}

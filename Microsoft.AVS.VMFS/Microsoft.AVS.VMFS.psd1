@@ -29,7 +29,7 @@
     Description = 'Azure VMware Solutions VMFS Package'
 
     # Minimum version of the PowerShell engine required by this module
-    PowerShellVersion = '7.2'
+    PowerShellVersion = '7.4'
 
     # Name of the PowerShell host required by this module
     # PowerShellHostName = ''
@@ -48,7 +48,7 @@
 
     # Modules that must be imported into the global environment prior to importing this module
     RequiredModules = @(
-        @{ "ModuleName" = "Microsoft.AVS.Management"; "ModuleVersion" = "5.3.99" }
+        @{ "ModuleName" = "Microsoft.AVS.Management"; "ModuleVersion" = "7.0.133" }
     )
 
     # Assemblies that must be loaded prior to importing this module
@@ -69,6 +69,7 @@
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
     FunctionsToExport = @(
         "Set-VmfsIscsi",
+        "Set-VmfsStaticIscsi",
         "New-VmfsDatastore",
         "Dismount-VmfsDatastore",
         "Resize-VmfsVolume",
@@ -81,7 +82,14 @@
         "Get-VmfsDatastore",
         "Get-VmfsHosts",
         "Get-StorageAdapters",
-        "Get-VmKernelAdapters"
+        "Get-VmKernelAdapters",
+        "Connect-NVMeTCPTarget",
+        "Disconnect-NVMeTCPTarget",
+        "Set-NVMeTCP",
+        "New-NVMeTCPAdapter",
+        "New-VmfsVmSnapshot",
+        "Repair-HAConfiguration",
+        "Clear-DisconnectedIscsiTargets"
     )
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.

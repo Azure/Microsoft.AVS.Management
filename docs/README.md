@@ -73,7 +73,7 @@ If necessary, use the installation script to create a separate vCenter user and 
 ### Protecting service credentials
 If deploying an appliance in customer infrastruture that needs service credentials with privileges above `cloudadmins` role the vendor must ensure that the credentials are never exposed - not in-flight, nor at rest.
 - The appliance user must not be able to gain root access or direct access to the storage or file system where credentials are stored.
-- The appliance must be deployed in a folder with NoAccess permission to `CloudAdmins` SSO group. See `[AVSSecureFolder]::Root()` and `[AVSSecureFolder]::GetOrCreate()`.
+- The appliance must be deployed in a folder with ReadOnly permission to `CloudAdmins` SSO group. See `[AVSSecureFolder]::Root()` and `[AVSSecureFolder]::GetOrCreate()`.
 - The objects deployed into the secure folder must subseqently be re-secured with `[AVSSecureFolder]::Secure()` method.
 - The credentials must be passed as OVA properties to the appliance, including the rotation scenario.
 - The credentials must never be logged, no diagnostic bundle may include the credentials.
@@ -115,6 +115,7 @@ The script execution pipeline supports following PowerShell streams:
 
 Use the stream appropriate for the purpose, suppress outputs with `Out-Null` for information that doesn't not help with the installation or troubleshooting. 
 Be aware that content of these streams is always stored as strings. Objects emitted into these streams should either be primitives (strings, ints, etc), of type `HashTable` or be explicitly converted to string by your script, otherwise they may fail to deserialize and won't be captured.
+> Note that in PowerShell an expression that produces a value (for example, `Stop-VM` or `$true`) will emit that value into `Output` stream unless it's either captured in a variable or piped into `Out-Null`. We observe that this may disrupt outputs to other streams, so make sure to be intentional and eliminate any unintended outputs.
 
 Use `-ErrorAction Stop` or equivalent means to terminate with an error and indicate the final status to the user.
 
@@ -224,7 +225,7 @@ sshLogin $ESX_Credentials
 The final QA cycle would be:
 - Publish the package with `-dev` version suffix
 - Get on the Linux jumpbox connected to your SDDC vnet
-- install docker and spin up an instance of this image: mcr.microsoft.com/powershell:lts-7.2-alpine-3.14
+- install docker and spin up an instance of this image: mcr.microsoft.com/powershell:7.4-alpine-3.17
 - In the PowerShell container:
     - Install only your package from PS Gallery – this is to ensure that your package has correctly specified all the dependencies
     - Setup the context

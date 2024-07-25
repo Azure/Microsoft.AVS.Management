@@ -1,8 +1,47 @@
 <# Private Function Import #>
-. $PSScriptRoot\UserUtils.ps1
-. $PSScriptRoot\HcxUtils.ps1
 . $PSScriptRoot\AVSGenericUtils.ps1
 . $PSScriptRoot\AVSvSANUtils.ps1
+
+<# Download certificate from SAS token url #>
+function Get-Certificates {
+    Param
+    (
+        [Parameter(
+            Mandatory = $true)]
+        [System.Security.SecureString]
+        $SSLCertificatesSasUrl
+    )
+
+    [string] $CertificatesSASPlainString = ConvertFrom-SecureString -SecureString $SSLCertificatesSasUrl -AsPlainText
+    [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
+    [string[]] $CertificatesSASList = $CertificatesSASPlainString.Split(",", $options)
+    Write-Host "Number of Certs passed $($CertificatesSASList.count)"
+    if ($CertificatesSASList.count -eq 0) {
+        throw "If adding an LDAPS identity source, please ensure you pass in at least one certificate"
+    }
+    if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and $CertificatesSASList.count -lt 2) {
+        throw "If passing in a secondary/fallback URL, ensure that at least two certificates are passed."
+    }
+    $DestinationFileArray = @()
+    $Index = 1
+    foreach ($CertSas in $CertificatesSASList) {
+        Write-Host "Downloading Cert $Index..."
+        $CertDir = $pwd.Path
+        $CertLocation = "$CertDir/cert$Index.cer"
+        try {
+            $Response = Invoke-WebRequest -Uri $CertSas -OutFile $CertLocation
+            $StatusCode = $Response.StatusCode
+            Write-Host("Certificate downloaded. $StatusCode")
+            $DestinationFileArray += $CertLocation
+        }
+        catch {
+            throw "Failed to download certificate #$($Index): $($PSItem.Exception.Message). Ensure the SAS string is still valid"
+        }
+        $Index = $Index + 1
+    }
+    Write-Host "Number of certificates downloaded: $($DestinationFileArray.count)"
+    return $DestinationFileArray
+}
 
 function Get-StoragePolicyInternal {
     Param
@@ -210,49 +249,218 @@ function New-LDAPIdentitySource {
 
 <#
     .Synopsis
-     Download the certificate from a domain controller
+     Download certificates from domain controllers and save them to local files
 #>
-function Get-CertificateFromDomainController {
+function Get-CertificateFromServerToLocalFile {
     param (
         [Parameter(
             Mandatory = $true)]
         [ValidateNotNull()]
-        [System.Uri]
-        $ParsedUrl,
-
-        [Parameter(
-            Mandatory = $true)]
-        [ValidateNotNull()]
-        [string]
-        $computerUrl
+        [string[]]
+        $remoteComputers
     )
 
-    try {
-        try {
-            $Command = 'nslookup ' + $ParsedUrl.Host + ' -type=soa'
-            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+    $DestinationFileArray = @()
+    $exportFolder = $pwd.Path + "/"
+    foreach ($computerUrl in $remoteComputers) {
+        if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) {
+            throw "Incorrect Url format entered from: $computerUrl"
         }
-        catch {
-            throw "The FQDN $($ParsedUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
+        $ParsedUrl = [System.Uri]$computerUrl
+        if ($ParsedUrl.Port -lt 0 -OR $ParsedUrl.Host -eq "" -OR $ParsedUrl.Scheme -eq "") {
+            throw "Incorrect Url format entered from: $computerUrl. The correct Url format is protocol://host:port (Example: ldaps://yourserver.com:636)."
+        }
+        $ResultUrlString = $ParsedUrl.GetLeftPart([UriPartial]::Authority)
+        $ResultUrl = [System.Uri]$ResultUrlString
+        if ($ResultUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ResultUrl.Host -as [ipaddress])) {
+            throw "Incorrect Url format. $computerUrl is an IP address. Please use the hostname exactly as specified on the issued certificate."
         }
 
         try {
-            $Command = 'nc -vz ' + $ParsedUrl.Host + ' ' + $ParsedUrl.Port
+            try {
+                $Command = 'nslookup ' + $ResultUrl.Host + ' -type=soa'
+                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+            }
+            catch {
+                throw "The FQDN $($ResultUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
+            }
+            Write-Host "The FQDN $($ResultUrl.Host) is resolved successfully."
+            try {
+                $Command = 'nc -vz ' + $ResultUrl.Host + ' ' + $ResultUrl.Port
+                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+            }
+            catch {
+                throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ResultUrl.Port) is open."
+            }
+            Write-Host "Connectivity to $($ResultUrl.Host):$($ResultUrl.Port) is verified."
+            Write-Host ("Starting to Download Cert from " + $computerUrl)
+            $Command = 'echo "1" | openssl s_client -connect ' + $ResultUrl.Host + ':' + $ResultUrl.Port + ' -showcerts'
             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+            $SSHOutput = $SSHRes.Output | out-string
         }
         catch {
-            throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ParsedUrl.Port) is open."
+            throw "Failure to download the certificate from $computerUrl. $_"
         }
 
-        Write-Host ("Starting to Download Cert from " + $computerUrl)
-        $Command = 'echo "1" | openssl s_client -connect ' + $ParsedUrl.Host + ':' + $ParsedUrl.Port + ' -showcerts'
-        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-        $SSHOutput = $SSHRes.Output | out-string
+        if ($SSHOutput -notmatch '(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)') {
+            throw "The certificate from $computerUrl has an incorrect format"
+        }
+        else {
+            $certs = select-string -inputobject $SSHOutput -pattern "(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)" -allmatches
+            $cert = $certs.matches[0]
+            $exportPath = $exportFolder + ($ResultUrl.Host.split(".")[0]) + ".cer"
+            $cert.Value | Out-File $exportPath -Encoding ascii
+            $DestinationFileArray += $exportPath
+        }
     }
-    catch {
-        throw "Failure to download the certificate from $computerUrl. $_"
+    Write-Host "Number of certificates downloaded: $($DestinationFileArray.count)"
+    return $DestinationFileArray
+}
+
+<#
+    .Synopsis
+     Recommended: Debug functionality of all OpenLDAP and Active Directory Identity Sources for use with vCenter Server Single Sign-On.
+
+    .Example
+    # Debug the OpenLDAP and Active Directory Identity Sources configured in vCenter
+    Debug-LDAPSIdentitySources
+#>
+function Debug-LDAPSIdentitySources {
+    [AVSAttribute(2, UpdatesSDDC = $false)]
+    Param()
+    Write-Host "*"
+    Write-Host "* LDAP Identity Source Diagnostic Test Tool (ldapcheck)"
+    Write-Host "* Executed at $((Get-Date).ToUniversalTime())"
+    Write-Host "*"
+
+    $sources = Get-IdentitySource -External -ErrorAction Stop
+    $sources | ForEach-Object {
+        if(($_.Type -eq "OpenLdap") -or ($_.Type -eq "ActiveDirectory")) {
+
+            Write-Host "* -------------------------------------------------------------"
+            Write-Host "* OpenLDAP Identity Source $($_.Name) detected."
+
+            $urls = @()
+            if(-not ($null -eq $_.PrimaryUrl)) {
+                $urls += $_.PrimaryUrl
+                Write-Host "* The Primary URL is  $($_.PrimaryUrl)."
+            }
+            if(-not ($null -eq $_.FailoverUrl)) {
+                $urls += $_.FailoverUrl
+                Write-Host "* The Failover URL is $($_.FailoverUrl)."
+            }
+
+            foreach($url in $urls) {
+                Write-Host "* Checking LDAP URL: $url"
+
+                # Check URL looks okay:
+                # i.e. ldaps://ldap1.ldap.avs.azure.com
+                if($url.ToLower() -match '(?<protocol>ldap|ldaps)://(?<hostname>[a-z0-9\.]+)(?<portspec>$|:[0-9]+)') {
+                    $ldap_protocol = $Matches.protocol
+                    $ldap_hostname = $Matches.hostname
+                    $ldap_portspec = $Matches.portspec
+                    Write-Host "  LDAP Protocol:        $ldap_protocol"
+                    Write-Host "  LDAP Server Hostname: $ldap_hostname"
+                    Write-Host "  LDAP Port Specified:  $ldap_portspec"
+
+                    # Check if the LDAP hostname is in /etc/hosts
+                    try {
+                        $Command = "grep $ldap_hostname /etc/hosts"
+                        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+                    }
+                    catch {
+                        throw "ERROR: Unable to execute grep command on vCenter."
+                    }
+                    $SSHOutput = $SSHRes.Output | out-string
+                    Write-Host "* vCenter /etc/hosts hostname resolution check returned: $SSHOutput"
+
+                    # Call Host to check DNS resolution of LDAP server from vCenter"
+                    try {
+                        $Command = "host $ldap_hostname"
+                        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+                    }
+                    catch {throw "ERROR: Unable to execute host command on vCenter."}
+                    Write-Host "* vCenter DNS hostname resolution check returned: $($SSHRes.Output)"
+
+                    # Now let's look at the port numbers
+                    if($ldap_portspec -ne "") {
+                        $ldap_port = $ldap_portspec -match ":([0-9]+)"
+                        Write-Host "  LDAP Port number:      $ldap_port"
+                    } else {
+                        switch($ldap_protocol) {
+                            "ldap"  {$ldap_port = 389}
+                            "ldaps" {$ldap_port = 636}
+                            "default" {$ldap_port = -1}
+                        }
+                        Write-Host "* LDAP Port to test:    $ldap_port"
+                    }
+
+                    # Call NetCat to test if the LDAP port is open
+                    try {
+                        $Command = "nc -vz $ldap_hostname $ldap_port"
+                        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+                    }
+                    catch {throw "ERROR: Unable to execute nc command on vCenter."}
+
+                    if($SSHRes.ExitStatus -eq 1) {
+                        Write-Error "* vCenter-to-LDAP TCP test FAILED."
+
+                        # Netcat failed to access the TCP port.
+                        # Let's have vCenter ping the LDAP server (even though ICMP isn't required)"
+                        try {
+                            $Command = "ping -c 3 $ldap_hostname"
+                            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+                        }
+                        catch {throw "ERROR: Unable to execute ping command on vCenter."}
+                        Write-Host "* vCenter-to-LDAP Ping test returned:"
+                        Write-Host "$($SSHRes.Output | out-string)"
+
+                        if($($SSHRes.Output | Out-String) -match " (?<percentage>[0-9]+)% packet loss") {
+                            $ping_loss = $Matches.percentage
+                            if($ping_loss -eq "0") {
+                                Write-Host "* vCenter was able to ping the LDAP server without a problem."
+                            } elseif($ping_loss -eq "100") {
+                                Write-Error "* vCenter was unable to ping LDAP server."
+
+                                # Okay, this is bad. vCenter can't contact the LDAP server with TCP
+                                # nor ping, so let's do a traceroute for the network folks to look at:
+                                try {
+                                    $Command = "traceroute $ldap_hostname"
+                                    $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+                                }
+                                catch {throw "ERROR: Unable to execute traceroute command on vCenter."}
+                                Write-Host "* vCenter-to-LDAP Traceroute test returned:"
+                                Write-Host "$($SSHRes.Output | out-string)"
+                            } else {
+                                Write-Warning "* Partial packet loss pinging LDAP server."
+                            }
+                        } else {
+                            Write-Error "* Unable to interpret ping results."
+                        }
+                    } elseif($SSHRes.ExitStatus -eq 0) {
+                        Write-Host "* vCenter-to-LDAP TCP test successful. Port is open."
+
+                        if($ldap_protocol -eq "ldaps") {
+                            Write-Host "* Attempting SSL Connect test."
+                            # Netcat says the TCP port is open, so let's attempt an SSL connection:
+                            try {
+                                $Command = "openssl s_client -connect $($ldap_hostname):$($ldap_port) -showcerts < /dev/null"
+                                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+                            }
+                            catch {throw "ERROR: Unable to execute openssl command on vCenter."}
+                            Write-Host "* SSL connect test returned:"
+                            Write-Host "$($SSHRes.Output | out-string)"
+                        }
+                    } else {
+                        Write-Error "* vCenter-to-LDAP TCP test failed with result code $($SSHRes.ExitStatus)."
+                    }
+                } else {
+                    Write-Error "URL $url does not look like an LDAP URL."
+                }
+            }
+        }
     }
-    return $SSHOutput
+    Write-Host "* Script terminated at $((Get-Date).ToUniversalTime())"
 }
 
 <#
@@ -400,52 +608,37 @@ function New-LDAPSIdentitySource {
         $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl -ErrorAction Stop
     }
     else {
-        $exportFolder = "$home/"
         $remoteComputers = , $PrimaryUrl
         if ($PSBoundParameters.ContainsKey('SecondaryUrl')) {
             $remoteComputers += $SecondaryUrl
         }
-
-        foreach ($computerUrl in $remoteComputers) {
-            try {
-                if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) { throw }
-                $ParsedUrl = [System.Uri]$computerUrl
-            }
-            catch {
-                throw "Incorrect Url format entered from: $computerUrl"
-            }
-            if ($ParsedUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ParsedUrl.Host -as [ipaddress])) {
-                throw "Incorrect Url format. $computerUrl is an IP address. Consider using hostname exactly as specified on the issued certificate."
-            }
-
-            $SSHOutput = Get-CertificateFromDomainController -ParsedUrl $ParsedUrl -computerUrl $computerUrl
-
-            if ($SSHOutput -notmatch '(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)') {
-                throw "The certificate from $computerUrl has an incorrect format"
-            }
-            else {
-                $certs = select-string -inputobject $SSHOutput -pattern "(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)" -allmatches
-                $cert = $certs.matches[0]
-                $exportPath = $exportFolder + ($ParsedUrl.Host.split(".")[0]) + ".cer"
-                $cert.Value | Out-File $exportPath -Encoding ascii
-                $DestinationFileArray += $exportPath
-            }
-        }
+        $DestinationFileArray = Get-CertificateFromServerToLocalFile $remoteComputers
     }
 
     [System.Array]$Certificates =
-    foreach ($CertFile in $DestinationFileArray) {
+    foreach ($certFile in $DestinationFileArray) {
         try {
-            [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromCertFile($certfile)
+            New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certfile)
         }
         catch {
             Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
             throw "File to certificate conversion failed. See error message for more details"
         }
     }
+    # check if the certicates expire or not
+    foreach ($cert in $Certificates) {
+        $currentDate = Get-Date
+        Write-Host "Verifying certificate: $($cert.Subject)"
+        if (($cert.NotBefore -lt $currentDate) -and ($cert.NotAfter -gt $currentDate)) {
+            Write-Host "The certificate is current."
+        } else {
+            Write-Error "The certificate is not current. It's only valid between $($cert.NotBefore) and $($cert.NotAfter)." -ErrorAction Stop
+        }
+    }
 
     Write-Host "Adding the LDAPS Identity Source..."
-    Add-LDAPIdentitySource `
+    try {
+        Add-LDAPIdentitySource `
         -Name $Name `
         -DomainName $DomainName `
         -DomainAlias $DomainAlias `
@@ -457,6 +650,10 @@ function New-LDAPSIdentitySource {
         -Password $Password `
         -ServerType 'ActiveDirectory' `
         -Certificates $Certificates -ErrorAction Stop
+    }
+    catch {
+        Write-Error "VCenter wasn't able to add this identity source: $_" -ErrorAction Stop
+    }
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     $ExternalIdentitySources | Format-List | Out-String
 
@@ -490,8 +687,8 @@ function Update-IdentitySourceCertificates {
         $DomainName,
 
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
+            Mandatory = $false,
+            HelpMessage = 'Optional: The certs will be downloaded from domain controllers if not specified. A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
         [System.Security.SecureString]
         $SSLCertificatesSasUrl
     )
@@ -500,7 +697,25 @@ function Update-IdentitySourceCertificates {
     if ($null -ne $ExternalIdentitySources) {
         $IdentitySource = $ExternalIdentitySources | Where-Object { $_.Name -eq $DomainName }
         if ($null -ne $IdentitySource) {
-            $DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl -ErrorAction Stop
+            if ($PSBoundParameters.ContainsKey('SSLCertificatesSasUrl')) {
+                $DestinationFileArray = Get-Certificates $SSLCertificatesSasUrl -ErrorAction Stop
+            }
+            else {
+                $remoteComputers = @()
+                if ($null -ne $IdentitySource.PrimaryUrl) {
+                    $remoteComputers += $IdentitySource.PrimaryUrl
+                    Write-Host "* The Primary URL is  $($IdentitySource.PrimaryUrl)."
+                }
+                else {
+                    Write-Error "Internal Error: The primary url of identity source is null." -ErrorAction Stop
+                }
+
+                if ($null -ne $IdentitySource.FailoverUrl) {
+                    $remoteComputers += $IdentitySource.FailoverUrl
+                    Write-Host "* The Failover URL is $($IdentitySource.FailoverUrl)."
+                }
+                $DestinationFileArray = Get-CertificateFromServerToLocalFile $remoteComputers
+            }
             [System.Array]$Certificates =
             foreach ($CertFile in $DestinationFileArray) {
                 try {
@@ -1152,335 +1367,6 @@ function Set-ClusterDefaultStoragePolicy {
                 continue
             }
         }
-    }
-}
-
-<#
-    .Synopsis
-    Verify a connection to VIServer with retries and a backoff timer in the case of unexpected exceptions.
-    .Parameter Credential
-    Specifies credential used to connect to VIServer
-    .Example
-    Confirm-ConnectVIServer -Credential -HcxAdminCredential
-#>
-function Confirm-ConnectVIServer {
-    [CmdletBinding()]
-    Param
-    (
-        [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Credential used to connect to VI Server')]
-        [ValidateNotNull()]
-        [System.Management.Automation.PSCredential]
-        [System.Management.Automation.Credential()]
-        $Credential
-    )
-    $Attempts = 3
-    $Backoff = 5
-
-    while ($Attempts -gt 0) {
-        try {
-            $ViServer = Connect-VIServer -Server $VC_ADDRESS -Credential $Credential -Force
-            if ($ViServer.IsConnected) {
-                Write-Host "Connection to VI Server successful."
-                return $ViServer
-            }
-        }
-        catch {
-            Write-Host $_.Exception
-        }
-        Write-Host "Sleeping for $Backoff seconds before trying again."
-        Start-Sleep $Backoff
-        $Attempts--
-    }
-
-    Write-Host "Failed to connect to VI Server."
-    return $ViServer
-}
-
-<#
-    .Synopsis
-    Restarts the HCX Manager VM
-    .Parameter Force
-    Flag to force the restart of the hcxmanager without checking for power state, migrations, or replications.
-    For example, A stuck migration could be preventing the restart without this parameter.
-    .Parameter HardReboot
-    Warning: This Parameter should be used as a last ditch effort where a soft-reboot wouldn't work.
-    Hard Reboots the VM instead of restarting the Guest OS.
-    .Parameter Timeout
-    Number of seconds the script is allowed to wait for sucessful connection to the hcx appliance before timing out.
-    .Example
-    # Skips Migrations and replications and hard reboots the system.
-    Restart-HcxManager -Force -HardReboot
-#>
-function Restart-HCXManager {
-    [AVSAttribute(30, UpdatesSDDC = $false)]
-    Param(
-        [parameter(
-            Mandatory = $false,
-            HelpMessage = "Force restart without checking for migrations and replications.")]
-        [switch]
-        $Force,
-        [Parameter(
-            Mandatory = $false,
-            HelpMessage = 'Reboot the Virtual Machine instead of restarting the Guest OS')]
-        [ValidateNotNull()]
-        [switch]
-        $HardReboot
-    )
-    try {
-        $DefaultViConnection = $DefaultVIServers
-        $UserName = 'tempHcxAdmin'
-        $UserRole = 'tempHcxAdminRole'
-        $Group = 'Administrators'
-        $Port = 443
-
-        Write-Host "Creating new temp scripting user"
-        $privileges = @("VirtualMachine.Interact.PowerOff",
-            "VirtualMachine.Interact.PowerOn",
-            "VirtualMachine.Interact.Reset"
-        )
-        $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
-        $VcenterConnection = Confirm-ConnectVIServer -Credential $HcxAdminCredential
-        if ($null -eq $VcenterConnection -or -not $VcenterConnection.IsConnected) {
-            throw "Error Connecting to Vcenter with $($HcxAdminCredential.userName)"
-        }
-
-        Write-Host "INPUTS: HardReboot=$HardReboot, Force=$Force, Port=$Port, Timeout=$Timeout"
-
-        $HcxServer = 'hcx'
-        $hcxVm = Get-HcxManagerVM -Connection $VcenterConnection
-        if (-not $hcxVm) {
-            throw "HCX VM could not be found. Please check if the HCX addon is installed."
-        }
-        Add-UserToGroup -userName $UserName -group $Group
-
-        if ($hcxVm.PowerState -ne "PoweredOn") {
-            if (-not $Force) {
-                throw "$($hcxVm.Name) must be powered on to restart. Current powerstate is $($hcxVm.PowerState)."
-            }
-            Write-Host "Forcing PowerOn PowerState=$($hcxVm.PowerState), Force=$Force"
-            Start-VM $hcxVm | Out-Null
-            $ForcedPowerOn = $true
-        }
-
-        if (-not $Force) {
-            Write-Host "Connecting to HCX Server at port $Port..."
-            $elapsed = Measure-Command -Expression { Connect-HCXServer -Server $HcxServer -Port $Port -Credential $HcxAdminCredential -ErrorAction Stop }
-            Write-Host "Connected to HCX Server at port $Port elapsed=$elapsed."
-            Write-Host "Checking for active migrations."
-
-            $migratingVmsCount = (Get-HCXMigration -State MIGRATING -Server $HcxServer).Count
-
-            if ($migratingVmsCount -gt 0) {
-                throw "VM cannot restart while migrations are in progress. There are $migratingVmsCount active migrations."
-            }
-
-            Write-Host "$migratingVmsCount active migrations found."
-
-            $XHmAuthorization = Get-AuthorizationToken -Credential $HcxAdminCredential -HcxServer $HcxServer
-            $keysToLookFor = @("activeReplicationCnt", "configuringReplicationCnt", "recoveringReplicationCnt", "syncingReplicationCnt")
-            $JsonBody = @{"type" = "summary" } | ConvertTo-Json
-
-            Write-Host "Checking for Active Replications"
-
-            $replicationSummary = Invoke-RestMethod -Method 'POST' `
-                -Uri https://${hcxServer}/hybridity/api/replications?action=query `
-                -Authentication Basic -SkipCertificateCheck -Credential $HcxAdminCredential `
-                -ContentType 'application/json' -Body $JsonBody -Verbose `
-                -Headers @{ 'x-hm-authorization' = "$xHmAuthorization" } `
-            | ConvertTo-Json | ConvertFrom-Json -AsHashtable
-
-            foreach ($key in $keysToLookFor) {
-                if (!$replicationSummary.containsKey($key)) {
-                    throw "$key not found in replication summary response."
-                }
-
-                $replicationType = $replicationSummary[$key]
-                if ($replicationType.Count -eq 0) {
-                    $runningReplicationCount = 0
-                }
-                else {
-                    $runningReplicationCount = $replicationType["outgoing"]
-                }
-                if ($replicationType.containsKey("incoming")) {
-                    $runningReplicationCount += $replicationType["incoming"]
-                }
-                if ($runningReplicationCount -gt 0) {
-                    throw "VM cannot restart while replications are in progress. $key=$runningReplicationCount"
-                }
-                Write-Host "$key=$runningReplicationCount"
-            }
-            Write-Host "$runningReplicationCount total running replications found."
-        }
-        else {
-            Write-Host "WARNING: Force option given, VM will restart regardless of migration and replication status."
-        }
-        if (-not $ForcedPowerOn) {
-            if ($HardReboot) {
-                Write-Host "Restarting $($hcxVm.Name)..."
-                Restart-VM -VM $hcxVm -Confirm:$false | Out-Null
-                Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
-            }
-            else {
-                Write-Host "Restarting Guest OS..."
-                Restart-VMGuest -VM $hcxVm | Out-Null
-                Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
-            }
-        }
-        $hcxConnection = Test-HcxConnection -Server $HcxServer -Port $Port -Count 12 -Credential $HcxAdminCredential -HcxVm $hcxVm
-    }
-    catch {
-        Write-Error $_
-    }
-    finally {
-        $global:DefaultVIServers = $DefaultViConnection
-        if ($hcxConnection) {
-            Write-Host "Disconnecting from HCX Server."
-            Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force
-        }
-        Remove-TempUser -userName $UserName -userRole $UserRole
-    }
-}
-
-<#
-    .Synopsis
-    Scale the HCX manager vm to the new resource allocation of 8 vCPU and 24 GB RAM (Default 4 vCPU/12GB)
-#>
-function Set-HcxScaledCpuAndMemorySetting {
-    [AVSAttribute(30, UpdatesSDDC = $false)]
-    Param(
-        [parameter(
-            Mandatory = $false,
-            HelpMessage = "HCX manager will be rebooted and will not be available during scaling.")]
-        [bool]
-        $AgreeToRestartHCX = $false
-    )
-    try {
-        $DefaultViConnection = $DefaultVIServers
-        $UserName = 'tempHcxAdmin'
-        $UserRole = 'tempHcxAdminRole'
-        $Group = 'Administrators'
-
-        Assert-CustomerRestartAwareness -AgreeToRestartHCX $AgreeToRestartHCX
-
-        Write-Host "Creating new temp scripting user"
-        $privileges = @("VirtualMachine.Config.CPUCount",
-            "VirtualMachine.Config.Memory",
-            "VirtualMachine.Interact.PowerOff",
-            "VirtualMachine.Interact.PowerOn")
-        $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
-        $VcenterConnection = Confirm-ConnectVIServer -Credential $HcxAdminCredential
-        if ($null -eq $VcenterConnection -or -not $VcenterConnection.IsConnected) {
-            throw "Error Connecting to Vcenter with $($HcxAdminCredential.userName)"
-        }
-
-        $Port = 443
-        $HcxServer = 'hcx'
-        $HcxPreferredVersion = '4.3.2'
-        $DiskUtilizationTreshold = 90
-        $HcxScaledtNumCpu = 8
-        $HcxScaledMemoryGb = 24
-
-        $HcxVm = Get-HcxManagerVM -Connection $VcenterConnection
-        if (-not $HcxVm) {
-            throw "HCX VM could not be found. Please check if the HCX addon is installed."
-        }
-        if ($HcxVm.PowerState -ne "PoweredOn") {
-            throw "$($HcxVm.Name) must be powered on. Current powerstate is $($HcxVm.PowerState)."
-        }
-        if (($HcxVm.NumCpu -eq $HcxScaledtNumCpu) -and
-        ($HcxVm.MemoryGb -eq $HcxScaledMemoryGb)) {
-            throw "HCX VM: $($HcxVm.Name) is already scaled to $($HcxVm.NumCpu) CPUs and $($HcxVm.MemoryGb) Memory."
-        }
-
-        Write-Host "Connecting to HCX Server at port $Port..."
-        Add-UserToGroup -userName $UserName -group $Group
-        $elapsed = Measure-Command -Expression { Connect-HCXServer -Server $HcxServer -Port $Port -Credential $HcxAdminCredential -ErrorAction Stop }
-        Write-Host "Connected to HCX Server at port $Port elapsed=$elapsed."
-
-        Write-Host "Checking for active migrations."
-        $migratingVmsCount = (Get-HCXMigration -State MIGRATING -Server $HcxServer).Count
-        if ($migratingVmsCount -gt 0) {
-            throw "There are $migratingVmsCount active migrations. Resume operation at a later time"
-        }
-
-        Write-Host "$migratingVmsCount active migrations found."
-
-        $XHmAuthorization = Get-AuthorizationToken -Credential $HcxAdminCredential -HcxServer $HcxServer
-        $HcxMetaData = Get-HcxMetaData -HcxServer $HcxServer -XHmAuthorization $XHmAuthorization
-        $HcxCurrentVersion = $HcxMetaData.endpoint.version
-        if ($HcxCurrentVersion -lt $HcxPreferredVersion) {
-            throw "Current HCX version: $HcxCurrentVersion is less than the prefered version: $HcxPreferredVersion"
-        }
-
-        Write-Host "Current HCX Version: $HcxCurrentVersion"
-
-        Write-Host "Retrieving Appliances"
-        $Appliances = Get-HCXAppliance
-
-        if ($Appliances.Count -gt 0) {
-            $VersionPerAppliance = @{
-                Interconnect   = $HcxPreferredVersion;
-                L2Concentrator = $HcxPreferredVersion
-            }
-
-            foreach ($Appliance in $appliances) {
-                if ($VersionPerAppliance.ContainsKey("$($Appliance."Type")") -and
-                    $Appliance."CurrentVersion" -lt $VersionPerAppliance["$($Appliance."Type")"]) {
-                    throw "Current Appliance: $($Appliance."Type") version: $($Appliance."CurrentVersion") is less than the prefered version: $HcxPreferredVersion"
-                }
-            }
-        }
-        Write-Host "$($Appliances.Count) appliances found."
-
-        Write-Host "Retrieving HCX Guest VM Data"
-        $HcxVmGuest = Get-VMGuest -VM $HcxVM -Server $VcenterConnection
-
-        $MonitoredDisks = @("/common")
-        Invoke-DiskUtilizationThresholdCheck -DiskUtilizationTreshold $DiskUtilizationTreshold -MonitoredDisks $MonitoredDisks -Disks $HcxVmGuest.Disks
-
-        $timeout = 60
-        $startTime = Get-Date
-
-        Write-Host "Shutting Down Guest OS"
-        Stop-VMGuest -VM $HcxVm -Confirm:$false -Server $VcenterConnection | Out-Null
-        while ($(Get-VMGuest -VM $HcxVm -Server $VcenterConnection).State -ne 'NotRunning') {
-            Start-Sleep -Seconds 5
-            Write-Host "$($HcxVm.Name)'s Guest OS powerstate=$($(Get-VMGuest -VM $HcxVm -Server $VcenterConnection).State)"
-
-            $elapsedTime = (Get-Date) - $startTime
-            if ($elapsedTime.TotalSeconds -ge $timeout) {
-                throw "Timeout reached. Unable to stop the VM's guest OS within the specified time."
-            }
-        }
-        Write-Host "Guest OS is shut down"
-
-        Write-Host "Configuring memory and cpu settings"
-        Set-VM -VM $HcxVm -MemoryGB $HcxScaledMemoryGb -NumCpu $HcxScaledtNumCpu -Confirm:$false -Server $VcenterConnection | Out-Null
-
-        Write-Host "Starting $($hcxVm.Name)..."
-        Start-VM -VM $HcxVm -Confirm:$false -Server $VcenterConnection | Out-Null
-        Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
-
-        Write-Host "Waiting for successful connection to HCX appliance..."
-        $hcxConnection = Test-HcxConnection -Server $HcxServer -Count 12 -Port $Port -Credential $HcxAdminCredential -HcxVm $HcxVm
-
-        $HcxVm = Get-VM -Name $HcxVm.Name -Server $VcenterConnection
-        Write-Host "$($hcxVm.Name)'s CPU: $($HcxVm.NumCpu) and Memory: $($HcxVm.MemoryGb) Gb Settings"
-        Write-Host "Configuration complete"
-    }
-    catch {
-        Write-Error $_
-    }
-    finally {
-        $global:DefaultVIServers = $DefaultViConnection
-
-        if ($hcxConnection) {
-            Write-Host "Disconnecting from HCX Server."
-            Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force
-        }
-        Remove-TempUser -userName $UserName -userRole $UserRole
     }
 }
 
