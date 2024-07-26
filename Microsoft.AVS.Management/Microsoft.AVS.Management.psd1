@@ -8,167 +8,137 @@
 
 @{
 
-# Script module or binary module file associated with this manifest.
-RootModule = 'Microsoft.AVS.Management.psm1'
-
-# Version number of this module.
-ModuleVersion = '7.0.1'
-
-# Supported PSEditions
-# CompatiblePSEditions = @()
-
-# ID used to uniquely identify this module
-GUID = '84d7f529-e6a8-4b7e-99b4-dafc636ffad2'
-
-# Author of this module
-Author = 'Microsoft'
-
-# Company or vendor of this module
-CompanyName = 'Microsoft'
-
-# Copyright statement for this module
-Copyright = '(c) Microsoft. All rights reserved.'
-
-# Description of the functionality provided by this module
-Description = 'Various cmdlets for adminstrator level tasks in managing Azure VMware Solutions'
-
-# Minimum version of the PowerShell engine required by this module
-PowerShellVersion = '7.4'
-
-# Name of the PowerShell host required by this module
-# PowerShellHostName = ''
-
-# Minimum version of the PowerShell host required by this module
-# PowerShellHostVersion = ''
-
-# Minimum version of Microsoft .NET Framework required by this module. This prerequisite is valid for the PowerShell Desktop edition only.
-# DotNetFrameworkVersion = ''
-
-# Minimum version of the common language runtime (CLR) required by this module. This prerequisite is valid for the PowerShell Desktop edition only.
-# ClrVersion = ''
-
-# Processor architecture (None, X86, Amd64) required by this module
-# ProcessorArchitecture = ''
-
-# Modules that must be imported into the global environment prior to importing this module
-RequiredModules = @(@{ModuleName = 'VMware.vSphere.SsoAdmin'; RequiredVersion = '1.3.9'; }, 
-               @{ModuleName = 'VMware.VimAutomation.Core'; RequiredVersion = '13.2.0.22643732'; }, 
-               @{ModuleName = 'VMware.VimAutomation.Storage'; RequiredVersion = '13.2.0.22643728'; }, 
-               @{ModuleName = 'Posh-SSH'; RequiredVersion = '3.1.3'; })
-
-# Assemblies that must be loaded prior to importing this module
-# RequiredAssemblies = @()
-
-# Script files (.ps1) that are run in the caller's environment prior to importing this module.
-ScriptsToProcess = 'Classes.ps1'
-
-# Type files (.ps1xml) to be loaded when importing this module
-# TypesToProcess = @()
-
-# Format files (.ps1xml) to be loaded when importing this module
-# FormatsToProcess = @()
-
-# Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
-# NestedModules = @()
-
-
+    # Script module or binary module file associated with this manifest.
+    RootModule = 'Microsoft.AVS.Management.psm1'
+    
+    # Version number of this module.
+    ModuleVersion = '7.0.1'
+    
+    # Supported PSEditions
+    # CompatiblePSEditions = @()
+    
+    # ID used to uniquely identify this module
+    GUID = '84d7f529-e6a8-4b7e-99b4-dafc636ffad2'
+    
+    # Author of this module
+    Author = 'Microsoft'
+    
+    # Company or vendor of this module
+    CompanyName = 'Microsoft'
+    
+    # Copyright statement for this module
+    Copyright = '(c) Microsoft. All rights reserved.'
+    
+    # Description of the functionality provided by this module
+    Description = 'Various cmdlets for adminstrator level tasks in managing Azure VMware Solutions'
+    
+    # Minimum version of the PowerShell engine required by this module
+    PowerShellVersion = '7.4'
+    
+    # Name of the PowerShell host required by this module
+    # PowerShellHostName = ''
+    
+    # Minimum version of the PowerShell host required by this module
+    # PowerShellHostVersion = ''
+    
+    # Minimum version of Microsoft .NET Framework required by this module. This prerequisite is valid for the PowerShell Desktop edition only.
+    # DotNetFrameworkVersion = ''
+    
+    # Minimum version of the common language runtime (CLR) required by this module. This prerequisite is valid for the PowerShell Desktop edition only.
+    # ClrVersion = ''
+    
+    # Processor architecture (None, X86, Amd64) required by this module
+    # ProcessorArchitecture = ''
+    
+    # Modules that must be imported into the global environment prior to importing this module
+    RequiredModules = @(@{ModuleName = 'VMware.vSphere.SsoAdmin'; RequiredVersion = '1.3.9'; }, 
+                   @{ModuleName = 'VMware.VimAutomation.Core'; RequiredVersion = '13.2.0.22643732'; }, 
+                   @{ModuleName = 'VMware.VimAutomation.Storage'; RequiredVersion = '13.2.0.22643728'; }, 
+                   @{ModuleName = 'Posh-SSH'; RequiredVersion = '3.1.3'; })
+    
+    # Assemblies that must be loaded prior to importing this module
+    # RequiredAssemblies = @()
+    
+    # Script files (.ps1) that are run in the caller's environment prior to importing this module.
+    ScriptsToProcess = 'Classes.ps1'
+    
+    # Type files (.ps1xml) to be loaded when importing this module
+    # TypesToProcess = @()
+    
+    # Format files (.ps1xml) to be loaded when importing this module
+    # FormatsToProcess = @()
+    
+    # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
+    # NestedModules = @()
+    
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-    FunctionsToExport = @(
-         "Set-VMStoragePolicy"
-         "Set-LocationStoragePolicy"
-         "Set-ClusterDefaultStoragePolicy"
-         "Get-StoragePolicies"
-         "New-LDAPIdentitySource"
-         "New-LDAPSIdentitySource"
-         "Update-IdentitySourceCertificates"
-         "Update-IdentitySourceCredential"
-         "Get-ExternalIdentitySources"
-         "Remove-ExternalIdentitySources"
-         "Add-GroupToCloudAdmins"
-         "Remove-GroupFromCloudAdmins"
-         "Get-CloudAdminGroups"
-         "Update-IdentitySourceCredential"
-         "Set-HcxScaledCpuAndMemorySetting"
-         "Restart-HcxManager"
-         "Set-ToolsRepo"
-         "Set-vSANCompressDedupe"
-         "New-AVSStoragePolicy"
-         "Remove-AVSStoragePolicy"
-         "Set-CustomDRS"
-         "Set-AVSVSANClusterUNMAPTRIM"
-         "Get-AVSVSANClusterUNMAPTRIM"
-         "Remove-CustomRole"
-       )
-
-# Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = 'Set-VMStoragePolicy', 'Set-LocationStoragePolicy', 
-               'Set-ClusterDefaultStoragePolicy', 'Get-StoragePolicies', 
-               'New-LDAPIdentitySource', 'Debug-LDAPSIdentitySources', 
-               'New-LDAPSIdentitySource', 'Update-IdentitySourceCertificates', 
-               'Update-IdentitySourceCredential', 'Get-ExternalIdentitySources', 
-               'Remove-ExternalIdentitySources', 'Add-GroupToCloudAdmins', 
-               'Remove-GroupFromCloudAdmins', 'Get-CloudAdminGroups', 
-               'Set-ToolsRepo', 'Set-vSANCompressDedupe', 'New-AVSStoragePolicy', 
-               'Remove-AVSStoragePolicy', 'Set-CustomDRS', 
-               'Set-AVSVSANClusterUNMAPTRIM', 'Get-AVSVSANClusterUNMAPTRIM'
-
-
-# Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
-CmdletsToExport = @()
-
-# Variables to export from this module
-# VariablesToExport = @()
-
-# Aliases to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no aliases to export.
-AliasesToExport = @()
-
-# DSC resources to export from this module
-# DscResourcesToExport = @()
-
-# List of all modules packaged with this module
-# ModuleList = @()
-
-# List of all files packaged with this module
-# FileList = @()
-
-# Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
-PrivateData = @{
-
-    PSData = @{
-
-        # Tags applied to this module. These help with module discovery in online galleries.
-        Tags = 'VMware','PowerCLI','Azure','AVS'
-
-        # A URL to the license for this module.
-        # LicenseUri = ''
-
-        # A URL to the main website for this project.
-        ProjectUri = 'https://github.com/Azure/Microsoft.AVS.Management'
-
-        # A URL to an icon representing this module.
-        # IconUri = ''
-
-        # ReleaseNotes of this module
-        # ReleaseNotes = ''
-
-        # Prerelease string of this module
-        # Prerelease = ''
-
-        # Flag to indicate whether the module requires explicit user acceptance for install/update/save
-        # RequireLicenseAcceptance = $false
-
-        # External dependent modules of this module
-        # ExternalModuleDependencies = @()
-
-    } # End of PSData hashtable
-
- } # End of PrivateData hashtable
-
-# HelpInfo URI of this module
-# HelpInfoURI = ''
-
-# Default prefix for commands exported from this module. Override the default prefix using Import-Module -Prefix.
-# DefaultCommandPrefix = ''
-
-}
-
+    FunctionsToExport = 'Set-VMStoragePolicy', 'Set-LocationStoragePolicy', 
+                   'Set-ClusterDefaultStoragePolicy', 'Get-StoragePolicies', 
+                   'New-LDAPIdentitySource', 'Debug-LDAPSIdentitySources', 
+                   'New-LDAPSIdentitySource', 'Update-IdentitySourceCertificates', 
+                   'Update-IdentitySourceCredential', 'Get-ExternalIdentitySources', 
+                   'Remove-ExternalIdentitySources', 'Add-GroupToCloudAdmins', 
+                   'Remove-GroupFromCloudAdmins', 'Get-CloudAdminGroups', 
+                   'Set-ToolsRepo', 'Set-vSANCompressDedupe', 'New-AVSStoragePolicy', 
+                   'Remove-AVSStoragePolicy', 'Set-CustomDRS', 
+                   'Set-AVSVSANClusterUNMAPTRIM', 'Get-AVSVSANClusterUNMAPTRIM',
+                   'Remove-CustomRole'
+    
+    # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
+    CmdletsToExport = @()
+    
+    # Variables to export from this module
+    # VariablesToExport = @()
+    
+    # Aliases to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no aliases to export.
+    AliasesToExport = @()
+    
+    # DSC resources to export from this module
+    # DscResourcesToExport = @()
+    
+    # List of all modules packaged with this module
+    # ModuleList = @()
+    
+    # List of all files packaged with this module
+    # FileList = @()
+    
+    # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
+    PrivateData = @{
+    
+        PSData = @{
+    
+            # Tags applied to this module. These help with module discovery in online galleries.
+            Tags = 'VMware','PowerCLI','Azure','AVS'
+    
+            # A URL to the license for this module.
+            # LicenseUri = ''
+    
+            # A URL to the main website for this project.
+            ProjectUri = 'https://github.com/Azure/Microsoft.AVS.Management'
+    
+            # A URL to an icon representing this module.
+            # IconUri = ''
+    
+            # ReleaseNotes of this module
+            # ReleaseNotes = ''
+    
+            # Prerelease string of this module
+            # Prerelease = ''
+    
+            # Flag to indicate whether the module requires explicit user acceptance for install/update/save
+            # RequireLicenseAcceptance = $false
+    
+            # External dependent modules of this module
+            # ExternalModuleDependencies = @()
+    
+        } # End of PSData hashtable
+    
+     } # End of PrivateData hashtable
+    
+    # HelpInfo URI of this module
+    # HelpInfoURI = ''
+    
+    # Default prefix for commands exported from this module. Override the default prefix using Import-Module -Prefix.
+    # DefaultCommandPrefix = ''
+    
+    }
