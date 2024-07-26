@@ -2584,3 +2584,47 @@ Function Get-AVSVSANClusterUNMAPTRIM {
             Get-Cluster | Get-VsanClusterConfiguration | Select-Object Name, GuestTrimUnmap
         }
 }
+
+function Remove-CustomRole {
+    <#
+    .DESCRIPTION
+        This function allows customer to remove a custom role from the SDDC.
+        Useful in case of roles created with greater privileges than Cloudadmin that can no longer be removed from the UI.
+    #>
+
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    param (
+        [Parameter(Mandatory = $true,
+            HelpMessage = "The name of the role to remove, as displayed in the vCenter UI (case insensitive). This must be a custom role.")]
+        [string]
+        $roleInput
+    )
+    # Check if the role exists before attempting removal
+    $roleToRemove = Get-VIRole | Where-Object { $_.Description -eq $roleInput }
+
+    # Check if the role is in the protected names list or is a System role
+    if ($roleToRemove.Count -eq 1) {
+        if ((Test-AVSProtectedObjectName -Name $roleToRemove.Name) -or $roleToRemove.IsSystem -eq $true) {
+            Write-Error "'$roleInput' is either System or Built-in. Removal not allowed."
+        }
+        else {
+            try {
+                Remove-VIRole -Role $roleToRemove -Confirm:$false -Force:$false
+                Write-Host "The role '$roleInput' has been removed."
+            }
+            catch {
+                Write-Error "Failed to remove the role '$roleInput'."
+                Write-Error $_.Exception.Message
+            }
+        }
+    }
+    else {
+        Write-Host "The role '$roleInput' was not found or can refer to several roles. No removal performed. Below the list of roles found:"
+        foreach ($roleItem in $roleToRemove) {
+            Write-Host "Role Name: $($roleItem.Name)"
+            Write-Host "Role Description: $($roleItem.Description)"
+        }
+    }
+}
+
