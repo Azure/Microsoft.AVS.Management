@@ -13,24 +13,24 @@ stages:
   - job: Validate
     displayName: 'Validate ${{ parameters.moduleFolderName }}'
     steps:
-    - task: AzureCLI@2
-      inputs:
-        azureSubscription: Scripting Metadata
-        scriptLocation: 'inlineScript'
-        scriptType: 'pscore'
-        inlineScript: |
-          $accessToken = az account get-access-token --query accessToken --resource 499b84ac-1321-427f-aa17-267ca6975798 -o tsv
-          Write-Host "##vso[task.setsecret]$accessToken"
-          $env:AZURE_DEVOPS_EXT_PAT=$accessToken
-          az artifacts universal download `
-            --organization $(feedAuthority) `
-            --project=$(feedProject) `
-            --scope project `
-            --feed $(metadataFeed) `
-            --name shuttle `
-            --version $(shuttleVersion) `
-            --path shuttle          
-        displayName: Prepare shuttle
+    # - task: AzureCLI@2
+    #   inputs:
+    #     azureSubscription: Scripting Metadata
+    #     scriptLocation: 'inlineScript'
+    #     scriptType: 'pscore'
+    #     inlineScript: |
+    #       $accessToken = az account get-access-token --query accessToken --resource 499b84ac-1321-427f-aa17-267ca6975798 -o tsv
+    #       Write-Host "##vso[task.setsecret]$accessToken"
+    #       $env:AZURE_DEVOPS_EXT_PAT=$accessToken
+    #       az artifacts universal download `
+    #         --organization $(feedAuthority) `
+    #         --project=$(feedProject) `
+    #         --scope project `
+    #         --feed $(metadataFeed) `
+    #         --name shuttle `
+    #         --version $(shuttleVersion) `
+    #         --path shuttle          
+    #     displayName: Prepare shuttle
     - pwsh:
         .build-tools/getRequiredModules.ps1 '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
       displayName: 'Restore Dependencies for ${{ parameters.moduleFolderName }}'
@@ -43,9 +43,9 @@ stages:
           $(Build.BuildNumber) 
           '$(System.DefaultWorkingDirectory)/tmp' 
       displayName: 'Test publish'
-    - pwsh: |
-        echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)" > shuttle/baseline
-        dotnet shuttle/Shuttle.dll generate
-      env:
-        METADATA: uri://console
-      displayName: 'Generate metadata'
+    # - pwsh: |
+    #     echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)" > shuttle/baseline
+    #     dotnet shuttle/Shuttle.dll generate
+    #   env:
+    #     METADATA: uri://console
+    #   displayName: 'Generate metadata'
