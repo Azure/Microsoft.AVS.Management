@@ -1941,3 +1941,58 @@ function Clear-DisconnectedIscsiTargets {
         }
     }
 }
+
+<#
+    .SYNOPSIS
+     This function tests connection from a VMHost to remote target address.
+    
+    .PARAMETER VMHostName
+     VMHost name
+    
+    .PARAMETER TargetIpAddress
+     Target IP Address
+    
+    .PARAMETER TargetPort
+     Target Port
+    
+    .EXAMPLE
+        Test-ConnectionFromVMHost -VMHostName "esxi-01" -TargetIpAddress 10.0.0.1 -TargetPort 443"
+#>
+function Test-ConnectionFromVMHost {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'VMHost name')]
+        [String] $VMHostName,
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Target IP Address')]
+        [String] $TargetIpAddress,
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Target Port')]
+        [int] $TargetPort   
+    )
+
+    $VMHost = Get-VMHost -Name $VMHostName -ErrorAction Ignore
+    if (-not $VMHost) {
+        throw "VMHost $($VMHostName) does not exist."
+    }
+    $SSHSession = $SSH_Sessions[$VMHost.Name]
+    if (-not $SSHSession) {
+        throw "SSH session to VMHost $($VMHostName) does not exist."
+    }
+    $NamedOutputs = @{}
+    $result = Invoke-SSHCommand -SSHSession $SSHSession -Command "nc -z -v $TargetIpAddress $TargetPort"
+    if ($result.Output -match "succeeded") {
+        Write-Host "Connection from VMHost $VMHostName to $TargetIpAddress : $TargetPort succeeded"
+        $NamedOutputs["ConnectionStatus"] = "Succeeded"
+    }
+    else {
+        throw "Connection from VMHost $VMHostName to $TargetIpAddress : $TargetPort failed"
+    }
+    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global    
+}
