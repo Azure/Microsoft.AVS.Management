@@ -53,6 +53,7 @@ function New-VvolDatastore {
 
     $Datastore = Get-Datastore -Name $DatastoreName -ErrorAction Ignore
     $VMHosts = $Cluster | Get-VMHost
+
     if ($Datastore) {
         $ExistingDatastoreScid = $Datastore.ExtensionData.Info.VVolds.Scid
         if ($ExistingDatastoreScid -ne $ScId) {
