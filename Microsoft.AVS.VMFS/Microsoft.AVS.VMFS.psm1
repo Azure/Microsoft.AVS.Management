@@ -1958,8 +1958,7 @@ function Clear-DisconnectedIscsiTargets {
 
 function Test-VMKernelConnectivity {
     [CmdletBinding()]
-
-
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param
     (
         [Parameter(
