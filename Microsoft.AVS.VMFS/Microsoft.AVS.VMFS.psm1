@@ -769,12 +769,12 @@ function Remove-VMHostStaticIScsiTargets {
 
     $VMHosts = $null
     if ($VMHostName) {
-        $VMhosts = $Cluster| Get-VMHost -Name $VMHostName
+        $VMHosts = $Cluster| Get-VMHost -Name $VMHostName
     }
     else {
-        $VMhosts = $Cluster | Get-VMHost
+        $VMHosts = $Cluster | Get-VMHost
     }
-    if (-not $VMhosts) {
+    if (-not $VMHosts) {
         throw "No hosts found in cluster $ClusterName"
     }
 
