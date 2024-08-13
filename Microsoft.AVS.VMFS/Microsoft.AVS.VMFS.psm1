@@ -767,7 +767,7 @@ function Remove-VMHostStaticIScsiTargets {
     $DatastoreDisks = Get-Datastore | Select-Object -ExpandProperty ExtensionData | Select-Object -ExpandProperty Info | Select-Object -ExpandProperty Vmfs | Select-Object -ExpandProperty Extent
     $TargetsChanged = $False
 
-    $VMhosts = $null
+    $VMHosts = $null
     if ($VMHostName) {
         $VMhosts = $Cluster| Get-VMHost -Name $VMHostName
     }
@@ -779,7 +779,7 @@ function Remove-VMHostStaticIScsiTargets {
     }
 
     # Remove iSCSI ip address from static discovery from all of hosts if there is a match
-    $HBAs =  $VMhosts | Get-VMHostHba -Type iScsi
+    $HBAs =  $VMHosts | Get-VMHostHba -Type iScsi
     foreach ($HBA in $HBAs) {
         $DeviceIds = ($HBA | Get-ScsiLun).CanonicalName
 
