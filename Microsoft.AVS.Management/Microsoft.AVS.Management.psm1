@@ -2628,3 +2628,50 @@ function Remove-CustomRole {
     }
 }
 
+<#
+    .Synopsis
+    This function allows the customer to restart HA on a cluster. This might be needed to clear HA alarms.
+    .EXAMPLE
+    Once the function is imported: Restart-ClusterHA -cluster_name "Cluster-1"
+#>
+function Restart-ClusterHA {
+    [AVSAttribute(30, UpdatesSDDC = $false)]
+    param(
+        [Parameter(Mandatory = $true,
+            HelpMessage = "What cluster to restart HA on.")]
+        [String]
+        $cluster_name
+    )
+
+    # Get the cluster object
+    try {
+        $cluster = Get-Cluster -Name $cluster_name -ErrorAction Stop
+    }
+    catch {
+        Write-Error "Cluster $cluster_name not found."
+        return
+    }
+
+    $ha_status = ""
+
+    # Disable HA
+    $ha_status = ($cluster | Set-Cluster -HAEnabled:$false -Confirm:$false).HAEnabled
+
+    if ($ha_status -eq $true) {
+        Write-Error "Failed to disable HA on cluster $cluster_name"
+        return
+    }
+
+    # Enable HA
+    $ha_status = ""
+    $ha_status = ($cluster | Set-Cluster -HAEnabled:$true -Confirm:$false).HAEnabled
+
+    if ($ha_status -eq $false) {
+        # Try again to restart HA
+        $ha_status = ($cluster | Set-Cluster -HAEnabled:$true -Confirm:$false).HAEnabled
+        if ($ha_status -eq $false) {
+            Write-Error "Failed to enable HA on cluster $cluster_name"
+            return
+        }
+    }
+}
