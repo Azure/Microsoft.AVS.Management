@@ -2635,7 +2635,7 @@ function Remove-CustomRole {
     Once the function is imported: Restart-ClusterHA -cluster_name "Cluster-1"
 #>
 function Restart-ClusterHA {
-    [AVSAttribute(30, UpdatesSDDC = $false)]
+    [AVSAttribute(30, UpdatesSDDC = $true)]
     param(
         [Parameter(Mandatory = $true,
             HelpMessage = "What cluster to restart HA on.")]
@@ -2648,8 +2648,7 @@ function Restart-ClusterHA {
         $cluster = Get-Cluster -Name $cluster_name -ErrorAction Stop
     }
     catch {
-        Write-Error "Cluster $cluster_name not found."
-        return
+        throw "Cluster $cluster_name not found."
     }
 
     $ha_status = ""
@@ -2658,8 +2657,7 @@ function Restart-ClusterHA {
     $ha_status = ($cluster | Set-Cluster -HAEnabled:$false -Confirm:$false).HAEnabled
 
     if ($ha_status -eq $true) {
-        Write-Error "Failed to disable HA on cluster $cluster_name"
-        return
+        throw "Failed to disable HA on cluster $cluster_name"
     }
 
     # Enable HA
@@ -2670,8 +2668,7 @@ function Restart-ClusterHA {
         # Try again to restart HA
         $ha_status = ($cluster | Set-Cluster -HAEnabled:$true -Confirm:$false).HAEnabled
         if ($ha_status -eq $false) {
-            Write-Error "Failed to enable HA on cluster $cluster_name"
-            return
+           throw "Failed to enable HA on cluster $cluster_name"
         }
     }
 }
