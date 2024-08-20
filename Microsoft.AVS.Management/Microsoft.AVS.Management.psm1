@@ -2657,18 +2657,23 @@ function Restart-ClusterHA {
     $ha_status = ($cluster | Set-Cluster -HAEnabled:$false -Confirm:$false).HAEnabled
 
     if ($ha_status -eq $true) {
-        throw "Failed to disable HA on cluster $cluster_name"
+        Start-Sleep -Seconds 10
+        if ($ha_status -eq $true) {
+            throw "Failed to disable HA on cluster $cluster_name"
+        }
     }
 
     # Enable HA
     $ha_status = ""
     $ha_status = ($cluster | Set-Cluster -HAEnabled:$true -Confirm:$false).HAEnabled
 
-    if ($ha_status -eq $false) {
-        # Try again to restart HA
-        $ha_status = ($cluster | Set-Cluster -HAEnabled:$true -Confirm:$false).HAEnabled
-        if ($ha_status -eq $false) {
-           throw "Failed to enable HA on cluster $cluster_name"
+    $count = 0
+    while (($ha_status -eq $false) -or ($count -lt 5)) {
+        if ($count -ge 4) {
+            throw "Failed to enable HA on cluster $cluster_name"
         }
+        Start-Sleep -Seconds 10
+        $ha_status = ($cluster | Set-Cluster -HAEnabled:$true -Confirm:$false).HAEnabled
+        $count += 1
     }
 }
