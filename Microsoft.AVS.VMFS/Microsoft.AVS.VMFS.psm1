@@ -1974,6 +1974,7 @@ function Test-ConnectionFromVMHost {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Target Port')]
+        [ValidateSet(80, 443, 3260, 8084, 8009)]
         [int] $TargetPort   
     )
 
