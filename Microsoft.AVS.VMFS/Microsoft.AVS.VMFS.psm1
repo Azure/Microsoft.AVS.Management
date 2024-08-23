@@ -1976,3 +1976,66 @@ function Clear-DisconnectedIscsiTargets {
         }
     }
 }
+<#
+    .SYNOPSIS
+     This function checks each cluster host connectivity to vmkernel interface
+
+    .PARAMETER ClusterName
+     vSphere Cluster Name
+
+    .EXAMPLE
+     Test-VMKernelConnectivity -ClusterName "vSphere-cluster-001"
+
+    .INPUTS
+     vSphere Cluster Name, Storage VMKernel name
+
+#>
+
+function Test-VMKernelConnectivity {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'vSphere Cluster Name')]
+        [String] $ClusterName
+    )
+
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $($ClusterName) does not exist."
+    }
+
+    $VMHosts = $null
+    try {
+        $VMHosts = Get-Cluster $ClusterName | Get-VMHost
+    }
+    catch {
+        Write-Host "Failed to collect cluster hosts $($_.Exception)"
+        throw "Failed to collect cluster hosts $($_.Exception)"
+    }
+
+    $Success = $true
+    foreach ($VMHost in $VMHosts) {
+        $HostAddress = $VMHost.Name
+        $NetworkInterfaces =  Get-VMHostNetworkAdapter -VMHost $VMHost | Where-Object {$_.Ip}
+        foreach ($Nic in $NetworkInterfaces) {
+            Write-Host "Checking connectivity to vmkernel interface $($Nic.Name) with address $($Nic.IP) on host $HostAddress"
+            $esxcli = Get-EsxCli -VMHost $VMHost.Name -V2
+            $params = $esxcli.network.diag.ping.CreateArgs()
+            $params.host = $Nic.IP
+            $result = $esxcli.network.diag.ping.Invoke($params)
+            if ($result.Summary.Received -gt 0) {
+                Write-Host "Ping to vmkernel interface $($VmKernel) on host $HostAddress is successful"
+            }
+            else {
+                Write-Error "Ping to vmkernel interface $($VmKernel) on host $HostAddress failed"
+                $Success = $false
+            }
+        }
+    }
+    if (-not $Success) {
+        throw "Ping to vmkernel interface failed on one or more hosts"
+    }
+}
