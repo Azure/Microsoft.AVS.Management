@@ -41,6 +41,15 @@ class AVSSecureFolder {
         $group = Get-VIAccount -Group -Id "CloudAdmins" -Domain "vsphere.local" -ErrorAction Stop
         $objects | New-VIPermission -Principal $scripting -Role $admin -Propagate $true
         $objects | New-VIPermission -Principal $group -Role $readOnly -Propagate $true
+        if ($objects.Folder -ne [AVSSecureFolder]::Root()) {
+            $external = `
+                $objects | Get-VIPermission `
+                | Where-Object { -not $_.Principal.StartsWith("VSPHERE.LOCAL") } `
+                | ForEach-Object { Get-VIAccount -Group:$_.IsGroup -Domain $_.Principal.Split("\")[0] -Id $_.Principal.Split("\")[1]}
+            foreach ($x in $external) {
+                $objects | New-VIPermission -Principal $x -Role $readOnly -Propagate $true
+            }
+        }
     }
 
     <#
