@@ -1944,56 +1944,61 @@ function Clear-DisconnectedIscsiTargets {
 
 <#
     .SYNOPSIS
-     This function tests connection from a VMHost to remote target address.
-    
-    .PARAMETER VMHostName
-     VMHost name
-    
+     This function tests connection from a VMHost or vCenter to remote target address.
+
+    .PARAMETER ServerName
+     VMHost name or vCenter ("VC" )
+
     .PARAMETER TargetIpAddress
      Target IP Address
-    
+
     .PARAMETER TargetPort
      Target Port
-    
+
     .EXAMPLE
-        Test-ConnectionFromVMHost -VMHostName "esxi-01" -TargetIpAddress 10.0.0.1 -TargetPort 443"
+        Test-ConnectionFromServer -ServerName "esxi-01" -TargetIpAddress 10.0.0.1 -TargetPort 443"
 #>
-function Test-ConnectionFromVMHost {
+function Test-ConnectionFromServer {
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
     Param
     (
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'VMHost name')]
-        [String] $VMHostName,
+                Mandatory = $true,
+                HelpMessage = 'VMHost name or vCenter ("VC"')]
+        [String] $ServerName,
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Target IP Address')]
+                Mandatory = $true,
+                HelpMessage = 'Target IP Address')]
         [String] $TargetIpAddress,
         [Parameter(
-            Mandatory = $true,
-            HelpMessage = 'Target Port')]
+                Mandatory = $true,
+                HelpMessage = 'Target Port')]
         [ValidateSet(80, 443, 3260, 8084, 8009)]
-        [int] $TargetPort   
+        [int] $TargetPort
     )
 
-    $VMHost = Get-VMHost -Name $VMHostName -ErrorAction Ignore
-    if (-not $VMHost) {
-        throw "VMHost $($VMHostName) does not exist."
+    if ('VC' -eq $ServerName) {
+        $SSHSession = $SSH_Sessions['VC']
     }
-    $SSHSession = $SSH_Sessions[$VMHost.Name]
+    else {
+        $VMHost = Get-VMHost -Name $ServerName -ErrorAction Ignore
+        if (-not $VMHost) {
+            throw "VMHost $(ServerName) does not exist."
+        }
+        $SSHSession = $SSH_Sessions[$VMHost.Name]
+    }
     if (-not $SSHSession) {
         throw "SSH session to VMHost $($VMHostName) does not exist."
     }
     $NamedOutputs = @{}
     $result = Invoke-SSHCommand -SSHSession $SSHSession -Command "nc -z -v $TargetIpAddress $TargetPort"
-    if ($result.Output -match "succeeded") {
+    if (0 -eq $result.ExitStatus) {
         Write-Host "Connection from VMHost $VMHostName to $TargetIpAddress : $TargetPort succeeded"
         $NamedOutputs["ConnectionStatus"] = "Succeeded"
     }
     else {
         throw "Connection from VMHost $VMHostName to $TargetIpAddress : $TargetPort failed"
     }
-    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global    
+    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
 }
