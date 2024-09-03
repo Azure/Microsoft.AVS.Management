@@ -52,12 +52,26 @@ function New-VvolDatastore {
     }
 
     $Datastore = Get-Datastore -Name $DatastoreName -ErrorAction Ignore
-    if ($Datastore) {
-        throw "Unable to create a datastore. Datastore '$DatastoreName' already exists."
-    }
     $VMHosts = $Cluster | Get-VMHost
+
+    if ($Datastore) {
+        $ExistingDatastoreScid = $Datastore.ExtensionData.Info.VVolds.Scid
+        if ($ExistingDatastoreScid -ne $ScId) {
+            throw "Unable to mount a datastore. Datastore '$DatastoreName' already exists with a different storage container ID."
+        }
+        $HostsWithDatastore = Get-VMHost -Datastore $DatastoreName
+        $VMHostsToMount = $VMHosts | Where-Object { $HostsWithDatastore -notcontains $_ }
+        if ($VMHostsToMount.Count -eq 0) {
+            Write-Warning "Datastore '$DatastoreName' is already mounted to all hosts in cluster $ClusterName."
+        } else {
+            Write-Host "Datastore '$DatastoreName' is already mounted to some hosts in cluster $ClusterName. Mounting to remaining hosts..."
+        }
+    } else {
+        $VMHostsToMount = $VMHosts
+    }
+    
     # We need to loop through Esxi to mount the datastore to all of hosts
-    foreach ($Esxi in $VMHosts) {
+    foreach ($Esxi in $VMHostsToMount) {
         # Create a new vVol datastore with the specified size and rescan storage
         $datastoreSystem = Get-View -Id $Esxi.ExtensionData.ConfigManager.DatastoreSystem
         $spec = New-Object VMware.Vim.HostDatastoreSystemVvolDatastoreSpec

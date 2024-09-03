@@ -721,6 +721,9 @@ function Sync-ClusterVMHostStorage {
     .PARAMETER iSCSIAddress
      iSCSI target address. Multiple addresses can be seperated by ","
 
+    .PARAMETER VMHostName
+      Name of the VMHost (ESXi server). If not specified, all hosts in the cluster will be updated.
+
     .EXAMPLE
      Remove-VMHostStaticIScsiTargets -ClusterName "myCluster" -ISCSIAddress "192.168.1.10,192.168.1.11"
 
@@ -742,6 +745,12 @@ function Remove-VMHostStaticIScsiTargets {
         $ClusterName,
 
         [Parameter(
+                Mandatory=$false,
+                HelpMessage = 'VMHost name')]
+        [String]
+        $VMHostName,
+
+        [Parameter(
                 Mandatory=$true,
                 HelpMessage = 'IP Address of static iSCSI target to remove. Multiple addresses can be seperated by ","')]
         [ValidateNotNull()]
@@ -755,12 +764,22 @@ function Remove-VMHostStaticIScsiTargets {
     }
 
     $iSCSIAddressList = $iSCSIAddress.Split(",")
-
     $DatastoreDisks = Get-Datastore | Select-Object -ExpandProperty ExtensionData | Select-Object -ExpandProperty Info | Select-Object -ExpandProperty Vmfs | Select-Object -ExpandProperty Extent
     $TargetsChanged = $False
 
+    $VMHosts = $null
+    if ($VMHostName) {
+        $VMHosts = $Cluster| Get-VMHost -Name $VMHostName
+    }
+    else {
+        $VMHosts = $Cluster | Get-VMHost
+    }
+    if (-not $VMHosts) {
+        throw "No hosts found in cluster $ClusterName"
+    }
+
     # Remove iSCSI ip address from static discovery from all of hosts if there is a match
-    $HBAs =  $Cluster | Get-VMHost | Get-VMHostHba -Type iScsi
+    $HBAs =  $VMHosts | Get-VMHostHba -Type iScsi
     foreach ($HBA in $HBAs) {
         $DeviceIds = ($HBA | Get-ScsiLun).CanonicalName
 
@@ -1886,6 +1905,9 @@ function Repair-HAConfiguration {
     .PARAMETER ClusterName
      vSphere Cluster Name
 
+    .PARAMETER VMHostName
+     ESXi host name. If not specified, all hosts in the cluster will be used.
+
     .EXAMPLE
      Clear-DisconnectedIscsiTargets -ClusterName "vSphere-cluster-001"
 
@@ -1900,7 +1922,12 @@ function Clear-DisconnectedIscsiTargets {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
-        [String] $ClusterName
+        [String] $ClusterName,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'VMHost Name')]
+        [String] $VMHostName
     )
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
@@ -1910,10 +1937,18 @@ function Clear-DisconnectedIscsiTargets {
 
     $VMHosts = $null
     try {
-        $VMHosts = Get-Cluster $ClusterName | Get-VMHost
+        if ($VMHostName) {
+            $VMHosts = $Cluster | Get-VMHost -Name $VMHostName
+        } else {
+            $VMHosts = $Cluster | Get-VMHost
+        }
     }
     catch {
         throw "Failed to collect cluster hosts $($_.Exception)"
+    }
+
+    if (-not $VMHosts) {
+        throw "No matching hosts found in cluster $ClusterName"
     }
 
     foreach ($VMHost in $VMHosts) {
@@ -1939,6 +1974,69 @@ function Clear-DisconnectedIscsiTargets {
             Write-Host "Rescanning storage on host $HostAddress"
             $VMHost | Get-VMHostStorage -RescanAllHba -RescanVmfs
         }
+    }
+}
+<#
+    .SYNOPSIS
+     This function checks each cluster host connectivity to vmkernel interface
+
+    .PARAMETER ClusterName
+     vSphere Cluster Name
+
+    .EXAMPLE
+     Test-VMKernelConnectivity -ClusterName "vSphere-cluster-001"
+
+    .INPUTS
+     vSphere Cluster Name, Storage VMKernel name
+
+#>
+
+function Test-VMKernelConnectivity {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    Param
+    (
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'vSphere Cluster Name')]
+        [String] $ClusterName
+    )
+
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $($ClusterName) does not exist."
+    }
+
+    $VMHosts = $null
+    try {
+        $VMHosts = Get-Cluster $ClusterName | Get-VMHost
+    }
+    catch {
+        Write-Host "Failed to collect cluster hosts $($_.Exception)"
+        throw "Failed to collect cluster hosts $($_.Exception)"
+    }
+
+    $Success = $true
+    foreach ($VMHost in $VMHosts) {
+        $HostAddress = $VMHost.Name
+        $NetworkInterfaces =  Get-VMHostNetworkAdapter -VMHost $VMHost | Where-Object {$_.Ip}
+        foreach ($Nic in $NetworkInterfaces) {
+            Write-Host "Checking connectivity to vmkernel interface $($Nic.Name) with address $($Nic.IP) on host $HostAddress"
+            $esxcli = Get-EsxCli -VMHost $VMHost.Name -V2
+            $params = $esxcli.network.diag.ping.CreateArgs()
+            $params.host = $Nic.IP
+            $result = $esxcli.network.diag.ping.Invoke($params)
+            if ($result.Summary.Received -gt 0) {
+                Write-Host "Ping to vmkernel interface $($VmKernel) on host $HostAddress is successful"
+            }
+            else {
+                Write-Error "Ping to vmkernel interface $($VmKernel) on host $HostAddress failed"
+                $Success = $false
+            }
+        }
+    }
+    if (-not $Success) {
+        throw "Ping to vmkernel interface failed on one or more hosts"
     }
 }
 

@@ -89,6 +89,8 @@
         "New-NVMeTCPAdapter",
         "New-VmfsVmSnapshot",
         "Repair-HAConfiguration",
+        "Test-VMKernelConnectivity",
+        "Repair-HAConfiguration",
         "Clear-DisconnectedIscsiTargets",
         "Test-ConnectionFromServer"
     )

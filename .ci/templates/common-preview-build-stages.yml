@@ -64,7 +64,7 @@ stages:
           preview 
       displayName: Publish Preview Version
     - pwsh: |
-        echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)" > shuttle/baseline
+        echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)-dev" > shuttle/baseline
         dotnet shuttle/Shuttle.dll generate
       env:
         AZURE_DEVOPS_EXT_PAT: $(adoAccessToken)
