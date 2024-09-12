@@ -662,7 +662,7 @@ function Restore-VmfsVolume {
 #>
 function Sync-VMHostStorage {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
     Param (
         [Parameter(
                 Mandatory=$true,
