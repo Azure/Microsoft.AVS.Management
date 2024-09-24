@@ -363,7 +363,7 @@ function New-VmfsDatastore {
         Write-Error $Global:Error[0]
     }
 
-    $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba | Out-Null
+    $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVmfs | Out-Null
     $Datastore = Get-Datastore -Name $DatastoreName -ErrorAction Ignore
     if (-not $Datastore -or $Datastore.type -ne "VMFS") {
         throw "Failed to create datastore $DatastoreName."
@@ -573,10 +573,6 @@ function Restore-VmfsVolume {
         [String]
         $DatastoreName
     )
-
-    if ($DeviceNaaId -notlike 'naa.624a9370*') {
-        throw "Invalid Device NAA ID $DeviceNaaId provided."
-    }
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
     if (-not $Cluster) {
