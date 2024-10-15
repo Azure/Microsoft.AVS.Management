@@ -598,6 +598,8 @@ function New-LDAPSIdentitySource {
         try {
             $Command = 'nslookup ' + $ResultUrl.Host + ' -type=soa'
             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+            $IPAddress = $SSHRes.Output | Select-String "Address:" | Where-Object { $_ -notmatch "#" } | ForEach-Object { $_.ToString().Split()[1] } | Select-Object -First 1
+            if (-Not ($IPAddress -as [ipaddress])) { throw "The FQDN $($ResultUrl.Host) failed to resolved to an IP address or incorrect IP format. Make sure DNS is configured correctly." }
         }
         catch {
             throw "The FQDN $($ResultUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
@@ -605,14 +607,12 @@ function New-LDAPSIdentitySource {
         Write-Host "The FQDN $($ResultUrl.Host) is resolved successfully."
         # reverse dns lookup
         try {
-            $IPAddress = $SSHRes.Output | grep "Address:" | grep -v "#" | awk '{print $2}' | head -n 1
-            if ($null -eq $IPAddress) { throw "The FQDN $($ResultUrl.Host) failed to resolved to an IP address. Make sure DNS is configured." }
             $Command = 'nslookup ' + $IPAddress
             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
             if ($SSHRes.ExitStatus -ne 0) { throw "The FQDN $($ResultUrl.Host) is resolved successfully but the IP address $($IPAddress) does not have a corresponding DNS PTR (pointer) record, which is used for reverse DNS lookups. Make sure DNS is configured." }
         }
         catch {
-            throw "The FQDN $($ResultUrl.Host) failed to do a reverse DNS lookups "
+            throw "The FQDN $($ResultUrl.Host) failed to do a reverse DNS lookup."
         }
         # check whether a specific port (or range of ports) on a target host is open or closed
         try {
