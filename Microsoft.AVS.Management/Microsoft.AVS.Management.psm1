@@ -602,7 +602,7 @@ function New-LDAPSIdentitySource {
             if (-Not ($IPAddress -as [ipaddress])) { throw "The FQDN $($ResultUrl.Host) failed to resolved to an IP address or incorrect IP format. Make sure DNS is configured correctly." }
         }
         catch {
-            throw "The FQDN $($ResultUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
+            throw "The FQDN $($ResultUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured. $_"
         }
         Write-Host "The FQDN $($ResultUrl.Host) is resolved successfully."
         # reverse dns lookup
@@ -612,7 +612,7 @@ function New-LDAPSIdentitySource {
             if ($SSHRes.ExitStatus -ne 0) { throw "The FQDN $($ResultUrl.Host) is resolved successfully but the IP address $($IPAddress) does not have a corresponding DNS PTR (pointer) record, which is used for reverse DNS lookups. Make sure DNS is configured." }
         }
         catch {
-            throw "The FQDN $($ResultUrl.Host) failed to do a reverse DNS lookup."
+            throw "The FQDN $($ResultUrl.Host) failed to do a reverse DNS lookup. $_"
         }
         # check whether a specific port (or range of ports) on a target host is open or closed
         try {
