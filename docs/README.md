@@ -128,6 +128,7 @@ $NamedOutputs['k2'] = 2 # the value will be converted to string, convert it your
 Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
 
 ```
+> IMPORTANT: Note, that the total size of `NamedOutputs` collection cannot exceed 32KB.
 
 This object will be available in the [ARM resource properties](https://github.com/Azure/azure-rest-api-specs/blob/master/specification/vmware/resource-manager/Microsoft.AVS/stable/2021-06-01/vmware.json#L6921).
 
