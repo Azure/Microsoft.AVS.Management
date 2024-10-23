@@ -35,7 +35,6 @@ Function Test-AVSProtectedObjectName {
         #Protected Policy Object Name Validation Check
         $ProtectedNames = @(
             "Microsoft vSAN Management Storage Policy"
-            "VMware_Horizon"
             "vSAN Default Storage Policy"
             "AVS POST IO Encryption"
             "AVS PRE IO Encryption"
