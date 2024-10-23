@@ -263,36 +263,7 @@ function Get-CertificateFromServerToLocalFile {
     $DestinationFileArray = @()
     $exportFolder = $pwd.Path + "/"
     foreach ($computerUrl in $remoteComputers) {
-        if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) {
-            throw "Incorrect Url format entered from: $computerUrl"
-        }
-        $ParsedUrl = [System.Uri]$computerUrl
-        if ($ParsedUrl.Port -lt 0 -OR $ParsedUrl.Host -eq "" -OR $ParsedUrl.Scheme -eq "") {
-            throw "Incorrect Url format entered from: $computerUrl. The correct Url format is protocol://host:port (Example: ldaps://yourserver.com:636)."
-        }
-        $ResultUrlString = $ParsedUrl.GetLeftPart([UriPartial]::Authority)
-        $ResultUrl = [System.Uri]$ResultUrlString
-        if ($ResultUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ResultUrl.Host -as [ipaddress])) {
-            throw "Incorrect Url format. $computerUrl is an IP address. Please use the hostname exactly as specified on the issued certificate."
-        }
-
         try {
-            try {
-                $Command = 'nslookup ' + $ResultUrl.Host + ' -type=soa'
-                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-            }
-            catch {
-                throw "The FQDN $($ResultUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured."
-            }
-            Write-Host "The FQDN $($ResultUrl.Host) is resolved successfully."
-            try {
-                $Command = 'nc -vz ' + $ResultUrl.Host + ' ' + $ResultUrl.Port
-                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-            }
-            catch {
-                throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ResultUrl.Port) is open."
-            }
-            Write-Host "Connectivity to $($ResultUrl.Host):$($ResultUrl.Port) is verified."
             Write-Host ("Starting to Download Cert from " + $computerUrl)
             $Command = 'echo "1" | openssl s_client -connect ' + $ResultUrl.Host + ':' + $ResultUrl.Port + ' -showcerts'
             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
@@ -604,14 +575,62 @@ function New-LDAPSIdentitySource {
 
     $Password = $Credential.GetNetworkCredential().Password
     $DestinationFileArray = @()
+    $remoteComputers = , $PrimaryUrl
+    if ($PSBoundParameters.ContainsKey('SecondaryUrl')) {
+        $remoteComputers += $SecondaryUrl
+    }
+
+    # check the connection between domain servers and the vcenter
+    foreach ($computerUrl in $remoteComputers) {
+        if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) {
+            throw "Incorrect Url format entered from: $computerUrl"
+        }
+        $ParsedUrl = [System.Uri]$computerUrl
+        if ($ParsedUrl.Port -lt 0 -OR $ParsedUrl.Host -eq "" -OR $ParsedUrl.Scheme -eq "") {
+            throw "Incorrect Url format entered from: $computerUrl. The correct Url format is protocol://host:port (Example: ldaps://yourserver.com:636)."
+        }
+        $ResultUrlString = $ParsedUrl.GetLeftPart([UriPartial]::Authority)
+        $ResultUrl = [System.Uri]$ResultUrlString
+        if ($ResultUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ResultUrl.Host -as [ipaddress])) {
+            throw "Incorrect Url format. $computerUrl is an IP address. Please use the hostname exactly as specified on the issued certificate."
+        }
+        # dns lookup
+        try {
+            $Command = 'nslookup ' + $ResultUrl.Host + ' -type=soa'
+            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+            if ($SSHRes.ExitStatus -ne 0) { throw "$SSHRes" }
+            $IPAddress = $SSHRes.Output | Select-String "Address:" | Where-Object { $_ -notmatch "#" } | ForEach-Object { $_.ToString().Split()[1] } | Select-Object -First 1
+            if (-Not ($IPAddress -as [ipaddress])) { throw "The FQDN $($ResultUrl.Host) failed to resolved to an IP address or incorrect IP format. Make sure DNS is configured correctly." }
+        }
+        catch {
+            throw "The FQDN $($ResultUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured. $_"
+        }
+        Write-Host "The FQDN $($ResultUrl.Host) is resolved successfully."
+        # reverse dns lookup
+        try {
+            $Command = 'nslookup ' + $IPAddress
+            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+            if ($SSHRes.ExitStatus -ne 0) { throw "The FQDN $($ResultUrl.Host) is resolved successfully but the IP address $($IPAddress) does not have a corresponding DNS PTR (pointer) record, which is used for reverse DNS lookups. Make sure DNS is configured. $SSHRes" }
+        }
+        catch {
+            throw "The FQDN $($ResultUrl.Host) failed to do a reverse DNS lookup. $_"
+        }
+        # check whether a specific port (or range of ports) on a target host is open or closed
+        try {
+            $Command = 'nc -nvz ' + $ResultUrl.Host + ' ' + $ResultUrl.Port
+            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+            if ($SSHRes.ExitStatus -ne 0) { throw "$SSHRes" }
+        }
+        catch {
+            throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ResultUrl.Port) is open. $_"
+        }
+        Write-Host "Connectivity to $($ResultUrl.Host):$($ResultUrl.Port) is verified."
+    }
+
     if ($PSBoundParameters.ContainsKey('SSLCertificatesSasUrl')) {
         $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl -ErrorAction Stop
     }
     else {
-        $remoteComputers = , $PrimaryUrl
-        if ($PSBoundParameters.ContainsKey('SecondaryUrl')) {
-            $remoteComputers += $SecondaryUrl
-        }
         $DestinationFileArray = Get-CertificateFromServerToLocalFile $remoteComputers
     }
 
