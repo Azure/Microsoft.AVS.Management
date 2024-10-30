@@ -615,9 +615,9 @@ function New-LDAPSIdentitySource {
         catch {
             throw "The FQDN $($ResultUrl.Host) failed to do a reverse DNS lookup. $_"
         }
-        # check whether a specific port (or range of ports) on a target host is open or closed
+        # check whether a specific port (or range of ports) on a target ip address is open or closed
         try {
-            $Command = 'nc -nvz ' + $ResultUrl.Host + ' ' + $ResultUrl.Port
+            $Command = 'nc -nvz ' + $IPAddress + ' ' + $ResultUrl.Port
             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
             if ($SSHRes.ExitStatus -ne 0) { throw "$SSHRes" }
         }
