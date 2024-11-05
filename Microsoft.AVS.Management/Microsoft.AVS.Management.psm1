@@ -2647,3 +2647,104 @@ function Remove-CustomRole {
     }
 }
 
+Function Get-vSANDataInTransitEncryptionStatus {
+    <#
+    .DESCRIPTION
+        Gets status of vSAN Data-In-Transit Encryption for all clusters in a SDDC
+    #>
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    param()
+    begin{}
+    process {
+        $clusters = Get-Cluster        
+        $diteConfig = @()
+        $vSANConigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
+        foreach ($cluster in $clusters) {
+            $diteConfig += [PSCustomObject]@{
+                Name = $cluster.Name
+                DataEncryptionInTransit = $vSANConigView.VsanClusterGetConfig($cluster.ExtensionData.MoRef).DataInTransitEncryptionConfig.Enabled
+            }
+        }
+        $diteConfig | Format-Table | Out-String | Write-Host
+    }
+
+}
+
+Function Set-vSANDataInTransitEncryption {
+    <#
+    .DESCRIPTION
+        Enable/Disable vSAN Data-In-Transit Encryption for clusters of a SDDC
+    .PARAMETER ClusterName
+        Name of the cluster. Leave blank if required to enable for whole SDDC else enter comma separated list of names.
+    .PARAMETER Enable
+        Specify True/False to Enable/Disable the feature.
+    #>
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    param (
+        [Parameter(Mandatory = $false)]
+        [string]
+        $ClusterName,
+        [Parameter(Mandatory = $true)]
+        [bool]
+        $Enable
+    )
+    begin {
+        If ([string]::IsNullOrEmpty($ClusterName)){}
+        Else {
+            $ClusterNamesParsed = Limit-WildcardsandCodeInjectionCharacters -String $ClusterName
+            $ClusterNamesArray = Convert-StringToArray -String $ClusterNamesParsed
+        }
+        $TagName = "vSAN Data-In-Transit Encryption"        
+    }
+    process {
+        If ([string]::IsNullOrEmpty($ClusterNamesArray)) {
+            $Clusters = Get-Cluster
+            ForEach ($cluster in $Clusters) {
+                $vSANConfigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
+                $vSANReconfigSpec = new-object -type VMware.Vsan.Views.VimVsanReconfigSpec
+                $vSANReconfigSpec.Modify = $true
+                $vSANDataInTransitConfig= new-object -type VMware.Vsan.Views.VsanDataInTransitEncryptionConfig
+                $vSANDataInTransitConfig.Enabled = $Enable
+                $vSANDataInTransitConfig.RekeyInterval = 1440
+                $vSANReconfigSpec.DataInTransitEncryptionConfig = $vSANDataInTransitConfig
+                $task = $vSANConfigView.VsanClusterReconfig($cluster.ExtensionData.MoRef,$vSANReconfigSpec)
+                Wait-Task -Task (Get-Task -Id $task)
+                If ((Get-Task -Id $task).State -eq "Success"){
+                    Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $cluster
+                    Write-Host "$($cluster.Name) set to $Enable"
+                    If ($Enable) {
+                        Write-Information $InfoMessage
+                    }
+                }else {
+                    Write-Error "Failed to set $($Cluster.Name) to $Enable"
+                }
+            }
+        }
+        Else {
+            Foreach ($cluster in $ClusterNamesArray) {
+                If ($Cluster = Get-Cluster -name $cluster) {
+                    $vSANConfigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
+                    $vSANReconfigSpec = New-Object -type VMware.Vsan.Views.VimVsanReconfigSpec
+                    $vSANReconfigSpec.Modify = $true
+                    $vSANDataInTransitConfig= New-Object -type VMware.Vsan.Views.VsanDataInTransitEncryptionConfig
+                    $vSANDataInTransitConfig.Enabled = $Enable
+                    $vSANDataInTransitConfig.RekeyInterval = 1440
+                    $vSANReconfigSpec.DataInTransitEncryptionConfig = $vSANDataInTransitConfig
+                    $task = $vSANConfigView.VsanClusterReconfig($Cluster.ExtensionData.MoRef,$vSANReconfigSpec)
+                    Wait-Task -Task (Get-Task -Id $task)
+                    If ((Get-Task -Id $task).State -eq "Success"){
+                        Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
+                        Write-Host "$($Cluster.Name) set to $Enable"
+                        If ($Enable) {
+                            Write-Information $InfoMessage
+                        }
+                    }else {
+                        Write-Error "Failed to set $($Cluster.Name) to $Enable"
+                    }
+                }
+            }
+        }
+    }
+}
