@@ -2680,6 +2680,7 @@ Function Set-vSANDataInTransitEncryption {
     .PARAMETER Enable
         Specify True/False to Enable/Disable the feature.
     #>
+    [AVSAttribute(10, UpdatesSDDC = $false)]
     [CmdletBinding()]
     param (
         [Parameter(Mandatory = $false)]
