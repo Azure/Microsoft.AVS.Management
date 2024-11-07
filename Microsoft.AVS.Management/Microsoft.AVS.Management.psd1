@@ -82,7 +82,8 @@
                    'Set-ToolsRepo', 'Set-vSANCompressDedupe', 'New-AVSStoragePolicy', 
                    'Remove-AVSStoragePolicy', 'Set-CustomDRS', 
                    'Set-AVSVSANClusterUNMAPTRIM', 'Get-AVSVSANClusterUNMAPTRIM',
-                   'Remove-CustomRole'
+                   'Remove-CustomRole',
+                   'Get-vSANDataInTransitEncryptionStatus', 'Set-vSANDataInTransitEncryption'
     
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
     CmdletsToExport = @()
