@@ -2674,7 +2674,8 @@ Function Get-vSANDataInTransitEncryptionStatus {
 Function Set-vSANDataInTransitEncryption {
   <#
     .DESCRIPTION
-        Enable/Disable vSAN Data-In-Transit Encryption for clusters of a SDDC
+        Enable/Disable vSAN Data-In-Transit Encryption for clusters of a SDDC.
+        There may be a performance impact when vSAN Data-In-Transit Encryption is enabled. Refer :  https://blogs.vmware.com/virtualblocks/2021/08/12/storageminute-vsan-data-encryption-performance/
     .PARAMETER ClusterName
         Name of the cluster. Leave blank if required to enable for whole SDDC else enter comma separated list of names.
     .PARAMETER Enable
