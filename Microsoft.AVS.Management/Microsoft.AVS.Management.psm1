@@ -2705,9 +2705,7 @@ Function Set-vSANDataInTransitEncryption {
         }
         Else {
             $ClustersToOperateUpon = @()
-            Foreach($clusterName in $ClusterNamesArray) {
-                $ClustersToOperateUpon += (Get-Cluster -name $clusterName)
-            }
+            $ClustersToOperateUpon = $ClusterNamesArray | ForEach-Object { Get-Cluster -Name $clusterName }            
         }
         Foreach ($cluster in $ClustersToOperateUpon) {            
                 $vSANConfigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
