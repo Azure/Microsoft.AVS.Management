@@ -2704,29 +2704,31 @@ Function Set-vSANDataInTransitEncryption {
             $ClustersToOperateUpon = Get-Cluster
         }
         Else {
-            $ClustersToOperateUpon = $ClusterNamesArray
+            $ClustersToOperateUpon = @()
+            Foreach($clusterName in $ClusterNamesArray) {
+                $ClustersToOperateUpon += (Get-Cluster -name $clusterName)
+            }
         }
-        Foreach ($cluster in $ClustersToOperateUpon) {
-            If ($Cluster = Get-Cluster -name $cluster) {
-                    $vSANConfigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
-                    $vSANReconfigSpec = New-Object -type VMware.Vsan.Views.VimVsanReconfigSpec
-                    $vSANReconfigSpec.Modify = $true
-                    $vSANDataInTransitConfig= New-Object -type VMware.Vsan.Views.VsanDataInTransitEncryptionConfig
-                    $vSANDataInTransitConfig.Enabled = $Enable
-                    $vSANDataInTransitConfig.RekeyInterval = 1440
-                    $vSANReconfigSpec.DataInTransitEncryptionConfig = $vSANDataInTransitConfig
-                    $task = $vSANConfigView.VsanClusterReconfig($Cluster.ExtensionData.MoRef,$vSANReconfigSpec)
-                    Wait-Task -Task (Get-Task -Id $task)
-                    If ((Get-Task -Id $task).State -eq "Success"){
-                                Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
-                    Write-Host "$($Cluster.Name) set to $Enable"
-                    If ($Enable) {
-                        Write-Information $InfoMessage
-                    }
-                    }else {
-                        Write-Error "Failed to set $($Cluster.Name) to $Enable"
-                    }
+        Foreach ($cluster in $ClustersToOperateUpon) {            
+                $vSANConfigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
+                $vSANReconfigSpec = New-Object -type VMware.Vsan.Views.VimVsanReconfigSpec
+                $vSANReconfigSpec.Modify = $true
+                $vSANDataInTransitConfig= New-Object -type VMware.Vsan.Views.VsanDataInTransitEncryptionConfig
+                $vSANDataInTransitConfig.Enabled = $Enable
+                $vSANDataInTransitConfig.RekeyInterval = 1440
+                $vSANReconfigSpec.DataInTransitEncryptionConfig = $vSANDataInTransitConfig
+                $task = $vSANConfigView.VsanClusterReconfig($Cluster.ExtensionData.MoRef,$vSANReconfigSpec)
+                Wait-Task -Task (Get-Task -Id $task)
+                If ((Get-Task -Id $task).State -eq "Success"){
+                            Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
+                Write-Host "$($Cluster.Name) set to $Enable"
+                If ($Enable) {
+                    Write-Information $InfoMessage
+                }
+                }else {
+                    Write-Error "Failed to set $($Cluster.Name) to $Enable"
                 }
             }
+            
         }
 }
