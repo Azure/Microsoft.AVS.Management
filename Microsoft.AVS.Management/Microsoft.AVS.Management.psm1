@@ -2681,8 +2681,8 @@ Function Set-vSANDataInTransitEncryption {
     .PARAMETER Enable
         Specify True/False to Enable/Disable the feature.
     #>
-    [AVSAttribute(10, UpdatesSDDC = $false)]
     [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
     param (
      [Parameter(Mandatory = $false)]
      [string]
@@ -2717,12 +2717,16 @@ Function Set-vSANDataInTransitEncryption {
                 $vSANReconfigSpec.DataInTransitEncryptionConfig = $vSANDataInTransitConfig
                 $task = $vSANConfigView.VsanClusterReconfig($Cluster.ExtensionData.MoRef,$vSANReconfigSpec)
                 Wait-Task -Task (Get-Task -Id $task)
-                If ((Get-Task -Id $task).State -eq "Success"){
-                            Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
-                Write-Host "$($Cluster.Name) set to $Enable"
-                If ($Enable) {
-                    Write-Information $InfoMessage
-                }
+                If ((Get-Task -Id $task).State -eq "Success"){                            
+                    Write-Host "$($Cluster.Name) set to $Enable"
+                    If ($Enable) {
+                        Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
+                        Write-Information $InfoMessage
+                    }
+                    else {
+                        $AssignedTag = Get-TagAssignment -Tag $Tagname -Entity $Cluster
+                        Remove-TagAssignment -TagAssignment $AssignedTag -Confirm:$false
+                    }
                 }else {
                     Write-Error "Failed to set $($Cluster.Name) to $Enable"
                 }
