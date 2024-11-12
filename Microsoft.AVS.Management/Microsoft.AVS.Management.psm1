@@ -598,7 +598,7 @@ function New-LDAPSIdentitySource {
         try {
             $Command = 'nslookup ' + $ResultUrl.Host + ' -type=soa'
             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-            if ($SSHRes.ExitStatus -ne 0) { throw "$SSHRes" }
+            if ($SSHRes.ExitStatus -ne 0) { throw "$($SSHRes.Output)" }
             $IPAddress = $SSHRes.Output | Select-String "Address:" | Where-Object { $_ -notmatch "#" } | ForEach-Object { $_.ToString().Split()[1] } | Select-Object -First 1
             if (-Not ($IPAddress -as [ipaddress])) { throw "The FQDN $($ResultUrl.Host) failed to resolved to an IP address or incorrect IP format. Make sure DNS is configured correctly." }
         }
@@ -610,7 +610,7 @@ function New-LDAPSIdentitySource {
         try {
             $Command = 'nslookup ' + $IPAddress
             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-            if ($SSHRes.ExitStatus -ne 0) { throw "The FQDN $($ResultUrl.Host) is resolved successfully but the IP address $($IPAddress) does not have a corresponding DNS PTR (pointer) record, which is used for reverse DNS lookups. Make sure DNS is configured. $SSHRes" }
+            if ($SSHRes.ExitStatus -ne 0) { throw "The FQDN $($ResultUrl.Host) is resolved successfully but the IP address $($IPAddress) does not have a corresponding DNS PTR (pointer) record, which is used for reverse DNS lookups. Make sure DNS is configured. $($SSHRes.Output)" }
         }
         catch {
             throw "The FQDN $($ResultUrl.Host) failed to do a reverse DNS lookup. $_"
@@ -619,7 +619,7 @@ function New-LDAPSIdentitySource {
         try {
             $Command = 'nc -nvz ' + $IPAddress + ' ' + $ResultUrl.Port
             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-            if ($SSHRes.ExitStatus -ne 0) { throw "$SSHRes" }
+            if ($SSHRes.ExitStatus -ne 0) { throw "$($SSHRes.Output)" }
         }
         catch {
             throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ResultUrl.Port) is open. $_"
