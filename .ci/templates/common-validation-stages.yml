@@ -7,8 +7,6 @@ parameters:
 stages:
 - stage: 'Validation_${{ parameters.moduleDisplayName }}' # Valid stage name cannot contain the character '.'
   displayName: 'Validate Package ${{ parameters.moduleFolderName }}'
-  pool:
-    vmImage: ubuntu-20.04
   jobs:
   - job: Validate
     displayName: 'Validate ${{ parameters.moduleFolderName }}'
