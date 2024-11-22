@@ -30,28 +30,28 @@ extends:
       os: linux
       image: ubuntu-latest
       name: Azure-Pipelines-1ESPT-ExDShared
-  sdl:
-    sourceAnalysisPool:
-      os: windows
-      image: windows-latest
-      name: Azure-Pipelines-1ESPT-ExDShared
-  stages:
-  - template: templates/common-validation-stages.yml@self
-    parameters:
-      moduleFolderName: ${{ variables.managementModuleFolderName }}
-      moduleDisplayName: ${{ variables.managementModuleDisplayName }}
+    sdl:
+      sourceAnalysisPool:
+        os: windows
+        image: windows-latest
+        name: Azure-Pipelines-1ESPT-ExDShared
+    stages:
+    - template: templates/common-validation-stages.yml@self
+      parameters:
+        moduleFolderName: ${{ variables.managementModuleFolderName }}
+        moduleDisplayName: ${{ variables.managementModuleDisplayName }}
 
-  - template: templates/common-validation-stages.yml@self
-    parameters:
-      moduleFolderName: ${{ variables.vmfsModuleFolderName }}
-      moduleDisplayName: ${{ variables.vmfsModuleDisplayName }}
+    - template: templates/common-validation-stages.yml@self
+      parameters:
+        moduleFolderName: ${{ variables.vmfsModuleFolderName }}
+        moduleDisplayName: ${{ variables.vmfsModuleDisplayName }}
 
-  - template: templates/common-validation-stages.yml@self
-    parameters:
-      moduleFolderName: ${{ variables.vvolsModuleFolderName }}
-      moduleDisplayName: ${{ variables.vvolsModuleDisplayName }}
+    - template: templates/common-validation-stages.yml@self
+      parameters:
+        moduleFolderName: ${{ variables.vvolsModuleFolderName }}
+        moduleDisplayName: ${{ variables.vvolsModuleDisplayName }}
 
-  - template: templates/common-validation-stages.yml@self
-    parameters:
-      moduleFolderName: ${{ variables.nfsModuleFolderName }}
-      moduleDisplayName: ${{ variables.nfsModuleDisplayName }}
+    - template: templates/common-validation-stages.yml@self
+      parameters:
+        moduleFolderName: ${{ variables.nfsModuleFolderName }}
+        moduleDisplayName: ${{ variables.nfsModuleDisplayName }}
