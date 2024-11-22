@@ -1,0 +1,56 @@
+stages:
+- stage: 'Compliance_Checks'
+  displayName: 'Check Compliance for Packages'
+  dependsOn: []
+  jobs:
+  ## Compliance
+  ###########################################################################################
+  - job: Check_Compliance
+    displayName: Compliance Tasks
+    pool:
+      type: windows
+      vmImage: windows-2019
+    variables:
+      ob_outputDirectory: '$(Build.SourcesDirectory)/out'
+    steps:
+    - task: ComponentGovernanceComponentDetection@0
+      displayName: 'Component Detection'
+      inputs:
+        sourceScanPath: '$(Build.SourcesDirectory)'
+        snapshotForceEnabled: true
+    - task: securedevelopmentteam.vss-secure-development-tools.build-task-credscan.CredScan@3
+      displayName: 'Run CredScan'
+      inputs:
+        toolVersion: Latest
+        debugMode: false
+      continueOnError: false
+    - task: PoliCheck@2
+      displayName: 'Run PoliCheck'
+      inputs:
+        targetType: F
+        optionsFC: 0
+        optionsXS: 0
+        optionsPE: '1|2|3|4'
+        optionsHMENABLE: 0
+      continueOnError: false
+    - task: PublishSecurityAnalysisLogs@3
+      displayName: 'Publish Security Analysis Logs to Build Artifacts'
+      continueOnError: false
+    - task: SdtReport@2
+      inputs:
+        AllTools: false
+        APIScan: false
+        BinSkim: false
+        CodesignValidation: false
+        CredScan: true
+        FortifySCA: false
+        FxCop: false
+        ModernCop: false
+        MSRD: false
+        PoliCheck: true
+        PoliCheckBreakOn: 'Severity2Above'
+        RoslynAnalyzers: false
+        SDLNativeRules: false
+        Semmle: false
+        TSLint: false
+        ToolLogsNotFoundAction: 'Standard'
