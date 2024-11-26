@@ -9,7 +9,7 @@ stages:
   displayName: 'Build ${{ parameters.moduleFolderName }}'
   dependsOn: [Compliance_Checks]
   pool:
-    vmImage: ubuntu-20.04
+    vmImage: ubuntu-22.04
   variables:
     previewFeed: "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
   jobs:
