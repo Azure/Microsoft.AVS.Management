@@ -1,5 +1,19 @@
 # https://aka.ms/yaml
 
+parameters:
+- name: validateManagementPackage
+  type: boolean
+  default: true
+- name: validateVmfsPackage
+  type: boolean
+  default: true
+- name: validateVvolsPackage
+  type: boolean
+  default: true
+- name: validateNfsPackage
+  type: boolean
+  default: true
+
 trigger:
 - none
 
@@ -36,22 +50,26 @@ extends:
         image: avs-management-windows-2022-1es-image
         name: avs-management-1es-hosted-pool
     stages:
-    - template: templates/common-validation-stages.yml@self
-      parameters:
-        moduleFolderName: ${{ variables.managementModuleFolderName }}
-        moduleDisplayName: ${{ variables.managementModuleDisplayName }}
+    - ${{ if eq(parameters.validateManagementPackage, true) }}:
+      - template: templates/common-validation-stages.yml@self
+        parameters:
+          moduleFolderName: ${{ variables.managementModuleFolderName }}
+          moduleDisplayName: ${{ variables.managementModuleDisplayName }}
 
-    - template: templates/common-validation-stages.yml@self
-      parameters:
-        moduleFolderName: ${{ variables.vmfsModuleFolderName }}
-        moduleDisplayName: ${{ variables.vmfsModuleDisplayName }}
+    - ${{ if eq(parameters.validateVmfsPackage, true) }}:
+      - template: templates/common-validation-stages.yml@self
+        parameters:
+          moduleFolderName: ${{ variables.vmfsModuleFolderName }}
+          moduleDisplayName: ${{ variables.vmfsModuleDisplayName }}
 
-    - template: templates/common-validation-stages.yml@self
-      parameters:
-        moduleFolderName: ${{ variables.vvolsModuleFolderName }}
-        moduleDisplayName: ${{ variables.vvolsModuleDisplayName }}
+    - ${{ if eq(parameters.validateVvolsPackage, true) }}:
+      - template: templates/common-validation-stages.yml@self
+        parameters:
+          moduleFolderName: ${{ variables.vvolsModuleFolderName }}
+          moduleDisplayName: ${{ variables.vvolsModuleDisplayName }}
 
-    - template: templates/common-validation-stages.yml@self
-      parameters:
-        moduleFolderName: ${{ variables.nfsModuleFolderName }}
-        moduleDisplayName: ${{ variables.nfsModuleDisplayName }}
+    - ${{ if eq(parameters.validateNfsPackage, true) }}:
+      - template: templates/common-validation-stages.yml@self
+        parameters:
+          moduleFolderName: ${{ variables.nfsModuleFolderName }}
+          moduleDisplayName: ${{ variables.nfsModuleDisplayName }}
