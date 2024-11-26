@@ -10,6 +10,7 @@ stages:
   dependsOn: [Compliance_Checks]
   pool:
     vmImage: ubuntu-22.04
+    name: avs-management-1es-hosted-pool
   variables:
     previewFeed: "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
   jobs:
