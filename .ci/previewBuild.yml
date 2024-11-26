@@ -24,29 +24,45 @@ variables:
 name: $(Rev:r) # Provide build run number (i.e., Build.BuildNumber) that is used as patch for build version and ultimately module version
 #######################################
 
-stages:
-- template: templates/common-compliance-stages.yml@self
+resources:
+  repositories:
+  - repository: 1esPipelines
+    type: git
+    name: 1ESPipelineTemplates/1ESPipelineTemplates
+    ref: refs/tags/release
+extends:
+  template: v1/1ES.Unofficial.PipelineTemplate.yml@1esPipelines
+  parameters:
+    settings:
+      skipBuildTagsForGitHubPullRequests: true
+    sdl:
+      sourceAnalysisPool:
+        os: windows
+        image: avs-management-windows-2022-1es-image
+        name: avs-management-1es-hosted-pool
+    stages:
+    - template: templates/common-compliance-stages.yml@self
 
-- ${{ if eq(parameters.publishManagementPackage, true) }}:
-  - template: templates/common-preview-build-stages.yml@self
-    parameters:
-      moduleFolderName: ${{ variables.managementModuleFolderName }}
-      moduleDisplayName: ${{ variables.managementModuleDisplayName }}
+    - ${{ if eq(parameters.publishManagementPackage, true) }}:
+      - template: templates/common-preview-build-stages.yml@self
+        parameters:
+          moduleFolderName: ${{ variables.managementModuleFolderName }}
+          moduleDisplayName: ${{ variables.managementModuleDisplayName }}
 
-- ${{ if eq(parameters.publishVmfsPackage, true) }}:
-  - template: templates/common-preview-build-stages.yml@self
-    parameters:
-      moduleFolderName: ${{ variables.vmfsModuleFolderName }}
-      moduleDisplayName: ${{ variables.vmfsModuleDisplayName }}
+    - ${{ if eq(parameters.publishVmfsPackage, true) }}:
+      - template: templates/common-preview-build-stages.yml@self
+        parameters:
+          moduleFolderName: ${{ variables.vmfsModuleFolderName }}
+          moduleDisplayName: ${{ variables.vmfsModuleDisplayName }}
 
-- ${{ if eq(parameters.publishVvolsPackage, true) }}:
-  - template: templates/common-preview-build-stages.yml@self
-    parameters:
-      moduleFolderName: ${{ variables.vvolsModuleFolderName }}
-      moduleDisplayName: ${{ variables.vvolsModuleDisplayName }}
+    - ${{ if eq(parameters.publishVvolsPackage, true) }}:
+      - template: templates/common-preview-build-stages.yml@self
+        parameters:
+          moduleFolderName: ${{ variables.vvolsModuleFolderName }}
+          moduleDisplayName: ${{ variables.vvolsModuleDisplayName }}
 
-- ${{ if eq(parameters.publishNfsPackage, true) }}:
-  - template: templates/common-preview-build-stages.yml@self
-    parameters:
-      moduleFolderName: ${{ variables.nfsModuleFolderName }}
-      moduleDisplayName: ${{ variables.nfsModuleDisplayName }}
+    - ${{ if eq(parameters.publishNfsPackage, true) }}:
+      - template: templates/common-preview-build-stages.yml@self
+        parameters:
+          moduleFolderName: ${{ variables.nfsModuleFolderName }}
+          moduleDisplayName: ${{ variables.nfsModuleDisplayName }}
