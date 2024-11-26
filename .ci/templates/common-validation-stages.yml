@@ -7,6 +7,7 @@ parameters:
 stages:
 - stage: 'Validation_${{ parameters.moduleDisplayName }}' # Valid stage name cannot contain the character '.'
   displayName: 'Validate Package ${{ parameters.moduleFolderName }}'
+  dependsOn: []
   jobs:
   - job: Validate
     displayName: 'Validate ${{ parameters.moduleFolderName }}'
