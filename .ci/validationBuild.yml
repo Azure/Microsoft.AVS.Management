@@ -28,12 +28,12 @@ extends:
   parameters:
     pool:
       os: linux
-      image: ubuntu-22.04
+      image: avs-management-ubuntu-22.04-1es-image
       name: avs-management-1es-hosted-pool
     sdl:
       sourceAnalysisPool:
         os: windows
-        image: windows-2022
+        image: avs-management-windows-2022-1es-image
         name: avs-management-1es-hosted-pool
     stages:
     - template: templates/common-validation-stages.yml@self
