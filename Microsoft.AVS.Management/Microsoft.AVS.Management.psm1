@@ -207,6 +207,10 @@ function New-LDAPIdentitySource {
     if (($SecondaryUrl -match '^(ldap:).+((:636)|(:3269))$')) {
         Write-Warning "SecondaryUrl $SecondaryUrl is nonstandard. Are you sure you meant to use the 636/3269 port and not the standard ports for LDAP, 389 or 3268? Continuing anyway.."
     }
+    $PrimaryUrl = Assert-URL $PrimaryUrl
+    if ($PSBoundParameters.ContainsKey('SecondaryUrl')) {
+        $SecondaryUrl = Assert-URL $SecondaryUrl
+    }
 
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     if ($null -ne $ExternalIdentitySources) {
@@ -245,6 +249,36 @@ function New-LDAPIdentitySource {
         Write-Host "Attempting to add group $GroupName to CloudAdmins..."
         Add-GroupToCloudAdmins -GroupName $GroupName -Domain $DomainName -ErrorAction Stop
     }
+}
+
+<#
+    .SYNOPSIS
+    Validate an URI 
+#>
+function Assert-URL {
+    param (
+        [Parameter(
+            Mandatory = $true)]
+        [ValidateNotNull()]
+        [string]
+        $Url
+    )
+    if (![uri]::IsWellFormedUriString($Url, 'Absolute')) {
+        throw "Incorrect Url format entered from: $Url"
+    }
+    $ParsedUrl = [System.Uri]$Url
+    if ($ParsedUrl.Port -lt 0 -OR $ParsedUrl.Host -eq "" -OR $ParsedUrl.Scheme -eq "") {
+        throw "Incorrect Url format entered from: $Url. The correct Url format is protocol://host:port (Example: ldaps://yourserver.com:636)."
+    }
+    if ($ParsedUrl.Scheme -ne "ldap" -and $ParsedUrl.Scheme -ne "ldaps") {
+        throw "Incorrect url scheme. The correct scheme must be either: LDAP or LDAPS"
+    }
+    $ResultUrlString = $ParsedUrl.GetLeftPart([UriPartial]::Authority)
+    $ResultUrl = [System.Uri]$ResultUrlString
+    if ([bool]($ResultUrl.Host -as [ipaddress])) {
+        throw "Incorrect Url format. $Url is an IP address. Please use the hostname exactly as specified on the issued certificate."
+    }
+    return $ResultUrl
 }
 
 <#
@@ -326,10 +360,11 @@ function Debug-LDAPSIdentitySources {
 
                 # Check URL looks okay:
                 # i.e. ldaps://ldap1.ldap.avs.azure.com
-                if($url.ToLower() -match '(?<protocol>ldap|ldaps)://(?<hostname>[a-z0-9\.]+)(?<portspec>$|:[0-9]+)') {
-                    $ldap_protocol = $Matches.protocol
-                    $ldap_hostname = $Matches.hostname
-                    $ldap_portspec = $Matches.portspec
+                try {
+                    $ResultUrl = Assert-URL $url
+                    $ldap_protocol = $ResultUrl.Scheme
+                    $ldap_hostname = $ResultUrl.Host
+                    $ldap_portspec = $ResultUrl.Port
                     Write-Host "  LDAP Protocol:        $ldap_protocol"
                     Write-Host "  LDAP Server Hostname: $ldap_hostname"
                     Write-Host "  LDAP Port Specified:  $ldap_portspec"
@@ -425,7 +460,7 @@ function Debug-LDAPSIdentitySources {
                     } else {
                         Write-Error "* vCenter-to-LDAP TCP test failed with result code $($SSHRes.ExitStatus)."
                     }
-                } else {
+                } catch {
                     Write-Error "URL $url does not look like an LDAP URL."
                 }
             }
@@ -582,18 +617,7 @@ function New-LDAPSIdentitySource {
 
     # check the connection between domain servers and the vcenter
     foreach ($computerUrl in $remoteComputers) {
-        if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) {
-            throw "Incorrect Url format entered from: $computerUrl"
-        }
-        $ParsedUrl = [System.Uri]$computerUrl
-        if ($ParsedUrl.Port -lt 0 -OR $ParsedUrl.Host -eq "" -OR $ParsedUrl.Scheme -eq "") {
-            throw "Incorrect Url format entered from: $computerUrl. The correct Url format is protocol://host:port (Example: ldaps://yourserver.com:636)."
-        }
-        $ResultUrlString = $ParsedUrl.GetLeftPart([UriPartial]::Authority)
-        $ResultUrl = [System.Uri]$ResultUrlString
-        if ($ResultUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ResultUrl.Host -as [ipaddress])) {
-            throw "Incorrect Url format. $computerUrl is an IP address. Please use the hostname exactly as specified on the issued certificate."
-        }
+        $ResultUrl = Assert-URL $computerUrl
         # dns lookup
         try {
             $Command = 'nslookup ' + $ResultUrl.Host + ' -type=soa'
