@@ -1389,11 +1389,11 @@ function Set-ClusterDefaultStoragePolicy {
     }
 }
 
-
 <#
     .Synopsis
      This will create a folder on every datastore (/vmfs/volumes/datastore/tools-repo) and set the ESXi hosts to use that folder as the tools-repo.
      The customer is responsible for putting the VMware Tools zip file in a publicly available HTTP(S) downloadable location.
+     YOU MUST use the 'gueststore-vmtools' bundle and it must be in the form of 'gueststore-vmtools-<version>.zip'
 
      .EXAMPLE
      Once the function is imported, you simply need to run Set-ToolsRepo -ToolsURL <url to tools zip file>
