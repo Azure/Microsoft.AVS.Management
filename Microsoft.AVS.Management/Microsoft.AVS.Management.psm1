@@ -1396,20 +1396,20 @@ function Set-ClusterDefaultStoragePolicy {
      YOU MUST use the 'gueststore-vmtools' bundle and it must be in the form of 'gueststore-vmtools-<version>.zip'
 
      .EXAMPLE
-     Once the function is imported, you simply need to run Set-ToolsRepo -ToolsURL <url to tools zip file>
+     Once the function is imported, you simply need to run Set-ToolsRepo -ToolsFile <name of file> -ToolsURL <url to tools zip file>
 #>
 function Set-ToolsRepo {
     [AVSAttribute(30, UpdatesSDDC = $false)]
     param(
         [Parameter(Mandatory = $true,
-            HelpMessage = 'A publiclly available HTTP(S) URL to download the Tools zip file.')]
-        [SecureString]
-        $ToolsURL,
-        [Parameter(Mandatory = $true,
             HelpMessage = "The name of the Tools file. It should begin with `
                            'gueststore-vmtools' and end with '.zip'.")]
         [SecureString]
-        $ToolsFile
+        $ToolsFile,
+        [Parameter(Mandatory = $true,
+            HelpMessage = 'A publiclly available HTTP(S) URL to download the Tools zip file.')]
+        [SecureString]
+        $ToolsURL
     )
 
     $tools_file = ConvertFrom-SecureString $ToolsFile -AsPlainText
