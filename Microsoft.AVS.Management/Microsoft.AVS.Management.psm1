@@ -1391,9 +1391,8 @@ function Set-ClusterDefaultStoragePolicy {
 
 <#
     .Synopsis
-     This will create a folder on every datastore (/vmfs/volumes/datastore/tools-repo) and set the ESXi hosts to use that folder as the tools-repo.
-     The customer is responsible for putting the VMware Tools zip file in a publicly available HTTP(S) downloadable location.
-     YOU MUST use the 'gueststore-vmtools' bundle and it must be in the form of 'gueststore-vmtools-<version>.zip'
+     This will create a folder on the vSAN datastore -- GuestStore and set the cluster to pull Tools from that location. The 'gueststore-vmtools' file is required.
+     The Tools zip file must be in a publicly available HTTP(S) downloadable location.
 
      .EXAMPLE
      Once the function is imported, you simply need to run Set-ToolsRepo -ToolsFile <name of file> -ToolsURL <url to tools zip file>
@@ -1402,36 +1401,33 @@ function Set-ToolsRepo {
     [AVSAttribute(30, UpdatesSDDC = $false)]
     param(
         [Parameter(Mandatory = $true,
-            HelpMessage = "The name of the Tools file. It should begin with `
-                           'gueststore-vmtools' and end with '.zip'.")]
-        [SecureString]
-        $ToolsFile,
-        [Parameter(Mandatory = $true,
             HelpMessage = 'A publiclly available HTTP(S) URL to download the Tools zip file.')]
         [SecureString]
         $ToolsURL
     )
 
-    $tools_file = ConvertFrom-SecureString $ToolsFile -AsPlainText
     $tools_url = ConvertFrom-SecureString $ToolsURL -AsPlainText
-
-    $tools_version = $tools_file -replace '.zip$', ''
-    $tools_short_version = ($tools_version -replace 'gueststore-vmtools-', '') -replace '-.*', ''
 
     # Tools repo folder
     $new_folder = 'GuestStore'
     # To check for existing tools versions
     $archive_path = '/vmware/apps/vmtools/windows64/'
 
+    # Make new directory to store and expand the zip file
+    $tmp_dir = New-Item -Path "./newtools" -ItemType Directory
+    $tools_file = "$tmp_dir/tools.zip"
     # Download the new tools files
     Invoke-WebRequest -Uri $tools_url -OutFile $tools_file -ErrorAction Stop
-    Expand-Archive $tools_file -ErrorAction Stop
+    Expand-Archive -Path $tools_file -DestinationPath $tmp_dir -ErrorAction Stop
 
-    # Make sure the new tools files exist
-    If (!(Test-Path "${tools_version}/vmware")) {
-        Write-Error -Message 'Unable to find new tools files'
+    $tools_path_new = "${tmp_dir}${archive_path}vmtools-*"
+    $tools_version = (Get-ChildItem -Path $tools_path_new -Directory).name
+    if ( $nill -eq $tools_version ) {
+        Write-Error -Message 'Unable to find new tools files. Is this a GuestStore bundle?'
         throw 'Unable to find new tools files'
     }
+
+    $tools_short_version = $tools_version -replace 'vmtools-', ''
 
     # Get all vSAN datastores
     $datastores = Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq 'vsan' }
