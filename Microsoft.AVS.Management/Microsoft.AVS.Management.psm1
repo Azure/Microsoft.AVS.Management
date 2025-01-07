@@ -1402,11 +1402,9 @@ function Set-ToolsRepo {
     param(
         [Parameter(Mandatory = $true,
             HelpMessage = 'A publicly available HTTP(S) URL to download the Tools zip file.')]
-        [SecureString]
-        $ToolsURL
+        [String]
+        $Tools_URL
     )
-
-    $tools_url = ConvertFrom-SecureString $ToolsURL -AsPlainText
 
     # Tools repo folder
     $new_folder = 'GuestStore'
