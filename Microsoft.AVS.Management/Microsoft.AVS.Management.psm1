@@ -1391,7 +1391,7 @@ function Set-ClusterDefaultStoragePolicy {
 
 <#
     .Synopsis
-     This will create a folder on the vSAN datastore -- GuestStore and set the cluster to pull Tools from that location. The 'gueststore-vmtools' file is required.
+     This will create a folder on each cluster's vSAN datastore -- GuestStore and set the cluster to pull Tools from that location. The 'gueststore-vmtools' file is required.
      The Tools zip file must be in a publicly available HTTP(S) downloadable location.
 
      .EXAMPLE
