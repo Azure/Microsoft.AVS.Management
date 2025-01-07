@@ -1401,7 +1401,7 @@ function Set-ToolsRepo {
     [AVSAttribute(30, UpdatesSDDC = $false)]
     param(
         [Parameter(Mandatory = $true,
-            HelpMessage = 'A publiclly available HTTP(S) URL to download the Tools zip file.')]
+            HelpMessage = 'A publicly available HTTP(S) URL to download the Tools zip file.')]
         [SecureString]
         $ToolsURL
     )
