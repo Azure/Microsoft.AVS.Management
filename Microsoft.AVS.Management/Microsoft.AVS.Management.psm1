@@ -1395,7 +1395,7 @@ function Set-ClusterDefaultStoragePolicy {
      The Tools zip file must be in a publicly available HTTP(S) downloadable location.
 
      .EXAMPLE
-     Once the function is imported, you simply need to run Set-ToolsRepo -ToolsFile <name of file> -ToolsURL <url to tools zip file>
+     Once the function is imported, you simply need to run Set-ToolsRepo -ToolsURL <url to tools zip file>
 #>
 function Set-ToolsRepo {
     [AVSAttribute(30, UpdatesSDDC = $false)]
