@@ -195,17 +195,14 @@ function New-LDAPIdentitySource {
         $GroupName
     )
 
-    if (-not ($PrimaryUrl -match '^(ldap:).+((:389)|(:636)|(:3268)|(:3269))$')) {
-        Write-Error "PrimaryUrl $PrimaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap: and not ldaps:" -ErrorAction Stop
+    try {
+        Assert-ADServerURL $PrimaryUrl
+        if ($PSBoundParameters.ContainsKey('SecondaryUrl')) {
+            Assert-ADServerURL $SecondaryUrl
+        }
     }
-    if (($PrimaryUrl -match '^(ldap:).+((:636)|(:3269))$')) {
-        Write-Warning "PrimaryUrl $PrimaryUrl is nonstandard. Are you sure you meant to use the 636/3269 port and not the standard ports for LDAP, 389 or 3268? Continuing anyway.."
-    }
-    if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and (-not ($SecondaryUrl -match '^(ldap:).+((:389)|(:636)|(:3268)|(:3269))$'))) {
-        Write-Error "SecondaryUrl $SecondaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldap: and not ldaps:" -ErrorAction Stop
-    }
-    if (($SecondaryUrl -match '^(ldap:).+((:636)|(:3269))$')) {
-        Write-Warning "SecondaryUrl $SecondaryUrl is nonstandard. Are you sure you meant to use the 636/3269 port and not the standard ports for LDAP, 389 or 3268? Continuing anyway.."
+    catch {
+        throw "Incorrect Primary/Secondary URL format: $_"
     }
 
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
@@ -245,6 +242,45 @@ function New-LDAPIdentitySource {
         Write-Host "Attempting to add group $GroupName to CloudAdmins..."
         Add-GroupToCloudAdmins -GroupName $GroupName -Domain $DomainName -ErrorAction Stop
     }
+}
+
+<#
+    .SYNOPSIS
+    Validate an URL of Active Directory Server.
+#>
+function Assert-ADServerURL {
+    param (
+        [Parameter(
+            Mandatory = $true)]
+        [ValidateNotNull()]
+        [string]
+        $Url
+    )
+    if (![uri]::IsWellFormedUriString($Url, 'Absolute')) {
+        throw "Incorrect Url format entered from: $Url"
+    }
+    $ParsedUrl = [System.Uri]$Url
+    if ($ParsedUrl.Port -lt 0 -OR $ParsedUrl.Host -eq "" -OR $ParsedUrl.Scheme -eq "") {
+        throw "Incorrect Url format entered from: $Url. The correct Url format is protocol://host:port (Example: ldaps://yourserver.com:636)."
+    }
+    if ([bool]($ParsedUrl.Host -as [ipaddress])) {
+        throw "Incorrect Url format: $ParsedUrl. It should not be an IP address. Please use the hostname exactly as specified on the issued certificate."
+    }
+    if ($ParsedUrl.Scheme -ne "ldap" -and $ParsedUrl.Scheme -ne "ldaps") {
+        throw "Incorrect Url scheme: $ParsedUrl. The correct scheme must be either: LDAP or LDAPS."
+    }
+    if ($ParsedUrl.Port -notin 389, 636, 3268, 3269) {
+        throw "Incorrect Url port: $ParsedUrl. The correct port number must be: 389, 636, 3268, or 3269."
+    }
+    if ($ParsedUrl.Scheme -eq "ldap" -and $ParsedUrl.Port -in 636, 3269) {
+        Write-Warning "$ParsedUrl is nonstandard. Are you sure you meant to use the 636/3269 port and not the standard ports for LDAP, 389 or 3268? Continuing anyway.."
+    }
+    if ($ParsedUrl.Scheme -eq "ldaps" -and $ParsedUrl.Port -in 389, 3268) {
+        Write-Warning "$ParsedUrl is nonstandard. Are you sure you meant to use the 389/3268 port and not the standard ports for LDAPS, 636 or 3269? Continuing anyway.."
+    }
+    $ResultUrlString = $ParsedUrl.GetLeftPart([UriPartial]::Authority)
+    $ResultUrl = [System.Uri]$ResultUrlString
+    return $ResultUrl
 }
 
 <#
@@ -326,10 +362,11 @@ function Debug-LDAPSIdentitySources {
 
                 # Check URL looks okay:
                 # i.e. ldaps://ldap1.ldap.avs.azure.com
-                if($url.ToLower() -match '(?<protocol>ldap|ldaps)://(?<hostname>[a-z0-9\.]+)(?<portspec>$|:[0-9]+)') {
-                    $ldap_protocol = $Matches.protocol
-                    $ldap_hostname = $Matches.hostname
-                    $ldap_portspec = $Matches.portspec
+                try {
+                    $ResultUrl = Assert-ADServerURL $url
+                    $ldap_protocol = $ResultUrl.Scheme
+                    $ldap_hostname = $ResultUrl.Host
+                    $ldap_portspec = $ResultUrl.Port
                     Write-Host "  LDAP Protocol:        $ldap_protocol"
                     Write-Host "  LDAP Server Hostname: $ldap_hostname"
                     Write-Host "  LDAP Port Specified:  $ldap_portspec"
@@ -425,8 +462,8 @@ function Debug-LDAPSIdentitySources {
                     } else {
                         Write-Error "* vCenter-to-LDAP TCP test failed with result code $($SSHRes.ExitStatus)."
                     }
-                } else {
-                    Write-Error "URL $url does not look like an LDAP URL."
+                } catch {
+                    Write-Error "URL $url does not look like an LDAP URL. $_"
                 }
             }
         }
@@ -544,19 +581,6 @@ function New-LDAPSIdentitySource {
         $GroupName
     )
 
-    if (-not ($PrimaryUrl -match '^(ldaps:).+((:389)|(:636)|(:3268)|(:3269))$')) {
-        Write-Error "PrimaryUrl $PrimaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps: and not ldap:" -ErrorAction Stop
-    }
-    if (($PrimaryUrl -match '^(ldaps:).+((:389)|(:3268))$')) {
-        Write-Warning "PrimaryUrl $PrimaryUrl is nonstandard. Are you sure you meant to use the 389/3268 port and not the standard ports for LDAPS, 636 or 3269? Continuing anyway.."
-    }
-    if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and (-not ($SecondaryUrl -match '^(ldaps:).+((:389)|(:636)|(:3268)|(:3269))$'))) {
-        Write-Error "SecondaryUrl $SecondaryUrl is invalid. Ensure the port number is 389, 636, 3268, or 3269 and that the url begins with ldaps: and not ldap:" -ErrorAction Stop
-    }
-    if (($SecondaryUrl -match '^(ldaps:).+((:389)|(:3268))$')) {
-        Write-Warning "SecondaryUrl $SecondaryUrl is nonstandard. Are you sure you meant to use the 389/3268 port and not the standard ports for LDAPS, 636 or 3269? Continuing anyway.."
-    }
-
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     if ($null -ne $ExternalIdentitySources) {
         Write-Host "Checking to see if identity source already exists..."
@@ -582,18 +606,7 @@ function New-LDAPSIdentitySource {
 
     # check the connection between domain servers and the vcenter
     foreach ($computerUrl in $remoteComputers) {
-        if (![uri]::IsWellFormedUriString($computerUrl, 'Absolute')) {
-            throw "Incorrect Url format entered from: $computerUrl"
-        }
-        $ParsedUrl = [System.Uri]$computerUrl
-        if ($ParsedUrl.Port -lt 0 -OR $ParsedUrl.Host -eq "" -OR $ParsedUrl.Scheme -eq "") {
-            throw "Incorrect Url format entered from: $computerUrl. The correct Url format is protocol://host:port (Example: ldaps://yourserver.com:636)."
-        }
-        $ResultUrlString = $ParsedUrl.GetLeftPart([UriPartial]::Authority)
-        $ResultUrl = [System.Uri]$ResultUrlString
-        if ($ResultUrl.Host -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" -and [bool]($ResultUrl.Host -as [ipaddress])) {
-            throw "Incorrect Url format. $computerUrl is an IP address. Please use the hostname exactly as specified on the issued certificate."
-        }
+        $ResultUrl = Assert-ADServerURL $computerUrl
         # dns lookup
         try {
             $Command = 'nslookup ' + $ResultUrl.Host + ' -type=soa'
