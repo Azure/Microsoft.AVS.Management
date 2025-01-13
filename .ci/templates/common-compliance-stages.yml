@@ -3,7 +3,8 @@ stages:
   displayName: 'Check Compliance for Packages'
   dependsOn: []
   pool:
-    vmImage: windows-2022
+    os: windows
+    image: avs-management-windows-2022-1es-image
     name: avs-management-1es-hosted-pool
   jobs:
   ## Compliance

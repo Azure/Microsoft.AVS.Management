@@ -9,7 +9,8 @@ stages:
   displayName: 'Build ${{ parameters.moduleFolderName }}'
   dependsOn: [Compliance_Checks]
   pool:
-    vmImage: ubuntu-22.04
+    os: linux
+    image: avs-management-ubuntu-22.04-1es-image
     name: avs-management-1es-hosted-pool
   variables:
     previewFeed: "https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v2"
