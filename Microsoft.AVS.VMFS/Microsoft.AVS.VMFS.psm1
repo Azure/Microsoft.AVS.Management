@@ -529,7 +529,7 @@ function Resize-VmfsVolume {
 
 <#
     .DESCRIPTION
-    Expand existing ElasticSAN Datastore to new size.
+     Expand existing ElasticSAN Datastore to new size.
 
     .PARAMETER ClusterName
      Cluster name
