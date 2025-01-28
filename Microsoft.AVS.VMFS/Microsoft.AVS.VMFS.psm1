@@ -529,7 +529,7 @@ function Resize-VmfsVolume {
 
 <#
     .DESCRIPTION
-     Expand existing ElasticSAN Datastore to new size.
+     Expand existing iSCSI Datastore to new size.
 
     .PARAMETER ClusterName
      Cluster name
@@ -538,7 +538,7 @@ function Resize-VmfsVolume {
      Datastore name
 
     .EXAMPLE
-     Resize-ElasticSANDatastore -ClusterName "myCluster" -DatastoreName "myDatastore"
+     Resize-iSCSIDatastore -ClusterName "myCluster" -DatastoreName "myDatastore"
     
     .INPUTS
      vCenter cluster name and datastore name.
@@ -546,9 +546,9 @@ function Resize-VmfsVolume {
     .OUTPUTS
      None.
 #>
-function Resize-ElasticSANDatastore {
+function Resize-iSCSIDatastore {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
     Param (
         [Parameter(
             Mandatory=$true,
@@ -559,7 +559,7 @@ function Resize-ElasticSANDatastore {
 
         [Parameter(
             Mandatory=$true,
-            HelpMessage = 'Name of ElasticSAN datastore to be expanded in vCenter')]
+            HelpMessage = 'Name of iSCSI datastore to be expanded in vCenter')]
         [ValidateNotNull()]
         [String]
         $DatastoreName
@@ -576,7 +576,7 @@ function Resize-ElasticSANDatastore {
     }
 
     if ($Datastore.Type -ne "VMFS") {
-        throw "Datastore $DatastoreName is of type $($Datastore.Type). This cmdlet can only process ElasticSAN (VMFS) datastores."
+        throw "Datastore $DatastoreName is of type $($Datastore.Type). This cmdlet can only process iSCSI datastores."
     }
 
     $NaaID = [string]$Datastore.ExtensionData.Info.Vmfs.Extent.DiskName
@@ -585,7 +585,7 @@ function Resize-ElasticSANDatastore {
         
     }
 
-    Write-Host "Resizing ElasticSAN datastore $DatastoreName..."
+    Write-Host "Resizing iSCSI datastore $DatastoreName..."
     Resize-VmfsVolume -ClusterName $ClusterName -DeviceNaaId $NaaID
 }
 

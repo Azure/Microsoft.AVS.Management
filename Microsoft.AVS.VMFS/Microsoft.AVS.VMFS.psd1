@@ -72,7 +72,7 @@
         "Set-VmfsStaticIscsi",
         "New-VmfsDatastore",
         "Dismount-VmfsDatastore",
-        "Resize-ElasticSANDatastore",
+        "Resize-iSCSIDatastore",
         "Resize-VmfsVolume",
         "Restore-VmfsVolume",
         "Sync-VMHostStorage",
