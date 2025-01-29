@@ -626,7 +626,9 @@ function New-LDAPSIdentitySource {
             if ($SSHRes.ExitStatus -ne 0) { throw "The FQDN $($ResultUrl.Host) is resolved successfully but the IP address $($IPAddress) does not have a corresponding DNS PTR (pointer) record, which is used for reverse DNS lookups. Make sure DNS is configured. $($SSHRes.Output)" }
         }
         catch {
-            throw "The FQDN $($ResultUrl.Host) failed to do a reverse DNS lookup. $_"
+            Write-Warning "The FQDN $($ResultUrl.Host) failed to do a reverse DNS lookup. $_"
+	    Write-Warning "For reverse lookup to work, DEFAULT zone in NSX-T DNS forwarder must be set to query a DNS server that can resolve reverse DNS lookup of $($ResultUrl.Host)"
+            Write-Warning "Reverse lookup may not be required for LDAPS configuration."
         }
         # check whether a specific port (or range of ports) on a target ip address is open or closed
         try {
