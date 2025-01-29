@@ -72,6 +72,6 @@ if (!$?) {
 
 Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
 foreach($d in $requiredModules) {
-    upload-package $d.Name $d.Version $feedParameters.PublishLocation ""
+    upload-package $d.Name $d.Version $feedParameters.PublishLocation "key"
 }
 Publish-Module -Path ([IO.Path]::GetDirectoryName($absolutePathToManifest)) -Repository ($feedParameters).Name -NuGetApiKey "key" -ErrorAction Stop
