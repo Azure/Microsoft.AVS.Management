@@ -1406,8 +1406,8 @@ function Set-ClusterDefaultStoragePolicy {
 
 <#
     .Synopsis
-     This will create a folder on every datastore (/vmfs/volumes/datastore/tools-repo) and set the ESXi hosts to use that folder as the tools-repo.
-     The customer is responsible for putting the VMware Tools zip file in a publicly available HTTP(S) downloadable location.
+     This will create a folder on each cluster's vSAN datastore -- GuestStore and set each cluster to pull tools from their respective vsan datastore. The 'gueststore-vmtools' file is required.
+     The Tools zip file must be in a publicly available HTTP(S) downloadable location.
 
      .EXAMPLE
      Once the function is imported, you simply need to run Set-ToolsRepo -ToolsURL <url to tools zip file>
@@ -1416,29 +1416,44 @@ function Set-ToolsRepo {
     [AVSAttribute(30, UpdatesSDDC = $false)]
     param(
         [Parameter(Mandatory = $true,
-            HelpMessage = "A publiclly available HTTP(S) URL to download the Tools zip file.")]
-        [SecureString]
-        $ToolsURL
+            HelpMessage = 'A publicly available HTTP(S) URL to download the Tools zip file.')]
+        [String]
+        $Tools_URL
     )
 
     # Tools repo folder
-    $newFolder = 'tools-repo'
+    $new_folder = 'GuestStore'
+    # To check for existing tools versions
+    $archive_path = '/vmware/apps/vmtools/windows64/'
 
-    # Get all datastores
-    $datastores = Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq "vsan" }
-
-    $tools_url = ConvertFrom-SecureString $ToolsURL -AsPlainText
+    # Make new directory to store and expand the zip file
+    $tmp_dir = New-Item -Path "./newtools" -ItemType Directory
+    $tools_file = "$tmp_dir/tools.zip"
     # Download the new tools files
-    Invoke-WebRequest -Uri $tools_url -OutFile "newtools.zip"
-    Expand-Archive "./newtools.zip" -ErrorAction Stop
+    Invoke-WebRequest -Uri $tools_url -OutFile $tools_file -ErrorAction Stop
+    Expand-Archive -Path $tools_file -DestinationPath $tmp_dir -ErrorAction Stop
 
-    # Make sure the new tools files exist
-    If (!(Test-Path "./newtools/vmtools")) {
-        Write-Error -Message "Unable to find new tools files"
-        throw "Unable to find new tools files"
+    $tools_path_new = "${tmp_dir}${archive_path}vmtools-*"
+    $tools_version = (Get-ChildItem -Path $tools_path_new -Directory).name
+    if ( $nill -eq $tools_version ) {
+        Write-Error -Message 'Unable to find new tools files. Is this a GuestStore bundle?'
+        throw 'Unable to find new tools files'
+    }
+
+    $tools_short_version = $tools_version -replace 'vmtools-', ''
+
+    # Get all vSAN datastores
+    $datastores = Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq 'vsan' }
+
+    if ( $nill -eq $datastores ) {
+        Write-Error -Message 'No VSAN datastores found'
+        throw 'No VSAN datastores found'
     }
 
     foreach ($datastore in $datastores) {
+        # In case one is left over
+        Remove-PSDrive -Name DS -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+
         # Get datastore name
         $ds_name = $datastore.Name
 
@@ -1446,54 +1461,71 @@ function Set-ToolsRepo {
         $ds_id = Get-Datastore -Name $ds_name | Select-Object -Property Id
 
         # Create the PS drive
-        New-PSDrive -Location $datastore -Name DS -PSProvider VimDatastore -Root "\" | Out-Null
+        New-PSDrive -Location $datastore -Name DS -PSProvider VimDatastore -Root '\' | Out-Null
 
         # Does repo folder exist?
         $Dsbrowser = Get-View -Id $Datastore.Extensiondata.Browser
         $spec = New-Object VMware.Vim.HostDatastoreBrowserSearchSpec
         $spec.Query += New-Object VMware.Vim.FolderFileQuery
-        $folderObj = ($dsBrowser.SearchDatastore("[$ds_name] \", $spec)).File | Where-Object { $_.FriendlyName -eq $newFolder }
+        $folderObj = ($dsBrowser.SearchDatastore("[$ds_name] \", $spec)).File | Where-Object { $_.FriendlyName -eq $new_folder }
 
         # If not, create it
         If ($nil -eq $folderObj) {
-            New-Item -ItemType Directory -Path "DS:/$newFolder"
+            New-Item -ItemType Directory -Path "DS:/$new_folder"
             # Recheck
-            $folderObj = ($dsBrowser.SearchDatastore("[$ds_name] \", $spec)).File | Where-Object { $_.FriendlyName -eq $newFolder }
+            $folderObj = ($dsBrowser.SearchDatastore("[$ds_name] \", $spec)).File | Where-Object { $_.FriendlyName -eq $new_folder }
             If ($nil -eq $folderObj) {
                 Write-Error -Message "Folder creation failed on $ds_name"
+                throw "Folder creation failed on $ds_name"
             }
             else {
-                Write-Host "Folder creation successful on $ds_name"
+                Write-Information "Folder creation successful on $ds_name"
             }
         }
-        else {
-            # Remove old tools files
-            Remove-Item -Path "DS:/$newFolder/floppies" -Recurse -ErrorAction SilentlyContinue
-            Remove-Item -Path "DS:/$newFolder/vmtools" -Recurse -ErrorAction SilentlyContinue
+
+        # See what Tools versions are already present
+        $existing_dirs = Get-ChildItem "DS:/$new_folder/$archive_path"
+        $do_not_copy = $false
+        foreach ($existing_dir in $existing_dirs) {
+            if ( $existing_dir.GetType() -match 'folder') {
+                $ver = $existing_dir.Name -replace 'vmtools-', ''
+                $tools_older_version = ($ver -ge $tools_short_version) ? $ver : $nil
+                if ($nil -ne $tools_older_version) {
+                    $do_not_copy = $true
+                }
+            }
         }
 
-        Copy-DatastoreItem -Item "./newtools/*" "DS:/$newFolder" -Recurse
+        # If there is a newer version already present, skip the copy
+        if ($do_not_copy) {
+            Write-Information "Skipping copy of $tools_version to $ds_name as there is a newer version already present" -InformationAction Continue
+        }
+        else {
+            Write-Information "Copying $tools_version to $ds_name" -ForegroundColor Green
+            Copy-DatastoreItem -Item "./${tools_version}/*" "DS:/$new_folder" -Recurse -Force
+        }
+
+        # Reset the do_not_copy flag
+        $do_not_copy = $false
 
         # Remove the PS drive
         Remove-PSDrive -Name DS -Confirm:$false
 
-        # List of hosts attached to that datastore
+        $url = ($datastore.ExtensionData.Summary.Url) + "$new_folder"
+
+        # Get all hosts that have this vSAN datastore mounted
         $vmhosts = Get-VMHost | Where-Object { $_.ExtensionData.Datastore.value -eq ($ds_id.Id).Split('-', 2)[1] }
-
-        $repo_dir = "/vmfs/volumes/$ds_name/$newFolder"
-
-        # Set the tools-repo
-        foreach ($vmhost in $vmhosts) {
-            $vmhost.ExtensionData.UpdateProductLockerLocation($repo_dir) | Out-Null
+        if ($nil -eq $vmhosts) {
+            Write-Error -Message "No hosts found for datastore $ds_name"
+            throw "No hosts found for datastore $ds_name"
         }
 
-        # Check the tools-repo
-        $exist_repo = ($vmhosts | Get-AdvancedSetting -Name "UserVars.ProductLockerLocation" | Select-Object Entity, Value) | Select-Object -Unique
-        If (($exist_repo.Value -ne $repo_dir) -or ($exist_repo.count -ne 1)) {
-            Write-Error -Message "Failed to set tools-repo on all hosts for datastore $ds_name"
-        }
-        else {
-            Write-Host "Successfully set tools-repo on all hosts for datastore $ds_name"
+        foreach ( $vmhost in $vmhosts ) {
+            $esxcli = Get-EsxCli -V2 -VMHost $vmhost
+            Write-Information "Setting the GuestStore repository setting for host: $vmhost"
+            $arguments = $esxcli.system.settings.gueststore.repository.set.CreateArgs()
+            $arguments.url = $Url
+            $esxcli.system.settings.gueststore.repository.set.invoke($arguments)
         }
     }
 }
@@ -2672,7 +2704,7 @@ Function Get-vSANDataInTransitEncryptionStatus {
     param()
     begin{}
     process {
-        $clusters = Get-Cluster        
+        $clusters = Get-Cluster
         $diteConfig = @()
         $vSANConigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
         foreach ($cluster in $clusters) {
@@ -2712,7 +2744,7 @@ Function Set-vSANDataInTransitEncryption {
             $ClusterNamesArray = Convert-StringToArray -String $ClusterNamesParsed
         }
         Write-Host "Enable value is $Enable"
-        $TagName = "vSAN Data-In-Transit Encryption"  
+        $TagName = "vSAN Data-In-Transit Encryption" 
             $InfoMessage = "Info - There may be a performance impact when vSAN Data-In-Transit Encryption is enabled. Refer :  https://blogs.vmware.com/virtualblocks/2021/08/12/storageminute-vsan-data-encryption-performance/"
     }
     process {
@@ -2720,9 +2752,9 @@ Function Set-vSANDataInTransitEncryption {
             $ClustersToOperateUpon = Get-Cluster
         }
         Else {
-            $ClustersToOperateUpon = $ClusterNamesArray | ForEach-Object { Get-Cluster -Name $_ }            
+            $ClustersToOperateUpon = $ClusterNamesArray | ForEach-Object { Get-Cluster -Name $_ }
         }
-        Foreach ($cluster in $ClustersToOperateUpon) {            
+        Foreach ($cluster in $ClustersToOperateUpon) {
                 $vSANConfigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
                 $vSANReconfigSpec = New-Object -type VMware.Vsan.Views.VimVsanReconfigSpec
                 $vSANReconfigSpec.Modify = $true
@@ -2732,7 +2764,7 @@ Function Set-vSANDataInTransitEncryption {
                 $vSANReconfigSpec.DataInTransitEncryptionConfig = $vSANDataInTransitConfig
                 $task = $vSANConfigView.VsanClusterReconfig($Cluster.ExtensionData.MoRef,$vSANReconfigSpec)
                 Wait-Task -Task (Get-Task -Id $task)
-                If ((Get-Task -Id $task).State -eq "Success"){                            
+                If ((Get-Task -Id $task).State -eq "Success"){
                     Write-Host "$($Cluster.Name) set to $Enable"
                     If ($Enable) {
                         Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
@@ -2746,6 +2778,6 @@ Function Set-vSANDataInTransitEncryption {
                     Write-Error "Failed to set $($Cluster.Name) to $Enable"
                 }
             }
-            
+
         }
 }
