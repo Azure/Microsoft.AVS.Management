@@ -487,7 +487,7 @@ function Resize-VmfsVolume {
         $ClusterName,
 
         [Parameter(
-            Mandatory=$true,
+            Mandatory=$false,
             HelpMessage = 'NAA ID of device associated with the existing VMFS volume')]
         [ValidateNotNull()]
         [String]
