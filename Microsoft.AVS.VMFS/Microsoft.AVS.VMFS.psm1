@@ -461,7 +461,10 @@ function Dismount-VmfsDatastore {
      Cluster name
 
     .PARAMETER DeviceNaaId
-     NAA ID of device associated with the existing VMFS volume
+     NAA ID of device associated with the existing VMFS volume (optional). If not provided, the DatastoreName value must be provided instead.
+
+    .PARAMETER DatastoreName
+     Datastore name (optional). If not provided, the DeviceNaaId value must be provided instead.
 
     .EXAMPLE
      Resize-VmfsVolume -ClusterName "myClusterName" -DeviceNaaId $DeviceNaaId
@@ -484,15 +487,24 @@ function Resize-VmfsVolume {
         $ClusterName,
 
         [Parameter(
-            Mandatory=$true,
+            Mandatory=$false,
             HelpMessage = 'NAA ID of device associated with the existing VMFS volume')]
-        [ValidateNotNull()]
         [String]
-        $DeviceNaaId
+        $DeviceNaaId,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'Existing datastore name')]
+        [String]
+        $DatastoreName
     )
 
-    if (-not $DeviceNaaId) {
-        throw "Invalid Device ID $DeviceNaaId provided."
+    if ((-not $DeviceNaaId) -and (-not $DatastoreName)) {
+        throw "One of DeviceNaaId or DatastoreName values must be provided."
+    }
+
+    if ($DeviceNaaId -and $DatastoreName) {
+        throw "Cannot provide values for both DeviceNaaId and DatastoreName."
     }
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
@@ -500,14 +512,27 @@ function Resize-VmfsVolume {
         throw "Cluster $ClusterName does not exist."
     }
 
-    $Esxi = $Cluster | Get-VMHost | Where-Object { ($_.ConnectionState -eq 'Connected') } | Select-Object -last 1
-    $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba | Out-Null
-    $Datastores = $Esxi | Get-Datastore -ErrorAction stop
-    foreach ($Datastore in $Datastores) {
-        $CurrentNaaId = $Datastore.ExtensionData.Info.Vmfs.Extent.DiskName
-        if ($CurrentNaaId -eq $DeviceNaaId) {
-            $DatastoreToResize = $Datastore
-            break
+    if ($DatastoreName) {
+        $Datastore = Get-Datastore -Name $DatastoreName -ErrorAction Ignore
+        if (-not $Datastore) {
+            throw "Datastore $DatastoreName does not exist."
+        }
+
+        if ($Datastore.Type -ne "VMFS") {
+            throw "Datastore $DatastoreName is of type $($Datastore.Type). This cmdlet can only process iSCSI datastores."
+        }
+
+        $DatastoreToResize = $Datastore
+    } else {
+        $Esxi = $Cluster | Get-VMHost | Where-Object { ($_.ConnectionState -eq 'Connected') } | Select-Object -last 1
+        $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba | Out-Null
+        $Datastores = $Esxi | Get-Datastore -ErrorAction stop
+        foreach ($Datastore in $Datastores) {
+            $CurrentNaaId = $Datastore.ExtensionData.Info.Vmfs.Extent.DiskName
+            if ($CurrentNaaId -eq $DeviceNaaId) {
+                $DatastoreToResize = $Datastore
+                break
+            }
         }
     }
 
