@@ -299,6 +299,9 @@ function Get-CertificateFromServerToLocalFile {
     $DestinationFileArray = @()
     $exportFolder = $pwd.Path + "/"
     foreach ($computerUrl in $remoteComputers) {
+        $ParsedUrl = [System.Uri]$computerUrl
+        $ResultUrlString = $ParsedUrl.GetLeftPart([UriPartial]::Authority)
+        $ResultUrl = [System.Uri]$ResultUrlString
         try {
             Write-Host ("Starting to Download Cert from " + $computerUrl)
             $Command = 'echo "1" | openssl s_client -connect ' + $ResultUrl.Host + ':' + $ResultUrl.Port + ' -showcerts'
