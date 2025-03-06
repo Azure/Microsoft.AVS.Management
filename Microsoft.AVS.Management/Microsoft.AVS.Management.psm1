@@ -263,9 +263,6 @@ function Assert-ADServerURL {
     if ($ParsedUrl.Port -lt 0 -OR $ParsedUrl.Host -eq "" -OR $ParsedUrl.Scheme -eq "") {
         throw "Incorrect Url format entered from: $Url. The correct Url format is protocol://host:port (Example: ldaps://yourserver.com:636)."
     }
-    if ([bool]($ParsedUrl.Host -as [ipaddress])) {
-        throw "Incorrect Url format: $ParsedUrl. It should not be an IP address. Please use the hostname exactly as specified on the issued certificate."
-    }
     if ($ParsedUrl.Scheme -ne "ldap" -and $ParsedUrl.Scheme -ne "ldaps") {
         throw "Incorrect Url scheme: $ParsedUrl. The correct scheme must be either: LDAP or LDAPS."
     }
@@ -277,6 +274,9 @@ function Assert-ADServerURL {
     }
     if ($ParsedUrl.Scheme -eq "ldaps" -and $ParsedUrl.Port -in 389, 3268) {
         Write-Warning "$ParsedUrl is nonstandard. Are you sure you meant to use the 389/3268 port and not the standard ports for LDAPS, 636 or 3269? Continuing anyway.."
+    }
+    if ($ParsedUrl.Scheme -eq "ldaps" -and [bool]($ParsedUrl.Host -as [ipaddress])) {
+        throw "Incorrect Url format: $ParsedUrl. It should not be an IP address. Please use the hostname exactly as specified on the issued certificate."
     }
     $ResultUrlString = $ParsedUrl.GetLeftPart([UriPartial]::Authority)
     $ResultUrl = [System.Uri]$ResultUrlString
