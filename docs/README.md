@@ -24,7 +24,7 @@ AVS will expose some standard runtime options via PowerShell variables.  See bel
 
 | Var | Description | Notes |
 | ------- | ----------- |--|
-| `VC_ADDRESS` | IP Address of VCenter | Script authors: use `"vc.${$env:SddcDnsSuffix}"` for any HTTPS requests instead |
+| `VC_ADDRESS` | IP Address of VCenter | Script authors: use `"vc.$SddcDnsSuffix"` for any HTTPS requests instead |
 | `SddcDnsSuffix` | Domain suffix of the SDDC |  |
 | `SddcResourceId` | ARM ResourceId of the SDDC | "/subscriptions/7f1fae41-7708-4fa4-89b3-f6552cad2fc1/resourceGroups/myRG/providers/Microsoft.AVS/privateClouds/myCloud" |
 | `AadAuthority` | Azure Active Directory address in this Azure Cloud | "https://login.microsoftonline.com/" |
