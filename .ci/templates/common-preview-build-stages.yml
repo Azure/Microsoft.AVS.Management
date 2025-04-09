@@ -99,6 +99,7 @@ stages:
         echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)-dev" > shuttle/baseline
         dotnet shuttle/Shuttle.dll generate
       env:
+        AZURE_DEVOPS_EXT_PAT: $(accessToken)
         VSS_NUGET_EXTERNAL_FEED_ENDPOINTS: $(endpointsJson)
         NUGET_PLUGIN_PATHS: $(NUGET_PLUGIN_PATHS)
         METADATA: $(metadataAuthority)/$(metadataProject)/_artifacts/feed/$(metadataFeed)
