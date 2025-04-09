@@ -36,6 +36,9 @@ extends:
     settings:
       skipBuildTagsForGitHubPullRequests: true
     sdl:
+      psscriptanalyzer:
+        enabled: true
+        break: false
       sourceAnalysisPool:
         os: windows
         image: avs-management-windows-2022-1es-image

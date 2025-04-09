@@ -45,4 +45,4 @@ $c =  [PSCredential]::new("ONEBRANCH_TOKEN", ($accessToken | ConvertTo-SecureStr
 foreach($d in $requiredModules) {
     upload-package $d.Name $d.Version $previewFeed $c
 }
-Publish-Module -Path ([IO.Path]::GetDirectoryName($absolutePathToManifest)) -Repository Preview -NuGetApiKey "key" -ErrorAction Stop -Credential $c
+Publish-PSResource -Path ([IO.Path]::GetDirectoryName($absolutePathToManifest)) -Repository PreviewV3 -ApiKey "key" -ErrorAction Stop -Credential $c
