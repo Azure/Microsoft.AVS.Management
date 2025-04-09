@@ -15,6 +15,7 @@ stages:
       destination: '$(System.DefaultWorkingDirectory)/tmp'
     steps:
     - task: NuGetAuthenticate@1
+    
     - pwsh: |
           $endpointsJson=@{endpointCredentials=@(@{endpoint="$(consumptionFeedUrl)/nuget/v2"; password="$env:accessToken"}
                                                  @{endpoint="$(consumptionFeedUrl)/nuget/v3/index.json"; password="$accessToken"})} | ConvertTo-Json -Compress

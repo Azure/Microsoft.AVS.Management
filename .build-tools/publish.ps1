@@ -28,9 +28,8 @@ function upload-package ([string]$name, [string]$version, [string]$feed, [PSCred
     $existing = Find-Package -Source $feed -Name $m.Name -AllowPrerelease -RequiredVersion $version -ErrorAction SilentlyContinue
     if($null -eq $existing) { 
         Write-Output "Pushing dependency $m@$version to $feed"
-        Save-PSResource -Name $m.Name -Version $version -Repository Consumption -AsNupkg -Path . -ErrorAction Stop -Credential $credential -SkipDependencyCheck
-        $r = & dotnet @('nuget', 'push', ("{0}.{1}.nupkg" -f $m,$version), '-s', $feed, '-k', 'ado')
-        if($? -eq $false) { throw ("Unable to publish the package: $m@$version, {0}" -f [System.Linq.Enumerable]::First($r.Split('\n'), [Func[object,bool]]{ param($l) $l.Contains("error") })) }
+        Save-PSResource -Name $m.Name -Version $version -Repository ConsumptionV3 -AsNupkg -Path . -ErrorAction Stop -Credential $credential -SkipDependencyCheck
+        Publish-PSResource -NupkgPath "$($m.Name).$version.nupkg" -Repository PreviewV3 -ApiKey "key" -ErrorAction Stop -Credential $c
     } else { Write-Output "$name@$version already in the feed"}
     Write-Host ""
 }
@@ -45,4 +44,4 @@ $c =  [PSCredential]::new("ONEBRANCH_TOKEN", ($accessToken | ConvertTo-SecureStr
 foreach($d in $requiredModules) {
     upload-package $d.Name $d.Version $previewFeed $c
 }
-Publish-Module -Path ([IO.Path]::GetDirectoryName($absolutePathToManifest)) -Repository Preview -NuGetApiKey "key" -ErrorAction Stop -Credential $c
+Publish-PSResource -Path ([IO.Path]::GetDirectoryName($absolutePathToManifest)) -Repository PreviewV3 -ApiKey "key" -ErrorAction Stop -Credential $c

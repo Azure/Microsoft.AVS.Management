@@ -17,6 +17,7 @@ stages:
     displayName: 'Preview build for ${{ parameters.moduleFolderName }}'
     steps:
     - task: NuGetAuthenticate@1
+
     - task: AzureCLI@2
       inputs:
         azureSubscription: Scripting Metadata
@@ -26,8 +27,9 @@ stages:
           $accessToken = az account get-access-token --query accessToken --resource 499b84ac-1321-427f-aa17-267ca6975798 -o tsv
           Write-Host "##vso[task.setsecret]$accessToken"
           $endpointsJson=@{endpointCredentials=@(@{endpoint="$(consumptionFeedUrl)/nuget/v2"; password="$accessToken"}
-                                                 @{endpoint="$(consumptionFeed)/nuget/v3/index.json"; password="$accessToken"}
-                                                 @{endpoint="$(previewFeed)"; password="$accessToken"})} | ConvertTo-Json -Compress
+                                                 @{endpoint="$(consumptionFeedUrl)/nuget/v3/index.json"; password="$accessToken"}
+                                                 @{endpoint="$(previewFeedUrl)/nuget/v2"; password="$accessToken"}
+                                                 @{endpoint="$(previewFeedUrl)/nuget/v3/index.json"; password="$accessToken"})} | ConvertTo-Json -Compress
           Write-Host "##vso[task.setvariable variable=accessToken;issecret=true]$accessToken"
           Write-Host "##vso[task.setvariable variable=endpointsJson;issecret=true]$endpointsJson"
       displayName: Login to Azure
