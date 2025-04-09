@@ -39,6 +39,9 @@ extends:
       psscriptanalyzer:
         enabled: true
         break: false
+      featureFlags:
+        EnableCloudBuildPSSA: true
+        autoBaseline: false
       sourceAnalysisPool:
         os: windows
         image: avs-management-windows-2022-1es-image
