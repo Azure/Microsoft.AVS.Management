@@ -35,13 +35,13 @@ extends:
   parameters:
     settings:
       skipBuildTagsForGitHubPullRequests: true
+    featureFlags:
+      autoBaseline: false
     sdl:
       psscriptanalyzer:
         enabled: true
         break: false
-      featureFlags:
-        EnableCloudBuildPSSA: true
-        autoBaseline: false
+      policy: M365
       sourceAnalysisPool:
         os: windows
         image: avs-management-windows-2022-1es-image
