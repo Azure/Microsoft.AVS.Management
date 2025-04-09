@@ -25,12 +25,12 @@ function upload-package ([string]$name, [string]$version, [string]$feed, [PSCred
     foreach($d in $m.RequiredModules) { 
         upload-package $d.Name $d.Version $feed $credential
     }
-    $existing = Find-Package -Source $feed -Name $m.Name -AllowPrerelease -RequiredVersion $version -ErrorAction SilentlyContinue
+    $existing = Find-PSResource -Repository PreviewV3 -Name $m.Name -Prerelease -Version $version -ErrorAction SilentlyContinue -Credential $credential
     if($null -eq $existing) { 
         Write-Output "Pushing dependency $m@$version to $feed"
         Save-PSResource -Name $m.Name -Version $version -Repository ConsumptionV3 -AsNupkg -Path . -ErrorAction Stop -Credential $credential -SkipDependencyCheck
-        Publish-PSResource -NupkgPath "$($m.Name).$version.nupkg" -Repository PreviewV3 -ApiKey "key" -ErrorAction Stop -Credential $c
-    } else { Write-Output "$name@$version already in the feed"}
+        Publish-PSResource -NupkgPath "$($m.Name).$version.nupkg" -Repository PreviewV3 -ApiKey "key" -ErrorAction Stop -Credential $credential
+    } else { Write-Output "$name@$version already in the feed" }
     Write-Host ""
 }
 
