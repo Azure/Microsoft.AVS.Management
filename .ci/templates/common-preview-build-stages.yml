@@ -53,7 +53,7 @@ stages:
         AZURE_DEVOPS_EXT_PAT: $(accessToken)
 
     - pwsh: |
-        .build-tools/registerSources.ps1 $(consumptionFeedUrl) $(previewFeed)
+        .build-tools/registerSources.ps1 $(consumptionFeedUrl) $(previewFeedUrl)
         .build-tools/getRequiredModules.ps1 '$(accessToken)' '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
       displayName: 'Restore Dependencies for ${{ parameters.moduleFolderName }}'
       env:
@@ -74,7 +74,7 @@ stages:
           "$(accessToken)"
           "$(System.DefaultWorkingDirectory)/${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1"
           "$(Build.BuildNumber)"
-          "$(previewFeed)"
+          "$(previewFeedUrl)"
           dev 
       displayName: Publish Developer Version
       env:
@@ -88,7 +88,7 @@ stages:
           "$(accessToken)"
           '$(System.DefaultWorkingDirectory)/${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
           "$(Build.BuildNumber)"
-          "$(previewFeed)"
+          "$(previewFeedUrl)"
           preview
       displayName: Publish Preview Version
       env:
