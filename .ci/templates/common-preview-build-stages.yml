@@ -28,7 +28,8 @@ stages:
           Write-Host "##vso[task.setsecret]$accessToken"
           $endpointsJson=@{endpointCredentials=@(@{endpoint="$(consumptionFeedUrl)/nuget/v2"; password="$accessToken"}
                                                  @{endpoint="$(consumptionFeedUrl)/nuget/v3/index.json"; password="$accessToken"}
-                                                 @{endpoint="$(previewFeed)"; password="$accessToken"})} | ConvertTo-Json -Compress
+                                                 @{endpoint="$(previewFeedUrl)/nuget/v2"; password="$accessToken"}
+                                                 @{endpoint="$(previewFeedUrl)/nuget/v3/index.json"; password="$accessToken"})} | ConvertTo-Json -Compress
           Write-Host "##vso[task.setvariable variable=accessToken;issecret=true]$accessToken"
           Write-Host "##vso[task.setvariable variable=endpointsJson;issecret=true]$endpointsJson"
       displayName: Login to Azure
