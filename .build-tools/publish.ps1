@@ -38,10 +38,17 @@ Write-Output "Updating module version in $absolutePathToManifest to $buildNumber
 update-moduleversion
 
 Write-Output "Uploading dependencies to $previewFeed"
-$requiredModules = (Test-ModuleManifest "$absolutePathToManifest" -ErrorAction Stop).RequiredModules
+$manifest = Test-ModuleManifest "$absolutePathToManifest" -ErrorAction Stop
 
 $c =  [PSCredential]::new("ONEBRANCH_TOKEN", ($accessToken | ConvertTo-SecureString -AsPlainText -Force))
-foreach($d in $requiredModules) {
+foreach($d in $manifest.RequiredModules) {
     upload-package $d.Name $d.Version $previewFeed $c
 }
-Publish-PSResource -Path ([IO.Path]::GetDirectoryName($absolutePathToManifest)) -Repository PreviewV3 -ApiKey "key" -ErrorAction Stop -Credential $c
+Publish-PSResource -Path $manifest.Name -Repository PreviewV3 -ApiKey "key" -ErrorAction Stop -Credential $c
+# try installing it
+$version = if( [String]::IsNullOrWhiteSpace($manifest.PrivateData.PSData.Prerelease)) {
+    $manifest.Version
+} else {
+    "$($manifest.Version)-$($manifest.PrivateData.PSData.Prerelease)" 
+}
+Install-PSResource -Name $manifest.Name -Version $version -Prerelease -Repository PreviewV3 -ErrorAction Stop -Credential $c
