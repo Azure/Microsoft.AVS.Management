@@ -1504,7 +1504,7 @@ function Set-ToolsRepo {
             Write-Information "Skipping copy of $tools_version to $ds_name as there is a newer version already present" -InformationAction Continue
         }
         else {
-            Write-Information "Copying $tools_version to $ds_name" -ForegroundColor Green
+            Write-Information "Copying $tools_version to $ds_name"
             Copy-DatastoreItem -Item "./${tools_version}/*" "DS:/$new_folder" -Recurse -Force
         }
 
