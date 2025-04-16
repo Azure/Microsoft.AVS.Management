@@ -1,12 +1,12 @@
 # Overview
-These guidelines layout responsibilities for Microsoft and 3rd party PowerShell script developers.
+These guidelines layout responsibilities for Microsoft and 3rd party PowerShell script developers for bringing the features to [AVS Run Command](https://learn.microsoft.com/en-us/azure/azure-vmware/using-run-command) platform.
 AVS Scripting functionality is exposed as standard [ARM resource](https://github.com/Azure/azure-rest-api-specs/blob/master/specification/vmware/resource-manager/Microsoft.AVS/stable/2021-06-01/vmware.json), vendors should familiarize themselves with the capabilities available.
 
 ----
 
 # Responsibilities of AVS
 
-AVS Scripting environment is expecting to run scripts targeted for vCenter via PowerCLI from VMware. 
+AVS Scripting environment is expecting to run scripts targeted for vCenter via PowerCLI from VMware. Microsoft will import vendor's PowerShell package, verify it's conformance to the AVS Run Command constraints and make it available for execution in AVS regions.
 
 
 ## Administration Level logins
