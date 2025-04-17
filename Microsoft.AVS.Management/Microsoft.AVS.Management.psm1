@@ -1438,7 +1438,7 @@ function Set-ToolsRepo {
 
     $tools_path_new = "${tmp_dir}${archive_path}vmtools-*"
     $tools_version = (Get-ChildItem -Path $tools_path_new -Directory).name
-    if ( $nill -eq $tools_version ) {
+    if ( $null -eq $tools_version ) {
         Write-Error -Message 'Unable to find new tools files. Is this a GuestStore bundle?'
         throw 'Unable to find new tools files'
     }
@@ -1448,7 +1448,7 @@ function Set-ToolsRepo {
     # Get all vSAN datastores
     $datastores = Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq 'vsan' }
 
-    if ( $nill -eq $datastores ) {
+    if ( $null -eq $datastores ) {
         Write-Error -Message 'No VSAN datastores found'
         throw 'No VSAN datastores found'
     }
@@ -1473,11 +1473,11 @@ function Set-ToolsRepo {
         $folderObj = ($dsBrowser.SearchDatastore("[$ds_name] \", $spec)).File | Where-Object { $_.FriendlyName -eq $new_folder }
 
         # If not, create it
-        If ($nil -eq $folderObj) {
+        If ($null -eq $folderObj) {
             New-Item -ItemType Directory -Path "DS:/$new_folder"
             # Recheck
             $folderObj = ($dsBrowser.SearchDatastore("[$ds_name] \", $spec)).File | Where-Object { $_.FriendlyName -eq $new_folder }
-            If ($nil -eq $folderObj) {
+            If ($null -eq $folderObj) {
                 Write-Error -Message "Folder creation failed on $ds_name"
                 throw "Folder creation failed on $ds_name"
             }
@@ -1492,8 +1492,8 @@ function Set-ToolsRepo {
         foreach ($existing_dir in $existing_dirs) {
             if ( $existing_dir.GetType() -match 'folder') {
                 $ver = $existing_dir.Name -replace 'vmtools-', ''
-                $tools_older_version = ($ver -ge $tools_short_version) ? $ver : $nil
-                if ($nil -ne $tools_older_version) {
+                $tools_older_version = if ($ver -ge $tools_short_version) { $ver } else { $null }
+                if ($null -ne $tools_older_version) {
                     $do_not_copy = $true
                 }
             }
@@ -1518,7 +1518,7 @@ function Set-ToolsRepo {
 
         # Get all hosts that have this vSAN datastore mounted
         $vmhosts = Get-VMHost | Where-Object { $_.ExtensionData.Datastore.value -eq ($ds_id.Id).Split('-', 2)[1] }
-        if ($nil -eq $vmhosts) {
+        if ($null -eq $vmhosts) {
             Write-Error -Message "No hosts found for datastore $ds_name"
             throw "No hosts found for datastore $ds_name"
         }
