@@ -5,7 +5,7 @@ param (
 )
 $c =  [PSCredential]::new("ado", ($accessToken | ConvertTo-SecureString -AsPlainText -Force))
 # https://github.com/PowerShell/PSResourceGet/issues/1777
-Install-Module Microsoft.PowerShell.PSResourceGet -requiredversion 1.1.1 -Repository Consumption -Credential $c -Force -SkipPublisherCheck
+Install-PSResource Microsoft.PowerShell.PSResourceGet -Version 1.1.1 -Repository ConsumptionV3 -Credential $c
 
 $requiredModules = (Test-ModuleManifest "$psdPath" -ErrorAction SilentlyContinue).RequiredModules
 foreach ($module in $requiredModules) {
