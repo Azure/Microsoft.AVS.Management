@@ -1477,9 +1477,9 @@ function Set-ToolsRepo {
 
         # Create the PS drive
         New-PSDrive -Location $datastore -Name DS -PSProvider VimDatastore -Root '\' | Out-Null
-        if (-not (Test-Path "DS:/")) {
+        if (-not (Test-Path 'DS:/')) {
             Write-Error "Failed to create DS: drive for datastore $ds_name"
-            throw "DS: drive creation failed"
+            throw 'DS: drive creation failed'
         }
 
         # Does repo folder exist?
@@ -1508,9 +1508,17 @@ function Set-ToolsRepo {
         
         foreach ($existing_dir in $existing_dirs) {
             $ver = $existing_dir.Name -replace 'vmtools-', ''
-            if ($ver -ge $tools_short_version) {
-                $do_not_copy = $true
-                break
+            try {
+                $existing_version = [System.Version]::Parse($ver)
+                $new_version = [System.Version]::Parse($tools_short_version)
+        
+                if ($existing_version -ge $new_version) {
+                    $do_not_copy = $true
+                    break
+                }
+            }
+            catch {
+                Write-Warning "Skipping invalid version folder: $ver"
             }
         }
 
