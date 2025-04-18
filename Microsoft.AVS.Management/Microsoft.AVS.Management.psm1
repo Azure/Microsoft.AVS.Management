@@ -14,13 +14,13 @@ function Get-Certificates {
 
     [string] $CertificatesSASPlainString = ConvertFrom-SecureString -SecureString $SSLCertificatesSasUrl -AsPlainText
     [System.StringSplitOptions] $options = [System.StringSplitOptions]::RemoveEmptyEntries -bor [System.StringSplitOptions]::TrimEntries
-    [string[]] $CertificatesSASList = $CertificatesSASPlainString.Split(",", $options)
+    [string[]] $CertificatesSASList = $CertificatesSASPlainString.Split(',', $options)
     Write-Host "Number of Certs passed $($CertificatesSASList.count)"
     if ($CertificatesSASList.count -eq 0) {
-        throw "If adding an LDAPS identity source, please ensure you pass in at least one certificate"
+        throw 'If adding an LDAPS identity source, please ensure you pass in at least one certificate'
     }
     if ($PSBoundParameters.ContainsKey('SecondaryUrl') -and $CertificatesSASList.count -lt 2) {
-        throw "If passing in a secondary/fallback URL, ensure that at least two certificates are passed."
+        throw 'If passing in a secondary/fallback URL, ensure that at least two certificates are passed.'
     }
     $DestinationFileArray = @()
     $Index = 1
@@ -51,15 +51,15 @@ function Get-StoragePolicyInternal {
         $StoragePolicyName
     )
     Write-Host "Getting Storage Policy $StoragePolicyName"
-    $VSANStoragePolicies = Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop
+    $VSANStoragePolicies = Get-SpbmStoragePolicy -Namespace 'VSAN' -ErrorAction Stop
     $StoragePolicy = Get-SpbmStoragePolicy $StoragePolicyName -ErrorAction Stop
     if ($null -eq $StoragePolicy) {
         Write-Error "Could not find Storage Policy with the name $StoragePolicyName." -ErrorAction Continue
-        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
+        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace 'VSAN')" -ErrorAction Stop
     }
     elseif (-not ($StoragePolicy -in $VSANStoragePolicies)) {
         Write-Error "Storage policy $StoragePolicyName is not supported. Storage policies must be in the VSAN namespace" -ErrorAction Continue
-        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace "VSAN")" -ErrorAction Stop
+        Write-Error "Available storage policies: $(Get-SpbmStoragePolicy -Namespace 'VSAN')" -ErrorAction Stop
     }
     return $StoragePolicy, $VSANStoragePolicies
 }
@@ -182,7 +182,7 @@ function New-LDAPIdentitySource {
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = "Credential for the LDAP server")]
+            HelpMessage = 'Credential for the LDAP server')]
         [ValidateNotNull()]
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
@@ -207,18 +207,18 @@ function New-LDAPIdentitySource {
 
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     if ($null -ne $ExternalIdentitySources) {
-        Write-Host "Checking to see if identity source already exists..."
+        Write-Host 'Checking to see if identity source already exists...'
         if ($DomainName.trim() -eq $($ExternalIdentitySources.Name.trim())) {
             Write-Error $($ExternalIdentitySources | Format-List | Out-String) -ErrorAction Continue
             Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Stop
         }
         else {
             Write-Information "$($ExternalIdentitySources | Format-List | Out-String)"
-            Write-Information "An identity source already exists, but not for this domain. Continuing to add this one..."
+            Write-Information 'An identity source already exists, but not for this domain. Continuing to add this one...'
         }
     }
     else {
-        Write-Host "No existing external identity sources found."
+        Write-Host 'No existing external identity sources found.'
     }
 
     $Password = $Credential.GetNetworkCredential().Password
@@ -260,22 +260,22 @@ function Assert-ADServerURL {
         throw "Incorrect Url format entered from: $Url"
     }
     $ParsedUrl = [System.Uri]$Url
-    if ($ParsedUrl.Port -lt 0 -OR $ParsedUrl.Host -eq "" -OR $ParsedUrl.Scheme -eq "") {
+    if ($ParsedUrl.Port -lt 0 -OR $ParsedUrl.Host -eq '' -OR $ParsedUrl.Scheme -eq '') {
         throw "Incorrect Url format entered from: $Url. The correct Url format is protocol://host:port (Example: ldaps://yourserver.com:636)."
     }
-    if ($ParsedUrl.Scheme -ne "ldap" -and $ParsedUrl.Scheme -ne "ldaps") {
+    if ($ParsedUrl.Scheme -ne 'ldap' -and $ParsedUrl.Scheme -ne 'ldaps') {
         throw "Incorrect Url scheme: $ParsedUrl. The correct scheme must be either: LDAP or LDAPS."
     }
     if ($ParsedUrl.Port -notin 389, 636, 3268, 3269) {
         throw "Incorrect Url port: $ParsedUrl. The correct port number must be: 389, 636, 3268, or 3269."
     }
-    if ($ParsedUrl.Scheme -eq "ldap" -and $ParsedUrl.Port -in 636, 3269) {
+    if ($ParsedUrl.Scheme -eq 'ldap' -and $ParsedUrl.Port -in 636, 3269) {
         Write-Warning "$ParsedUrl is nonstandard. Are you sure you meant to use the 636/3269 port and not the standard ports for LDAP, 389 or 3268? Continuing anyway.."
     }
-    if ($ParsedUrl.Scheme -eq "ldaps" -and $ParsedUrl.Port -in 389, 3268) {
+    if ($ParsedUrl.Scheme -eq 'ldaps' -and $ParsedUrl.Port -in 389, 3268) {
         Write-Warning "$ParsedUrl is nonstandard. Are you sure you meant to use the 389/3268 port and not the standard ports for LDAPS, 636 or 3269? Continuing anyway.."
     }
-    if ($ParsedUrl.Scheme -eq "ldaps" -and [bool]($ParsedUrl.Host -as [ipaddress])) {
+    if ($ParsedUrl.Scheme -eq 'ldaps' -and [bool]($ParsedUrl.Host -as [ipaddress])) {
         throw "Incorrect Url format: $ParsedUrl. It should not be an IP address. Please use the hostname exactly as specified on the issued certificate."
     }
     $ResultUrlString = $ParsedUrl.GetLeftPart([UriPartial]::Authority)
@@ -297,16 +297,16 @@ function Get-CertificateFromServerToLocalFile {
     )
 
     $DestinationFileArray = @()
-    $exportFolder = $pwd.Path + "/"
+    $exportFolder = $pwd.Path + '/'
     foreach ($computerUrl in $remoteComputers) {
         $ParsedUrl = [System.Uri]$computerUrl
         $ResultUrlString = $ParsedUrl.GetLeftPart([UriPartial]::Authority)
         $ResultUrl = [System.Uri]$ResultUrlString
         try {
-            Write-Host ("Starting to Download Cert from " + $computerUrl)
+            Write-Host ('Starting to Download Cert from ' + $computerUrl)
             $Command = 'echo "1" | openssl s_client -connect ' + $ResultUrl.Host + ':' + $ResultUrl.Port + ' -showcerts'
             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-            $SSHOutput = $SSHRes.Output | out-string
+            $SSHOutput = $SSHRes.Output | Out-String
         }
         catch {
             throw "Failure to download the certificate from $computerUrl. $_"
@@ -316,9 +316,9 @@ function Get-CertificateFromServerToLocalFile {
             throw "The certificate from $computerUrl has an incorrect format"
         }
         else {
-            $certs = select-string -inputobject $SSHOutput -pattern "(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)" -allmatches
+            $certs = Select-String -InputObject $SSHOutput -Pattern '(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)' -AllMatches
             $cert = $certs.matches[0]
-            $exportPath = $exportFolder + ($ResultUrl.Host.split(".")[0]) + ".cer"
+            $exportPath = $exportFolder + ($ResultUrl.Host.split('.')[0]) + '.cer'
             $cert.Value | Out-File $exportPath -Encoding ascii
             $DestinationFileArray += $exportPath
         }
@@ -338,29 +338,29 @@ function Get-CertificateFromServerToLocalFile {
 function Debug-LDAPSIdentitySources {
     [AVSAttribute(2, UpdatesSDDC = $false)]
     Param()
-    Write-Host "*"
-    Write-Host "* LDAP Identity Source Diagnostic Test Tool (ldapcheck)"
+    Write-Host '*'
+    Write-Host '* LDAP Identity Source Diagnostic Test Tool (ldapcheck)'
     Write-Host "* Executed at $((Get-Date).ToUniversalTime())"
-    Write-Host "*"
+    Write-Host '*'
 
     $sources = Get-IdentitySource -External -ErrorAction Stop
     $sources | ForEach-Object {
-        if(($_.Type -eq "OpenLdap") -or ($_.Type -eq "ActiveDirectory")) {
+        if (($_.Type -eq 'OpenLdap') -or ($_.Type -eq 'ActiveDirectory')) {
 
-            Write-Host "* -------------------------------------------------------------"
+            Write-Host '* -------------------------------------------------------------'
             Write-Host "* OpenLDAP Identity Source $($_.Name) detected."
 
             $urls = @()
-            if(-not ($null -eq $_.PrimaryUrl)) {
+            if (-not ($null -eq $_.PrimaryUrl)) {
                 $urls += $_.PrimaryUrl
                 Write-Host "* The Primary URL is  $($_.PrimaryUrl)."
             }
-            if(-not ($null -eq $_.FailoverUrl)) {
+            if (-not ($null -eq $_.FailoverUrl)) {
                 $urls += $_.FailoverUrl
                 Write-Host "* The Failover URL is $($_.FailoverUrl)."
             }
 
-            foreach($url in $urls) {
+            foreach ($url in $urls) {
                 Write-Host "* Checking LDAP URL: $url"
 
                 # Check URL looks okay:
@@ -380,9 +380,9 @@ function Debug-LDAPSIdentitySources {
                         $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
                     }
                     catch {
-                        throw "ERROR: Unable to execute grep command on vCenter."
+                        throw 'ERROR: Unable to execute grep command on vCenter.'
                     }
-                    $SSHOutput = $SSHRes.Output | out-string
+                    $SSHOutput = $SSHRes.Output | Out-String
                     Write-Host "* vCenter /etc/hosts hostname resolution check returned: $SSHOutput"
 
                     # Call Host to check DNS resolution of LDAP server from vCenter"
@@ -390,18 +390,19 @@ function Debug-LDAPSIdentitySources {
                         $Command = "host $ldap_hostname"
                         $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
                     }
-                    catch {throw "ERROR: Unable to execute host command on vCenter."}
+                    catch { throw 'ERROR: Unable to execute host command on vCenter.' }
                     Write-Host "* vCenter DNS hostname resolution check returned: $($SSHRes.Output)"
 
                     # Now let's look at the port numbers
-                    if($ldap_portspec -ne "") {
-                        $ldap_port = $ldap_portspec -match ":([0-9]+)"
+                    if ($ldap_portspec -ne '') {
+                        $ldap_port = $ldap_portspec -match ':([0-9]+)'
                         Write-Host "  LDAP Port number:      $ldap_port"
-                    } else {
-                        switch($ldap_protocol) {
-                            "ldap"  {$ldap_port = 389}
-                            "ldaps" {$ldap_port = 636}
-                            "default" {$ldap_port = -1}
+                    }
+                    else {
+                        switch ($ldap_protocol) {
+                            'ldap' { $ldap_port = 389 }
+                            'ldaps' { $ldap_port = 636 }
+                            'default' { $ldap_port = -1 }
                         }
                         Write-Host "* LDAP Port to test:    $ldap_port"
                     }
@@ -411,10 +412,10 @@ function Debug-LDAPSIdentitySources {
                         $Command = "nc -vz $ldap_hostname $ldap_port"
                         $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
                     }
-                    catch {throw "ERROR: Unable to execute nc command on vCenter."}
+                    catch { throw 'ERROR: Unable to execute nc command on vCenter.' }
 
-                    if($SSHRes.ExitStatus -eq 1) {
-                        Write-Error "* vCenter-to-LDAP TCP test FAILED."
+                    if ($SSHRes.ExitStatus -eq 1) {
+                        Write-Error '* vCenter-to-LDAP TCP test FAILED.'
 
                         # Netcat failed to access the TCP port.
                         # Let's have vCenter ping the LDAP server (even though ICMP isn't required)"
@@ -422,16 +423,17 @@ function Debug-LDAPSIdentitySources {
                             $Command = "ping -c 3 $ldap_hostname"
                             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
                         }
-                        catch {throw "ERROR: Unable to execute ping command on vCenter."}
-                        Write-Host "* vCenter-to-LDAP Ping test returned:"
-                        Write-Host "$($SSHRes.Output | out-string)"
+                        catch { throw 'ERROR: Unable to execute ping command on vCenter.' }
+                        Write-Host '* vCenter-to-LDAP Ping test returned:'
+                        Write-Host "$($SSHRes.Output | Out-String)"
 
-                        if($($SSHRes.Output | Out-String) -match " (?<percentage>[0-9]+)% packet loss") {
+                        if ($($SSHRes.Output | Out-String) -match ' (?<percentage>[0-9]+)% packet loss') {
                             $ping_loss = $Matches.percentage
-                            if($ping_loss -eq "0") {
-                                Write-Host "* vCenter was able to ping the LDAP server without a problem."
-                            } elseif($ping_loss -eq "100") {
-                                Write-Error "* vCenter was unable to ping LDAP server."
+                            if ($ping_loss -eq '0') {
+                                Write-Host '* vCenter was able to ping the LDAP server without a problem.'
+                            }
+                            elseif ($ping_loss -eq '100') {
+                                Write-Error '* vCenter was unable to ping LDAP server.'
 
                                 # Okay, this is bad. vCenter can't contact the LDAP server with TCP
                                 # nor ping, so let's do a traceroute for the network folks to look at:
@@ -439,33 +441,38 @@ function Debug-LDAPSIdentitySources {
                                     $Command = "traceroute $ldap_hostname"
                                     $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
                                 }
-                                catch {throw "ERROR: Unable to execute traceroute command on vCenter."}
-                                Write-Host "* vCenter-to-LDAP Traceroute test returned:"
-                                Write-Host "$($SSHRes.Output | out-string)"
-                            } else {
-                                Write-Warning "* Partial packet loss pinging LDAP server."
+                                catch { throw 'ERROR: Unable to execute traceroute command on vCenter.' }
+                                Write-Host '* vCenter-to-LDAP Traceroute test returned:'
+                                Write-Host "$($SSHRes.Output | Out-String)"
                             }
-                        } else {
-                            Write-Error "* Unable to interpret ping results."
+                            else {
+                                Write-Warning '* Partial packet loss pinging LDAP server.'
+                            }
                         }
-                    } elseif($SSHRes.ExitStatus -eq 0) {
-                        Write-Host "* vCenter-to-LDAP TCP test successful. Port is open."
+                        else {
+                            Write-Error '* Unable to interpret ping results.'
+                        }
+                    }
+                    elseif ($SSHRes.ExitStatus -eq 0) {
+                        Write-Host '* vCenter-to-LDAP TCP test successful. Port is open.'
 
-                        if($ldap_protocol -eq "ldaps") {
-                            Write-Host "* Attempting SSL Connect test."
+                        if ($ldap_protocol -eq 'ldaps') {
+                            Write-Host '* Attempting SSL Connect test.'
                             # Netcat says the TCP port is open, so let's attempt an SSL connection:
                             try {
                                 $Command = "openssl s_client -connect $($ldap_hostname):$($ldap_port) -showcerts < /dev/null"
                                 $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
                             }
-                            catch {throw "ERROR: Unable to execute openssl command on vCenter."}
-                            Write-Host "* SSL connect test returned:"
-                            Write-Host "$($SSHRes.Output | out-string)"
+                            catch { throw 'ERROR: Unable to execute openssl command on vCenter.' }
+                            Write-Host '* SSL connect test returned:'
+                            Write-Host "$($SSHRes.Output | Out-String)"
                         }
-                    } else {
+                    }
+                    else {
                         Write-Error "* vCenter-to-LDAP TCP test failed with result code $($SSHRes.ExitStatus)."
                     }
-                } catch {
+                }
+                catch {
                     Write-Error "URL $url does not look like an LDAP URL. $_"
                 }
             }
@@ -565,7 +572,7 @@ function New-LDAPSIdentitySource {
         $BaseDNGroups,
 
         [Parameter(Mandatory = $true,
-            HelpMessage = "Credential for the LDAP server")]
+            HelpMessage = 'Credential for the LDAP server')]
         [ValidateNotNull()]
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
@@ -586,18 +593,18 @@ function New-LDAPSIdentitySource {
 
     $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
     if ($null -ne $ExternalIdentitySources) {
-        Write-Host "Checking to see if identity source already exists..."
+        Write-Host 'Checking to see if identity source already exists...'
         if ($DomainName.trim() -eq $($ExternalIdentitySources.Name.trim())) {
             Write-Error $($ExternalIdentitySources | Format-List | Out-String) -ErrorAction Continue
             Write-Error "Already have an external identity source with the same name: $($ExternalIdentitySources.Name). If only trying to add a group to this Identity Source, use Add-GroupToCloudAdmins" -ErrorAction Stop
         }
         else {
             Write-Information "$($ExternalIdentitySources | Format-List | Out-String)"
-            Write-Information "An identity source already exists, but not for this domain. Continuing to add this one..."
+            Write-Information 'An identity source already exists, but not for this domain. Continuing to add this one...'
         }
     }
     else {
-        Write-Host "No existing external identity sources found."
+        Write-Host 'No existing external identity sources found.'
     }
 
     $Password = $Credential.GetNetworkCredential().Password
@@ -615,7 +622,7 @@ function New-LDAPSIdentitySource {
             $Command = 'nslookup ' + $ResultUrl.Host + ' -type=soa'
             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
             if ($SSHRes.ExitStatus -ne 0) { throw "$($SSHRes.Output)" }
-            $IPAddress = $SSHRes.Output | Select-String "Address:" | Where-Object { $_ -notmatch "#" } | ForEach-Object { $_.ToString().Split()[1] } | Select-Object -First 1
+            $IPAddress = $SSHRes.Output | Select-String 'Address:' | Where-Object { $_ -notmatch '#' } | ForEach-Object { $_.ToString().Split()[1] } | Select-Object -First 1
             if (-Not ($IPAddress -as [ipaddress])) { throw "The FQDN $($ResultUrl.Host) failed to resolved to an IP address or incorrect IP format. Make sure DNS is configured correctly." }
         }
         catch {
@@ -630,8 +637,8 @@ function New-LDAPSIdentitySource {
         }
         catch {
             Write-Warning "The FQDN $($ResultUrl.Host) failed to do a reverse DNS lookup. $_"
-	    Write-Warning "For reverse lookup to work, DEFAULT zone in NSX-T DNS forwarder must be set to query a DNS server that can resolve reverse DNS lookup of $($ResultUrl.Host)"
-            Write-Warning "Reverse lookup may not be required for LDAPS configuration."
+            Write-Warning "For reverse lookup to work, DEFAULT zone in NSX-T DNS forwarder must be set to query a DNS server that can resolve reverse DNS lookup of $($ResultUrl.Host)"
+            Write-Warning 'Reverse lookup may not be required for LDAPS configuration.'
         }
         # check whether a specific port (or range of ports) on a target ip address is open or closed
         try {
@@ -659,7 +666,7 @@ function New-LDAPSIdentitySource {
         }
         catch {
             Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
-            throw "File to certificate conversion failed. See error message for more details"
+            throw 'File to certificate conversion failed. See error message for more details'
         }
     }
     # check if the certicates expire or not
@@ -667,26 +674,27 @@ function New-LDAPSIdentitySource {
         $currentDate = Get-Date
         Write-Host "Verifying certificate: $($cert.Subject)"
         if (($cert.NotBefore -lt $currentDate) -and ($cert.NotAfter -gt $currentDate)) {
-            Write-Host "The certificate is current."
-        } else {
+            Write-Host 'The certificate is current.'
+        }
+        else {
             Write-Error "The certificate is not current. It's only valid between $($cert.NotBefore) and $($cert.NotAfter)." -ErrorAction Stop
         }
     }
 
-    Write-Host "Adding the LDAPS Identity Source..."
+    Write-Host 'Adding the LDAPS Identity Source...'
     try {
         Add-LDAPIdentitySource `
-        -Name $Name `
-        -DomainName $DomainName `
-        -DomainAlias $DomainAlias `
-        -PrimaryUrl $PrimaryUrl `
-        -SecondaryUrl $SecondaryUrl `
-        -BaseDNUsers $BaseDNUsers `
-        -BaseDNGroups $BaseDNGroups `
-        -Username $Credential.UserName `
-        -Password $Password `
-        -ServerType 'ActiveDirectory' `
-        -Certificates $Certificates -ErrorAction Stop
+            -Name $Name `
+            -DomainName $DomainName `
+            -DomainAlias $DomainAlias `
+            -PrimaryUrl $PrimaryUrl `
+            -SecondaryUrl $SecondaryUrl `
+            -BaseDNUsers $BaseDNUsers `
+            -BaseDNGroups $BaseDNGroups `
+            -Username $Credential.UserName `
+            -Password $Password `
+            -ServerType 'ActiveDirectory' `
+            -Certificates $Certificates -ErrorAction Stop
     }
     catch {
         Write-Error "VCenter wasn't able to add this identity source: $_" -ErrorAction Stop
@@ -744,7 +752,7 @@ function Update-IdentitySourceCertificates {
                     Write-Host "* The Primary URL is  $($IdentitySource.PrimaryUrl)."
                 }
                 else {
-                    Write-Error "Internal Error: The primary url of identity source is null." -ErrorAction Stop
+                    Write-Error 'Internal Error: The primary url of identity source is null.' -ErrorAction Stop
                 }
 
                 if ($null -ne $IdentitySource.FailoverUrl) {
@@ -760,10 +768,10 @@ function Update-IdentitySourceCertificates {
                 }
                 catch {
                     Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
-                    throw "File to certificate conversion failed. See error message for more details"
+                    throw 'File to certificate conversion failed. See error message for more details'
                 }
             }
-            Write-Host "Updating the LDAPS Identity Source..."
+            Write-Host 'Updating the LDAPS Identity Source...'
             Set-LDAPIdentitySource -IdentitySource $IdentitySource -Certificates $Certificates -ErrorAction Stop
             $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
             $ExternalIdentitySources | Format-List | Out-String
@@ -773,7 +781,7 @@ function Update-IdentitySourceCertificates {
         }
     }
     else {
-        Write-Host "No existing external identity sources found."
+        Write-Host 'No existing external identity sources found.'
     }
 }
 
@@ -799,7 +807,7 @@ function Update-IdentitySourceCredential {
         $DomainName,
 
         [Parameter(Mandatory = $true,
-            HelpMessage = "Credential for the LDAP server")]
+            HelpMessage = 'Credential for the LDAP server')]
         [ValidateNotNull()]
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
@@ -810,7 +818,7 @@ function Update-IdentitySourceCredential {
     if ($null -ne $ExternalIdentitySources) {
         $IdentitySource = $ExternalIdentitySources | Where-Object { $_.Name -eq $DomainName }
         if ($null -ne $IdentitySource) {
-            Write-Host "Updating the LDAP Identity Source..."
+            Write-Host 'Updating the LDAP Identity Source...'
             Set-LDAPIdentitySource -IdentitySource $IdentitySource -Credential $Credential -ErrorAction Stop
             $ExternalIdentitySources = Get-IdentitySource -External -ErrorAction Continue
             $ExternalIdentitySources | Format-List | Out-String
@@ -820,7 +828,7 @@ function Update-IdentitySourceCredential {
         }
     }
     else {
-        throw "No existing external identity sources found."
+        throw 'No existing external identity sources found.'
     }
 }
 
@@ -834,11 +842,11 @@ function Get-ExternalIdentitySources {
 
     $ExternalSource = Get-IdentitySource -External
     if ($null -eq $ExternalSource) {
-        Write-Output "No external identity sources found."
+        Write-Output 'No external identity sources found.'
         return
     }
     else {
-        Write-Output "LDAPs Certificate(s) valid until the [Not After] parameter"
+        Write-Output 'LDAPs Certificate(s) valid until the [Not After] parameter'
         $ExternalSource | Format-List | Out-String
     }
 }
@@ -861,7 +869,7 @@ function Remove-ExternalIdentitySources {
 
     $ExternalSource = Get-IdentitySource -External
     if ($null -eq $ExternalSource) {
-        Write-Output "No external identity sources found to remove. Nothing done"
+        Write-Output 'No external identity sources found to remove. Nothing done'
         return
     }
     else {
@@ -925,12 +933,12 @@ function Add-GroupToCloudAdmins {
     }
     catch {
         Write-Error $PSItem.Exception.Message -ErrorAction Continue
-        Write-Error "Unable to get external identity source" -ErrorAction Stop
+        Write-Error 'Unable to get external identity source' -ErrorAction Stop
     }
 
     # Searching the external identities for the domain
     if ($null -eq $ExternalSources -or 0 -eq $ExternalSources.count) {
-        Write-Error "No external identity source found. Please run New-LDAPSIdentitySource first" -ErrorAction Stop
+        Write-Error 'No external identity source found. Please run New-LDAPSIdentitySource first' -ErrorAction Stop
     }
     elseif ($ExternalSources.count -eq 1) {
         if ($PSBoundParameters.ContainsKey('Domain')) {
@@ -1007,7 +1015,7 @@ function Add-GroupToCloudAdmins {
 
     $CloudAdmins = Get-SsoGroup -Name 'CloudAdmins' -Domain 'vsphere.local'
     if ($null -eq $CloudAdmins) {
-        Write-Error "Internal Error fetching CloudAdmins group. Contact support" -ErrorAction Stop
+        Write-Error 'Internal Error fetching CloudAdmins group. Contact support' -ErrorAction Stop
     }
 
     $GroupToAddTuple = [System.Tuple]::Create("$($GroupToAdd.Name)", "$($GroupToAdd.Domain)")
@@ -1073,12 +1081,12 @@ function Remove-GroupFromCloudAdmins {
     }
     catch {
         Write-Error $PSItem.Exception.Message -ErrorAction Continue
-        Write-Error "Unable to get external identity source" -ErrorAction Stop
+        Write-Error 'Unable to get external identity source' -ErrorAction Stop
     }
 
     # Searching the external identities for the domain
     if ($null -eq $ExternalSources -or 0 -eq $ExternalSources.count) {
-        Write-Error "No external identity source found. Please run New-LDAPSIdentitySource first" -ErrorAction Stop
+        Write-Error 'No external identity source found. Please run New-LDAPSIdentitySource first' -ErrorAction Stop
     }
     elseif ($ExternalSources.count -eq 1) {
         if ($PSBoundParameters.ContainsKey('Domain')) {
@@ -1155,7 +1163,7 @@ function Remove-GroupFromCloudAdmins {
 
     $CloudAdmins = Get-SsoGroup -Name 'CloudAdmins' -Domain 'vsphere.local'
     if ($null -eq $CloudAdmins) {
-        Write-Error "Internal Error fetching CloudAdmins group. Contact support" -ErrorAction Stop
+        Write-Error 'Internal Error fetching CloudAdmins group. Contact support' -ErrorAction Stop
     }
 
     try {
@@ -1186,12 +1194,12 @@ function Get-CloudAdminGroups {
 
     $CloudAdmins = Get-SsoGroup -Name 'CloudAdmins' -Domain 'vsphere.local'
     if ($null -eq $CloudAdmins) {
-        Write-Error "Internal Error fetching CloudAdmins group. Contact support" -ErrorAction Stop
+        Write-Error 'Internal Error fetching CloudAdmins group. Contact support' -ErrorAction Stop
     }
 
     $CloudAdminMembers = Get-SsoGroup -Group $CloudAdmins -ErrorAction Stop
     if ($null -eq $CloudAdminMembers) {
-        Write-Output "No groups yet added to CloudAdmin."
+        Write-Output 'No groups yet added to CloudAdmin.'
     }
     else {
         $CloudAdminMembers | Format-List | Out-String
@@ -1208,17 +1216,17 @@ function Get-StoragePolicies {
 
     $StoragePolicies
     try {
-        $StoragePolicies = Get-SpbmStoragePolicy -Namespace "VSAN" -ErrorAction Stop | Select-Object Name, AnyOfRuleSets
+        $StoragePolicies = Get-SpbmStoragePolicy -Namespace 'VSAN' -ErrorAction Stop | Select-Object Name, AnyOfRuleSets
     }
     catch {
         Write-Error $PSItem.Exception.Message -ErrorAction Continue
-        Write-Error "Unable to get storage policies" -ErrorAction Stop
+        Write-Error 'Unable to get storage policies' -ErrorAction Stop
     }
     if ($null -eq $StoragePolicies) {
-        Write-Host "Could not find any storage policies."
+        Write-Host 'Could not find any storage policies.'
     }
     else {
-        Write-Output "Available Storage Policies:"
+        Write-Output 'Available Storage Policies:'
         $StoragePolicies | Format-List | Out-String
     }
 }
@@ -1369,7 +1377,7 @@ function Set-ClusterDefaultStoragePolicy {
             Write-Error "Was not able to set the Storage policy on $ClusterList. The Cluster does not appear to have VM Hosts. Please add VM Hosts before setting storage policy" -ErrorAction Stop
         }
         else {
-            Write-Error "Setting the Storage Policy on this Cluster is not supported." -ErrorAction Stop
+            Write-Error 'Setting the Storage Policy on this Cluster is not supported.' -ErrorAction Stop
         }
     }
     elseif ($ClusterDatastores.count -eq 1) {
@@ -1430,7 +1438,11 @@ function Set-ToolsRepo {
     $archive_path = '/vmware/apps/vmtools/windows64/'
 
     # Make new directory to store and expand the zip file
-    $tmp_dir = New-Item -Path "./newtools" -ItemType Directory
+    $tmp_dir = New-Item -Path './newtools' -ItemType Directory
+    if ( $null -eq $tmp_dir ) {
+        Write-Error -Message 'Unable to create temporary directory for tools files'
+        throw 'Unable to create temporary directory for tools files'
+    }
     $tools_file = "$tmp_dir/tools.zip"
     # Download the new tools files
     Invoke-WebRequest -Uri $tools_url -OutFile $tools_file -ErrorAction Stop
@@ -1465,6 +1477,10 @@ function Set-ToolsRepo {
 
         # Create the PS drive
         New-PSDrive -Location $datastore -Name DS -PSProvider VimDatastore -Root '\' | Out-Null
+        if (-not (Test-Path "DS:/")) {
+            Write-Error "Failed to create DS: drive for datastore $ds_name"
+            throw "DS: drive creation failed"
+        }
 
         # Does repo folder exist?
         $Dsbrowser = Get-View -Id $Datastore.Extensiondata.Browser
@@ -1487,15 +1503,14 @@ function Set-ToolsRepo {
         }
 
         # See what Tools versions are already present
-        $existing_dirs = Get-ChildItem "DS:/$new_folder/$archive_path"
+        $existing_dirs = Get-ChildItem "DS:/$new_folder/$archive_path/vmtools-*" -Attributes D
         $do_not_copy = $false
+        
         foreach ($existing_dir in $existing_dirs) {
-            if ( $existing_dir.GetType() -match 'folder') {
-                $ver = $existing_dir.Name -replace 'vmtools-', ''
-                $tools_older_version = if ($ver -ge $tools_short_version) { $ver } else { $null }
-                if ($null -ne $tools_older_version) {
-                    $do_not_copy = $true
-                }
+            $ver = $existing_dir.Name -replace 'vmtools-', ''
+            if ($ver -ge $tools_short_version) {
+                $do_not_copy = $true
+                break
             }
         }
 
@@ -1505,7 +1520,7 @@ function Set-ToolsRepo {
         }
         else {
             Write-Information "Copying $tools_version to $ds_name"
-            Copy-DatastoreItem -Item "./${tools_version}/*" "DS:/$new_folder" -Recurse -Force
+            Copy-DatastoreItem -Item "$tmp_dir/${tools_version}/*" "DS:/$new_folder" -Recurse -Force
         }
 
         # Reset the do_not_copy flag
@@ -1551,15 +1566,15 @@ function Set-vSANCompressDedupe {
         [Parameter(Mandatory = $true)]
         [String]$ClustersToChange,
         [Parameter(Mandatory = $false,
-            HelpMessage = "Enable compression and deduplication.")]
+            HelpMessage = 'Enable compression and deduplication.')]
         [bool]$Deduplication,
         [Parameter(Mandatory = $false,
-            HelpMessage = "Enable compression only.")]
+            HelpMessage = 'Enable compression only.')]
         [bool]$Compression
     )
 
     # $cluster is an array of cluster names or "*""
-    foreach ($cluster_each in ($ClustersToChange.split(",", [System.StringSplitOptions]::RemoveEmptyEntries)).Trim()) {
+    foreach ($cluster_each in ($ClustersToChange.split(',', [System.StringSplitOptions]::RemoveEmptyEntries)).Trim()) {
         $Clusters += Get-Cluster -Name $cluster_each
     }
 
@@ -1713,17 +1728,17 @@ Function New-AVSStoragePolicy {
         [string]
         $Description,
         [Parameter(Mandatory = $false)]
-        [ValidateSet("None", "Dual", "Preferred", "Secondary", "NoneStretch")]
+        [ValidateSet('None', 'Dual', 'Preferred', 'Secondary', 'NoneStretch')]
         [string]
         $vSANSiteDisasterTolerance,
         [Parameter(Mandatory = $false)]
-        [ValidateSet("None", "R1FTT1", "R5FTT1", "R1FTT2", "R6FTT2", "R1FTT3")]
+        [ValidateSet('None', 'R1FTT1', 'R5FTT1', 'R1FTT2', 'R6FTT2', 'R1FTT3')]
         [string]
         $vSANFailuresToTolerate,
         [Parameter(Mandatory = $false)]
-        [ValidateSet("None", "PreIO", "PostIO")]
+        [ValidateSet('None', 'PreIO', 'PostIO')]
         [string]
-        $VMEncryption = "None",
+        $VMEncryption = 'None',
         [Parameter(Mandatory = $false)]
         [ValidateRange(0, 100)]
         [int]
@@ -1777,7 +1792,7 @@ Function New-AVSStoragePolicy {
 
         #Check for existing policy
         $ExistingPolicy = Get-AVSStoragePolicy -Name $Name
-        Write-Information ("Existing Policy: " + $ExistingPolicy.name)
+        Write-Information ('Existing Policy: ' + $ExistingPolicy.name)
         if ($ExistingPolicy -and !$Overwrite) {
             Write-Error "Storage Policy $Name already exists.  Set -Overwrite to $true to overwrite existing policy."
             break
@@ -1789,27 +1804,27 @@ Function New-AVSStoragePolicy {
         Write-Information "Overwrite value set to: $Overwrite"
         Switch ($Overwrite) {
             $true {
-                $pbmprofileresourcetype = new-object vmware.spbm.views.PbmProfileResourceType
-                $pbmprofileresourcetype.ResourceType = "STORAGE" # No other known valid value.
-                $profilespec = new-object VMware.Spbm.Views.PbmCapabilityProfileUpdateSpec
+                $pbmprofileresourcetype = New-Object vmware.spbm.views.PbmProfileResourceType
+                $pbmprofileresourcetype.ResourceType = 'STORAGE' # No other known valid value.
+                $profilespec = New-Object VMware.Spbm.Views.PbmCapabilityProfileUpdateSpec
                 $profilespec.Name = $Name
-                $profilespec.Constraints = new-object vmware.spbm.views.PbmCapabilitySubProfileConstraints
+                $profilespec.Constraints = New-Object vmware.spbm.views.PbmCapabilitySubProfileConstraints
                 If (![string]::IsNullOrEmpty($Description)) { $profilespec.Description = $Description }
             }
             $false {
-                $pbmprofileresourcetype = new-object vmware.spbm.views.PbmProfileResourceType
-                $pbmprofileresourcetype.ResourceType = "STORAGE" # No other known valid value.
-                $profilespec = new-object VMware.Spbm.Views.PbmCapabilityProfileCreateSpec
+                $pbmprofileresourcetype = New-Object vmware.spbm.views.PbmProfileResourceType
+                $pbmprofileresourcetype.ResourceType = 'STORAGE' # No other known valid value.
+                $profilespec = New-Object VMware.Spbm.Views.PbmCapabilityProfileCreateSpec
                 $profilespec.ResourceType = $pbmprofileresourcetype
                 $profilespec.Name = $Name
-                $profilespec.Constraints = new-object vmware.spbm.views.PbmCapabilitySubProfileConstraints
+                $profilespec.Constraints = New-Object vmware.spbm.views.PbmCapabilitySubProfileConstraints
                 If (![string]::IsNullOrEmpty($Description)) { $profilespec.Description = $Description }
-                $profilespec.Category = "REQUIREMENT" #Valid options are REQUIREMENT = vSAN Storage Policies or RESOURCE = ?? or DATA_SERVICE_POLICY = Common Storage Policies such encryption and storage IO.
+                $profilespec.Category = 'REQUIREMENT' #Valid options are REQUIREMENT = vSAN Storage Policies or RESOURCE = ?? or DATA_SERVICE_POLICY = Common Storage Policies such encryption and storage IO.
                 Write-Information "Profile Name set to: $($profilespec.Name)"
                 Write-Information "Profile Category set to: $($profilespec.Category)"
             }
         }
-        Write-Information "Getting SPBM Capabilities"
+        Write-Information 'Getting SPBM Capabilities'
         $SPBMCapabilities = Get-AVSSPBMCapabilities
         Foreach ($Capability in $SPBMCapabilities) {
             Write-Information "SPBM Capability: NameSpace: $($Capability.NameSpace), SubCategory: $($Capability.SubCategory), CapabilityMetaData Count: $($Capability.CapabilityMetadata.Count)"
@@ -1818,130 +1833,130 @@ Function New-AVSStoragePolicy {
         #vSAN Site Disaster Tolerance / Stretch Cluster specific configuration
         Write-Information "vSANSiteDisasterTolerance value set to: $vSANSiteDisasterTolerance"
         Switch ($vSANSiteDisasterTolerance) {
-            "None" {
+            'None' {
                 #Left blank on purpose.  No additional configuration required.
             }
-            "Dual" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+            'Dual' {
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "subFailuresToTolerate"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'subFailuresToTolerate'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 1
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                    Write-Information 'Added VSAN Subprofile to ProfileSpec'
+                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
                 }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
 
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "locality"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'locality'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "None"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                $Subprofile.Constraint[0].PropertyInstance[0].value = 'None'
+                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
             }
-            "Preferred" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+            'Preferred' {
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "subFailuresToTolerate"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'subFailuresToTolerate'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 1
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                    Write-Information 'Added VSAN Subprofile to ProfileSpec'
+                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
                 }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
 
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "locality"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'locality'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "Preferred Fault Domain"
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                $Subprofile.Constraint[0].PropertyInstance[0].value = 'Preferred Fault Domain'
+                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                    Write-Information 'Added VSAN Subprofile to ProfileSpec'
+                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
                 }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-                $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
+                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
+                $Description = $Description + ' - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur.'
                 Write-Warning "$Name policy setting unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
-            "Secondary" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+            'Secondary' {
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "subFailuresToTolerate"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'subFailuresToTolerate'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 1
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                    Write-Information 'Added VSAN Subprofile to ProfileSpec'
+                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
                 }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
 
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "locality"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'locality'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "Secondary Fault Domain"
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
+                $Subprofile.Constraint[0].PropertyInstance[0].value = 'Secondary Fault Domain'
+                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                    Write-Information 'Added VSAN Subprofile to ProfileSpec'
                 }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-                $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
+                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
+                $Description = $Description + ' - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur.'
                 Write-Warning "$Name policy setting unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
-            "NoneStretch" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+            'NoneStretch' {
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "subFailuresToTolerate"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'subFailuresToTolerate'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 1
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
+                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                    Write-Information 'Added VSAN Subprofile to ProfileSpec'
                 }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
 
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "locality"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'locality'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "None"
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                $Subprofile.Constraint[0].PropertyInstance[0].value = 'None'
+                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                    Write-Information 'Added VSAN Subprofile to ProfileSpec'
+                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
                 }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-                $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
+                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
+                $Description = $Description + ' - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur.'
                 Write-Warning "$Name policy setting unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
             Default {}
@@ -1949,179 +1964,179 @@ Function New-AVSStoragePolicy {
         #vSANFailurestoTolerate / FTT
         Write-Information "vSANFailurestoTolerate value set to: $vSANFailuresToTolerate"
         Switch ($vSANFailuresToTolerate) {
-            "None" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+            'None' {
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "hostFailuresToTolerate"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'hostFailuresToTolerate'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 0
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                    Write-Information 'Added VSAN Subprofile to ProfileSpec'
+                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
                 }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-                $Description = $Description + " - FTT 0 based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur."
+                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
+                $Description = $Description + ' - FTT 0 based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur.'
                 Write-Warning "$Name policy setting $vSANFailurestoTolerate based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
             #TODO: Support this?
-            "No Data redundancy with host affinity" {  }
-            "R1FTT1" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+            'No Data redundancy with host affinity' {  }
+            'R1FTT1' {
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "hostFailuresToTolerate"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'hostFailuresToTolerate'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 1
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                    Write-Information 'Added VSAN Subprofile to ProfileSpec'
+                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
                 }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
 
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "replicaPreference"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'replicaPreference'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "RAID-1 (Mirroring) - Performance"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                $Subprofile.Constraint[0].PropertyInstance[0].value = 'RAID-1 (Mirroring) - Performance'
+                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
             }
-            "R5FTT1" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+            'R5FTT1' {
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "hostFailuresToTolerate"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'hostFailuresToTolerate'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 1
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                    Write-Information 'Added VSAN Subprofile to ProfileSpec'
+                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
                 }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
 
                 Write-Information "Profilespec: $($profilespec | Out-String)"
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "replicaPreference"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'replicaPreference'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "RAID-5/6 (Erasure Coding) - Capacity"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                $Subprofile.Constraint[0].PropertyInstance[0].value = 'RAID-5/6 (Erasure Coding) - Capacity'
+                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
 
                 Write-Information "Profilespec: $($profilespec | Out-String)"
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "storageType"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'storageType'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "Allflash"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                $Subprofile.Constraint[0].PropertyInstance[0].value = 'Allflash'
+                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
                 Write-Information "All Flash added to ProfileSpec as required for $vsanFailurestoTolerate"
             }
-            "R1FTT2" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+            'R1FTT2' {
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "hostFailuresToTolerate"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'hostFailuresToTolerate'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 2
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                    Write-Information 'Added VSAN Subprofile to ProfileSpec'
+                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
                 }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
 
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "replicaPreference"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'replicaPreference'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "RAID-1 (Mirroring) - Performance"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                $Subprofile.Constraint[0].PropertyInstance[0].value = 'RAID-1 (Mirroring) - Performance'
+                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
             }
-            "R6FTT2" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+            'R6FTT2' {
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "hostFailuresToTolerate"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'hostFailuresToTolerate'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 2
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                    Write-Information 'Added VSAN Subprofile to ProfileSpec'
+                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
                 }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
 
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "replicaPreference"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'replicaPreference'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "RAID-5/6 (Erasure Coding) - Capacity"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                $Subprofile.Constraint[0].PropertyInstance[0].value = 'RAID-5/6 (Erasure Coding) - Capacity'
+                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
 
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "storageType"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'storageType'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "Allflash"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                $Subprofile.Constraint[0].PropertyInstance[0].value = 'Allflash'
+                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
                 Write-Information "All Flash added to ProfileSpec as required for $vsanFailurestoTolerate"
             }
-            "R1FTT3" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+            'R1FTT3' {
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "hostFailuresToTolerate"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'hostFailuresToTolerate'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
                 $Subprofile.Constraint[0].PropertyInstance[0].value = 3
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                    Write-Information 'Added VSAN Subprofile to ProfileSpec'
+                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
                 }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
 
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "replicaPreference"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'replicaPreference'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "RAID-1 (Mirroring) - Performance"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                $Subprofile.Constraint[0].PropertyInstance[0].value = 'RAID-1 (Mirroring) - Performance'
+                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
             }
             Default {}
         }
@@ -2129,21 +2144,21 @@ Function New-AVSStoragePolicy {
         Write-Information "vSANChecksumDisabled value is: $vSANChecksumDisabled"
         Switch ($vSANChecksumDisabled) {
             $true {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "checksumDisabled"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'checksumDisabled'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
                 $Subprofile.Constraint[0].PropertyInstance[0].value = $true
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
+                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                    Write-Information 'Added VSAN Subprofile to ProfileSpec'
                 }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-                $Description = $Description + " - Disabling vSAN Checksum may invalidate Microsoft SLA terms and data loss/corruption may occur."
-                Write-Warning "Disabling vSAN Checksum may invalidate Microsoft SLA terms and data loss/corruption may occur."
+                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
+                $Description = $Description + ' - Disabling vSAN Checksum may invalidate Microsoft SLA terms and data loss/corruption may occur.'
+                Write-Warning 'Disabling vSAN Checksum may invalidate Microsoft SLA terms and data loss/corruption may occur.'
             }
             # Empty profile spec defaults to setting to false in overwrite case
             $false {}
@@ -2152,21 +2167,21 @@ Function New-AVSStoragePolicy {
         Write-Information "vSANForceProvisioning Value is: $vSANForceProvisioning"
         Switch ($vSANForceProvisioning) {
             $true {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "forceProvisioning"
+                $Subprofile.Id.Namespace = 'VSAN'
+                $Subprofile.Id.Id = 'forceProvisioning'
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
                 $Subprofile.Constraint[0].PropertyInstance[0].value = $true
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                    Write-Information 'Added VSAN Subprofile to ProfileSpec'
+                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
                 }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-                $Description = $Description + " - Force Provisioned objects are unprotected by Microsoft SLA and data loss/corruption may occur."
+                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
+                $Description = $Description + ' - Force Provisioned objects are unprotected by Microsoft SLA and data loss/corruption may occur.'
                 Write-Warning "$Name policy setting Force Provisioned objects are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
             # Empty profile spec defaults to setting to false in overwrite case
@@ -2176,147 +2191,147 @@ Function New-AVSStoragePolicy {
         #vSANDiskStripesPerObject
         Write-Information "vSANDiskStripesPerObject value is: $vSANDiskStripesPerObject"
         If ($vSANDiskStripesPerObject -gt 0) {
-            Write-Information "Creating vSAN Disk Stripes Subprofile"
-            $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+            Write-Information 'Creating vSAN Disk Stripes Subprofile'
+            $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
             $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-            $Subprofile.Id.Namespace = "VSAN"
-            $Subprofile.Id.Id = "stripeWidth"
+            $Subprofile.Id.Namespace = 'VSAN'
+            $Subprofile.Id.Id = 'stripeWidth'
             $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
             $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
             $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
             $Subprofile.Constraint[0].PropertyInstance[0].value = $vSANDiskStripesPerObject
-            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                Write-Information "Added VSAN Subprofile to ProfileSpec"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                Write-Information 'Added VSAN Subprofile to ProfileSpec'
+                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
             }
-            Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+            Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
         }
 
         #VSANIOLimit
         Write-Information "vSANIOLimit set to: $vSANIOLimit"
         If ($vSANIOLimit -gt 0) {
-            Write-Information "Building vSAN IOLimit Subprofile"
-            $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+            Write-Information 'Building vSAN IOLimit Subprofile'
+            $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
             $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-            $Subprofile.Id.Namespace = "VSAN"
-            $Subprofile.Id.Id = "iopsLimit"
+            $Subprofile.Id.Namespace = 'VSAN'
+            $Subprofile.Id.Id = 'iopsLimit'
             $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
             $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
             $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
             $Subprofile.Constraint[0].PropertyInstance[0].value = $vSANIOLimit
-            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                Write-Information "Added VSAN Subprofile to ProfileSpec"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                Write-Information 'Added VSAN Subprofile to ProfileSpec'
+                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
             }
-            Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+            Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
         }
 
         #VSANCacheReservation
         Write-Information "vSANCacheReservation set to: $vSANCacheReservation"
         If ($vSANCacheReservation -gt 0) {
-            Write-Information "Creating vSANCacheReservation Subprofile"
-            $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+            Write-Information 'Creating vSANCacheReservation Subprofile'
+            $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
             $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-            $Subprofile.Id.Namespace = "VSAN"
-            $Subprofile.Id.Id = "cacheReservation"
+            $Subprofile.Id.Namespace = 'VSAN'
+            $Subprofile.Id.Id = 'cacheReservation'
             $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
             $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
             $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
             $Subprofile.Constraint[0].PropertyInstance[0].value = ([int]$vSANCacheReservation * 10000)
-            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                Write-Information "Added VSAN Subprofile to ProfileSpec"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                Write-Information 'Added VSAN Subprofile to ProfileSpec'
+                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
             }
-            Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+            Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
         }
 
         #VSANObjectReservation
         Write-Information "vSANObjectReservation set to: $vSANObjectSpaceReservation"
         If ($vSANObjectSpaceReservation -gt 0) {
-            Write-Information "Creating vSANObjectReservation Subprofile"
-            $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+            Write-Information 'Creating vSANObjectReservation Subprofile'
+            $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
             $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-            $Subprofile.Id.Namespace = "VSAN"
-            $Subprofile.Id.Id = "proportionalCapacity"
+            $Subprofile.Id.Namespace = 'VSAN'
+            $Subprofile.Id.Id = 'proportionalCapacity'
             $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
             $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
             $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
             $Subprofile.Constraint[0].PropertyInstance[0].value = $vSANObjectSpaceReservation
-            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                Write-Information "Added VSAN Subprofile to ProfileSpec"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).count -eq 0) {
+                $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'VSAN' }
+                Write-Information 'Added VSAN Subprofile to ProfileSpec'
+                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile
             }
-            Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+            Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' }).Capability += $subprofile }
         }
 
         # Tag Support for Storage Policies
-        Write-Information ("Tags recorded as: " + $Tags)
-        $TagData = $SPBMCapabilities | Where-Object { $_.subcategory -eq "Tag" }
+        Write-Information ('Tags recorded as: ' + $Tags)
+        $TagData = $SPBMCapabilities | Where-Object { $_.subcategory -eq 'Tag' }
         If (![string]::IsNullOrEmpty($Tags)) {
             # Needed as run command does not support string array types, cannot simply overwrite existing variable for some reason.
             $Array = Convert-StringToArray -String $Tags
             Foreach ($Tag in $Array) {
-                Write-Information ("Tag: " + $Tag)
+                Write-Information ('Tag: ' + $Tag)
                 $Tag = Limit-WildcardsandCodeInjectionCharacters -String $Tag
                 $ObjectTag = Get-Tag -Name $Tag
                 If (![string]::IsNullOrEmpty($ObjectTag)) {
                     If ($ObjectTag.count -gt 1) {
                         Write-Information "Multiple Tags found with the name $Tag. Filtering by Datastore category."
                         Foreach ($Entry in $ObjectTag) {
-                            Write-Information ("Tag Name: " + $Entry.Name)
-                            If ($Entry.Category.EntityType -eq "Datastore") {
+                            Write-Information ('Tag Name: ' + $Entry.Name)
+                            If ($Entry.Category.EntityType -eq 'Datastore') {
                                 $CatData = $TagData.CapabilityMetadata | Where-Object { $_.summary.Label -eq $Entry.Category.Name }
-                                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                                 $Subprofile.Id = $Catdata.Id
                                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Catdata.propertymetadata.id
-                                $Subprofile.Constraint[0].PropertyInstance[0].Operator = ""
-                                $Subprofile.Constraint[0].PropertyInstance[0].value = New-object VMware.Spbm.Views.PbmCapabilityDiscreteSet
+                                $Subprofile.Constraint[0].PropertyInstance[0].Operator = ''
+                                $Subprofile.Constraint[0].PropertyInstance[0].value = New-Object VMware.Spbm.Views.PbmCapabilityDiscreteSet
                                 $Subprofile.Constraint[0].PropertyInstance[0].value.values = $Entry.Name
-                                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).count -eq 0) {
-                                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "Tag based placement" }
-                                    Write-Information "Added Tag based placement subprofile to ProfileSpec"
-                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
+                                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'Tag based placement' }).count -eq 0) {
+                                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'Tag based placement' }
+                                    Write-Information 'Added Tag based placement subprofile to ProfileSpec'
+                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'Tag based placement' }).Capability += $Subprofile
                                     Write-Information "Added $Tag to profilespec"
                                 }
                                 Else {
-                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
+                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'Tag based placement' }).Capability += $Subprofile
                                 }
 
                             }
-                            If ($Entry.Category.EntityType -ne "Datastore") {
+                            If ($Entry.Category.EntityType -ne 'Datastore') {
                                 Write-Information "Tag $($Entry.Name) of category $($Entry.Category.Name) is not a Datastore Tag. Skipping."
                             }
                         }
                     }
                     If ($ObjectTag.count -eq 1) {
-                        If ($ObjectTag.Category.EntityType -ne "Datastore") {
+                        If ($ObjectTag.Category.EntityType -ne 'Datastore') {
                             Write-Warning "Tag $Tag is not a Datastore Tag. Skipping."
                         }
                         Else {
                             $Entry = $ObjectTag
                             $CatData = $TagData.CapabilityMetadata | Where-Object { $_.summary.Label -eq $Entry.Category.Name }
-                            $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                            $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                             $Subprofile.Id = $Catdata.Id
                             $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                             $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                             $Subprofile.Constraint[0].PropertyInstance[0].id = $Catdata.propertymetadata.id
-                            $Subprofile.Constraint[0].PropertyInstance[0].Operator = ""
-                            $Subprofile.Constraint[0].PropertyInstance[0].value = New-object VMware.Spbm.Views.PbmCapabilityDiscreteSet
+                            $Subprofile.Constraint[0].PropertyInstance[0].Operator = ''
+                            $Subprofile.Constraint[0].PropertyInstance[0].value = New-Object VMware.Spbm.Views.PbmCapabilityDiscreteSet
                             $Subprofile.Constraint[0].PropertyInstance[0].value.values = $Entry.Name
-                            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).count -eq 0) {
-                                $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "Tag based placement" }
-                                Write-Information "Added Tag based placement subprofile to ProfileSpec"
-                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
+                            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'Tag based placement' }).count -eq 0) {
+                                $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'Tag based placement' }
+                                Write-Information 'Added Tag based placement subprofile to ProfileSpec'
+                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'Tag based placement' }).Capability += $Subprofile
                                 Write-Information "Added $Tag to profilespec"
                             }
                             Else {
-                                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
+                                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'Tag based placement' }).Capability += $Subprofile
                             }
                         }
 
@@ -2332,68 +2347,68 @@ Function New-AVSStoragePolicy {
         }
 
         # Not Tag Support for Storage Policies
-        Write-Information ("NotTags recorded as: " + $NotTags)
+        Write-Information ('NotTags recorded as: ' + $NotTags)
         If (![string]::IsNullOrEmpty($NotTags)) {
             # Needed as run command does not support string array types, cannot simply overwrite existing variable for some reason.
             $Array = Convert-StringToArray -String $NotTags
             Foreach ($Tag in $Array) {
-                Write-Information ("Tag: " + $Tag)
+                Write-Information ('Tag: ' + $Tag)
                 $Tag = Limit-WildcardsandCodeInjectionCharacters -String $Tag
                 $ObjectTag = Get-Tag -Name $Tag
                 If (![string]::IsNullOrEmpty($ObjectTag)) {
                     If ($ObjectTag.count -gt 1) {
                         Write-Information "Multiple Tags found with the name $Tag. Filtering by Datastore category."
                         Foreach ($Entry in $ObjectTag) {
-                            Write-Information ("Tag Name: " + $Entry.Name)
-                            If ($Entry.Category.EntityType -eq "Datastore") {
+                            Write-Information ('Tag Name: ' + $Entry.Name)
+                            If ($Entry.Category.EntityType -eq 'Datastore') {
                                 $CatData = $TagData.CapabilityMetadata | Where-Object { $_.summary.Label -eq $Entry.Category.Name }
-                                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                                 $Subprofile.Id = $Catdata.Id
                                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Catdata.propertymetadata.id
-                                $Subprofile.Constraint[0].PropertyInstance[0].Operator = "NOT"
-                                $Subprofile.Constraint[0].PropertyInstance[0].value = New-object VMware.Spbm.Views.PbmCapabilityDiscreteSet
+                                $Subprofile.Constraint[0].PropertyInstance[0].Operator = 'NOT'
+                                $Subprofile.Constraint[0].PropertyInstance[0].value = New-Object VMware.Spbm.Views.PbmCapabilityDiscreteSet
                                 $Subprofile.Constraint[0].PropertyInstance[0].value.values = $Entry.Name
-                                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).count -eq 0) {
-                                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "Tag based placement" }
-                                    Write-Information "Added Tag based placement subprofile to ProfileSpec"
-                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
+                                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'Tag based placement' }).count -eq 0) {
+                                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'Tag based placement' }
+                                    Write-Information 'Added Tag based placement subprofile to ProfileSpec'
+                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'Tag based placement' }).Capability += $Subprofile
                                     Write-Information "Added $Tag to profilespec"
                                 }
                                 Else {
-                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
+                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'Tag based placement' }).Capability += $Subprofile
                                 }
 
                             }
-                            If ($Entry.Category.EntityType -ne "Datastore") {
+                            If ($Entry.Category.EntityType -ne 'Datastore') {
                                 Write-Information "Tag $($Entry.Name) of category $($Entry.Category.Name) is not a Datastore Tag. Skipping."
                             }
                         }
                     }
                     If ($ObjectTag.count -eq 1) {
-                        if ($ObjectTag.Category.EntityType -ne "Datastore") {
+                        if ($ObjectTag.Category.EntityType -ne 'Datastore') {
                             Write-Information "Tag $Tag is not a Datastore Tag. Skipping."
                         }
                         Else {
                             $Entry = $ObjectTag
                             $CatData = $TagData.CapabilityMetadata | Where-Object { $_.summary.Label -eq $Entry.Category.Name }
-                            $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                            $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                             $Subprofile.Id = $Catdata.Id
                             $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                             $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                             $Subprofile.Constraint[0].PropertyInstance[0].id = $Catdata.propertymetadata.id
-                            $Subprofile.Constraint[0].PropertyInstance[0].Operator = "NOT"
-                            $Subprofile.Constraint[0].PropertyInstance[0].value = New-object VMware.Spbm.Views.PbmCapabilityDiscreteSet
+                            $Subprofile.Constraint[0].PropertyInstance[0].Operator = 'NOT'
+                            $Subprofile.Constraint[0].PropertyInstance[0].value = New-Object VMware.Spbm.Views.PbmCapabilityDiscreteSet
                             $Subprofile.Constraint[0].PropertyInstance[0].value.values = $Entry.Name
-                            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).count -eq 0) {
-                                $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "Tag based placement" }
-                                Write-Information "Added Tag based placement subprofile to ProfileSpec"
-                                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
+                            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'Tag based placement' }).count -eq 0) {
+                                $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = 'Tag based placement' }
+                                Write-Information 'Added Tag based placement subprofile to ProfileSpec'
+                                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'Tag based placement' }).Capability += $Subprofile
                                 Write-Information "Added $Tag to profilespec"
                             }
                             Else {
-                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
+                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq 'Tag based placement' }).Capability += $Subprofile
                             }
                         }
 
@@ -2410,23 +2425,23 @@ Function New-AVSStoragePolicy {
         #IMPORTANT - Any additional functionality should be added before the VMEncryption Parameter.  The reason is that this subprofile must be added as a capability to all subprofile types for API to accept.
         Write-Information "VMEncryption set to: $VMEncryption"
         Switch ($VMEncryption) {
-            "None" {}
-            "PreIO" {
+            'None' {}
+            'PreIO' {
                 #Check for AVS VM Encryption Policies, create if not present.
-                $IOPolicy = Get-AVSStoragePolicy -Name "AVS PRE IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
-                If (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS PRE IO Encryption" -Description "Encrypts VM before VAIO Filter" -PostIOEncryption $false }
-                Write-Information ("VMEncryption uniqueID: " + $IOPolicy.ProfileId.UniqueId)
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+                $IOPolicy = Get-AVSStoragePolicy -Name 'AVS PRE IO Encryption' -ResourceType 'DATA_SERVICE_POLICY'
+                If (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name 'AVS PRE IO Encryption' -Description 'Encrypts VM before VAIO Filter' -PostIOEncryption $false }
+                Write-Information ('VMEncryption uniqueID: ' + $IOPolicy.ProfileId.UniqueId)
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "com.vmware.storageprofile.dataservice"
+                $Subprofile.Id.Namespace = 'com.vmware.storageprofile.dataservice'
                 $Subprofile.Id.Id = $IOPolicy.ProfileId.UniqueId
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
                 $Subprofile.Constraint[0].PropertyInstance[0].value = $Subprofile.Id.Id
                 If ($profilespec.Constraints.SubProfiles.count -eq 0) {
-                    $SubprofileName = "Host based services"
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = $SubprofileName }
+                    $SubprofileName = 'Host based services'
+                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = $SubprofileName }
                     Write-Information "Added $SubprofileName to ProfileSpec"
                     Foreach ($service in $profilespec.Constraints.SubProfiles) {
                         $service.Capability += $subprofile
@@ -2440,21 +2455,21 @@ Function New-AVSStoragePolicy {
                 Write-Information "Added $($IOPolicy.Name) to profilespec"
 
             }
-            "PostIO" {
-                $IOPolicy = Get-AVSStoragePolicy -Name "AVS POST IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
-                If (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS POST IO Encryption" -Description "Encrypts VM after VAIO Filter" -PostIOEncryption $true }
-                Write-Information ("VMEncryption uniqueID: " + $IOPolicy.ProfileId.UniqueId)
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
+            'PostIO' {
+                $IOPolicy = Get-AVSStoragePolicy -Name 'AVS POST IO Encryption' -ResourceType 'DATA_SERVICE_POLICY'
+                If (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name 'AVS POST IO Encryption' -Description 'Encrypts VM after VAIO Filter' -PostIOEncryption $true }
+                Write-Information ('VMEncryption uniqueID: ' + $IOPolicy.ProfileId.UniqueId)
+                $Subprofile = New-Object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "com.vmware.storageprofile.dataservice"
+                $Subprofile.Id.Namespace = 'com.vmware.storageprofile.dataservice'
                 $Subprofile.Id.Id = $IOPolicy.profileid.UniqueId
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
                 $Subprofile.Constraint[0].PropertyInstance[0].value = $Subprofile.Id.Id
                 If ($profilespec.Constraints.SubProfiles.count -eq 0) {
-                    $SubprofileName = "Host based services"
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = $SubprofileName }
+                    $SubprofileName = 'Host based services'
+                    $profilespec.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{'Name' = $SubprofileName }
                     Write-Information "Added $SubprofileName to ProfileSpec"
                     Write-Information $profilespec.Constraints.SubProfiles[0].Name
                     Foreach ($service in $profilespec.Constraints.SubProfiles) {
@@ -2477,10 +2492,10 @@ Function New-AVSStoragePolicy {
         $profilespec.Description = $Description
         #return $profilespec #Uncomment to capture and debug profile spec.
         If ($profilespec.Constraints.SubProfiles.count -eq 0) {
-            Write-Error "At least one parameter must be defined to create a storage policy."
+            Write-Error 'At least one parameter must be defined to create a storage policy.'
             Return
         }
-        $serviceInstanceView = Get-SpbmView -Id "PbmServiceInstance-ServiceInstance"
+        $serviceInstanceView = Get-SpbmView -Id 'PbmServiceInstance-ServiceInstance'
         $spbmServiceContent = $serviceInstanceView.PbmRetrieveServiceContent()
         $spbmProfMgr = Get-SpbmView -Id $spbmServiceContent.ProfileManager
         If ($Overwrite) {
@@ -2492,9 +2507,9 @@ Function New-AVSStoragePolicy {
         Else {
             $profileuniqueID = $spbmProfMgr.PbmCreate($profilespec)
             $existingpolicies = Get-AVSStoragePolicy
-            $createdpolicy = $existingpolicies | where-object { $_.profileid.uniqueid -eq $profileuniqueID.UniqueId }
+            $createdpolicy = $existingpolicies | Where-Object { $_.profileid.uniqueid -eq $profileuniqueID.UniqueId }
             Write-Information "Created $($createdpolicy.Name)"
-            return ("Created " + $createdpolicy.Name + " " + $profileuniqueID.UniqueId)
+            return ('Created ' + $createdpolicy.Name + ' ' + $profileuniqueID.UniqueId)
         }
 
     }
@@ -2518,7 +2533,7 @@ function Set-CustomDRS {
         [Parameter(Mandatory = $true)]
         [String]$ClustersToChange,
         [Parameter(Mandatory = $true,
-            HelpMessage = "The DRS setting. Default of 3 or more conservative of 2 or less conservative 4.")]
+            HelpMessage = 'The DRS setting. Default of 3 or more conservative of 2 or less conservative 4.')]
         [ValidateRange(1, 4)]
         [int] $Drs
     )
@@ -2547,7 +2562,7 @@ function Set-CustomDRS {
     # End DRS settings
 
     # $cluster is an array of cluster names or "*""
-    foreach ($cluster_each in ($ClustersToChange.split(",", [System.StringSplitOptions]::RemoveEmptyEntries)).Trim()) {
+    foreach ($cluster_each in ($ClustersToChange.split(',', [System.StringSplitOptions]::RemoveEmptyEntries)).Trim()) {
         $Clusters += Get-Cluster -Name $cluster_each
     }
 
@@ -2598,14 +2613,14 @@ Function Set-AVSVSANClusterUNMAPTRIM {
         $Enable
     )
     begin {
-        If ([string]::IsNullOrEmpty($Name)){}
+        If ([string]::IsNullOrEmpty($Name)) {}
         Else {
             $Name = Limit-WildcardsandCodeInjectionCharacters -String $Name
             $Array = Convert-StringToArray -String $Name
         }
-        $TagName = "VSAN UNMAP/TRIM"
-        $InfoMessage = "Info - There may be a performance impact when UNMAP/TRIM is enabled.
-            See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub6"
+        $TagName = 'VSAN UNMAP/TRIM'
+        $InfoMessage = 'Info - There may be a performance impact when UNMAP/TRIM is enabled.
+            See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub6'
     }
     process {
         If ([string]::IsNullOrEmpty($Array)) {
@@ -2622,7 +2637,7 @@ Function Set-AVSVSANClusterUNMAPTRIM {
         }
         Else {
             Foreach ($Entry in $Array) {
-                If ($Cluster = Get-Cluster -name $Entry) {
+                If ($Cluster = Get-Cluster -Name $Entry) {
                     $Cluster | Set-VsanClusterConfiguration -GuestTrimUnmap:$Enable
                     Write-Information "$($Cluster.Name) set to $Enabled for UNMAP/TRIM"
                     If ($Enable) {
@@ -2650,8 +2665,8 @@ Function Get-AVSVSANClusterUNMAPTRIM {
     param ()
     begin {}
     process {
-            Get-Cluster | Get-VsanClusterConfiguration | Select-Object Name, GuestTrimUnmap
-        }
+        Get-Cluster | Get-VsanClusterConfiguration | Select-Object Name, GuestTrimUnmap
+    }
 }
 
 function Remove-CustomRole {
@@ -2665,7 +2680,7 @@ function Remove-CustomRole {
     [AVSAttribute(10, UpdatesSDDC = $false)]
     param (
         [Parameter(Mandatory = $true,
-            HelpMessage = "The name of the role to remove, as displayed in the vCenter UI (case insensitive). This must be a custom role.")]
+            HelpMessage = 'The name of the role to remove, as displayed in the vCenter UI (case insensitive). This must be a custom role.')]
         [string]
         $roleInput
     )
@@ -2705,14 +2720,14 @@ Function Get-vSANDataInTransitEncryptionStatus {
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false)]
     param()
-    begin{}
+    begin {}
     process {
         $clusters = Get-Cluster
         $diteConfig = @()
         $vSANConigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
         foreach ($cluster in $clusters) {
             $diteConfig += [PSCustomObject]@{
-                Name = $cluster.Name
+                Name                    = $cluster.Name
                 DataEncryptionInTransit = $vSANConigView.VsanClusterGetConfig($cluster.ExtensionData.MoRef).DataInTransitEncryptionConfig.Enabled
             }
         }
@@ -2722,7 +2737,7 @@ Function Get-vSANDataInTransitEncryptionStatus {
 }
 
 Function Set-vSANDataInTransitEncryption {
-  <#
+    <#
     .DESCRIPTION
         Enable/Disable vSAN Data-In-Transit Encryption for clusters of a SDDC.
         There may be a performance impact when vSAN Data-In-Transit Encryption is enabled. Refer :  https://blogs.vmware.com/virtualblocks/2021/08/12/storageminute-vsan-data-encryption-performance/
@@ -2734,12 +2749,12 @@ Function Set-vSANDataInTransitEncryption {
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false)]
     param (
-     [Parameter(Mandatory = $false)]
-     [string]
-     $ClusterName,
-     [Parameter(Mandatory = $true)]
-     [bool]
-     $Enable
+        [Parameter(Mandatory = $false)]
+        [string]
+        $ClusterName,
+        [Parameter(Mandatory = $true)]
+        [bool]
+        $Enable
     )
     begin {
         If (-not ([string]::IsNullOrEmpty($ClusterName))) {
@@ -2747,8 +2762,8 @@ Function Set-vSANDataInTransitEncryption {
             $ClusterNamesArray = Convert-StringToArray -String $ClusterNamesParsed
         }
         Write-Host "Enable value is $Enable"
-        $TagName = "vSAN Data-In-Transit Encryption" 
-            $InfoMessage = "Info - There may be a performance impact when vSAN Data-In-Transit Encryption is enabled. Refer :  https://blogs.vmware.com/virtualblocks/2021/08/12/storageminute-vsan-data-encryption-performance/"
+        $TagName = 'vSAN Data-In-Transit Encryption' 
+        $InfoMessage = 'Info - There may be a performance impact when vSAN Data-In-Transit Encryption is enabled. Refer :  https://blogs.vmware.com/virtualblocks/2021/08/12/storageminute-vsan-data-encryption-performance/'
     }
     process {
         If ([string]::IsNullOrEmpty($ClusterNamesArray)) {
@@ -2758,29 +2773,30 @@ Function Set-vSANDataInTransitEncryption {
             $ClustersToOperateUpon = $ClusterNamesArray | ForEach-Object { Get-Cluster -Name $_ }
         }
         Foreach ($cluster in $ClustersToOperateUpon) {
-                $vSANConfigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
-                $vSANReconfigSpec = New-Object -type VMware.Vsan.Views.VimVsanReconfigSpec
-                $vSANReconfigSpec.Modify = $true
-                $vSANDataInTransitConfig= New-Object -type VMware.Vsan.Views.VsanDataInTransitEncryptionConfig
-                $vSANDataInTransitConfig.Enabled = $Enable
-                $vSANDataInTransitConfig.RekeyInterval = 1440
-                $vSANReconfigSpec.DataInTransitEncryptionConfig = $vSANDataInTransitConfig
-                $task = $vSANConfigView.VsanClusterReconfig($Cluster.ExtensionData.MoRef,$vSANReconfigSpec)
-                Wait-Task -Task (Get-Task -Id $task)
-                If ((Get-Task -Id $task).State -eq "Success"){
-                    Write-Host "$($Cluster.Name) set to $Enable"
-                    If ($Enable) {
-                        Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
-                        Write-Information $InfoMessage
-                    }
-                    else {
-                        $AssignedTag = Get-TagAssignment -Tag $Tagname -Entity $Cluster
-                        Remove-TagAssignment -TagAssignment $AssignedTag -Confirm:$false
-                    }
-                }else {
-                    Write-Error "Failed to set $($Cluster.Name) to $Enable"
+            $vSANConfigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
+            $vSANReconfigSpec = New-Object -type VMware.Vsan.Views.VimVsanReconfigSpec
+            $vSANReconfigSpec.Modify = $true
+            $vSANDataInTransitConfig = New-Object -type VMware.Vsan.Views.VsanDataInTransitEncryptionConfig
+            $vSANDataInTransitConfig.Enabled = $Enable
+            $vSANDataInTransitConfig.RekeyInterval = 1440
+            $vSANReconfigSpec.DataInTransitEncryptionConfig = $vSANDataInTransitConfig
+            $task = $vSANConfigView.VsanClusterReconfig($Cluster.ExtensionData.MoRef, $vSANReconfigSpec)
+            Wait-Task -Task (Get-Task -Id $task)
+            If ((Get-Task -Id $task).State -eq 'Success') {
+                Write-Host "$($Cluster.Name) set to $Enable"
+                If ($Enable) {
+                    Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
+                    Write-Information $InfoMessage
+                }
+                else {
+                    $AssignedTag = Get-TagAssignment -Tag $Tagname -Entity $Cluster
+                    Remove-TagAssignment -TagAssignment $AssignedTag -Confirm:$false
                 }
             }
-
+            else {
+                Write-Error "Failed to set $($Cluster.Name) to $Enable"
+            }
         }
+
+    }
 }
