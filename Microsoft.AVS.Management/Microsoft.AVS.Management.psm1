@@ -93,7 +93,7 @@ function Set-StoragePolicyOnVM {
     }
 }
 
-function Get-UnassociatedVsanObjectsWithPolicy {
+function Get-UnassociatedvSANObjectsWithPolicy {
     <#
     .SYNOPSIS
         Lists all unassociated vSAN objects with a specified storage policy across all clusters.
@@ -146,7 +146,7 @@ function Get-UnassociatedVsanObjectsWithPolicy {
     }    
     
 
-function Update-StoragePolicyofUnassociatedVsanObjects {
+function Update-StoragePolicyofUnassociatedvSANObjects {
     <#
     .SYNOPSIS
         Updates the storage policy of unassociated vSAN objects from a current policy to a new target policy.
@@ -1632,7 +1632,7 @@ function Set-ToolsRepo {
         foreach ($existing_dir in $existing_dirs) {
             if ( $existing_dir.GetType() -match 'folder') {
                 $ver = $existing_dir.Name -replace 'vmtools-', ''
-                #$tools_older_version = ($ver -ge $tools_short_version) ? $ver : $nil
+                $tools_older_version = ($ver -ge $tools_short_version) ? $ver : $nil
                 if ($nil -ne $tools_older_version) {
                     $do_not_copy = $true
                 }
