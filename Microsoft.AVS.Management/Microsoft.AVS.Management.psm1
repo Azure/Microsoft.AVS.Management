@@ -107,7 +107,9 @@ function Get-UnassociatedvSANObjectsWithPolicy {
     .EXAMPLE
         Get-UnassociatedVsanObjectsWithPolicy -PolicyName 'vSAN Default Storage Policy'
     #>
+
     [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
     Param (
         [Parameter(Mandatory = $true, HelpMessage = 'The storage policy name to filter unassociated objects')]
         [ValidateNotNullOrEmpty()]
@@ -165,7 +167,9 @@ function Update-StoragePolicyofUnassociatedvSANObjects {
     .NOTES
         Only objects with the current policy will be updated.
     #>
+    # Timeout set to 30 minutes to accommodate large numbers of unassociated objects
     [CmdletBinding()]
+    [AVSAttribute(30, UpdatesSDDC = $false)]
     Param (
         [Parameter(Mandatory = $true, HelpMessage = 'Current policy which the unassociated objects currently have')]
         [ValidateNotNullOrEmpty()]
