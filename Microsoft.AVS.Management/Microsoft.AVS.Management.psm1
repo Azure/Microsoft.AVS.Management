@@ -214,7 +214,8 @@ function Update-StoragePolicyofUnassociatedvSANObjects {
         if ($null -eq $objectInfo.'User friendly name') {
             Write-Host "No user friendly name for object UUID: $($obj.Uuid). Skipping Test-AVSProtectedObjectName check."
             $friendlyName = 'NO USER FRIENDLY NAME'
-        } else {
+        } 
+        else {
             $friendlyName = $objectInfo.'User friendly name'
             # Check if the object name is protected
             if (Test-AVSProtectedObjectName -Name $friendlyName) {
