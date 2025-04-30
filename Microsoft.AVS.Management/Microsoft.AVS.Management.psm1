@@ -113,31 +113,32 @@ function Get-UnassociatedvSANObjectsWithPolicy {
     Param (
         [Parameter(Mandatory = $true, HelpMessage = 'The storage policy name to filter unassociated objects')]
         [ValidateNotNullOrEmpty()]
-        [string]$PolicyName
+        [string]$PolicyName,
+        [Parameter(Mandatory = $true)]
+        [string]$ClusterName
     )
     
     $totalObjects = 0
     $matchedObjects = 0
     
-    $clusters = Get-Cluster
-    
-    foreach ($cluster in $clusters) {
-        $clusterMoRef = $cluster.ExtensionData.MoRef
-        $vmHost = ($cluster | Get-VMHost | Select-Object -First 1)
-        $vsanIntSys = Get-View $vmHost.ExtensionData.ConfigManager.VsanInternalSystem
-        $vsanClusterObjectSys = Get-VsanView -Id VsanObjectSystem-vsan-cluster-object-system
-    
-        $unassociatedObjects = ($vsanClusterObjectSys.VsanQueryObjectIdentities($clusterMoRef, $null, $null, $true, $true, $false)).Identities | Where-Object { $null -eq $_.Vm }
-    
-        foreach ($obj in $unassociatedObjects) {
-            $totalObjects++
-            if ($obj.SpbmProfileName -eq $PolicyName) {
-                $matchedObjects++
-                $jsonResult = ($vsanIntSys.GetVsanObjExtAttrs($obj.Uuid)) | ConvertFrom-Json
-                Write-Output $jsonResult | Format-List
-            }
+    $cluster = Get-Cluster $ClusterName -ErrorAction Stop
+
+    $clusterMoRef = $cluster.ExtensionData.MoRef
+    $vmHost = ($cluster | Get-VMHost | Select-Object -First 1)
+    $vsanIntSys = Get-View $vmHost.ExtensionData.ConfigManager.VsanInternalSystem
+    $vsanClusterObjectSys = Get-VsanView -Id VsanObjectSystem-vsan-cluster-object-system
+
+    $unassociatedObjects = ($vsanClusterObjectSys.VsanQueryObjectIdentities($clusterMoRef, $null, $null, $true, $true, $false)).Identities | Where-Object { $null -eq $_.Vm }
+
+    foreach ($obj in $unassociatedObjects) {
+        $totalObjects++
+        if ($obj.SpbmProfileName -eq $PolicyName) {
+            $matchedObjects++
+            $jsonResult = ($vsanIntSys.GetVsanObjExtAttrs($obj.Uuid)) | ConvertFrom-Json
+            Write-Output $jsonResult | Format-List
         }
     }
+
     
     Write-Output "Total unassociated objects found: $totalObjects"
     Write-Output "Unassociated objects with policy '$PolicyName': $matchedObjects"
@@ -171,13 +172,17 @@ function Update-StoragePolicyofUnassociatedvSANObjects {
     [CmdletBinding()]
     [AVSAttribute(30, UpdatesSDDC = $false)]
     Param (
-        [Parameter(Mandatory = $true, HelpMessage = 'Current policy which the unassociated objects currently have')]
+        [Parameter(Mandatory = $true, HelpMessage = 'Specify the name of the current storage policy assigned to the unassociated objects.')]
         [ValidateNotNullOrEmpty()]
         [string]$currentPolicyName,
-    
-        [Parameter(Mandatory = $true, HelpMessage = 'Target/new policy which the unassociated objects need to be set to')]
+        
+        [Parameter(Mandatory = $true, HelpMessage = 'Specify the name of the target storage policy to assign to the unassociated objects.')]
         [ValidateNotNullOrEmpty()]
-        [string]$targetPolicyName
+        [string]$targetPolicyName,
+        
+        [Parameter(Mandatory = $true, HelpMessage = 'Specify the name of the vSphere cluster containing the unassociated objects to update.')]
+        [ValidateNotNullOrEmpty()]
+        [string]$ClusterName
     )
     
     # Retrieve the new storage policy object
@@ -187,37 +192,52 @@ function Update-StoragePolicyofUnassociatedvSANObjects {
     $totalUnassociatedObjects = 0
     $updatedObjects = 0
     
-    # Get all clusters in the environment
-    $clusters = Get-Cluster
+    $cluster = Get-Cluster $ClusterName -ErrorAction Stop
     
-    foreach ($cluster in $clusters) {
-        $clusterMoRef = $cluster.ExtensionData.MoRef
-        $vmHost = ($cluster | Get-VMHost | Select-Object -First 1)
-        $vsanIntSys = Get-View $vmHost.ExtensionData.ConfigManager.VsanInternalSystem
-        $vsanClusterObjectSys = Get-VsanView -Id VsanObjectSystem-vsan-cluster-object-system
-    
-        # Query for unassociated vSAN objects in the cluster
-        $unassociatedObjects = ($vsanClusterObjectSys.VsanQueryObjectIdentities($clusterMoRef, $null, $null, $true, $true, $false)).Identities | Where-Object { $null -eq $_.Vm }
-    
-        foreach ($obj in $unassociatedObjects) {
-            $totalUnassociatedObjects++
-            $jsonResult = ($vsanIntSys.GetVsanObjExtAttrs($obj.Uuid)) | ConvertFrom-Json
-    
-            # Only update objects with the specified current policy
-            if ($obj.SpbmProfileName -eq $currentPolicyName) {
-                Write-Output "Updating storage policy for object UUID: $($obj.Uuid)..."
-                try {
-                    $profileSpec = New-Object VMware.Vim.VirtualMachineDefinedProfileSpec
-                    $profileSpec.ProfileId = $newPolicy.Id
-    
-                    $vsanClusterObjectSys.VosSetVsanObjectPolicy($clusterMoRef, $obj.Uuid, $profileSpec)
-                    Write-Output "Successfully updated storage policy for UUID: $($obj.Uuid)"
-                    $updatedObjects++
-                    Write-Output $jsonResult | Format-List
-                }
-                catch {
-                    Write-Error "Failed to update storage policy for object '$($obj.Uuid)': $($_.Exception.Message)"
-                }
+    $clusterMoRef = $cluster.ExtensionData.MoRef
+    $vmHost = ($cluster | Get-VMHost | Select-Object -First 1)
+    $vsanIntSys = Get-View $vmHost.ExtensionData.ConfigManager.VsanInternalSystem
+    $vsanClusterObjectSys = Get-VsanView -Id VsanObjectSystem-vsan-cluster-object-system
+
+    # Query for unassociated vSAN objects in the cluster
+    $unassociatedObjects = ($vsanClusterObjectSys.VsanQueryObjectIdentities($clusterMoRef, $null, $null, $true, $true, $false)).Identities | Where-Object { $null -eq $_.Vm }
+
+    foreach ($obj in $unassociatedObjects) {
+        $totalUnassociatedObjects++
+        $jsonResult = ($vsanIntSys.GetVsanObjExtAttrs($obj.Uuid)) | ConvertFrom-Json
+
+        # Get the first (and only) property name, which is the UUID
+        $objectID = ($jsonResult.PSObject.Properties.Name | Select-Object -First 1)
+        $objectInfo = $jsonResult.$objectID
+
+        # Check if 'User friendly name' exists
+        if ($null -eq $objectInfo.'User friendly name') {
+            Write-Host "No user friendly name for object UUID: $($obj.Uuid). Skipping Test-AVSProtectedObjectName check."
+            $friendlyName = 'NO USER FRIENDLY NAME'
+        } else {
+            $friendlyName = $objectInfo.'User friendly name'
+            # Check if the object name is protected
+            if (Test-AVSProtectedObjectName -Name $friendlyName) {
+                Write-Error "The object '$friendlyName' is protected. Skipping policy update for UUID: $($obj.Uuid)."
+                continue
+            }
+        }
+
+        # Only update objects with the specified current policy
+        if ($obj.SpbmProfileName -eq $currentPolicyName) {
+            Write-Output "Unassociated object $($obj.Uuid) with policy '$currentPolicyName' is being updated to '$targetPolicyName'..."
+            
+            try {
+                $profileSpec = New-Object VMware.Vim.VirtualMachineDefinedProfileSpec
+                $profileSpec.ProfileId = $newPolicy.Id
+
+                $vsanClusterObjectSys.VosSetVsanObjectPolicy($clusterMoRef, $obj.Uuid, $profileSpec)
+                Write-Output "Successfully updated storage policy for UUID: $($obj.Uuid)"
+                $updatedObjects++
+                Write-Output $jsonResult | Format-List
+            }
+            catch {
+                Write-Error "Failed to update storage policy for object '$($obj.Uuid)': $($_.Exception.Message)"
             }
         }
     }
@@ -228,7 +248,7 @@ function Update-StoragePolicyofUnassociatedvSANObjects {
     }
     else {
         Write-Output "Total unassociated objects: $totalUnassociatedObjects"
-        Write-Output "Unassociated objects with policy '$currentPolicyName' updated: $updatedObjects"
+        Write-Output "Unassociated objects with policy '$currentPolicyName' updated to '$targetPolicyName': $updatedObjects"
         if ($updatedObjects -eq 0) {
             Write-Output "No unassociated objects with policy '$currentPolicyName' found."
         }
