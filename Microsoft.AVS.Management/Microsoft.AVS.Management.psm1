@@ -569,22 +569,22 @@ function Debug-LDAPSIdentitySources {
 
     $sources = Get-IdentitySource -External -ErrorAction Stop
     $sources | ForEach-Object {
-        if(($_.Type -eq "OpenLdap") -or ($_.Type -eq "ActiveDirectory")) {
+        if (($_.Type -eq "OpenLdap") -or ($_.Type -eq "ActiveDirectory")) {
 
             Write-Host "* -------------------------------------------------------------"
             Write-Host "* OpenLDAP Identity Source $($_.Name) detected."
 
             $urls = @()
-            if(-not ($null -eq $_.PrimaryUrl)) {
+            if (-not ($null -eq $_.PrimaryUrl)) {
                 $urls += $_.PrimaryUrl
                 Write-Host "* The Primary URL is  $($_.PrimaryUrl)."
             }
-            if(-not ($null -eq $_.FailoverUrl)) {
+            if (-not ($null -eq $_.FailoverUrl)) {
                 $urls += $_.FailoverUrl
                 Write-Host "* The Failover URL is $($_.FailoverUrl)."
             }
 
-            foreach($url in $urls) {
+            foreach ($url in $urls) {
                 Write-Host "* Checking LDAP URL: $url"
 
                 # Check URL looks okay:
@@ -614,18 +614,19 @@ function Debug-LDAPSIdentitySources {
                         $Command = "host $ldap_hostname"
                         $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
                     }
-                    catch {throw "ERROR: Unable to execute host command on vCenter."}
+                    catch { throw "ERROR: Unable to execute host command on vCenter." }
                     Write-Host "* vCenter DNS hostname resolution check returned: $($SSHRes.Output)"
 
                     # Now let's look at the port numbers
-                    if($ldap_portspec -ne "") {
+                    if ($ldap_portspec -ne "") {
                         $ldap_port = $ldap_portspec -match ":([0-9]+)"
                         Write-Host "  LDAP Port number:      $ldap_port"
-                    } else {
-                        switch($ldap_protocol) {
-                            "ldap"  {$ldap_port = 389}
-                            "ldaps" {$ldap_port = 636}
-                            "default" {$ldap_port = -1}
+                    }
+                    else {
+                        switch ($ldap_protocol) {
+                            "ldap" { $ldap_port = 389 }
+                            "ldaps" { $ldap_port = 636 }
+                            "default" { $ldap_port = -1 }
                         }
                         Write-Host "* LDAP Port to test:    $ldap_port"
                     }
@@ -635,9 +636,9 @@ function Debug-LDAPSIdentitySources {
                         $Command = "nc -vz $ldap_hostname $ldap_port"
                         $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
                     }
-                    catch {throw "ERROR: Unable to execute nc command on vCenter."}
+                    catch { throw "ERROR: Unable to execute nc command on vCenter." }
 
-                    if($SSHRes.ExitStatus -eq 1) {
+                    if ($SSHRes.ExitStatus -eq 1) {
                         Write-Error "* vCenter-to-LDAP TCP test FAILED."
 
                         # Netcat failed to access the TCP port.
@@ -646,15 +647,16 @@ function Debug-LDAPSIdentitySources {
                             $Command = "ping -c 3 $ldap_hostname"
                             $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
                         }
-                        catch {throw "ERROR: Unable to execute ping command on vCenter."}
+                        catch { throw "ERROR: Unable to execute ping command on vCenter." }
                         Write-Host "* vCenter-to-LDAP Ping test returned:"
                         Write-Host "$($SSHRes.Output | out-string)"
 
-                        if($($SSHRes.Output | Out-String) -match " (?<percentage>[0-9]+)% packet loss") {
+                        if ($($SSHRes.Output | Out-String) -match " (?<percentage>[0-9]+)% packet loss") {
                             $ping_loss = $Matches.percentage
-                            if($ping_loss -eq "0") {
+                            if ($ping_loss -eq "0") {
                                 Write-Host "* vCenter was able to ping the LDAP server without a problem."
-                            } elseif($ping_loss -eq "100") {
+                            }
+                            elseif ($ping_loss -eq "100") {
                                 Write-Error "* vCenter was unable to ping LDAP server."
 
                                 # Okay, this is bad. vCenter can't contact the LDAP server with TCP
@@ -663,33 +665,38 @@ function Debug-LDAPSIdentitySources {
                                     $Command = "traceroute $ldap_hostname"
                                     $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
                                 }
-                                catch {throw "ERROR: Unable to execute traceroute command on vCenter."}
+                                catch { throw "ERROR: Unable to execute traceroute command on vCenter." }
                                 Write-Host "* vCenter-to-LDAP Traceroute test returned:"
                                 Write-Host "$($SSHRes.Output | out-string)"
-                            } else {
+                            }
+                            else {
                                 Write-Warning "* Partial packet loss pinging LDAP server."
                             }
-                        } else {
+                        }
+                        else {
                             Write-Error "* Unable to interpret ping results."
                         }
-                    } elseif($SSHRes.ExitStatus -eq 0) {
+                    }
+                    elseif ($SSHRes.ExitStatus -eq 0) {
                         Write-Host "* vCenter-to-LDAP TCP test successful. Port is open."
 
-                        if($ldap_protocol -eq "ldaps") {
+                        if ($ldap_protocol -eq "ldaps") {
                             Write-Host "* Attempting SSL Connect test."
                             # Netcat says the TCP port is open, so let's attempt an SSL connection:
                             try {
                                 $Command = "openssl s_client -connect $($ldap_hostname):$($ldap_port) -showcerts < /dev/null"
                                 $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
                             }
-                            catch {throw "ERROR: Unable to execute openssl command on vCenter."}
+                            catch { throw "ERROR: Unable to execute openssl command on vCenter." }
                             Write-Host "* SSL connect test returned:"
                             Write-Host "$($SSHRes.Output | out-string)"
                         }
-                    } else {
+                    }
+                    else {
                         Write-Error "* vCenter-to-LDAP TCP test failed with result code $($SSHRes.ExitStatus)."
                     }
-                } catch {
+                }
+                catch {
                     Write-Error "URL $url does not look like an LDAP URL. $_"
                 }
             }
@@ -854,7 +861,7 @@ function New-LDAPSIdentitySource {
         }
         catch {
             Write-Warning "The FQDN $($ResultUrl.Host) failed to do a reverse DNS lookup. $_"
-	    Write-Warning "For reverse lookup to work, DEFAULT zone in NSX-T DNS forwarder must be set to query a DNS server that can resolve reverse DNS lookup of $($ResultUrl.Host)"
+            Write-Warning "For reverse lookup to work, DEFAULT zone in NSX-T DNS forwarder must be set to query a DNS server that can resolve reverse DNS lookup of $($ResultUrl.Host)"
             Write-Warning "Reverse lookup may not be required for LDAPS configuration."
         }
         # check whether a specific port (or range of ports) on a target ip address is open or closed
@@ -892,7 +899,8 @@ function New-LDAPSIdentitySource {
         Write-Host "Verifying certificate: $($cert.Subject)"
         if (($cert.NotBefore -lt $currentDate) -and ($cert.NotAfter -gt $currentDate)) {
             Write-Host "The certificate is current."
-        } else {
+        }
+        else {
             Write-Error "The certificate is not current. It's only valid between $($cert.NotBefore) and $($cert.NotAfter)." -ErrorAction Stop
         }
     }
@@ -900,17 +908,17 @@ function New-LDAPSIdentitySource {
     Write-Host "Adding the LDAPS Identity Source..."
     try {
         Add-LDAPIdentitySource `
-        -Name $Name `
-        -DomainName $DomainName `
-        -DomainAlias $DomainAlias `
-        -PrimaryUrl $PrimaryUrl `
-        -SecondaryUrl $SecondaryUrl `
-        -BaseDNUsers $BaseDNUsers `
-        -BaseDNGroups $BaseDNGroups `
-        -Username $Credential.UserName `
-        -Password $Password `
-        -ServerType 'ActiveDirectory' `
-        -Certificates $Certificates -ErrorAction Stop
+            -Name $Name `
+            -DomainName $DomainName `
+            -DomainAlias $DomainAlias `
+            -PrimaryUrl $PrimaryUrl `
+            -SecondaryUrl $SecondaryUrl `
+            -BaseDNUsers $BaseDNUsers `
+            -BaseDNGroups $BaseDNGroups `
+            -Username $Credential.UserName `
+            -Password $Password `
+            -ServerType 'ActiveDirectory' `
+            -Certificates $Certificates -ErrorAction Stop
     }
     catch {
         Write-Error "VCenter wasn't able to add this identity source: $_" -ErrorAction Stop
@@ -2822,7 +2830,7 @@ Function Set-AVSVSANClusterUNMAPTRIM {
         $Enable
     )
     begin {
-        If ([string]::IsNullOrEmpty($Name)){}
+        If ([string]::IsNullOrEmpty($Name)) {}
         Else {
             $Name = Limit-WildcardsandCodeInjectionCharacters -String $Name
             $Array = Convert-StringToArray -String $Name
@@ -2874,8 +2882,8 @@ Function Get-AVSVSANClusterUNMAPTRIM {
     param ()
     begin {}
     process {
-            Get-Cluster | Get-VsanClusterConfiguration | Select-Object Name, GuestTrimUnmap
-        }
+        Get-Cluster | Get-VsanClusterConfiguration | Select-Object Name, GuestTrimUnmap
+    }
 }
 
 function Remove-CustomRole {
@@ -2929,14 +2937,14 @@ Function Get-vSANDataInTransitEncryptionStatus {
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false)]
     param()
-    begin{}
+    begin {}
     process {
         $clusters = Get-Cluster
         $diteConfig = @()
         $vSANConigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
         foreach ($cluster in $clusters) {
             $diteConfig += [PSCustomObject]@{
-                Name = $cluster.Name
+                Name                    = $cluster.Name
                 DataEncryptionInTransit = $vSANConigView.VsanClusterGetConfig($cluster.ExtensionData.MoRef).DataInTransitEncryptionConfig.Enabled
             }
         }
@@ -2946,7 +2954,7 @@ Function Get-vSANDataInTransitEncryptionStatus {
 }
 
 Function Set-vSANDataInTransitEncryption {
-  <#
+    <#
     .DESCRIPTION
         Enable/Disable vSAN Data-In-Transit Encryption for clusters of a SDDC.
         There may be a performance impact when vSAN Data-In-Transit Encryption is enabled. Refer :  https://blogs.vmware.com/virtualblocks/2021/08/12/storageminute-vsan-data-encryption-performance/
@@ -2958,12 +2966,12 @@ Function Set-vSANDataInTransitEncryption {
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false)]
     param (
-     [Parameter(Mandatory = $false)]
-     [string]
-     $ClusterName,
-     [Parameter(Mandatory = $true)]
-     [bool]
-     $Enable
+        [Parameter(Mandatory = $false)]
+        [string]
+        $ClusterName,
+        [Parameter(Mandatory = $true)]
+        [bool]
+        $Enable
     )
     begin {
         If (-not ([string]::IsNullOrEmpty($ClusterName))) {
@@ -2972,7 +2980,7 @@ Function Set-vSANDataInTransitEncryption {
         }
         Write-Host "Enable value is $Enable"
         $TagName = "vSAN Data-In-Transit Encryption" 
-            $InfoMessage = "Info - There may be a performance impact when vSAN Data-In-Transit Encryption is enabled. Refer :  https://blogs.vmware.com/virtualblocks/2021/08/12/storageminute-vsan-data-encryption-performance/"
+        $InfoMessage = "Info - There may be a performance impact when vSAN Data-In-Transit Encryption is enabled. Refer :  https://blogs.vmware.com/virtualblocks/2021/08/12/storageminute-vsan-data-encryption-performance/"
     }
     process {
         If ([string]::IsNullOrEmpty($ClusterNamesArray)) {
@@ -2982,29 +2990,30 @@ Function Set-vSANDataInTransitEncryption {
             $ClustersToOperateUpon = $ClusterNamesArray | ForEach-Object { Get-Cluster -Name $_ }
         }
         Foreach ($cluster in $ClustersToOperateUpon) {
-                $vSANConfigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
-                $vSANReconfigSpec = New-Object -type VMware.Vsan.Views.VimVsanReconfigSpec
-                $vSANReconfigSpec.Modify = $true
-                $vSANDataInTransitConfig= New-Object -type VMware.Vsan.Views.VsanDataInTransitEncryptionConfig
-                $vSANDataInTransitConfig.Enabled = $Enable
-                $vSANDataInTransitConfig.RekeyInterval = 1440
-                $vSANReconfigSpec.DataInTransitEncryptionConfig = $vSANDataInTransitConfig
-                $task = $vSANConfigView.VsanClusterReconfig($Cluster.ExtensionData.MoRef,$vSANReconfigSpec)
-                Wait-Task -Task (Get-Task -Id $task)
-                If ((Get-Task -Id $task).State -eq "Success"){
-                    Write-Host "$($Cluster.Name) set to $Enable"
-                    If ($Enable) {
-                        Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
-                        Write-Information $InfoMessage
-                    }
-                    else {
-                        $AssignedTag = Get-TagAssignment -Tag $Tagname -Entity $Cluster
-                        Remove-TagAssignment -TagAssignment $AssignedTag -Confirm:$false
-                    }
-                }else {
-                    Write-Error "Failed to set $($Cluster.Name) to $Enable"
+            $vSANConfigView = Get-VsanView -Id VsanVcClusterConfigSystem-vsan-cluster-config-system
+            $vSANReconfigSpec = New-Object -type VMware.Vsan.Views.VimVsanReconfigSpec
+            $vSANReconfigSpec.Modify = $true
+            $vSANDataInTransitConfig = New-Object -type VMware.Vsan.Views.VsanDataInTransitEncryptionConfig
+            $vSANDataInTransitConfig.Enabled = $Enable
+            $vSANDataInTransitConfig.RekeyInterval = 1440
+            $vSANReconfigSpec.DataInTransitEncryptionConfig = $vSANDataInTransitConfig
+            $task = $vSANConfigView.VsanClusterReconfig($Cluster.ExtensionData.MoRef, $vSANReconfigSpec)
+            Wait-Task -Task (Get-Task -Id $task)
+            If ((Get-Task -Id $task).State -eq "Success") {
+                Write-Host "$($Cluster.Name) set to $Enable"
+                If ($Enable) {
+                    Add-AVSTag -Name $TagName -Description $InfoMessage -Entity $Cluster
+                    Write-Information $InfoMessage
+                }
+                else {
+                    $AssignedTag = Get-TagAssignment -Tag $Tagname -Entity $Cluster
+                    Remove-TagAssignment -TagAssignment $AssignedTag -Confirm:$false
                 }
             }
-
+            else {
+                Write-Error "Failed to set $($Cluster.Name) to $Enable"
+            }
         }
+
+    }
 }
