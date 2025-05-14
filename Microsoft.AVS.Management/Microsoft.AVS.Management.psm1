@@ -125,7 +125,10 @@ function Get-UnassociatedvSANObjectsWithPolicy {
         $cluster = Get-Cluster $ClusterName -ErrorAction Stop
 
         $clusterMoRef = $cluster.ExtensionData.MoRef
-        $vmHost = ($cluster | Get-VMHost | Select-Object -First 1)
+        $vmHost = ($cluster | Get-VMHost | Where-Object { $_.ConnectionState -eq 'Connected' -and $_.PowerState -eq 'PoweredOn' } | Select-Object -First 1)
+        if ($null -eq $vmHost) {
+            throw "No connected and powered-on hosts found."
+        }
         $vsanIntSys = Get-View $vmHost.ExtensionData.ConfigManager.VsanInternalSystem
         $vsanClusterObjectSys = Get-VsanView -Id VsanObjectSystem-vsan-cluster-object-system
     }
@@ -225,7 +228,7 @@ function Update-StoragePolicyofUnassociatedvSANObjects {
 
     try {
         $clusterMoRef = $cluster.ExtensionData.MoRef
-        $vmHost = ($cluster | Get-VMHost | Select-Object -First 1)
+        $vmHost = ($cluster | Get-VMHost | Where-Object { $_.ConnectionState -eq 'Connected' -and $_.PowerState -eq 'PoweredOn' } | Select-Object -First 1)
         if ($null -eq $vmHost) {
             throw "No connected and powered-on hosts found."
         }
