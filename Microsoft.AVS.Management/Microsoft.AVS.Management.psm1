@@ -121,21 +121,38 @@ function Get-UnassociatedvSANObjectsWithPolicy {
     $totalObjects = 0
     $matchedObjects = 0
     
-    $cluster = Get-Cluster $ClusterName -ErrorAction Stop
+    try {
+        $cluster = Get-Cluster $ClusterName -ErrorAction Stop
 
-    $clusterMoRef = $cluster.ExtensionData.MoRef
-    $vmHost = ($cluster | Get-VMHost | Select-Object -First 1)
-    $vsanIntSys = Get-View $vmHost.ExtensionData.ConfigManager.VsanInternalSystem
-    $vsanClusterObjectSys = Get-VsanView -Id VsanObjectSystem-vsan-cluster-object-system
+        $clusterMoRef = $cluster.ExtensionData.MoRef
+        $vmHost = ($cluster | Get-VMHost | Select-Object -First 1)
+        $vsanIntSys = Get-View $vmHost.ExtensionData.ConfigManager.VsanInternalSystem
+        $vsanClusterObjectSys = Get-VsanView -Id VsanObjectSystem-vsan-cluster-object-system
+    }
+    catch {
+        Write-Error "Failed to initialize vSAN objects or connect to cluster: $_"
+        return
+    }
 
-    $unassociatedObjects = ($vsanClusterObjectSys.VsanQueryObjectIdentities($clusterMoRef, $null, $null, $true, $true, $false)).Identities | Where-Object { $null -eq $_.Vm }
+    try {
+        $unassociatedObjects = ($vsanClusterObjectSys.VsanQueryObjectIdentities($clusterMoRef, $null, $null, $false, $true, $false)).Identities | Where-Object { $null -eq $_.Vm }
+    }
+    catch {
+        Write-Error "Failed to query unassociated vSAN objects: $_"
+        return
+    }
 
     foreach ($obj in $unassociatedObjects) {
         $totalObjects++
         if ($obj.SpbmProfileName -eq $PolicyName) {
             $matchedObjects++
-            $jsonResult = ($vsanIntSys.GetVsanObjExtAttrs($obj.Uuid)) | ConvertFrom-Json
-            Write-Output $jsonResult | Format-List
+            try {
+                $jsonResult = ($vsanIntSys.GetVsanObjExtAttrs($obj.Uuid)) | ConvertFrom-Json
+                Write-Output $jsonResult | Format-List
+            }
+            catch {
+                Write-Warning "Failed to retrieve or parse attributes for object $($obj.Uuid): $_"
+            }
         }
     }
 
@@ -185,30 +202,68 @@ function Update-StoragePolicyofUnassociatedvSANObjects {
         [string]$ClusterName
     )
     
-    # Retrieve the new storage policy object
-    $newPolicy = Get-SpbmStoragePolicy -Name $targetPolicyName -ErrorAction Stop
-    
+    try {
+        # Retrieve the new storage policy object
+        $newPolicy = Get-SpbmStoragePolicy -Name $targetPolicyName -ErrorAction Stop
+    }
+    catch {
+        Write-Error "Failed to retrieve target storage policy '$targetPolicyName': $($_.Exception.Message)"
+        return
+    }
+
     # Initialize counters
     $totalUnassociatedObjects = 0
     $updatedObjects = 0
     
-    $cluster = Get-Cluster $ClusterName -ErrorAction Stop
-    
-    $clusterMoRef = $cluster.ExtensionData.MoRef
-    $vmHost = ($cluster | Get-VMHost | Select-Object -First 1)
-    $vsanIntSys = Get-View $vmHost.ExtensionData.ConfigManager.VsanInternalSystem
-    $vsanClusterObjectSys = Get-VsanView -Id VsanObjectSystem-vsan-cluster-object-system
+    try {
+        $cluster = Get-Cluster $ClusterName -ErrorAction Stop
+    }
+    catch {
+        Write-Error "Failed to retrieve cluster '$ClusterName': $($_.Exception.Message)"
+        return
+    }
 
-    # Query for unassociated vSAN objects in the cluster
-    $unassociatedObjects = ($vsanClusterObjectSys.VsanQueryObjectIdentities($clusterMoRef, $null, $null, $true, $true, $false)).Identities | Where-Object { $null -eq $_.Vm }
+    try {
+        $clusterMoRef = $cluster.ExtensionData.MoRef
+        $vmHost = ($cluster | Get-VMHost | Select-Object -First 1)
+        if ($null -eq $vmHost) {
+            throw "No connected and powered-on hosts found."
+        }
+        $vsanIntSys = Get-View $vmHost.ExtensionData.ConfigManager.VsanInternalSystem
+        $vsanClusterObjectSys = Get-VsanView -Id VsanObjectSystem-vsan-cluster-object-system
+    }
+    catch {
+        Write-Error "Failed to retrieve vSAN system views: $($_.Exception.Message)"
+        return
+    }
+
+    try {
+        # Query for unassociated vSAN objects in the cluster
+        $unassociatedObjects = ($vsanClusterObjectSys.VsanQueryObjectIdentities($clusterMoRef, $null, $null, $false, $true, $false)).Identities | Where-Object { $null -eq $_.Vm }
+    }
+    catch {
+        Write-Error "Failed to query unassociated vSAN objects: $($_.Exception.Message)"
+        return
+    }
+
+    if (-not $unassociatedObjects) {
+        Write-Output "No unassociated objects found."
+        return
+    }
 
     foreach ($obj in $unassociatedObjects) {
         $totalUnassociatedObjects++
-        $jsonResult = ($vsanIntSys.GetVsanObjExtAttrs($obj.Uuid)) | ConvertFrom-Json
+        try {
+            $jsonResult = ($vsanIntSys.GetVsanObjExtAttrs($obj.Uuid)) | ConvertFrom-Json
 
-        # Get the first (and only) property name, which is the UUID
-        $objectID = ($jsonResult.PSObject.Properties.Name | Select-Object -First 1)
-        $objectInfo = $jsonResult.$objectID
+            # Get the first (and only) property name, which is the UUID
+            $objectID = ($jsonResult.PSObject.Properties.Name | Select-Object -First 1)
+            $objectInfo = $jsonResult.$objectID
+        }
+        catch {
+            Write-Warning "Failed to retrieve or parse attributes for object $($obj.Uuid): $($_.Exception.Message)"
+            continue
+        }
 
         # Check if 'User friendly name' exists
         if ($null -eq $objectInfo.'User friendly name') {
@@ -217,9 +272,15 @@ function Update-StoragePolicyofUnassociatedvSANObjects {
         } 
         else {
             $friendlyName = $objectInfo.'User friendly name'
-            # Check if the object name is protected
-            if (Test-AVSProtectedObjectName -Name $friendlyName) {
-                Write-Error "The object '$friendlyName' is protected. Skipping policy update for UUID: $($obj.Uuid)."
+            try {
+                # Check if the object name is protected
+                if (Test-AVSProtectedObjectName -Name $friendlyName) {
+                    Write-Error "The object '$friendlyName' is protected. Skipping policy update for UUID: $($obj.Uuid)."
+                    continue
+                }
+            }
+            catch {
+                Write-Warning "Failed to check if object name '$friendlyName' is protected: $($_.Exception.Message)"
                 continue
             }
         }
