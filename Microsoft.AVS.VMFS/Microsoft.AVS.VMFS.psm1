@@ -477,7 +477,7 @@ function Dismount-VmfsDatastore {
 #>
 function Resize-VmfsVolume {
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
     Param (
         [Parameter(
             Mandatory=$true,
@@ -529,6 +529,7 @@ function Resize-VmfsVolume {
         $Datastores = $Esxi | Get-Datastore -ErrorAction stop
         foreach ($Datastore in $Datastores) {
             $CurrentNaaId = $Datastore.ExtensionData.Info.Vmfs.Extent.DiskName
+
             if ($CurrentNaaId -eq $DeviceNaaId) {
                 $DatastoreToResize = $Datastore
                 break
@@ -538,6 +539,14 @@ function Resize-VmfsVolume {
 
     if (-not $DatastoreToResize) {
         throw "Failed to re-size VMFS volume."
+    }
+
+    $NaaId = $DatastoreToResize.ExtensionData.Info.Vmfs.Extent.DiskName
+    if (-not(
+        $NaaId.StartsWith("naa.60003ff") -or # Microsoft
+        $NaaId.StartsWith("naa.600a098") -or # NetApp
+        $NaaId.StartsWith("naa.624a937"))) { # Pure Storage
+        throw "The datastore with NAA $NaaId is not supported for VMFS volume re-size."
     }
 
     foreach ($DatastoreHost in $DatastoreToResize.ExtensionData.Host.Key) {
