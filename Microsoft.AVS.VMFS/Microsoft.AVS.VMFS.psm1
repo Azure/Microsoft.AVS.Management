@@ -608,7 +608,7 @@ function Restore-VmfsVolume {
         $DatastoreName
     )
 
-    if (!($DeviceNaaId -like 'naa.624a9370*' -or $DeviceNaaId -like 'eui.*')) {
+    if (!($DeviceNaaId -like 'naa.624a9370*' -or $DeviceNaaId -like 'naa.600a098*' -or $DeviceNaaId -like 'eui.*')) {
         throw "Invalid Device NAA ID $DeviceNaaId provided."
     }
 
