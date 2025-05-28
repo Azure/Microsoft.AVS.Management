@@ -608,9 +608,21 @@ function Restore-VmfsVolume {
         $DatastoreName
     )
 
+    <#
+    proposed change to allow Netapp NAA ID for Restore-Vmfsvolume
     if (!($DeviceNaaId -like 'naa.624a9370*' -or $DeviceNaaId -like 'eui.*')) {
         throw "Invalid Device NAA ID $DeviceNaaId provided."
     }
+    #>
+
+if (!(
+    $DeviceNaaId -like 'naa.624a9370*' -or # Pure Storage
+    $DeviceNaaId -like 'eui.*' -or         # NVMe/TCP
+    $DeviceNaaId -like 'naa.600a098*'      # NetApp - new change
+)) {
+    throw "Invalid Device NAA ID $DeviceNaaId provided. Only Pure Storage (naa.624a9370), NetApp (naa.600a098), or NVMe/TCP (eui.*) are supported."
+}
+
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
     if (-not $Cluster) {
