@@ -538,7 +538,7 @@ function Resize-VmfsVolume {
     }
 
     if (-not $DatastoreToResize) {
-        throw "Failed to re-size VMFS volume."
+        throw "Failed to re-size VMFS volume, datastore not found."
     }
 
     $NaaId = $DatastoreToResize.ExtensionData.Info.Vmfs.Extent.DiskName
@@ -556,6 +556,10 @@ function Resize-VmfsVolume {
     $Esxi = Get-View -Id ($DatastoreToResize.ExtensionData.Host | Select-Object -last 1 | Select-Object -ExpandProperty Key)
     $DatastoreSystem = Get-View -Id $Esxi.ConfigManager.DatastoreSystem
     $ExpandOptions = $DatastoreSystem.QueryVmfsDatastoreExpandOptions($DatastoreToResize.ExtensionData.MoRef)
+
+    if ($ExpandOptions.Count -eq 0) {
+        throw "Unable to expand VMFS datastore $($DatastoreToResize.Name)."
+    }
 
     Write-Host "Increasing the size of the VMFS volume..."
     $DatastoreSystem.ExpandVmfsDatastore($DatastoreToResize.ExtensionData.MoRef, $ExpandOptions[0].spec)
