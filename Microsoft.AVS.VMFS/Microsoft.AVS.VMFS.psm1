@@ -538,7 +538,7 @@ function Resize-VmfsVolume {
     }
 
     if (-not $DatastoreToResize) {
-        throw "Failed to re-size VMFS volume."
+        throw "Failed to re-size VMFS volume, datastore not found."
     }
 
     $NaaId = $DatastoreToResize.ExtensionData.Info.Vmfs.Extent.DiskName
@@ -557,8 +557,27 @@ function Resize-VmfsVolume {
     $DatastoreSystem = Get-View -Id $Esxi.ConfigManager.DatastoreSystem
     $ExpandOptions = $DatastoreSystem.QueryVmfsDatastoreExpandOptions($DatastoreToResize.ExtensionData.MoRef)
 
-    Write-Host "Increasing the size of the VMFS volume..."
-    $DatastoreSystem.ExpandVmfsDatastore($DatastoreToResize.ExtensionData.MoRef, $ExpandOptions[0].spec)
+    $LunSizeGB = ($DatastoreToResize | Get-ScsiLun).CapacityGB | Select-Object -last 1
+    $CurrentDatastoreSizeGB = $([math]::Ceiling($DatastoreToResize.ExtensionData.Info.Vmfs.Capacity / 1GB))
+    if ($CurrentDatastoreSizeGB -lt $LunSizeGB) {
+        Write-Host "Increasing the size of the VMFS volume..."
+        try {
+            $DatastoreSystem.ExpandVmfsDatastore($DatastoreToResize.ExtensionData.MoRef, $ExpandOptions[0].spec)
+        } catch {
+            $exceptionMessage = $_.Exception.Message
+            throw "Unable to expand VMFS datastore $($DatastoreToResize.Name): $exceptionMessage"
+        }
+
+        $UpdatedDatastore = Get-Datastore -Name $DatastoreToResize.Name -ErrorAction Ignore
+        if (-not $UpdatedDatastore) {
+            throw "Datastore $($DatastoreToResize.Name) does not exist after expanding."
+        }
+
+        $UpdatedDatastoreSizeGB = $([math]::Ceiling($UpdatedDatastore.ExtensionData.Info.Vmfs.Capacity / 1GB))
+        Write-Host "Size of datastore $($DatastoreToResize.Name) has been increased from $CurrentDatastoreSizeGB GB to $UpdatedDatastoreSizeGB GB."
+    } else {
+        Write-Host "Unable to expand datastore $($DatastoreToResize.Name) since it is already at maximum size."
+    }
 }
 
 <#
