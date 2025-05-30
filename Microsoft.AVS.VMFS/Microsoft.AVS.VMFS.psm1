@@ -557,7 +557,7 @@ function Resize-VmfsVolume {
     $DatastoreSystem = Get-View -Id $Esxi.ConfigManager.DatastoreSystem
     $ExpandOptions = $DatastoreSystem.QueryVmfsDatastoreExpandOptions($DatastoreToResize.ExtensionData.MoRef)
 
-    $LunSizeGB = ($DatastoreToResize | Get-ScsiLun).CapacityGB
+    $LunSizeGB = ($DatastoreToResize | Get-ScsiLun).CapacityGB | Select-Object -last 1
     $CurrentDatastoreSizeGB = $([math]::Ceiling($DatastoreToResize.ExtensionData.Info.Vmfs.Capacity / 1GB))
     if ($CurrentDatastoreSizeGB -lt $LunSizeGB) {
         Write-Host "Increasing the size of the VMFS volume..."
