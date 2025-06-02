@@ -61,7 +61,7 @@ stages:
       inputs:
         filePath: .build-tools/publish.ps1 
         arguments: >
-          "$(System.AccessToken)"
+          '$(System.AccessToken)'
           "$(System.DefaultWorkingDirectory)/${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1"
           "$(Build.BuildNumber)"
           "$(destination)"
