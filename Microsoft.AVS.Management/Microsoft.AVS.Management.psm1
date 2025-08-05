@@ -1420,119 +1420,259 @@ function Set-ToolsRepo {
     param(
         [Parameter(Mandatory = $true,
             HelpMessage = 'A publicly available HTTP(S) URL to download the Tools zip file.')]
+        [ValidateNotNullOrEmpty()]
+        [ValidatePattern('^https?://')]
         [String]
         $Tools_URL
     )
 
-    # Tools repo folder
+    # Initialize variables
     $new_folder = 'GuestStore'
-    # To check for existing tools versions
     $archive_path = '/vmware/apps/vmtools/windows64/'
+    $tmp_dir = $null
+    $currentPSDrive = $null
+    $successfulDatastores = @()
+    $failedDatastores = @()
 
-    # Make new directory to store and expand the zip file
-    $tmp_dir = New-Item -Path "./newtools" -ItemType Directory
-    $tools_file = "$tmp_dir/tools.zip"
-    # Download the new tools files
-    Invoke-WebRequest -Uri $tools_url -OutFile $tools_file -ErrorAction Stop
-    Expand-Archive -Path $tools_file -DestinationPath $tmp_dir -ErrorAction Stop
+    # Main execution wrapped in try-catch-finally
+    try {
+        Write-Verbose "Starting Set-ToolsRepo with URL: $Tools_URL"
 
-    $tools_path_new = "${tmp_dir}${archive_path}vmtools-*"
-    $tools_version = (Get-ChildItem -Path $tools_path_new -Directory).name
-    if ( $nill -eq $tools_version ) {
-        Write-Error -Message 'Unable to find new tools files. Is this a GuestStore bundle?'
-        throw 'Unable to find new tools files'
-    }
-
-    $tools_short_version = $tools_version -replace 'vmtools-', ''
-
-    # Get all vSAN datastores
-    $datastores = Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq 'vsan' }
-
-    if ( $nill -eq $datastores ) {
-        Write-Error -Message 'No VSAN datastores found'
-        throw 'No VSAN datastores found'
-    }
-
-    foreach ($datastore in $datastores) {
-        # In case one is left over
-        Remove-PSDrive -Name DS -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-
-        # Get datastore name
-        $ds_name = $datastore.Name
-
-        # Get ID of the vsanDatastore requested
-        $ds_id = Get-Datastore -Name $ds_name | Select-Object -Property Id
-
-        # Create the PS drive
-        New-PSDrive -Location $datastore -Name DS -PSProvider VimDatastore -Root '\' | Out-Null
-
-        # Does repo folder exist?
-        $Dsbrowser = Get-View -Id $Datastore.Extensiondata.Browser
-        $spec = New-Object VMware.Vim.HostDatastoreBrowserSearchSpec
-        $spec.Query += New-Object VMware.Vim.FolderFileQuery
-        $folderObj = ($dsBrowser.SearchDatastore("[$ds_name] \", $spec)).File | Where-Object { $_.FriendlyName -eq $new_folder }
-
-        # If not, create it
-        If ($nil -eq $folderObj) {
-            New-Item -ItemType Directory -Path "DS:/$new_folder"
-            # Recheck
-            $folderObj = ($dsBrowser.SearchDatastore("[$ds_name] \", $spec)).File | Where-Object { $_.FriendlyName -eq $new_folder }
-            If ($nil -eq $folderObj) {
-                Write-Error -Message "Folder creation failed on $ds_name"
-                throw "Folder creation failed on $ds_name"
+        # Validate URL accessibility
+        try {
+            $webResponse = Invoke-WebRequest -Uri $Tools_URL -Method Head -TimeoutSec 30 -ErrorAction Stop
+            if ($webResponse.StatusCode -ne 200) {
+                throw "URL returned status code: $($webResponse.StatusCode)"
             }
-            else {
-                Write-Information "Folder creation successful on $ds_name"
-            }
+        } catch {
+            throw "Unable to access the provided URL: $_"
         }
 
-        # See what Tools versions are already present
-        $existing_dirs = Get-ChildItem "DS:/$new_folder/$archive_path"
-        $do_not_copy = $false
-        foreach ($existing_dir in $existing_dirs) {
-            if ( $existing_dir.GetType() -match 'folder') {
-                $ver = $existing_dir.Name -replace 'vmtools-', ''
-                $tools_older_version = ($ver -ge $tools_short_version) ? $ver : $nil
-                if ($nil -ne $tools_older_version) {
-                    $do_not_copy = $true
+        # Create temporary directory with error handling
+        try {
+            $tmp_dir = New-Item -Path "./newtools_$(Get-Date -Format 'yyyyMMddHHmmss')" -ItemType Directory -ErrorAction Stop
+            Write-Verbose "Created temporary directory: $tmp_dir"
+        } catch {
+            throw "Failed to create temporary directory: $_"
+        }
+
+        $tools_file = Join-Path -Path $tmp_dir -ChildPath "tools.zip"
+
+        # Download the tools file with progress
+        try {
+            Write-Information "Downloading tools from $Tools_URL..." -InformationAction Continue
+            $ProgressPreference = 'Continue'
+            Invoke-WebRequest -Uri $Tools_URL -OutFile $tools_file -ErrorAction Stop
+
+            # Validate downloaded file
+            if (-not (Test-Path -Path $tools_file)) {
+                throw "Downloaded file not found at expected location"
+            }
+
+            $fileSize = (Get-Item $tools_file).Length
+            if ($fileSize -eq 0) {
+                throw "Downloaded file is empty"
+            }
+
+            Write-Verbose "Downloaded file size: $($fileSize / 1MB) MB"
+        } catch {
+            throw "Failed to download tools file: $_"
+        }
+
+        # Extract the archive
+        try {
+            Write-Information "Extracting tools archive..." -InformationAction Continue
+            Expand-Archive -Path $tools_file -DestinationPath $tmp_dir -Force -ErrorAction Stop
+        } catch {
+            throw "Failed to extract tools archive: $_"
+        }
+
+        # Find and validate tools version
+        $tools_path_new = Join-Path -Path $tmp_dir -ChildPath "${archive_path}vmtools-*"
+        $tools_directories = Get-ChildItem -Path $tools_path_new -Directory -ErrorAction SilentlyContinue
+
+        if ($null -eq $tools_directories -or $tools_directories.Count -eq 0) {
+            throw "Unable to find vmtools directory in the extracted archive. Is this a valid GuestStore bundle?"
+        }
+
+        $tools_version = $tools_directories[0].Name
+        $tools_short_version = $tools_version -replace 'vmtools-', ''
+        Write-Information "Found tools version: $tools_version" -InformationAction Continue
+
+        # Get vSAN datastores with error handling
+        try {
+            $datastores = Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq 'vsan' }
+
+            if ($null -eq $datastores -or $datastores.Count -eq 0) {
+                throw "No vSAN datastores found in the environment"
+            }
+
+            Write-Information "Found $($datastores.Count) vSAN datastore(s)" -InformationAction Continue
+        } catch {
+            throw "Failed to retrieve vSAN datastores: $_"
+        }
+
+        # Process each datastore
+        foreach ($datastore in $datastores) {
+            $ds_name = $datastore.Name
+            Write-Information "Processing datastore: $ds_name" -InformationAction Continue
+
+            try {
+                # Ensure any existing PSDrive is removed
+                if (Get-PSDrive -Name DS -ErrorAction SilentlyContinue) {
+                    Remove-PSDrive -Name DS -Force -ErrorAction SilentlyContinue
+                }
+
+                # Create PS drive with error handling
+                try {
+                    $currentPSDrive = New-PSDrive -Location $datastore -Name DS -PSProvider VimDatastore -Root '\' -ErrorAction Stop
+                } catch {
+                    throw "Failed to create PSDrive for datastore $ds_name : $_"
+                }
+
+                # Check if repo folder exists
+                try {
+                    $Dsbrowser = Get-View -Id $Datastore.Extensiondata.Browser -ErrorAction Stop
+                    $spec = New-Object VMware.Vim.HostDatastoreBrowserSearchSpec
+                    $spec.Query += New-Object VMware.Vim.FolderFileQuery
+                    $searchResult = $dsBrowser.SearchDatastore("[$ds_name] \", $spec)
+                    $folderObj = $searchResult.File | Where-Object { $_.FriendlyName -eq $new_folder }
+                } catch {
+                    throw "Failed to browse datastore $ds_name : $_"
+                }
+
+                # Create folder if it doesn't exist
+                if ($null -eq $folderObj) {
+                    try {
+                        New-Item -ItemType Directory -Path "DS:/$new_folder" -ErrorAction Stop | Out-Null
+                        Write-Information "Created $new_folder directory on $ds_name" -InformationAction Continue
+                    } catch {
+                        throw "Failed to create $new_folder directory on $ds_name : $_"
+                    }
+
+                    # Verify folder creation
+                    $searchResult = $dsBrowser.SearchDatastore("[$ds_name] \", $spec)
+                    $folderObj = $searchResult.File | Where-Object { $_.FriendlyName -eq $new_folder }
+
+                    if ($null -eq $folderObj) {
+                        throw "Folder verification failed after creation on $ds_name"
+                    }
+                }
+
+                # Check existing tools versions
+                $do_not_copy = $false
+                $tools_path = "DS:/$new_folder/$archive_path"
+
+                if (Test-Path -Path $tools_path) {
+                    try {
+                        # $existing_dirs = Get-ChildItem -Path $tools_path -Directory -ErrorAction Stop
+                        $existing_dirs = Get-ChildItem -Path $tools_path -ErrorAction Stop | Where-Object Name -Match vmtools
+
+                        foreach ($existing_dir in $existing_dirs) {
+                            $ver = $existing_dir.Name -replace 'vmtools-', ''
+                            if ([version]$ver -ge [version]$tools_short_version) {
+                                $do_not_copy = $true
+                                Write-Information "Found newer or equal version ($ver) on $ds_name" -InformationAction Continue
+                                break
+                            }
+                        }
+                    } catch {
+                        Write-Warning "Failed to check existing versions on $ds_name : $_"
+                        # Continue with copy operation if we can't verify existing versions
+                    }
+                }
+
+                # Copy files if needed
+                if (-not $do_not_copy) {
+                    try {
+                        Write-Information "Copying $tools_version to $ds_name..." -InformationAction Continue
+                        # $sourcePath = $tools_directories[0].ResolvedTarget
+                        Copy-DatastoreItem -Item "$tmp_dir/vmware" -Destination "DS:/$new_folder" -Recurse -Force -ErrorAction Stop
+                        Write-Information "Successfully copied tools to $ds_name" -InformationAction Continue
+                    } catch {
+                        throw "Failed to copy tools to $ds_name : $_"
+                    }
+                }
+
+                # Configure hosts
+                $url = ($datastore.ExtensionData.Summary.Url) + "$new_folder"
+
+                # Get hosts with proper error handling
+                try {
+                    $ds_id = $datastore.Id
+                    $vmhosts = Get-VMHost -ErrorAction Stop | Where-Object {
+                        $_.ExtensionData.Datastore.value -contains ($ds_id.Split('-', 2)[1])
+                    }
+
+                    if ($null -eq $vmhosts -or $vmhosts.Count -eq 0) {
+                        throw "No hosts found for datastore $ds_name"
+                    }
+
+                    Write-Information "Configuring $($vmhosts.Count) host(s) for datastore $ds_name" -InformationAction Continue
+                } catch {
+                    throw "Failed to retrieve hosts for datastore $ds_name : $_"
+                }
+
+                # Configure each host
+                $failedHosts = @()
+                foreach ($vmhost in $vmhosts) {
+                    try {
+                        $esxcli = Get-EsxCli -V2 -VMHost $vmhost -ErrorAction Stop
+                        Write-Verbose "Setting GuestStore repository for host: $vmhost"
+
+                        $arguments = $esxcli.system.settings.gueststore.repository.set.CreateArgs()
+                        $arguments.url = $url
+                        $result = $esxcli.system.settings.gueststore.repository.set.invoke($arguments)
+
+                        if ($result -eq $false) {
+                            throw "ESXCLI command returned false"
+                        }
+
+                        Write-Information "Successfully configured host: $vmhost" -InformationAction Continue
+                    } catch {
+                        Write-Warning "Failed to configure host $vmhost : $_"
+                        $failedHosts += $vmhost.Name
+                    }
+                }
+
+                if ($failedHosts.Count -gt 0) {
+                    throw "Failed to configure hosts: $($failedHosts -join ', ')"
+                }
+
+                $successfulDatastores += $ds_name
+            } catch {
+                Write-Error "Error processing datastore $ds_name : $_"
+                $failedDatastores += $ds_name
+            } finally {
+                # Always clean up PSDrive
+                if (Get-PSDrive -Name DS -ErrorAction SilentlyContinue) {
+                    Remove-PSDrive -Name DS -Force -ErrorAction SilentlyContinue
                 }
             }
         }
 
-        # If there is a newer version already present, skip the copy
-        if ($do_not_copy) {
-            Write-Information "Skipping copy of $tools_version to $ds_name as there is a newer version already present" -InformationAction Continue
+        # Summary report
+        Write-Information "`n=== Summary ===" -InformationAction Continue
+        if ($successfulDatastores.Count -gt 0) {
+            Write-Information "Successfully processed datastores: $($successfulDatastores -join ', ')" -InformationAction Continue
         }
-        else {
-            Write-Information "Copying $tools_version to $ds_name"
-            Copy-DatastoreItem -Item "./${tools_version}/*" "DS:/$new_folder" -Recurse -Force
-        }
-
-        # Reset the do_not_copy flag
-        $do_not_copy = $false
-
-        # Remove the PS drive
-        Remove-PSDrive -Name DS -Confirm:$false
-
-        $url = ($datastore.ExtensionData.Summary.Url) + "$new_folder"
-
-        # Get all hosts that have this vSAN datastore mounted
-        $vmhosts = Get-VMHost | Where-Object { $_.ExtensionData.Datastore.value -eq ($ds_id.Id).Split('-', 2)[1] }
-        if ($nil -eq $vmhosts) {
-            Write-Error -Message "No hosts found for datastore $ds_name"
-            throw "No hosts found for datastore $ds_name"
+        if ($failedDatastores.Count -gt 0) {
+            Write-Warning "Failed datastores: $($failedDatastores -join ', ')"
         }
 
-        foreach ( $vmhost in $vmhosts ) {
-            $esxcli = Get-EsxCli -V2 -VMHost $vmhost
-            Write-Information "Setting the GuestStore repository setting for host: $vmhost"
-            $arguments = $esxcli.system.settings.gueststore.repository.set.CreateArgs()
-            $arguments.url = $Url
-            $esxcli.system.settings.gueststore.repository.set.invoke($arguments)
+        if ($failedDatastores.Count -eq $datastores.Count) {
+            throw "Failed to process any datastores successfully"
+        }
+    } catch {
+        Write-Error "Set-ToolsRepo failed: $_"
+        throw
+    } finally {
+        # Ensure PSDrive is removed
+        if (Get-PSDrive -Name DS -ErrorAction SilentlyContinue) {
+            Remove-PSDrive -Name DS -Force -ErrorAction SilentlyContinue
         }
     }
 }
-
 <#
 .Synopsis
     Set vSAN compression and deduplication on a cluster or clusters. If deduplication is enabled then compression is required.
