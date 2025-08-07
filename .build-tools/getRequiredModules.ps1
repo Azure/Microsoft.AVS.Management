@@ -7,13 +7,12 @@ $c =  [PSCredential]::new("ado", ($accessToken | ConvertTo-SecureString -AsPlain
 # https://github.com/PowerShell/PSResourceGet/issues/1777
 Install-PSResource Microsoft.PowerShell.PSResourceGet -Version 1.1.1 -Repository ConsumptionV3 -Credential $c
 
-$requiredModules = (Test-ModuleManifest "$psdPath" -ErrorAction SilentlyContinue).RequiredModules
+$requiredModules = @((Test-ModuleManifest "$psdPath" -ErrorAction SilentlyContinue).RequiredModules | select -Property Name, Version)
+$requiredModules += @(
+    @{ Name = "PSScriptAnalyzer"; Version = "1.21.0" }
+    @{ Name = "Pester"; Version = "5.7.1" }
+)
 foreach ($module in $requiredModules) {
-    $targetModule = $($module.Name)
-    $targetVersion = $($module.Version)
-    Write-Host "Installing $targetModule-$targetVersion ...."
-    Install-Module $targetModule -RequiredVersion $targetVersion -Repository Consumption -Credential $c
+    Write-Host "Installing $($module.Name)@$($module.Version) ...."
+    Find-PSResource $module.Name -Version $module.Version -IncludeDependencies -Repository Consumption -Credential $c | Install-PSResource -Verbose -SkipDependencyCheck -Credential $c
 }
-
-Install-Module PSScriptAnalyzer -RequiredVersion 1.21.0 -Repository Consumption -Credential $c
-Install-Module Pester -SkipPublisherCheck -MinimumVersion 5.0 -Repository Consumption -Credential $c
