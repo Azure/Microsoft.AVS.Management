@@ -5,7 +5,9 @@ param (
 )
 Unregister-PSRepository -Name PSGallery
 Unregister-PSResourceRepository -Name PSGallery
+
 Register-PackageSource -Name Consumption -Trusted -ProviderName PowerShellGet -Location "$consumptionFeed/nuget/v2"
+Register-PSResourceRepository -Name Consumption -Trusted -Uri "$consumptionFeed/nuget/v2"
 Register-PSResourceRepository -Name ConsumptionV3 -Trusted -Uri "$consumptionFeed/nuget/v3/index.json"
 
 # if preview feed is a temp folder
