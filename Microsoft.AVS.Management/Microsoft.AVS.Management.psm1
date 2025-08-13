@@ -143,6 +143,7 @@ function Get-UnassociatedVsanObjectsWithPolicy {
     }
 
     try {
+		#VsanQueryObjectIdentities(Cluster, objUuids, objTypes, includeHealth, includeObjIdentity, includeSpaceSummary))
         $unassociatedObjects = ($vsanClusterObjectSys.VsanQueryObjectIdentities($clusterMoRef, $null, $null, $false, $true, $false)).Identities | Where-Object { $null -eq $_.Vm }
     }
     catch {
@@ -235,7 +236,8 @@ function Update-StoragePolicyOfUnassociatedVsanObjects {
         return
     }
 
-    try {												
+    try {
+	    #VsanQueryObjectIdentities(Cluster, objUuids, objTypes, includeHealth, includeObjIdentity, includeSpaceSummary))
         $unassociatedObjects = ($vsanClusterObjectSys.VsanQueryObjectIdentities($clusterMoRef, $null, $null, $false, $true, $false)).Identities | Where-Object { $null -eq $_.Vm }
     }
     catch {
