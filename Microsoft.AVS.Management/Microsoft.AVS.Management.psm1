@@ -9,7 +9,12 @@ function Get-Certificates {
         [Parameter(
             Mandatory = $true)]
         [System.Security.SecureString]
-        $SSLCertificatesSasUrl
+        $SSLCertificatesSasUrl,
+        [Parameter(
+            Mandatory = $false)]
+        [ValidateNotNull()]
+        [bool]
+        $ForDebug = $false
     )
 
     [string] $CertificatesSASPlainString = ConvertFrom-SecureString -SecureString $SSLCertificatesSasUrl -AsPlainText
@@ -27,7 +32,11 @@ function Get-Certificates {
     foreach ($CertSas in $CertificatesSASList) {
         Write-Host "Downloading Cert $Index..."
         $CertDir = $pwd.Path
-        $CertLocation = "$CertDir/cert$Index.cer"
+        if ($ForDebug) {
+            $CertLocation = "$CertDir/debug_cert$Index.cer"
+        } else {
+            $CertLocation = "$CertDir/cert$Index.cer"
+        }
         try {
             $Response = Invoke-WebRequest -Uri $CertSas -OutFile $CertLocation
             $StatusCode = $Response.StatusCode
@@ -90,6 +99,142 @@ function Set-StoragePolicyOnVM {
     }
     catch {
         Write-Error "Was not able to set the storage policy on $($VM.Name): $($PSItem.Exception.Message)"
+    }
+}
+<#
+    .Synopsis
+     Verifies connectivity to an external LDAP(S) identity source before adding it to vCenter.
+
+    .Parameter url
+     Url of the ldap server to attempt to connect to, e.g. ldap://myadserver.local:389.
+#>
+function Initialize-LDAPSIdentitySourcesConnectivityTest {
+    param (
+        [Parameter(
+            Mandatory = $true)]
+        [ValidateNotNull()]
+        [string]
+        $Url,
+        [Parameter(
+            Mandatory = $true)]
+        [ValidateNotNull()]
+        [bool]
+        $ForDebug
+
+    )
+    Write-Host "* Checking LDAP(S) URL: $Url"
+
+    # Check URL looks okay:
+    # i.e. ldaps://ldap1.ldap.avs.azure.com
+    try {
+        $ResultUrl = Assert-ADServerURL $Url
+        $ldap_protocol = $ResultUrl.Scheme
+        $ldap_hostname = $ResultUrl.Host
+        $ldap_portspec = $ResultUrl.Port
+        Write-Host "  LDAP Protocol:        $ldap_protocol"
+        Write-Host "  LDAP Server Hostname: $ldap_hostname"
+        Write-Host "  LDAP Port Specified:  $ldap_portspec"
+
+        # Check if the LDAP hostname is in /etc/hosts
+        if ($ForDebug) {
+            try {
+                $Command = "grep $ldap_hostname /etc/hosts"
+                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+            }
+            catch {
+                throw "ERROR: Unable to execute grep command on vCenter."
+            }
+            $SSHOutput = $SSHRes.Output | out-string
+            Write-Host "* vCenter /etc/hosts hostname resolution check returned: $SSHOutput"
+        }
+
+        # dns lookup
+        try {
+            $Command = 'nslookup ' + $ResultUrl.Host + ' -type=soa'
+            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+            if ($SSHRes.ExitStatus -ne 0) { throw "$($SSHRes.Output)" }
+            $IPAddress = $SSHRes.Output | Select-String "Address:" | Where-Object { $_ -notmatch "#" } | ForEach-Object { $_.ToString().Split()[1] } | Select-Object -First 1
+            if (-Not ($IPAddress -as [ipaddress])) { throw "The FQDN $($ResultUrl.Host) failed to resolved to an IP address or incorrect IP format. Make sure DNS is configured correctly." }
+        }
+        catch {
+            throw "The FQDN $($ResultUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured. $_"
+        }
+        Write-Host "* The FQDN $($ResultUrl.Host) is resolved successfully."
+
+        # Reverse dns lookup
+        try {
+            $Command = 'nslookup ' + $IPAddress
+            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+            if ($SSHRes.ExitStatus -ne 0) { throw "The FQDN $($ResultUrl.Host) is resolved successfully but the IP address $($IPAddress) does not have a corresponding DNS PTR (pointer) record, which is used for reverse DNS lookups. Make sure DNS is configured. $($SSHRes.Output)" }
+        }
+        catch {
+            Write-Warning "* The FQDN $($ResultUrl.Host) failed to do a reverse DNS lookup. $_ For reverse lookup to work, DEFAULT zone in NSX-T DNS forwarder must be set to query a DNS server that can resolve reverse DNS lookup of $($ResultUrl.Host). Reverse lookup may not be required for LDAPS configuration."
+        }
+
+        # Now let's look at the port numbers
+        if($ldap_portspec -ne "" -and $ldap_portspec -match '^\d+$') {
+            $ldap_port = $ldap_portspec
+            Write-Host "  LDAP Port number:      $ldap_port"
+        } else {
+            switch($ldap_protocol) {
+                "ldap"  {$ldap_port = 389}
+                "ldaps" {$ldap_port = 636}
+                "default" {$ldap_port = -1}
+            }
+            Write-Host "* LDAP Port to test:    $ldap_port"
+        }
+
+        # Call NetCat to test if the LDAP port is open
+        try {
+            $Command = "nc -vz $ldap_hostname $ldap_port"
+            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+        }
+        catch {
+            throw "ERROR: Unable to execute nc command on vCenter. Please check the address, routing and/or firewall and make sure port $ldap_port is open. $_"
+        }
+        Write-Host "* Port check returned: $($SSHRes.Output)"
+        if($SSHRes.ExitStatus -eq 1) {
+            Write-Error "* vCenter-to-LDAP TCP test FAILED."
+
+            # Netcat failed to access the TCP port.
+            # Let's have vCenter ping the LDAP server (even though ICMP isn't required)"
+            try {
+                $Command = "ping -c 3 $ldap_hostname"
+                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+            }
+            catch {throw "ERROR: Unable to execute ping command on vCenter."}
+            Write-Host "* vCenter-to-LDAP Ping test returned:"
+            Write-Host "$($SSHRes.Output | out-string)"
+
+            if($($SSHRes.Output | Out-String) -match " (?<percentage>[0-9]+)% packet loss") {
+                $ping_loss = $Matches.percentage
+                if($ping_loss -eq "0") {
+                    Write-Host "* vCenter was able to ping the LDAP server without a problem."
+                } elseif($ping_loss -eq "100") {
+                    Write-Error "* vCenter was unable to ping LDAP server."
+
+                    # Okay, this is bad. vCenter can't contact the LDAP server with TCP
+                    # nor ping, so let's do a traceroute for the network folks to look at:
+                    try {
+                        $Command = "traceroute $ldap_hostname"
+                        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
+                    }
+                    catch {throw "ERROR: Unable to execute traceroute command on vCenter."}
+                    Write-Host "* vCenter-to-LDAP Traceroute test returned:"
+                    Write-Host "$($SSHRes.Output | out-string)"
+                } else {
+                    Write-Warning "* Partial packet loss pinging LDAP server."
+                }
+            } else {
+                Write-Error "* Unable to interpret ping results."
+            }
+        } elseif($SSHRes.ExitStatus -eq 0) {
+            Write-Host "* vCenter-to-LDAP TCP test successful. Port is open."
+        } else {
+            Write-Error "* vCenter-to-LDAP TCP test failed with result code $($SSHRes.ExitStatus)."
+        }
+    } catch {
+        Write-Error "URL $url does not look like an LDAP URL. $_"
     }
 }
 
@@ -293,7 +438,12 @@ function Get-CertificateFromServerToLocalFile {
             Mandatory = $true)]
         [ValidateNotNull()]
         [string[]]
-        $remoteComputers
+        $remoteComputers,
+        [Parameter(
+            Mandatory = $false)]
+        [ValidateNotNull()]
+        [bool]
+        $forDebug = $false
     )
 
     $DestinationFileArray = @()
@@ -318,6 +468,11 @@ function Get-CertificateFromServerToLocalFile {
         else {
             $certs = select-string -inputobject $SSHOutput -pattern "(?s)(?<cert>-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)" -allmatches
             $cert = $certs.matches[0]
+            if ($forDebug) {
+                $exportPath = $exportFolder + "debug_" + ($ResultUrl.Host.split(".")[0]) + ".cer"
+            } else {
+                $exportPath = $exportFolder + ($ResultUrl.Host.split(".")[0]) + ".cer"
+            }
             $exportPath = $exportFolder + ($ResultUrl.Host.split(".")[0]) + ".cer"
             $cert.Value | Out-File $exportPath -Encoding ascii
             $DestinationFileArray += $exportPath
@@ -337,140 +492,127 @@ function Get-CertificateFromServerToLocalFile {
 #>
 function Debug-LDAPSIdentitySources {
     [AVSAttribute(2, UpdatesSDDC = $false)]
-    Param()
+    Param(
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'Optional: URL of your unregiestered AD Server: ldaps://yourserver:636')]
+        [string]
+        $PrimaryUrl,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'Optional: URL of an unregiestered backup server')]
+        [string]
+        $SecondaryUrl,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'Optional: The certs will be installed from domain controllers if not specified. A comma-delimited list of SAS path URI to Certificates for authentication. Ensure permissions to read included. To generate, place the certificates in any storage account blob and then right click the cert and generate SAS')]
+        [System.Security.SecureString]
+        $SSLCertificatesSasUrl
+    )
     Write-Host "*"
     Write-Host "* LDAP Identity Source Diagnostic Test Tool (ldapcheck)"
     Write-Host "* Executed at $((Get-Date).ToUniversalTime())"
     Write-Host "*"
 
-    $sources = Get-IdentitySource -External -ErrorAction Stop
-    $sources | ForEach-Object {
-        if(($_.Type -eq "OpenLdap") -or ($_.Type -eq "ActiveDirectory")) {
-
-            Write-Host "* -------------------------------------------------------------"
-            Write-Host "* OpenLDAP Identity Source $($_.Name) detected."
-
-            $urls = @()
-            if(-not ($null -eq $_.PrimaryUrl)) {
-                $urls += $_.PrimaryUrl
-                Write-Host "* The Primary URL is  $($_.PrimaryUrl)."
-            }
-            if(-not ($null -eq $_.FailoverUrl)) {
-                $urls += $_.FailoverUrl
-                Write-Host "* The Failover URL is $($_.FailoverUrl)."
-            }
-
-            foreach($url in $urls) {
-                Write-Host "* Checking LDAP URL: $url"
-
-                # Check URL looks okay:
-                # i.e. ldaps://ldap1.ldap.avs.azure.com
-                try {
-                    $ResultUrl = Assert-ADServerURL $url
-                    $ldap_protocol = $ResultUrl.Scheme
-                    $ldap_hostname = $ResultUrl.Host
-                    $ldap_portspec = $ResultUrl.Port
-                    Write-Host "  LDAP Protocol:        $ldap_protocol"
-                    Write-Host "  LDAP Server Hostname: $ldap_hostname"
-                    Write-Host "  LDAP Port Specified:  $ldap_portspec"
-
-                    # Check if the LDAP hostname is in /etc/hosts
-                    try {
-                        $Command = "grep $ldap_hostname /etc/hosts"
-                        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-                    }
-                    catch {
-                        throw "ERROR: Unable to execute grep command on vCenter."
-                    }
-                    $SSHOutput = $SSHRes.Output | out-string
-                    Write-Host "* vCenter /etc/hosts hostname resolution check returned: $SSHOutput"
-
-                    # Call Host to check DNS resolution of LDAP server from vCenter"
-                    try {
-                        $Command = "host $ldap_hostname"
-                        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-                    }
-                    catch {throw "ERROR: Unable to execute host command on vCenter."}
-                    Write-Host "* vCenter DNS hostname resolution check returned: $($SSHRes.Output)"
-
-                    # Now let's look at the port numbers
-                    if($ldap_portspec -ne "") {
-                        $ldap_port = $ldap_portspec -match ":([0-9]+)"
-                        Write-Host "  LDAP Port number:      $ldap_port"
-                    } else {
-                        switch($ldap_protocol) {
-                            "ldap"  {$ldap_port = 389}
-                            "ldaps" {$ldap_port = 636}
-                            "default" {$ldap_port = -1}
-                        }
-                        Write-Host "* LDAP Port to test:    $ldap_port"
-                    }
-
-                    # Call NetCat to test if the LDAP port is open
-                    try {
-                        $Command = "nc -vz $ldap_hostname $ldap_port"
-                        $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-                    }
-                    catch {throw "ERROR: Unable to execute nc command on vCenter."}
-
-                    if($SSHRes.ExitStatus -eq 1) {
-                        Write-Error "* vCenter-to-LDAP TCP test FAILED."
-
-                        # Netcat failed to access the TCP port.
-                        # Let's have vCenter ping the LDAP server (even though ICMP isn't required)"
-                        try {
-                            $Command = "ping -c 3 $ldap_hostname"
-                            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-                        }
-                        catch {throw "ERROR: Unable to execute ping command on vCenter."}
-                        Write-Host "* vCenter-to-LDAP Ping test returned:"
-                        Write-Host "$($SSHRes.Output | out-string)"
-
-                        if($($SSHRes.Output | Out-String) -match " (?<percentage>[0-9]+)% packet loss") {
-                            $ping_loss = $Matches.percentage
-                            if($ping_loss -eq "0") {
-                                Write-Host "* vCenter was able to ping the LDAP server without a problem."
-                            } elseif($ping_loss -eq "100") {
-                                Write-Error "* vCenter was unable to ping LDAP server."
-
-                                # Okay, this is bad. vCenter can't contact the LDAP server with TCP
-                                # nor ping, so let's do a traceroute for the network folks to look at:
-                                try {
-                                    $Command = "traceroute $ldap_hostname"
-                                    $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-                                }
-                                catch {throw "ERROR: Unable to execute traceroute command on vCenter."}
-                                Write-Host "* vCenter-to-LDAP Traceroute test returned:"
-                                Write-Host "$($SSHRes.Output | out-string)"
-                            } else {
-                                Write-Warning "* Partial packet loss pinging LDAP server."
-                            }
-                        } else {
-                            Write-Error "* Unable to interpret ping results."
-                        }
-                    } elseif($SSHRes.ExitStatus -eq 0) {
-                        Write-Host "* vCenter-to-LDAP TCP test successful. Port is open."
-
-                        if($ldap_protocol -eq "ldaps") {
-                            Write-Host "* Attempting SSL Connect test."
-                            # Netcat says the TCP port is open, so let's attempt an SSL connection:
-                            try {
-                                $Command = "openssl s_client -connect $($ldap_hostname):$($ldap_port) -showcerts < /dev/null"
-                                $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-                            }
-                            catch {throw "ERROR: Unable to execute openssl command on vCenter."}
-                            Write-Host "* SSL connect test returned:"
-                            Write-Host "$($SSHRes.Output | out-string)"
-                        }
-                    } else {
-                        Write-Error "* vCenter-to-LDAP TCP test failed with result code $($SSHRes.ExitStatus)."
-                    }
-                } catch {
-                    Write-Error "URL $url does not look like an LDAP URL. $_"
-                }
-            }
+    
+    $urls = @()
+    if ($PSBoundParameters.ContainsKey('PrimaryUrl')) {
+        Write-Host "* -------------------------------------------------------------"
+        Write-Host "* Starting LDAP Identity Source Diagnostic Test for Unregistered Identity Sources."
+        $urls += $PrimaryUrl
+        Write-Host "* The Primary URL is $PrimaryUrl."
+        if ($PSBoundParameters.ContainsKey('SecondaryUrl')) {
+            $urls += $SecondaryUrl
+            Write-Host "* The Failover URL is $SecondaryUrl."
         }
     }
+    else {
+        $sources = Get-IdentitySource -External -ErrorAction Stop
+        $sources | ForEach-Object {
+            if(($_.Type -eq "OpenLdap") -or ($_.Type -eq "ActiveDirectory")) {
+
+                    Write-Host "* -------------------------------------------------------------"
+                    Write-Host "* OpenLDAP Identity Source $($_.Name) detected. Starting LDAP Identity Source Diagnostic Test for Registered Identity Sources."
+
+                    if(-not ($null -eq $_.PrimaryUrl)) {
+                        $urls += $_.PrimaryUrl
+                        Write-Host "* The Primary URL is  $($_.PrimaryUrl)."
+                    }
+                    if(-not ($null -eq $_.FailoverUrl)) {
+                        $urls += $_.FailoverUrl
+                        Write-Host "* The Failover URL is $($_.FailoverUrl)."
+                    }
+                }
+            }
+    }
+
+    if ($urls.Count -eq 0) {
+        Write-Error "* No Primary URL or Identity Sources found. Please add a Primary URL or an identity source before running this script." -ErrorAction Stop
+    }
+    else {
+        Write-Host "* Found $($urls.Count) OpenLDAP or Active Directory Identity Sources: $($urls -join ', ')."
+    }
+
+
+    foreach($url in $urls) {
+        Initialize-LDAPSIdentitySourcesConnectivityTest $url $true
+    }
+
+    Write-Host "* Attempting SSL Connect test."
+    if ($PSBoundParameters.ContainsKey('SSLCertificatesSasUrl')) {
+        $DestinationFileArray = Get-Certificates -SSLCertificatesSasUrl $SSLCertificatesSasUrl $true -ErrorAction Stop
+    }
+    else {
+        $DestinationFileArray = Get-CertificateFromServerToLocalFile $urls $true
+    }
+
+    [System.Array]$Certificates =
+    foreach ($certFile in $DestinationFileArray) {
+        try {
+            New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certFile)
+        }
+        catch {
+            Write-Error "* Failure to convert file $certFile to a certificate $($PSItem.Exception.Message)"
+            throw "* File to certificate conversion failed. See error message for more details"
+        }
+    }
+
+    if ($Certificates.Count -eq 0) {
+        Write-Error "* No certificates was downloaded. Please ensure the SAS URL is correct or the certificates are present in the Domain Controller." -ErrorAction Stop
+    }
+
+    # check if the certicates expire or not
+    foreach ($cert in $Certificates) {
+        $currentDate = Get-Date
+        Write-Host "Verifying certificate: $($cert.Subject)"
+        if (($cert.NotBefore -lt $currentDate) -and ($cert.NotAfter -gt $currentDate)) {
+            Write-Host "* The certificate is current."
+        } else {
+            Write-Error "* The certificate is not current. It's only valid between $($cert.NotBefore) and $($cert.NotAfter)." -ErrorAction Stop
+        }
+    }
+
+
+    # check if certs in vCenter and DC are the same 
+    Write-Host "* Checking if certificates in vCenter match the certificates from Domain Controller."
+    for ($i = 0; $i -lt $DestinationFileArray.size; $i++) {
+        try {
+            $certFile = $DestinationFileArray[$i]
+            $certName = $certFile.Name                    
+            $originalCertName = $certName.Replace('debug_', '')   
+            $CertDir = $pwd.Path + "/" + $originalCertName
+
+            if (-not (Test-Path -LiteralPath $CertDir)) { throw "Not found: $CertDir in vCenter. Make sure the certificate is present in vCenter." }
+            let originalCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($CertDir)
+            if ($Certificates[$i].Thumbprint -ne $originalCert.Thumbprint) { throw "The cert in vCenter is not the same as the original cert for Domain Controller; $($Certificates[$i].Subject)" }
+        }
+        catch {
+            Write-Error "* The certificates do not match: $($_.Exception.Message)"
+        }
+    }    
+
     Write-Host "* Script terminated at $((Get-Date).ToUniversalTime())"
 }
 
@@ -609,40 +751,7 @@ function New-LDAPSIdentitySource {
 
     # check the connection between domain servers and the vcenter
     foreach ($computerUrl in $remoteComputers) {
-        $ResultUrl = Assert-ADServerURL $computerUrl
-        # dns lookup
-        try {
-            $Command = 'nslookup ' + $ResultUrl.Host + ' -type=soa'
-            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-            if ($SSHRes.ExitStatus -ne 0) { throw "$($SSHRes.Output)" }
-            $IPAddress = $SSHRes.Output | Select-String "Address:" | Where-Object { $_ -notmatch "#" } | ForEach-Object { $_.ToString().Split()[1] } | Select-Object -First 1
-            if (-Not ($IPAddress -as [ipaddress])) { throw "The FQDN $($ResultUrl.Host) failed to resolved to an IP address or incorrect IP format. Make sure DNS is configured correctly." }
-        }
-        catch {
-            throw "The FQDN $($ResultUrl.Host) cannot be resolved to an IP address. Make sure DNS is configured. $_"
-        }
-        Write-Host "The FQDN $($ResultUrl.Host) is resolved successfully."
-        # reverse dns lookup
-        try {
-            $Command = 'nslookup ' + $IPAddress
-            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-            if ($SSHRes.ExitStatus -ne 0) { throw "The FQDN $($ResultUrl.Host) is resolved successfully but the IP address $($IPAddress) does not have a corresponding DNS PTR (pointer) record, which is used for reverse DNS lookups. Make sure DNS is configured. $($SSHRes.Output)" }
-        }
-        catch {
-            Write-Warning "The FQDN $($ResultUrl.Host) failed to do a reverse DNS lookup. $_"
-	    Write-Warning "For reverse lookup to work, DEFAULT zone in NSX-T DNS forwarder must be set to query a DNS server that can resolve reverse DNS lookup of $($ResultUrl.Host)"
-            Write-Warning "Reverse lookup may not be required for LDAPS configuration."
-        }
-        # check whether a specific port (or range of ports) on a target ip address is open or closed
-        try {
-            $Command = 'nc -nvz ' + $IPAddress + ' ' + $ResultUrl.Port
-            $SSHRes = Invoke-SSHCommand -Command $Command -SSHSession $SSH_Sessions['VC'].Value
-            if ($SSHRes.ExitStatus -ne 0) { throw "$($SSHRes.Output)" }
-        }
-        catch {
-            throw "The connection cannot be established. Please check the address, routing and/or firewall and make sure port $($ResultUrl.Port) is open. $_"
-        }
-        Write-Host "Connectivity to $($ResultUrl.Host):$($ResultUrl.Port) is verified."
+        Initialize-LDAPSIdentitySourcesConnectivityTest $computerUrl $false
     }
 
     if ($PSBoundParameters.ContainsKey('SSLCertificatesSasUrl')) {
@@ -655,10 +764,10 @@ function New-LDAPSIdentitySource {
     [System.Array]$Certificates =
     foreach ($certFile in $DestinationFileArray) {
         try {
-            New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certfile)
+            New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certFile)
         }
         catch {
-            Write-Error "Failure to convert file $certfile to a certificate $($PSItem.Exception.Message)"
+            Write-Error "Failure to convert file $certFile to a certificate $($PSItem.Exception.Message)"
             throw "File to certificate conversion failed. See error message for more details"
         }
     }
