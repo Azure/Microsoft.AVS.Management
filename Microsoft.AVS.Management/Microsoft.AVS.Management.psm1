@@ -605,7 +605,6 @@ function Debug-LDAPSIdentitySources {
 
                     # Now let's look at the port numbers
                     if($ldap_portspec -ne "") {
-                        $ldap_port = $ldap_portspec -match ":([0-9]+)"
                         Write-Host "  LDAP Port number:      $ldap_port"
                     } else {
                         switch($ldap_protocol) {
