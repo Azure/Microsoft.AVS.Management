@@ -84,6 +84,27 @@ function Set-VmfsIscsi {
 
     $VMHosts = $Cluster | Get-VMHost
     foreach ($VMHost in $VMHosts) {
+        # vmk5 and vmk6 are not provisioned for Microsoft hosts
+        if ($VMHost.ExtensionData.Hardware.SystemInfo.Vendor -eq "Microsoft Corporation") {
+            continue;
+        }
+
+        try {
+            $KernelAdapters = Get-VMHostNetworkAdapter -VMHost $VmHost.Name -VMKernel
+        }
+        catch {
+            throw "Failed to collect VMKernel info on host $($VmHost.Name), unable to verify whether vmk5 and vmk6 exist."
+        }
+
+        
+        $vmk5 = $KernelAdapters | Where-Object { $_.Name -eq "vmk5" }
+        $vmk6 = $KernelAdapters | Where-Object { $_.Name -eq "vmk6" }
+        if ((-not $vmk5) -or (-not $vmk6)) {
+            throw "Kernel Adapters vmk5 and vmk6 do not exist on host $($VmHost.Name)."
+        }
+    }
+
+    foreach ($VMHost in $VMHosts) {
         $Iscsi = $VMHost | Get-VMHostStorage
         if ($Iscsi.SoftwareIScsiEnabled -ne $true) {
             $VMHost | Get-VMHostStorage | Set-VMHostStorage -SoftwareIScsiEnabled $True | Out-Null
@@ -212,6 +233,27 @@ function Set-VmfsStaticIscsi {
     }
 
     $VMHosts = $Cluster | Get-VMHost
+    foreach ($VMHost in $VMHosts) {
+        # vmk5 and vmk6 are not provisioned for Microsoft hosts
+        if ($VMHost.ExtensionData.Hardware.SystemInfo.Vendor -eq "Microsoft Corporation") {
+            continue;
+        }
+
+        try {
+            $KernelAdapters = Get-VMHostNetworkAdapter -VMHost $VmHost.Name -VMKernel
+        }
+        catch {
+            throw "Failed to collect VMKernel info on host $($VmHost.Name), unable to verify whether vmk5 and vmk6 exist."
+        }
+
+        
+        $vmk5 = $KernelAdapters | Where-Object { $_.Name -eq "vmk5" }
+        $vmk6 = $KernelAdapters | Where-Object { $_.Name -eq "vmk6" }
+        if ((-not $vmk5) -or (-not $vmk6)) {
+            throw "Kernel Adapters vmk5 and vmk6 do not exist on host $($VmHost.Name)."
+        }
+    }
+
     foreach ($VMHost in $VMHosts) {
         $Iscsi = $VMHost | Get-VMHostStorage
         if ($Iscsi.SoftwareIScsiEnabled -ne $true) {
