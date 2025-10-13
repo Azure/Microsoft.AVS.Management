@@ -2414,11 +2414,11 @@ Function New-AVSStoragePolicy {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
                 $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "hostFailuresToTolerate"
+                $Subprofile.Id.Id = "replicaPreference"
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = 2
+                $Subprofile.Constraint[0].PropertyInstance[0].value = "RAID-5/6 (Erasure Coding) - Capacity"
                 If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
                     $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
                     Write-Information "Added VSAN Subprofile to ProfileSpec"
@@ -2429,11 +2429,11 @@ Function New-AVSStoragePolicy {
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
                 $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
                 $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "replicaPreference"
+                $Subprofile.Id.Id = "hostFailuresToTolerate"
                 $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
                 $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
                 $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "RAID-5/6 (Erasure Coding) - Capacity"
+                $Subprofile.Constraint[0].PropertyInstance[0].value = 2
                 ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
 
                 $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
