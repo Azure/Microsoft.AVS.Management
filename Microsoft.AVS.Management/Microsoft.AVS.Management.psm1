@@ -2111,6 +2111,30 @@ Function New-AVSStoragePolicy {
 
 
     Begin {
+        # Internal helper to add or append a VSAN capability instance to the profile spec ensuring the VSAN subprofile exists
+        function Add-VsanCapabilityInstanceLocal {
+            param(
+                [Parameter(Mandatory)] [string] $Id,
+                [Parameter(Mandatory)] $Value,
+                [Parameter(Mandatory)] $ProfileSpecRef
+            )
+            $subProf = ($ProfileSpecRef.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' })
+            if (-not $subProf) {
+                $ProfileSpecRef.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{ Name = 'VSAN' }
+                Write-Information 'Added VSAN Subprofile to ProfileSpec'
+                $subProf = ($ProfileSpecRef.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' })
+            }
+            $cap = New-Object VMware.Spbm.Views.PbmCapabilityInstance
+            $cap.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
+            $cap.Id.Namespace = 'VSAN'
+            $cap.Id.Id = $Id
+            $cap.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
+            $cap.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
+            $cap.Constraint[0].PropertyInstance[0].id = $cap.Id.Id
+            $cap.Constraint[0].PropertyInstance[0].value = $Value
+            $subProf.Capability += $cap
+            return $cap
+        }
         #Cleanup Wildcard and Code Injection Characters
         Write-Information "Cleaning up Wildcard and Code Injection Characters from Name value: $Name"
         $Name = Limit-WildcardsandCodeInjectionCharacters -String $Name
@@ -2172,306 +2196,65 @@ Function New-AVSStoragePolicy {
                 #Left blank on purpose.  No additional configuration required.
             }
             "Dual" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "subFailuresToTolerate"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = 1
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "locality"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "None"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+                # Dual site stretch cluster with mirroring between sites.
+                # We'll set hostFailuresToTolerate=1 to indicate cross-site mirroring. Actual intra-site FTT will be applied later via subFailuresToTolerate.
+                Add-VsanCapabilityInstanceLocal -Id 'hostFailuresToTolerate' -Value 1 -ProfileSpecRef $profilespec | Out-Null
+                Add-VsanCapabilityInstanceLocal -Id 'locality' -Value 'None' -ProfileSpecRef $profilespec | Out-Null
             }
             "Preferred" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "subFailuresToTolerate"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = 1
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "locality"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "Preferred Fault Domain"
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+                # Indicate unmirrored (hostFailuresToTolerate=0) but with a site locality preference; FTT will map to subFailuresToTolerate later.
+                Add-VsanCapabilityInstanceLocal -Id 'hostFailuresToTolerate' -Value 0 -ProfileSpecRef $profilespec | Out-Null
+                Add-VsanCapabilityInstanceLocal -Id 'locality' -Value 'Preferred Fault Domain' -ProfileSpecRef $profilespec | Out-Null
                 $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
                 Write-Warning "$Name policy setting unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
             "Secondary" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "subFailuresToTolerate"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = 1
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "locality"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "Secondary Fault Domain"
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+                Add-VsanCapabilityInstanceLocal -Id 'hostFailuresToTolerate' -Value 0 -ProfileSpecRef $profilespec | Out-Null
+                Add-VsanCapabilityInstanceLocal -Id 'locality' -Value 'Secondary Fault Domain' -ProfileSpecRef $profilespec | Out-Null
                 $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
                 Write-Warning "$Name policy setting unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
             "NoneStretch" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "subFailuresToTolerate"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = 1
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "locality"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "None"
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+                Add-VsanCapabilityInstanceLocal -Id 'hostFailuresToTolerate' -Value 0 -ProfileSpecRef $profilespec | Out-Null
+                Add-VsanCapabilityInstanceLocal -Id 'locality' -Value 'None' -ProfileSpecRef $profilespec | Out-Null
                 $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
                 Write-Warning "$Name policy setting unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
             Default {}
         }
-        #vSANFailurestoTolerate / FTT
+        #vSANFailurestoTolerate / FTT (intra-site when stretch cluster selected)
         Write-Information "vSANFailurestoTolerate value set to: $vSANFailuresToTolerate"
+        $isStretch = ($vSANSiteDisasterTolerance -and $vSANSiteDisasterTolerance -ne 'None')
+        $fttId = if ($isStretch) { 'subFailuresToTolerate' } else { 'hostFailuresToTolerate' }
         Switch ($vSANFailuresToTolerate) {
-            "None" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "hostFailuresToTolerate"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = 0
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+            'None' {
+                Add-VsanCapabilityInstanceLocal -Id $fttId -Value 0 -ProfileSpecRef $profilespec | Out-Null
                 $Description = $Description + " - FTT 0 based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur."
                 Write-Warning "$Name policy setting $vSANFailurestoTolerate based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
-            #TODO: Support this?
-            "No Data redundancy with host affinity" {  }
-            "R1FTT1" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "hostFailuresToTolerate"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = 1
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "replicaPreference"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "RAID-1 (Mirroring) - Performance"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+            'R1FTT1' {
+                Add-VsanCapabilityInstanceLocal -Id $fttId -Value 1 -ProfileSpecRef $profilespec | Out-Null
+                Add-VsanCapabilityInstanceLocal -Id 'replicaPreference' -Value 'RAID-1 (Mirroring) - Performance' -ProfileSpecRef $profilespec | Out-Null
             }
-            "R5FTT1" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "hostFailuresToTolerate"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = 1
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-
-                Write-Information "Profilespec: $($profilespec | Out-String)"
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "replicaPreference"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "RAID-5/6 (Erasure Coding) - Capacity"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-
-                Write-Information "Profilespec: $($profilespec | Out-String)"
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "storageType"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "Allflash"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                Write-Information "All Flash added to ProfileSpec as required for $vsanFailurestoTolerate"
+            'R5FTT1' {
+                Add-VsanCapabilityInstanceLocal -Id $fttId -Value 1 -ProfileSpecRef $profilespec | Out-Null
+                Add-VsanCapabilityInstanceLocal -Id 'replicaPreference' -Value 'RAID-5/6 (Erasure Coding) - Capacity' -ProfileSpecRef $profilespec | Out-Null
+                Add-VsanCapabilityInstanceLocal -Id 'storageType' -Value 'Allflash' -ProfileSpecRef $profilespec | Out-Null
+                Write-Information "All Flash added to ProfileSpec as required for $vSANFailuresToTolerate"
             }
-            "R1FTT2" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "hostFailuresToTolerate"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = 2
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "replicaPreference"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "RAID-1 (Mirroring) - Performance"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+            'R1FTT2' {
+                Add-VsanCapabilityInstanceLocal -Id $fttId -Value 2 -ProfileSpecRef $profilespec | Out-Null
+                Add-VsanCapabilityInstanceLocal -Id 'replicaPreference' -Value 'RAID-1 (Mirroring) - Performance' -ProfileSpecRef $profilespec | Out-Null
             }
-            "R6FTT2" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "hostFailuresToTolerate"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = 2
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "replicaPreference"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "RAID-5/6 (Erasure Coding) - Capacity"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "storageType"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "Allflash"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                Write-Information "All Flash added to ProfileSpec as required for $vsanFailurestoTolerate"
+            'R6FTT2' {
+                Add-VsanCapabilityInstanceLocal -Id $fttId -Value 2 -ProfileSpecRef $profilespec | Out-Null
+                Add-VsanCapabilityInstanceLocal -Id 'replicaPreference' -Value 'RAID-5/6 (Erasure Coding) - Capacity' -ProfileSpecRef $profilespec | Out-Null
+                Add-VsanCapabilityInstanceLocal -Id 'storageType' -Value 'Allflash' -ProfileSpecRef $profilespec | Out-Null
+                Write-Information "All Flash added to ProfileSpec as required for $vSANFailuresToTolerate"
             }
-            "R1FTT3" {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "hostFailuresToTolerate"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = 3
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "replicaPreference"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = "RAID-1 (Mirroring) - Performance"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
+            'R1FTT3' {
+                Add-VsanCapabilityInstanceLocal -Id $fttId -Value 3 -ProfileSpecRef $profilespec | Out-Null
+                Add-VsanCapabilityInstanceLocal -Id 'replicaPreference' -Value 'RAID-1 (Mirroring) - Performance' -ProfileSpecRef $profilespec | Out-Null
             }
             Default {}
         }
