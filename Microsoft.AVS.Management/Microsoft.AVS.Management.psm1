@@ -2803,7 +2803,7 @@ function Remove-CustomRole {
         $roleInput
     )
     # Check if the role exists before attempting removal
-    $roleToRemove = Get-VIRole | Where-Object { $_.Description -eq $roleInput }
+    $roleToRemove = Get-VIRole | Where-Object { $_.Name -eq $roleInput}
 
     # Check if the role is in the protected names list or is a System role
     if ($roleToRemove.Count -eq 1) {
