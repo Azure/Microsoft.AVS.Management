@@ -12,7 +12,7 @@
     RootModule = 'Microsoft.AVS.Management.psm1'
     
     # Version number of this module.
-    ModuleVersion = '7.0.1'
+    ModuleVersion = '8.0.1'
     
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -72,20 +72,25 @@
     # NestedModules = @()
     
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-    FunctionsToExport = 'Set-VMStoragePolicy', 'Set-LocationStoragePolicy', 
-                   'Set-ClusterDefaultStoragePolicy', 'Get-StoragePolicies', 
-                   'New-LDAPIdentitySource', 'Debug-LDAPSIdentitySources', 
-                   'New-LDAPSIdentitySource', 'Update-IdentitySourceCertificates', 
-                   'Update-IdentitySourceCredential', 'Get-ExternalIdentitySources', 
-                   'Remove-ExternalIdentitySources', 'Add-GroupToCloudAdmins', 
-                   'Remove-GroupFromCloudAdmins', 'Get-CloudAdminGroups', 
-                   'Set-ToolsRepo', 'Set-vSANCompressDedupe', 'New-AVSStoragePolicy', 
-                   'Remove-AVSStoragePolicy', 'Set-CustomDRS', 
-                   'Set-AVSVSANClusterUNMAPTRIM', 'Get-AVSVSANClusterUNMAPTRIM',
-                   'Remove-CustomRole',
-                   'Get-vSANDataInTransitEncryptionStatus', 'Set-vSANDataInTransitEncryption',
-                   'Get-UnassociatedvSANObjectsWithPolicy','Update-StoragePolicyofUnassociatedvSANObjects'
-    
+    FunctionsToExport = @(
+        'Set-VMStoragePolicy'
+        'Set-LocationStoragePolicy'
+        'Set-ClusterDefaultStoragePolicy'
+        'Get-StoragePolicies'
+        'Set-ToolsRepo'
+        'Set-vSANCompressDedupe'
+        'New-AVSStoragePolicy'
+        'Remove-AVSStoragePolicy'
+        'Set-CustomDRS'
+        'Set-AVSVSANClusterUNMAPTRIM'
+        'Get-AVSVSANClusterUNMAPTRIM'
+        'Remove-CustomRole'
+        'Get-vSANDataInTransitEncryptionStatus'
+        'Set-vSANDataInTransitEncryption'
+        'Get-UnassociatedvSANObjectsWithPolicy'
+        'Update-StoragePolicyofUnassociatedvSANObjects'
+    )
+
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
     CmdletsToExport = @()
     
