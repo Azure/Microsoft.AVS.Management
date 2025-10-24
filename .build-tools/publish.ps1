@@ -9,7 +9,12 @@ param (
 function update-moduleversion {
     $manifestVersionAsArray = (Import-PowerShellDataFile $absolutePathToManifest).ModuleVersion -split "\."
     $updatedModuleVersion = @( $manifestVersionAsArray[0], $manifestVersionAsArray[1],  $buildNumber ) | Join-String -Separator '.'
-    $targetModuleParams = @{ModuleVersion = $updatedModuleVersion; Prerelease = $prereleaseString; Path = $absolutePathToManifest}
+    $targetModuleParams = @{ModuleVersion = $updatedModuleVersion; Path = $absolutePathToManifest}
+    
+    # Only add Prerelease parameter if prereleaseString is not null or empty
+    if (-not [String]::IsNullOrWhiteSpace($prereleaseString)) {
+        $targetModuleParams.Prerelease = $prereleaseString
+    }
     
     Update-PSModuleManifest @targetModuleParams -ErrorAction Stop
     
