@@ -51,8 +51,6 @@ stages:
         .build-tools/registerSources.ps1 $(consumptionFeedUrl) $(previewFeedUrl)
         .build-tools/getRequiredModules.ps1 '$(accessToken)' '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
       displayName: 'Restore Dependencies for ${{ parameters.moduleFolderName }}'
-      env:
-        NUGET_PLUGIN_PATHS: $(NUGET_PLUGIN_PATHS)
 
     - task: PowerShell@2
       displayName: 'Pre-Validate Module and Scripts for ${{ parameters.moduleFolderName }}'
@@ -71,8 +69,6 @@ stages:
           "$(previewFeedUrl)"
           dev 
       displayName: Publish Developer Version
-      env:
-        NUGET_PLUGIN_PATHS: $(NUGET_PLUGIN_PATHS)
 
     - task: PowerShell@2
       inputs:
@@ -84,14 +80,11 @@ stages:
           "$(previewFeedUrl)"
           preview
       displayName: Publish Preview Version
-      env:
-        NUGET_PLUGIN_PATHS: $(NUGET_PLUGIN_PATHS)
 
     - pwsh: |
         echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)-dev" > shuttle/baseline
         dotnet shuttle/Shuttle.dll generate
       env:
         AZURE_DEVOPS_EXT_PAT: $(accessToken)
-        NUGET_PLUGIN_PATHS: $(NUGET_PLUGIN_PATHS)
         METADATA: $(metadataAuthority)/$(metadataProject)/_artifacts/feed/$(metadataFeed)
       displayName: 'Generate metadata'
