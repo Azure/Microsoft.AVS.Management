@@ -15,14 +15,6 @@ stages:
       destination: '$(System.DefaultWorkingDirectory)/tmp'
     steps:
     - task: NuGetAuthenticate@1
-    
-    - pwsh: |
-          $endpointsJson=@{endpointCredentials=@(@{endpoint="$(consumptionFeedUrl)/nuget/v2"; password="$env:accessToken"}
-                                                 @{endpoint="$(consumptionFeedUrl)/nuget/v3/index.json"; password="$accessToken"})} | ConvertTo-Json -Compress
-          Write-Host "##vso[task.setvariable variable=endpointsJson;issecret=true]$endpointsJson"
-      displayName: Configure endpoints
-      env:
-        accessToken: $(System.AccessToken)
 
     - task: AzureCLI@2
       inputs:
@@ -47,7 +39,6 @@ stages:
         .build-tools/getRequiredModules.ps1 '$(System.AccessToken)' '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
       displayName: 'Restore Dependencies for ${{ parameters.moduleFolderName }}'
       env:
-        VSS_NUGET_EXTERNAL_FEED_ENDPOINTS: $(endpointsJson)
         NUGET_PLUGIN_PATHS: $(NUGET_PLUGIN_PATHS)
 
     - task: PowerShell@2
@@ -67,14 +58,12 @@ stages:
           "$(destination)"
       displayName: 'Test publish'
       env:
-        VSS_NUGET_EXTERNAL_FEED_ENDPOINTS: $(endpointsJson)
         NUGET_PLUGIN_PATHS: $(NUGET_PLUGIN_PATHS)
 
     - pwsh: |
         echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)" > shuttle/baseline
         dotnet shuttle/Shuttle.dll generate
       env:
-        VSS_NUGET_EXTERNAL_FEED_ENDPOINTS: $(endpointsJson)
         NUGET_PLUGIN_PATHS: $(NUGET_PLUGIN_PATHS)
         METADATA: uri://console
       displayName: 'Generate metadata'

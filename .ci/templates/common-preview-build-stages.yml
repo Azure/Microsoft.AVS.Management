@@ -26,12 +26,7 @@ stages:
         inlineScript: |
           $accessToken = az account get-access-token --query accessToken --resource 499b84ac-1321-427f-aa17-267ca6975798 -o tsv
           Write-Host "##vso[task.setsecret]$accessToken"
-          $endpointsJson=@{endpointCredentials=@(@{endpoint="$(consumptionFeedUrl)/nuget/v2"; password="$accessToken"}
-                                                 @{endpoint="$(consumptionFeedUrl)/nuget/v3/index.json"; password="$accessToken"}
-                                                 @{endpoint="$(previewFeedUrl)/nuget/v2"; password="$accessToken"}
-                                                 @{endpoint="$(previewFeedUrl)/nuget/v3/index.json"; password="$accessToken"})} | ConvertTo-Json -Compress
           Write-Host "##vso[task.setvariable variable=accessToken;issecret=true]$accessToken"
-          Write-Host "##vso[task.setvariable variable=endpointsJson;issecret=true]$endpointsJson"
       displayName: Login to Azure
 
     - task: AzureCLI@2
@@ -57,7 +52,6 @@ stages:
         .build-tools/getRequiredModules.ps1 '$(accessToken)' '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
       displayName: 'Restore Dependencies for ${{ parameters.moduleFolderName }}'
       env:
-        VSS_NUGET_EXTERNAL_FEED_ENDPOINTS: $(endpointsJson)
         NUGET_PLUGIN_PATHS: $(NUGET_PLUGIN_PATHS)
 
     - task: PowerShell@2
@@ -78,7 +72,6 @@ stages:
           dev 
       displayName: Publish Developer Version
       env:
-        VSS_NUGET_EXTERNAL_FEED_ENDPOINTS: $(endpointsJson)
         NUGET_PLUGIN_PATHS: $(NUGET_PLUGIN_PATHS)
 
     - task: PowerShell@2
@@ -92,7 +85,6 @@ stages:
           preview
       displayName: Publish Preview Version
       env:
-        VSS_NUGET_EXTERNAL_FEED_ENDPOINTS: $(endpointsJson)
         NUGET_PLUGIN_PATHS: $(NUGET_PLUGIN_PATHS)
 
     - pwsh: |
@@ -100,7 +92,6 @@ stages:
         dotnet shuttle/Shuttle.dll generate
       env:
         AZURE_DEVOPS_EXT_PAT: $(accessToken)
-        VSS_NUGET_EXTERNAL_FEED_ENDPOINTS: $(endpointsJson)
         NUGET_PLUGIN_PATHS: $(NUGET_PLUGIN_PATHS)
         METADATA: $(metadataAuthority)/$(metadataProject)/_artifacts/feed/$(metadataFeed)
       displayName: 'Generate metadata'

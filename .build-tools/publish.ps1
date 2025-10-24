@@ -11,7 +11,7 @@ function update-moduleversion {
     $updatedModuleVersion = @( $manifestVersionAsArray[0], $manifestVersionAsArray[1],  $buildNumber ) | Join-String -Separator '.'
     $targetModuleParams = @{ModuleVersion = $updatedModuleVersion; Prerelease = $prereleaseString; Path = $absolutePathToManifest}
     
-    Update-ModuleManifest @targetModuleParams -ErrorAction Stop
+    Update-PSModuleManifest @targetModuleParams -ErrorAction Stop
     
     Write-Host "##vso[task.setvariable variable=moduleVersion]$updatedModuleVersion"
 
