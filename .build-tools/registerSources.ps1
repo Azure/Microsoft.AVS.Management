@@ -16,7 +16,7 @@ if( [Uri]::TryCreate($previewFeed, [UriKind]::Absolute, [ref]$uri) -eq $false) {
 
 if ($uri.IsFile) {
     New-Item -ItemType Directory -Force -Path $previewFeed | Out-Null
-    Register-PSResourceRepository -Name PreviewV3 -Trusted -Uri $previewFeed -ErrorAction SilentlyContinue
+    Register-PSResourceRepository -Name PreviewV3 -Trusted -Path $previewFeed -ErrorAction SilentlyContinue
 } else {
     Register-PSResourceRepository -Name PreviewV3 -Trusted -Uri "$previewFeed/nuget/v3/index.json" -ErrorAction SilentlyContinue
 }
