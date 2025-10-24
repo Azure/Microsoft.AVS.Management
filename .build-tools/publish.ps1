@@ -9,9 +9,14 @@ param (
 function update-moduleversion {
     $manifestVersionAsArray = (Import-PowerShellDataFile $absolutePathToManifest).ModuleVersion -split "\."
     $updatedModuleVersion = @( $manifestVersionAsArray[0], $manifestVersionAsArray[1],  $buildNumber ) | Join-String -Separator '.'
-    $targetModuleParams = @{ModuleVersion = $updatedModuleVersion; Prerelease = $prereleaseString; Path = $absolutePathToManifest}
+    $targetModuleParams = @{ModuleVersion = $updatedModuleVersion; Path = $absolutePathToManifest}
     
-    Update-ModuleManifest @targetModuleParams -ErrorAction Stop
+    # Only add Prerelease parameter if prereleaseString is not null or empty
+    if (-not [String]::IsNullOrWhiteSpace($prereleaseString)) {
+        $targetModuleParams.Prerelease = $prereleaseString
+    }
+    
+    Update-PSModuleManifest @targetModuleParams -ErrorAction Stop
     
     Write-Host "##vso[task.setvariable variable=moduleVersion]$updatedModuleVersion"
 

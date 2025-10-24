@@ -31,8 +31,8 @@ function Get-PrevalidationResults {
         $fileExtension = ($script.Extension)
         switch ($fileExtension) {
             ".ps1" { 
-                Write-Output "Found extension $fileExtension. Running 'Test-ScriptFileInfo' on $($script.Name)"
-                Test-ScriptFileInfo -Path ($script.FullName)
+                Write-Output "Found extension $fileExtension. Running 'Test-PSScriptFileInfo' on $($script.Name)"
+                Test-PSScriptFileInfo -Path ($script.FullName)
                 if (!$?) {
                     $script:zeroTestScriptFileInfoErrorsFound = $false
                 }
@@ -63,7 +63,7 @@ Get-PrevalidationResults (Join-Path -Path $repoRoot -ChildPath $modulesFolderPat
 if (!$script:zeroPSAnalyzerErrorsFound) {
     Write-Error -Message "PRE-VALIDATION FAILED: PSScriptAnalyzer found errors"
 }if (!$script:zeroTestScriptFileInfoErrorsFound) {
-    Write-Error -Message "PRE-VALIDATION FAILED: Test-ScriptFileInfo found errors"
+    Write-Error -Message "PRE-VALIDATION FAILED: Test-PSScriptFileInfo found errors"
 }if (!$script:zeroTestModuleManifestErrorsFound) {
     Write-Error -Message "PRE-VALIDATION FAILED: Test-ModuleManifest found errors"
 }if (!$script:zeroPSAnalyzerErrorsFound -or !$script:zeroTestScriptFileInfoErrorsFound -or !$script:zeroTestModuleManifestErrorsFound) {
