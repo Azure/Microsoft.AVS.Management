@@ -59,5 +59,6 @@ stages:
     - pwsh: |
         echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)" > shuttle/baseline
         dotnet shuttle/Shuttle.dll generate
+      env:
         METADATA: uri://console
       displayName: 'Generate metadata'
