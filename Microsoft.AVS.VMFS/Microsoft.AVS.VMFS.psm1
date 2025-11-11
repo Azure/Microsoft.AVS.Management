@@ -524,14 +524,19 @@ function Resize-VmfsVolume {
 
         $DatastoreToResize = $Datastore
     } else {
-        $Esxi = $Cluster | Get-VMHost | Where-Object { ($_.ConnectionState -eq 'Connected') } | Select-Object -last 1
         $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba | Out-Null
-        $Datastores = $Esxi | Get-Datastore -ErrorAction stop
-        foreach ($Datastore in $Datastores) {
-            $CurrentNaaId = $Datastore.ExtensionData.Info.Vmfs.Extent.DiskName
+        $VMHosts = $Cluster | Get-VMHost | Where-Object { ($_.ConnectionState -eq 'Connected') }
+        foreach ($Esxi in $VMHosts) {
+            $Datastores = $Esxi | Get-Datastore -ErrorAction stop
+            foreach ($Datastore in $Datastores) {
+                $CurrentNaaId = $Datastore.ExtensionData.Info.Vmfs.Extent.DiskName
 
-            if ($CurrentNaaId -eq $DeviceNaaId) {
-                $DatastoreToResize = $Datastore
+                if ($CurrentNaaId -eq $DeviceNaaId) {
+                    $DatastoreToResize = $Datastore
+                    break
+                }
+            }
+            if ($DatastoreToResize) {
                 break
             }
         }
@@ -643,28 +648,40 @@ function Restore-VmfsVolume {
         }
     }
 
-    $Esxi = $Cluster | Get-VMHost | Where-Object { ($_.ConnectionState -eq 'Connected') } | Select-Object -last 1
     $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba | Out-Null
 
-    $HostStorageSystem = Get-View -ID $Esxi.ExtensionData.ConfigManager.StorageSystem
-    $ResigVolumes = $HostStorageSystem.QueryUnresolvedVmfsVolume()
+    $VolumeToResignature = $null
+    $Esxi = $null
+    $VMHosts = $Cluster | Get-VMHost | Where-Object { ($_.ConnectionState -eq 'Connected') }
 
-    foreach ($ResigVolume in $ResigVolumes) {
-        foreach ($ResigExtent in $ResigVolume.Extent) {
-            if ($ResigExtent.Device.DiskName -eq $DeviceNaaId) {
-                if ($ResigVolume.ResolveStatus.Resolvable -eq $false) {
-                    if ($ResigVolume.ResolveStatus.MultipleCopies -eq $true) {
-                        Write-Error "The volume cannot be re-signatured as more than one non re-signatured copy is present."
-                        Write-Error "The following volume(s) need to be removed/re-signatured first:"
-                        $ResigVolume.Extent.Device.DiskName | Where-Object {$_ -ne $DeviceNaaId}
+    foreach ($VMHost in $VMHosts) {
+        $HostStorageSystem = Get-View -ID $VMHost.ExtensionData.ConfigManager.StorageSystem
+        $ResigVolumes = $HostStorageSystem.QueryUnresolvedVmfsVolume()
+
+        foreach ($ResigVolume in $ResigVolumes) {
+            foreach ($ResigExtent in $ResigVolume.Extent) {
+                if ($ResigExtent.Device.DiskName -eq $DeviceNaaId) {
+                    if ($ResigVolume.ResolveStatus.Resolvable -eq $false) {
+                        if ($ResigVolume.ResolveStatus.MultipleCopies -eq $true) {
+                            Write-Error "The volume cannot be re-signatured as more than one non re-signatured copy is present."
+                            Write-Error "The following volume(s) need to be removed/re-signatured first:"
+                            $ResigVolume.Extent.Device.DiskName | Where-Object {$_ -ne $DeviceNaaId}
+                        }
+
+                        throw "Failed to re-signature VMFS volume."
+                    } else {
+                        $VolumeToResignature = $ResigVolume
+                        $Esxi = $VMHost
+                        break
                     }
-
-                    throw "Failed to re-signature VMFS volume."
-                } else {
-                    $VolumeToResignature = $ResigVolume
-                    break
                 }
             }
+            if ($VolumeToResignature) {
+                break
+            }
+        }
+        if ($VolumeToResignature) {
+            break
         }
     }
 
