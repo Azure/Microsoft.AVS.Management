@@ -777,6 +777,9 @@ function Sync-ClusterVMHostStorage {
     .PARAMETER VMHostName
       Name of the VMHost (ESXi server). If not specified, all hosts in the cluster will be updated.
 
+    .PARAMETER Force
+      Force removing iSCSI target without checking if it is in use
+
     .EXAMPLE
      Remove-VMHostStaticIScsiTargets -ClusterName "myCluster" -ISCSIAddress "192.168.1.10,192.168.1.11"
 
@@ -799,7 +802,7 @@ function Remove-VMHostStaticIScsiTargets {
 
         [Parameter(
                 Mandatory=$false,
-                HelpMessage = 'VMHost name')]        
+                HelpMessage = 'VMHost name')]
         [String]
         $VMHostName,
 
@@ -808,7 +811,13 @@ function Remove-VMHostStaticIScsiTargets {
                 HelpMessage = 'IP Address of static iSCSI target to remove. Multiple addresses can be seperated by ","')]
         [ValidateNotNull()]
         [String]
-        $iSCSIAddress
+        $iSCSIAddress,
+
+        [Parameter(
+                Mandatory = $false,
+                HelpMessage = 'Force to remove iSCSI target without checking if it is in use')]
+        [bool]
+        $Force = $false                
     )
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
@@ -816,8 +825,7 @@ function Remove-VMHostStaticIScsiTargets {
         throw "Cluster $ClusterName does not exist."
     }
 
-    $iSCSIAddressList = $iSCSIAddress.Split(",")
-    $DatastoreDisks = Get-Datastore | Select-Object -ExpandProperty ExtensionData | Select-Object -ExpandProperty Info | Select-Object -ExpandProperty Vmfs | Select-Object -ExpandProperty Extent
+    $iSCSIAddressList = $iSCSIAddress.Split(",")    
     $TargetsChanged = $False
 
     $VMHosts = $null
@@ -836,15 +844,18 @@ function Remove-VMHostStaticIScsiTargets {
     foreach ($HBA in $HBAs) {
         $DeviceIds = ($HBA | Get-ScsiLun).CanonicalName
 
-        # Find if any of the devices is used as backing for a datastore
         $IsDeviceInUse = $False
-        foreach ($DeviceId in $DeviceIds) {
-            if ($DatastoreDisks.DiskName -contains $DeviceId) {
-                $IsDeviceInUse = $True
-                break
+        if (-not $Force) {
+            # Find if any of the devices is used as backing for a datastore            
+            $DatastoreDisks = (Get-Datastore).ExtensionData.Info.Vmfs.Extent
+            foreach ($DeviceId in $DeviceIds) {
+                if ($DatastoreDisks.DiskName -contains $DeviceId) {
+                    $IsDeviceInUse = $True
+                    break
+                }
             }
         }
-        if ($IsDeviceInUse) {
+        if ($IsDeviceInUse -and -not $Force) {
             Write-Warning "Datastore disk $DeviceId for host $($HBA.VMHost.Name) is in use, skipping iSCSI target removal"
         }
         else {
