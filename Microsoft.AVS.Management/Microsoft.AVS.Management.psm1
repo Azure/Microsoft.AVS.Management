@@ -2,6 +2,235 @@
 . $PSScriptRoot\AVSGenericUtils.ps1
 . $PSScriptRoot\AVSvSANUtils.ps1
 
+
+function Ensure-VcConnection {
+    [CmdletBinding()]
+    param(
+        [string]$Server,
+        [PSCredential]$Credential
+    )
+    $current = $global:DefaultVIServers | Where-Object { $_.IsConnected } | Select-Object -First 1
+    if ($current) { return }
+
+    if ($Server -and $Credential) {
+        Connect-VIServer -Server $Server -Credential $Credential -ErrorAction Stop | Out-Null
+        return
+    }
+
+    # Fallback to interactive for ad-hoc use
+    $vcenterServer = if ($Server) { $Server } else { Read-Host "vCenter FQDN or IP" }
+    $cred = if ($Credential) { $Credential } else { Get-Credential -Message "Enter vCenter credentials" }
+    Connect-VIServer -Server $vcenterServer -Credential $cred -ErrorAction Stop | Out-Null
+}
+
+function Normalize-Uuid { param([Parameter(Mandatory)][string]$U) ($U.Trim()).ToLowerInvariant() }
+
+function Get-HealthFromExt {
+    [CmdletBinding()]
+    param($Ext)
+    $state = "Unknown"; $abs=$false; $deg=$false; $pol="Unknown"
+    if ($null -eq $Ext) { return [pscustomobject]@{ HealthState=$state; IsAbsent=$abs; IsDegraded=$deg; PolicyCompliance=$pol } }
+    foreach ($p in $Ext.PSObject.Properties) {
+        $n=$p.Name; $v=[string]$p.Value
+        if ([string]::IsNullOrWhiteSpace($v)) { continue }
+        if ($n -match '(?i)health|state|status') {
+            if ($v -match '(?i)absent') { $abs=$true; $state='Absent' }
+            elseif ($v -match '(?i)degrad') { $deg=$true; $state='Degraded' }
+            elseif ($v -match '(?i)healthy|ok|green') { if(-not $abs -and -not $deg){ $state='Healthy' } }
+        }
+        if ($n -match '(?i)compliance|policy') {
+            if ($v -match '(?i)non.?compliant|out.?of.?date|incompatible') { $pol='NonCompliant' }
+            elseif ($v -match '(?i)compliant') { $pol='Compliant' }
+        }
+        if ($n -match '(?i)absent' -and $v -match '(?i)true|yes|1') { $abs=$true; $state='Absent' }
+    }
+    [pscustomobject]@{ HealthState=$state; IsAbsent=$abs; IsDegraded=$deg; PolicyCompliance=$pol }
+}
+
+function Get-MgmtResourcePoolVMs {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$PoolRegex)
+
+    $names = New-Object 'System.Collections.Generic.HashSet[string]' -ArgumentList @([System.StringComparer]::OrdinalIgnoreCase)
+    $mors  = New-Object 'System.Collections.Generic.HashSet[string]' -ArgumentList @([System.StringComparer]::OrdinalIgnoreCase)
+
+    $rps = Get-ResourcePool -ErrorAction Stop | Where-Object { $_.Name -match $PoolRegex }
+    if (-not $rps) { return [pscustomobject]@{ Names=@(); MoRefs=@(); Count=0 } }
+
+    foreach ($rp in $rps) {
+        $vms = Get-VM -Location $rp -ErrorAction SilentlyContinue
+        foreach ($vm in $vms) {
+            if ($vm.Name) { [void]$names.Add([string]$vm.Name) }
+            try {
+                $mo = $vm.ExtensionData.MoRef.Value
+                if ($mo) { [void]$mors.Add([string]$mo) }
+            } catch { }
+        }
+    }
+    [pscustomobject]@{
+        Names = @($names)
+        MoRefs = @($mors)
+        Count = $names.Count
+    }
+}
+
+function Test-AssociatedIdentity {
+    [CmdletBinding()]
+    param($Identity)
+    $txt = @()
+    foreach ($p in @('Type','Content','Owner','Name')) {
+        if ($Identity.PSObject.Properties.Match($p)) {
+            $v = [string]$Identity.$p
+            if ($v) { $txt += $v }
+        }
+    }
+    $blob = ($txt -join ' ').ToLowerInvariant()
+    $pats = @('vm namespace','namespace','vmdk','v disk','vdisk','swap','snapshot','hcx','interconnect','srm','replication','dr','sr','ctk','vswp')
+    foreach ($pat in $pats) { if ($blob -like "*$pat*") { return $true } }
+    if ($blob -match '\bvm-\d+\b' -or $blob -match '\bpolicy\b' -or $blob -match '\bspbm\b') { return $true }
+    $false
+}
+
+# --- Public cmdlet (actual deletion with guardrails) ---
+
+function Remove-AvsUnassociatedObject {
+    <#
+      .SYNOPSIS
+        Deletes a vSAN object by UUID if all safety checks pass.
+      .DESCRIPTION
+        Uses mgmt RP denylist (names + MoRefs) and external exclude patterns.
+        Supports -WhatIf / -Confirm. Use -StrictNonAssociation to add extra guard.
+      .EXAMPLE
+        Remove-AvsUnassociatedObject -Uuid <uuid> -Server vcsa.contoso -Credential (Get-Credential) -Confirm:$false
+    #>
+    [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='High')]
+    param(
+        [Parameter(Mandatory, Position=0)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Uuid,
+
+        # Externalized defaults (can be overridden by caller)
+        [string]$ExcludePatterns = (Get-AvsExcludePatterns),
+        [string]$MgmtResourcePoolRegex = (Get-AvsMgmtResourcePoolRegex),
+
+        [switch]$StrictNonAssociation,
+
+        # Optional for non-interactive runs
+        [string]$Server,
+        [PSCredential]$Credential
+    )
+
+    Ensure-VcConnection -Server $Server -Credential $Credential
+    $uuidNorm = (Normalize-Uuid $Uuid) -replace '-', ''
+
+    # Build mgmt RP denylist (names + vm-####)
+    $mgmt = Get-MgmtResourcePoolVMs -PoolRegex $MgmtResourcePoolRegex
+    $mgmtNameRx = if ($mgmt.Names.Count) { New-RegexFromList -List $mgmt.Names } else { $null }
+    $mgmtMoRx   = if ($mgmt.MoRefs.Count) { New-RegexFromList -List $mgmt.MoRefs } else { $null }
+
+    $clusters = Get-Cluster -ErrorAction Stop
+    if (-not $clusters) { throw "No clusters found in this vCenter." }
+
+    $deleted = @()
+    $skipped = @()
+    $failed  = @()
+
+    foreach ($cluster in $clusters) {
+        try {
+            $vmhost = ($cluster | Get-VMHost | Where-Object { $_.ConnectionState -eq 'Connected' } | Select-Object -First 1)
+            if (-not $vmhost) { continue }
+
+            $vsanIntSys = Get-View $vmhost.ExtensionData.ConfigManager.VsanInternalSystem -ErrorAction Stop
+            $clusterMo  = $cluster.ExtensionData.MoRef
+            $objSys     = Get-VsanView -Id 'VsanObjectSystem-vsan-cluster-object-system' -ErrorAction Stop
+
+            $ids = $objSys.VsanQueryObjectIdentities($clusterMo, $null, $null, $true, $true, $false)
+            $hit = $ids.Identities | Where-Object { (($_.Uuid -replace '-', '').ToLowerInvariant()) -eq $uuidNorm }
+            if (-not $hit) { continue }
+
+            foreach ($id in $hit) {
+                # Extended attrs
+                $extRaw = $vsanIntSys.GetVsanObjExtAttrs($id.Uuid)
+                $ext    = $null; try { $ext = $extRaw | ConvertFrom-Json } catch {}
+                $ufn    = if ($ext) { $ext.'User friendly name' } else { $null }
+                $opath  = if ($ext) { $ext.'Object path' } else { $null }
+                $name   = $id.Name
+
+                # mgmt RP deny match
+                $hay = @($name, $ufn, $opath, [string]$id.Owner, [string]$id.Content, [string]$id.Type, [string]$id.Name)
+                $inMgmt = $false
+                if ($mgmtNameRx) { foreach ($h in $hay) { if ($h -and $h -match $mgmtNameRx) { $inMgmt = $true; break } } }
+                if (-not $inMgmt -and $mgmtMoRx) { foreach ($h in $hay) { if ($h -and $h -match $mgmtMoRx) { $inMgmt = $true; break } } }
+
+                # health/compliance + system-like
+                $hi = Get-HealthFromExt -Ext $ext
+                $isSystemLike = (($name  -and $name  -match $ExcludePatterns) -or
+                                 ($ufn   -and $ufn   -match $ExcludePatterns) -or
+                                 ($opath -and $opath -match $ExcludePatterns))
+                $assoc = $false
+                if ($StrictNonAssociation) { $assoc = Test-AssociatedIdentity -Identity $id }
+
+                $safe = (-not $inMgmt) -and (-not $isSystemLike) -and (-not $hi.IsAbsent) -and (-not $hi.IsDegraded) -and (-not ($StrictNonAssociation -and $assoc))
+
+                if (-not $safe) {
+                    $skipped += [pscustomobject]@{
+                        Cluster=$cluster.Name; UUID=$id.Uuid; Action='Skipped'; InMgmt=$inMgmt;
+                        SystemLike=$isSystemLike; Health=$hi.HealthState; Policy=$hi.PolicyCompliance;
+                        StrictNonAssoc=$StrictNonAssociation.IsPresent; Associated=$assoc
+                    }
+                    continue
+                }
+
+                if ($PSCmdlet.ShouldProcess($id.Uuid, "Delete vSAN object")) {
+                    $ok = $false
+                    $err = $null
+                    try {
+                        # Preferred: vSAN InternalSystem delete API
+                        if ($vsanIntSys -and ($vsanIntSys | Get-Member -Name 'DeleteVsanObjects' -MemberType Method)) {
+                            # Common signature: DeleteVsanObjects([string[]] uuids, [bool] force, [bool] allowReducedRedundancy)
+                            [void]$vsanIntSys.DeleteVsanObjects(@($id.Uuid), $true, $false)
+                            $ok = $true
+                        }
+                        elseif (Get-Command -Name Remove-VsanObject -ErrorAction SilentlyContinue) {
+                            Remove-VsanObject -Uuid $id.Uuid -Confirm:$false -ErrorAction Stop
+                            $ok = $true
+                        }
+                        else {
+                            throw "No supported delete method found (DeleteVsanObjects/Remove-VsanObject)."
+                        }
+                    } catch {
+                        $err = $_.Exception.Message
+                    }
+
+                    if ($ok) {
+                        $deleted += [pscustomobject]@{
+                            Cluster=$cluster.Name; UUID=$id.Uuid; Action='Deleted'; Health=$hi.HealthState; Policy=$hi.PolicyCompliance
+                        }
+                    } else {
+                        $failed  += [pscustomobject]@{
+                            Cluster=$cluster.Name; UUID=$id.Uuid; Action='Failed';  Error=$err
+                        }
+                    }
+                }
+            }
+        } catch {
+            $failed += [pscustomobject]@{
+                Cluster=$cluster.Name; UUID=$Uuid; Action='Failed'; Error=("Cluster scan error: " + $_.Exception.Message)
+            }
+        }
+    }
+
+    # Emit a compact summary as output objects (pipeline-friendly)
+    $deleted + $skipped + $failed
+}
+
+# Optional legacy alias for compatibility with existing runbooks
+Set-Alias -Name deleteunassociatedobject -Value Remove-AvsUnassociatedObject -Scope Global
+
+# Export only public members
+Export-ModuleMember -Function Remove-AvsUnassociatedObject, Get-AvsExcludePatterns, Get-AvsMgmtResourcePoolRegex
+
+
 function Get-StoragePolicyInternal {
     Param
     (

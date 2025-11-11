@@ -14,6 +14,43 @@
 
 #>
 
+function Get-AvsExcludePatterns {
+    <#
+      Returns a single case-insensitive regex used to exclude system/infra artifacts.
+      Keep this list curated here so all cmdlets share the same defaults.
+    #>
+    [CmdletBinding()]
+    param()
+
+    # Add or remove tokens here as your estate evolves
+    $tokens = @(
+        'vsan','mgmt','vcenter','nsx','system','infra','stats',
+        'hcx','srm','replication','backup','sr','drs'
+    )
+
+    # Build a single (?i) … | … regex
+    $escaped = $tokens | Sort-Object -Unique | ForEach-Object { [regex]::Escape($_) }
+    return '(?i)(' + ($escaped -join '|') + ')'
+}
+
+function Get-AvsMgmtResourcePoolRegex {
+    <#
+      Default regex that identifies your "management" resource pool(s).
+      Modules and scripts should call this to remain consistent.
+    #>
+    [CmdletBinding()]
+    param()
+    '(?i)^mgmt-resourcepool$'
+}
+
+function New-RegexFromList {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string[]]$List)
+    if (-not $List -or $List.Count -eq 0) { return $null }
+    $escaped = $List | Sort-Object -Unique | ForEach-Object { [regex]::Escape($_) }
+    '(?i)(' + ($escaped -join '|') + ')'
+}
+
 Function Test-AVSProtectedObjectName {
     <#
     .DESCRIPTION
