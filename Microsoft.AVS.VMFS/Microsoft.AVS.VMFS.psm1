@@ -799,7 +799,7 @@ function Remove-VMHostStaticIScsiTargets {
 
         [Parameter(
                 Mandatory=$false,
-                HelpMessage = 'VMHost name')]        
+                HelpMessage = 'VMHost name')]
         [String]
         $VMHostName,
 
@@ -2091,4 +2091,65 @@ function Test-VMKernelConnectivity {
     if (-not $Success) {
         throw "Ping to vmkernel interface failed on one or more hosts"
     }
+}
+
+<#
+    .SYNOPSIS
+     This function tests connection from a VMHost or vCenter to remote target address.
+
+    .PARAMETER ServerName
+     VMHost name or vCenter ("VC" )
+
+    .PARAMETER TargetIpAddress
+     Target IP Address
+
+    .PARAMETER TargetPort
+     Target Port
+
+    .EXAMPLE
+        Test-ConnectionFromServer -ServerName "esxi-01" -TargetIpAddress 10.0.0.1 -TargetPort 443"
+#>
+function Test-ConnectionFromServer {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    Param
+    (
+        [Parameter(
+                Mandatory = $true,
+                HelpMessage = 'VMHost name or vCenter ("VC"')]
+        [String] $ServerName,
+        [Parameter(
+                Mandatory = $true,
+                HelpMessage = 'Target IP Address')]
+        [String] $TargetIpAddress,
+        [Parameter(
+                Mandatory = $true,
+                HelpMessage = 'Target Port')]
+        [ValidateSet(80, 443, 3260, 8084, 8009)]
+        [int] $TargetPort
+    )
+
+    if ('VC' -eq $ServerName) {
+        $SSHSession = $SSH_Sessions['VC']
+    }
+    else {
+        $VMHost = Get-VMHost -Name $ServerName -ErrorAction Ignore
+        if (-not $VMHost) {
+            throw "VMHost $(ServerName) does not exist."
+        }
+        $SSHSession = $SSH_Sessions[$VMHost.Name]
+    }
+    if (-not $SSHSession) {
+        throw "SSH session to VMHost $($VMHostName) does not exist."
+    }
+    $NamedOutputs = @{}
+    $result = Invoke-SSHCommand -SSHSession $SSHSession -Command "nc -z -v $TargetIpAddress $TargetPort"
+    if (0 -eq $result.ExitStatus) {
+        Write-Host "Connection from VMHost $VMHostName to $TargetIpAddress : $TargetPort succeeded"
+        $NamedOutputs["ConnectionStatus"] = "Succeeded"
+    }
+    else {
+        throw "Connection from VMHost $VMHostName to $TargetIpAddress : $TargetPort failed"
+    }
+    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
 }
