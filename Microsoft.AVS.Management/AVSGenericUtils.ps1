@@ -51,6 +51,74 @@ function New-RegexFromList {
     '(?i)(' + ($escaped -join '|') + ')'
 }
 
+function Normalize-Uuid { param([Parameter(Mandatory)][string]$U) ($U.Trim()).ToLowerInvariant() }
+
+function Get-HealthFromExt {
+    [CmdletBinding()]
+    param($Ext)
+    $state = "Unknown"; $abs=$false; $deg=$false; $pol="Unknown"
+    if ($null -eq $Ext) { return [pscustomobject]@{ HealthState=$state; IsAbsent=$abs; IsDegraded=$deg; PolicyCompliance=$pol } }
+    foreach ($p in $Ext.PSObject.Properties) {
+        $n=$p.Name; $v=[string]$p.Value
+        if ([string]::IsNullOrWhiteSpace($v)) { continue }
+        if ($n -match '(?i)health|state|status') {
+            if ($v -match '(?i)absent') { $abs=$true; $state='Absent' }
+            elseif ($v -match '(?i)degrad') { $deg=$true; $state='Degraded' }
+            elseif ($v -match '(?i)healthy|ok|green') { if(-not $abs -and -not $deg){ $state='Healthy' } }
+        }
+        if ($n -match '(?i)compliance|policy') {
+            if ($v -match '(?i)non.?compliant|out.?of.?date|incompatible') { $pol='NonCompliant' }
+            elseif ($v -match '(?i)compliant') { $pol='Compliant' }
+        }
+        if ($n -match '(?i)absent' -and $v -match '(?i)true|yes|1') { $abs=$true; $state='Absent' }
+    }
+    [pscustomobject]@{ HealthState=$state; IsAbsent=$abs; IsDegraded=$deg; PolicyCompliance=$pol }
+}
+
+function Get-MgmtResourcePoolVMs {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$PoolRegex)
+
+    $names = New-Object 'System.Collections.Generic.HashSet[string]' -ArgumentList @([System.StringComparer]::OrdinalIgnoreCase)
+    $mors  = New-Object 'System.Collections.Generic.HashSet[string]' -ArgumentList @([System.StringComparer]::OrdinalIgnoreCase)
+
+    $rps = Get-ResourcePool -ErrorAction Stop | Where-Object { $_.Name -match $PoolRegex }
+    if (-not $rps) { return [pscustomobject]@{ Names=@(); MoRefs=@(); Count=0 } }
+
+    foreach ($rp in $rps) {
+        $vms = Get-VM -Location $rp -ErrorAction SilentlyContinue
+        foreach ($vm in $vms) {
+            if ($vm.Name) { [void]$names.Add([string]$vm.Name) }
+            try {
+                $mo = $vm.ExtensionData.MoRef.Value
+                if ($mo) { [void]$mors.Add([string]$mo) }
+            } catch { }
+        }
+    }
+    [pscustomobject]@{
+        Names = @($names)
+        MoRefs = @($mors)
+        Count = $names.Count
+    }
+}
+
+function Test-AssociatedIdentity {
+    [CmdletBinding()]
+    param($Identity)
+    $txt = @()
+    foreach ($p in @('Type','Content','Owner','Name')) {
+        if ($Identity.PSObject.Properties.Match($p)) {
+            $v = [string]$Identity.$p
+            if ($v) { $txt += $v }
+        }
+    }
+    $blob = ($txt -join ' ').ToLowerInvariant()
+    $pats = @('vm namespace','namespace','vmdk','v disk','vdisk','swap','snapshot','hcx','interconnect','srm','replication','dr','sr','ctk','vswp')
+    foreach ($pat in $pats) { if ($blob -like "*$pat*") { return $true } }
+    if ($blob -match '\bvm-\d+\b' -or $blob -match '\bpolicy\b' -or $blob -match '\bspbm\b') { return $true }
+    $false
+}
+
 Function Test-AVSProtectedObjectName {
     <#
     .DESCRIPTION
