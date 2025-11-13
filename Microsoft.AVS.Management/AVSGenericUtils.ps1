@@ -51,8 +51,6 @@ function New-RegexFromList {
     '(?i)(' + ($escaped -join '|') + ')'
 }
 
-function Normalize-Uuid { param([Parameter(Mandatory)][string]$U) ($U.Trim()).ToLowerInvariant() }
-
 function Get-HealthFromExt {
     [CmdletBinding()]
     param($Ext)

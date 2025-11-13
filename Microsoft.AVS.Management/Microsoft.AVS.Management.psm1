@@ -133,13 +133,6 @@ function Remove-AvsUnassociatedObject {
     $deleted + $skipped + $failed
 }
 
-# Optional legacy alias for compatibility with existing runbooks
-Set-Alias -Name deleteunassociatedobject -Value Remove-AvsUnassociatedObject -Scope Global
-
-# Export only public members
-Export-ModuleMember -Function Remove-AvsUnassociatedObject, Get-AvsExcludePatterns, Get-AvsMgmtResourcePoolRegex
-
-
 function Get-StoragePolicyInternal {
     Param
     (
