@@ -486,7 +486,7 @@ function Set-ToolsRepo {
             HelpMessage = 'A publicly available HTTP(S) URL to download the Tools zip file.')]
         [ValidateNotNullOrEmpty()]
         [ValidatePattern('^https?://')]
-        [String]
+        [SecureString]
         $Tools_URL
     )
 
