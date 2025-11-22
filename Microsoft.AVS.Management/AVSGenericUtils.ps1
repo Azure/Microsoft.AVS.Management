@@ -14,51 +14,104 @@
 
 #>
 
+function Normalize-Uuid {
+    <#
+    .SYNOPSIS
+        Normalizes a UUID by removing non-hex characters and converting to lowercase.
+    .DESCRIPTION
+        Takes a UUID string, removes any characters not in 0-9 or A-F/a-f, and returns a lowercase version.
+    .PARAMETER Uuid
+        The UUID string to normalize.
+    .EXAMPLE
+        Normalize-Uuid -Uuid ""
+    #>
+    param([string]$Uuid)
+    return ($Uuid -replace '[^A-Fa-f0-9]', '').ToLowerInvariant()
+}
+
+function Escape-RegexToken {
+    <#
+    .SYNOPSIS
+        Escapes special regex characters in a string.
+    .DESCRIPTION
+        Ensures the input string is safe to use in a regex pattern by escaping special characters.
+    .PARAMETER Value
+        The string value to escape.
+    .EXAMPLE
+        Escape-RegexToken -Value "VM*01"
+    #>
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return "" }
+    return [Regex]::Escape($Value.Trim())
+}
+
 function Get-AvsExcludePatterns {
     <#
-      Returns a single case-insensitive regex used to exclude system/infra artifacts.
-      Keep this list curated here so all cmdlets share the same defaults.
+    .SYNOPSIS
+        Returns a regex pattern to match system-like or excluded vSAN objects.
+    .DESCRIPTION
+        Combines a predefined list of keywords (like vsan, mgmt, system) into a single regex pattern.
+    .EXAMPLE
+        $pattern = Get-AvsExcludePatterns
     #>
-    [CmdletBinding()]
-    param()
-
-    # Add or remove tokens here as your estate evolves
     $tokens = @(
         'vsan','mgmt','vcenter','nsx','system','infra','stats',
-        'hcx','srm','replication','backup','sr','drs'
+        'hcx','srm','replication','backup','sr','drs',
+        'TNT15','EVM','APP','VRM','VRS'
     )
-
-    # Build a single (?i) … | … regex
-    $escaped = $tokens | Sort-Object -Unique | ForEach-Object { [regex]::Escape($_) }
+    $escaped = $tokens | Sort-Object -Unique | ForEach-Object { Escape-RegexToken $_ }
     return '(?i)(' + ($escaped -join '|') + ')'
 }
 
 function Get-AvsMgmtResourcePoolRegex {
     <#
-      Default regex that identifies your "management" resource pool(s).
-      Modules and scripts should call this to remain consistent.
+    .SYNOPSIS
+        Returns a regex pattern for identifying management resource pools.
+    .DESCRIPTION
+        This regex matches resource pool names considered part of management.
+    .EXAMPLE
+        $regex = Get-AvsMgmtResourcePoolRegex
     #>
-    [CmdletBinding()]
-    param()
     '(?i)^mgmt-resourcepool$'
 }
 
 function New-RegexFromList {
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string[]]$List)
+    <#
+    .SYNOPSIS
+        Converts a list of strings into a single regex pattern.
+    .DESCRIPTION
+        Escapes all strings in the list and joins them with '|' for use in regex matching.
+    .PARAMETER List
+        An array of strings to include in the regex pattern.
+    .EXAMPLE
+        $rx = New-RegexFromList -List @("VM1","VM2")
+    #>
+    param([string[]]$List)
     if (-not $List -or $List.Count -eq 0) { return $null }
-    $escaped = $List | Sort-Object -Unique | ForEach-Object { [regex]::Escape($_) }
-    '(?i)(' + ($escaped -join '|') + ')'
+    $escaped = $List | Sort-Object -Unique | ForEach-Object { Escape-RegexToken $_ }
+    return '(?i)(' + ($escaped -join '|') + ')'
 }
 
 function Get-HealthFromExt {
-    [CmdletBinding()]
+    <#
+    .SYNOPSIS
+        Returns health information from vSAN object extended attributes.
+    .DESCRIPTION
+        Parses extended attributes of a vSAN object and extracts health state, absent/degraded flags, and policy compliance.
+    .PARAMETER Ext
+        The extended attributes object (usually parsed JSON).
+    .EXAMPLE
+        $health = Get-HealthFromExt -Ext $extJson
+    #>
     param($Ext)
-    $state = "Unknown"; $abs=$false; $deg=$false; $pol="Unknown"
+    $state = "Unknown"; $abs = $false; $deg = $false; $pol = "Unknown"
+
     if ($null -eq $Ext) { return [pscustomobject]@{ HealthState=$state; IsAbsent=$abs; IsDegraded=$deg; PolicyCompliance=$pol } }
+
     foreach ($p in $Ext.PSObject.Properties) {
-        $n=$p.Name; $v=[string]$p.Value
+        $n = $p.Name; $v = [string]$p.Value
         if ([string]::IsNullOrWhiteSpace($v)) { continue }
+
         if ($n -match '(?i)health|state|status') {
             if ($v -match '(?i)absent') { $abs=$true; $state='Absent' }
             elseif ($v -match '(?i)degrad') { $deg=$true; $state='Degraded' }
@@ -70,52 +123,42 @@ function Get-HealthFromExt {
         }
         if ($n -match '(?i)absent' -and $v -match '(?i)true|yes|1') { $abs=$true; $state='Absent' }
     }
-    [pscustomobject]@{ HealthState=$state; IsAbsent=$abs; IsDegraded=$deg; PolicyCompliance=$pol }
+
+    return [pscustomobject]@{ HealthState=$state; IsAbsent=$abs; IsDegraded=$deg; PolicyCompliance=$pol }
 }
 
 function Get-MgmtResourcePoolVMs {
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$PoolRegex)
+    <#
+    .SYNOPSIS
+        Lists all VMs in management resource pools of a cluster.
+    .DESCRIPTION
+        Returns a collection of VM names and MoRefs that are part of resource pools matching the management regex.
+    .PARAMETER PoolRegex
+        Regex pattern to identify management resource pools.
+    .PARAMETER ClusterName
+        Name of the vSphere cluster to query.
+    .EXAMPLE
+        $mgmtVMs = Get-MgmtResourcePoolVMs -PoolRegex (Get-AvsMgmtResourcePoolRegex) -ClusterName "Cluster-1"
+    #>
+    param([string]$PoolRegex, [string]$ClusterName)
 
-    $names = New-Object 'System.Collections.Generic.HashSet[string]' -ArgumentList @([System.StringComparer]::OrdinalIgnoreCase)
-    $mors  = New-Object 'System.Collections.Generic.HashSet[string]' -ArgumentList @([System.StringComparer]::OrdinalIgnoreCase)
+    $cluster = Get-Cluster -Name $ClusterName -ErrorAction Stop
+    $names = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $mors  = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
 
-    $rps = Get-ResourcePool -ErrorAction Stop | Where-Object { $_.Name -match $PoolRegex }
-    if (-not $rps) { return [pscustomobject]@{ Names=@(); MoRefs=@(); Count=0 } }
-
+    $rps = Get-ResourcePool -Location $cluster | Where-Object { $_.Name -match $PoolRegex }
     foreach ($rp in $rps) {
-        $vms = Get-VM -Location $rp -ErrorAction SilentlyContinue
-        foreach ($vm in $vms) {
-            if ($vm.Name) { [void]$names.Add([string]$vm.Name) }
-            try {
-                $mo = $vm.ExtensionData.MoRef.Value
-                if ($mo) { [void]$mors.Add([string]$mo) }
-            } catch { }
+        foreach ($vm in (Get-VM -Location $rp)) {
+            if ($vm.Name) { $null = $names.Add($vm.Name) }
+            try { $mo = $vm.ExtensionData.MoRef.Value; if ($mo) { $null = $mors.Add($mo) } } catch {}
         }
     }
-    [pscustomobject]@{
-        Names = @($names)
-        MoRefs = @($mors)
-        Count = $names.Count
-    }
+
+    return [pscustomobject]@{ Names=@($names); MoRefs=@($mors); Count=$names.Count }
 }
 
-function Test-AssociatedIdentity {
-    [CmdletBinding()]
-    param($Identity)
-    $txt = @()
-    foreach ($p in @('Type','Content','Owner','Name')) {
-        if ($Identity.PSObject.Properties.Match($p)) {
-            $v = [string]$Identity.$p
-            if ($v) { $txt += $v }
-        }
-    }
-    $blob = ($txt -join ' ').ToLowerInvariant()
-    $pats = @('vm namespace','namespace','vmdk','v disk','vdisk','swap','snapshot','hcx','interconnect','srm','replication','dr','sr','ctk','vswp')
-    foreach ($pat in $pats) { if ($blob -like "*$pat*") { return $true } }
-    if ($blob -match '\bvm-\d+\b' -or $blob -match '\bpolicy\b' -or $blob -match '\bspbm\b') { return $true }
-    $false
-}
+
+
 
 Function Test-AVSProtectedObjectName {
     <#
