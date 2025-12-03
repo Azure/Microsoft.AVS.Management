@@ -56,8 +56,7 @@ function Get-AvsExcludePatterns {
     #>
     $tokens = @(
         'vsan','mgmt','vcenter','nsx','system','infra','stats',
-        'hcx','srm','replication','backup','sr','drs',
-        'TNT15','EVM','APP','VRM','VRS'
+        'hcx','srm','replication','backup','sr','drs','EVM','APP','VRM','VRS'
     )
     $escaped = $tokens | Sort-Object -Unique | ForEach-Object { Escape-RegexToken $_ }
     return '(?i)(' + ($escaped -join '|') + ')'
