@@ -14,7 +14,7 @@
 
 #>
 
-function Normalize-Uuid {
+function ConvertTo-CanonicalUuid {
     <#
     .SYNOPSIS
         Normalizes a UUID by removing non-hex characters and converting to lowercase.
@@ -23,13 +23,13 @@ function Normalize-Uuid {
     .PARAMETER Uuid
         The UUID string to normalize.
     .EXAMPLE
-        Normalize-Uuid -Uuid ""
+        ConvertTo-CanonicalUuid -Uuid ""
     #>
     param([string]$Uuid)
     return ($Uuid -replace '[^A-Fa-f0-9]', '').ToLowerInvariant()
 }
 
-function Escape-RegexToken {
+function Format-RegexToken {
     <#
     .SYNOPSIS
         Escapes special regex characters in a string.
@@ -38,7 +38,7 @@ function Escape-RegexToken {
     .PARAMETER Value
         The string value to escape.
     .EXAMPLE
-        Escape-RegexToken -Value "VM*01"
+        Format-RegexToken -Value "VM*01"
     #>
     param([string]$Value)
     if ([string]::IsNullOrWhiteSpace($Value)) { return "" }
@@ -58,7 +58,7 @@ function Get-AvsExcludePatterns {
         'vsan','mgmt','vcenter','nsx','system','infra','stats',
         'hcx','srm','replication','backup','sr','drs','EVM','APP','VRM','VRS'
     )
-    $escaped = $tokens | Sort-Object -Unique | ForEach-Object { Escape-RegexToken $_ }
+    $escaped = $tokens | Sort-Object -Unique | ForEach-Object { Format-RegexToken $_ }
     return '(?i)(' + ($escaped -join '|') + ')'
 }
 
@@ -87,7 +87,7 @@ function New-RegexFromList {
     #>
     param([string[]]$List)
     if (-not $List -or $List.Count -eq 0) { return $null }
-    $escaped = $List | Sort-Object -Unique | ForEach-Object { Escape-RegexToken $_ }
+    $escaped = $List | Sort-Object -Unique | ForEach-Object { Format-RegexToken $_ }
     return '(?i)(' + ($escaped -join '|') + ')'
 }
 

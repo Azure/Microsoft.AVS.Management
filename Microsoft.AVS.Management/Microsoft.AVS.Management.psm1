@@ -33,7 +33,7 @@ function Remove-AvsUnassociatedObject {
         [Parameter(Mandatory)][string]$ClusterName
     )
 
-    $uuidNorm = Normalize-Uuid $Uuid
+    $uuidNorm = ConvertTo-CanonicalUuid $Uuid
     $cluster = Get-Cluster -Name $ClusterName -ErrorAction Stop
 
     $mgmt = Get-MgmtResourcePoolVMs -PoolRegex (Get-AvsMgmtResourcePoolRegex) -ClusterName $ClusterName
