@@ -2,6 +2,103 @@
 . $PSScriptRoot\AVSGenericUtils.ps1
 . $PSScriptRoot\AVSvSANUtils.ps1
 
+
+
+function Remove-AvsUnassociatedObject {
+    <#
+    .SYNOPSIS
+        Deletes unassociated vSAN objects from a specified cluster.
+
+    .DESCRIPTION
+        Scans a given vSphere cluster for unassociated vSAN objects.
+        Performs safety checks against management VMs, system-like objects, and object health.
+        Deletes objects only if they pass all checks. Supports -WhatIf for dry runs.
+
+    .PARAMETER Uuid
+        The UUID of the vSAN object to delete.
+
+    .PARAMETER ClusterName
+        The name of the vSphere cluster containing the object.
+
+    .EXAMPLE
+        Remove-AvsUnassociatedObject -Uuid '' -ClusterName 'Cluster-1'
+
+    .EXAMPLE
+        Remove-AvsUnassociatedObject -Uuid '' -ClusterName 'Cluster-1' -WhatIf
+        # Performs a dry run without deleting the object
+    #>
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Mandatory)][string]$Uuid,
+        [Parameter(Mandatory)][string]$ClusterName
+    )
+
+    $uuidNorm = ConvertTo-CanonicalUuid $Uuid
+    $cluster = Get-Cluster -Name $ClusterName -ErrorAction Stop
+
+    $mgmt = Get-MgmtResourcePoolVMs -PoolRegex (Get-AvsMgmtResourcePoolRegex) -ClusterName $ClusterName
+    $mgmtNameRx = if ($mgmt.Names.Count) { New-RegexFromList -List $mgmt.Names } else { $null }
+    $mgmtMoRx   = if ($mgmt.MoRefs.Count) { New-RegexFromList -List $mgmt.MoRefs } else { $null }
+
+    $excludePattern = Get-AvsExcludePatterns
+    $excludeRx = New-Object System.Text.RegularExpressions.Regex(
+        $excludePattern,
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+
+    $vmhost = Get-VMHost -Location $cluster | Where-Object ConnectionState -eq 'Connected' | Select-Object -First 1
+    $vsanIntSys = Get-View $vmhost.ExtensionData.ConfigManager.VsanInternalSystem
+    $clusterMo  = $cluster.ExtensionData.MoRef
+    $objSys     = Get-VsanView -Id 'VsanObjectSystem-vsan-cluster-object-system'
+
+    $ids = $objSys.VsanQueryObjectIdentities($clusterMo, $null, $null, $true, $true, $false)
+    $hit = $ids.Identities |
+           Where-Object { ($_.Uuid -replace '-', '').ToLowerInvariant() -eq $uuidNorm }
+
+    if (-not $hit) {
+        Write-Warning "UUID $Uuid not found."
+        return
+    }
+
+    foreach ($id in $hit) {
+        $extRaw = $vsanIntSys.GetVsanObjExtAttrs($id.Uuid)
+        $ext    = $null; try { $ext = $extRaw | ConvertFrom-Json } catch {}
+
+        
+        $fields = @($id.Name, $ext.'User friendly name', $ext.'Object path', $id.Owner, $id.Content, $id.Type, $id.Description)
+
+        # Check if object is part of management pool
+        $inMgmt = $false
+        foreach ($f in $fields) {
+            if ($f -and $mgmtNameRx -and ($f -match $mgmtNameRx)) { $inMgmt = $true; break }
+            if ($f -and $mgmtMoRx   -and ($f -match $mgmtMoRx))   { $inMgmt = $true; break }
+        }
+
+        # Check if object is system-like
+        $isSystemLike = $fields | Where-Object { $_ -and $excludeRx.IsMatch($_) } | Measure-Object | Select-Object -Expand Count
+        $isSystemLike = $isSystemLike -gt 0
+
+        $hi = Get-HealthFromExt -Ext $ext
+
+        $safe = (-not $inMgmt) -and (-not $isSystemLike) -and (-not $hi.IsAbsent) -and (-not $hi.IsDegraded)
+
+        if (-not $safe) {
+            Write-Warning "Skipping $($id.Uuid) → InMgmt=$inMgmt SystemLike=$isSystemLike Health=$($hi.HealthState)"
+            continue
+        }
+
+        
+        if ($PSCmdlet.ShouldProcess($id.Uuid, "Delete vSAN object")) {
+            try {
+                [void]$vsanIntSys.DeleteVsanObjects(@($id.Uuid), $true)
+                Write-Host "Deleted $($id.Uuid)" -ForegroundColor Green
+            } catch {
+                Write-Warning "Failed to delete $($id.Uuid): $($_.Exception.Message)"
+            }
+        }
+    }
+}
+
 function Get-StoragePolicyInternal {
     Param
     (
