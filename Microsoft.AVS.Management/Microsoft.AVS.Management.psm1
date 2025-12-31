@@ -917,6 +917,7 @@ Function Remove-AVSStoragePolicy {
 
 function New-AVSStoragePolicy {
     [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
     param(
         [Parameter(Mandatory = $true,
             HelpMessage = "Name for the new storage policy")]
