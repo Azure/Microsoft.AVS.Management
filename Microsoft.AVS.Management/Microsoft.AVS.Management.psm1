@@ -830,17 +830,18 @@ Function Remove-AVSStoragePolicy {
 
 <#
 .SYNOPSIS
-    Create a vSAN storage policy with compression enabled and RAID-1 FTT=1.
+    Create vSAN storage policies for ESA and/or OSA architectures.
 
 .DESCRIPTION
-    This function creates a storage policy for vSAN clusters supporting both Express Storage Architecture (ESA)
-    and Original Storage Architecture (OSA). The policy includes compression, RAID-1 (mirroring) fault tolerance,
-    and FTT=1 (Failures To Tolerate = 1).
+    This function detects the vSAN architecture (ESA and/or OSA) present in the environment and creates
+    appropriate storage policies. If both architectures are present, it creates separate policies for each,
+    appending "-ESA" and "-OSA" to the policy name.
 
-    The policy provides data redundancy through mirroring while optimizing storage efficiency through compression.
+    For ESA: Supports compression (optional). Deduplication is not supported.
+    For OSA: Compression and deduplication are not supported (cluster-level settings).
 
 .PARAMETER PolicyName
-    Required. The name for the new storage policy.
+    Required. The base name for the new storage policy. The vSAN type (ESA/OSA) will be appended.
 
 .PARAMETER FailuresToTolerate
     Optional. Number of host failures to tolerate (FTT). Valid values: 0, 1, 2, 3. Default is 1.
@@ -881,52 +882,27 @@ Function Remove-AVSStoragePolicy {
 .PARAMETER ForceProvisioning
     Optional. Force provisioning even if resources are insufficient. Default is $false.
 
-.PARAMETER Compression
-    Optional. Enable compression (ESA only). Default is $true for ESA. Ignored for OSA as compression is cluster-level.
-
-.PARAMETER Deduplication
-    Optional. Enable deduplication (ESA only). Default is $false. Ignored for OSA as deduplication is cluster-level.
+.PARAMETER NoCompression
+    Optional. Disable compression (ESA only). Default is $false (compression enabled).
 
 .PARAMETER Description
     Optional. A description for the storage policy. If not provided, a default description will be used.
 
 .EXAMPLE
-    New-VsanEsaStoragePolicy -PolicyName "VSAN-RAID1-Compressed" -ClusterName "Production-Cluster"
+    New-AVSStoragePolicy -PolicyName "VSAN-RAID1"
 
-    Auto-detects the storage architecture from the specified cluster and creates the appropriate policy.
-
-.EXAMPLE
-    New-VsanEsaStoragePolicy -PolicyName "ESA-RAID1-Compressed" -StorageType "ESA"
-
-    Explicitly creates a vSAN ESA storage policy.
+    Detects vSAN types. If both ESA and OSA clusters exist, creates "VSAN-RAID1-ESA" and "VSAN-RAID1-OSA".
+    For ESA, compression is enabled by default.
 
 .EXAMPLE
-    New-VsanEsaStoragePolicy -PolicyName "OSA-RAID1-Compressed" -StorageType "OSA"
+    New-AVSStoragePolicy -PolicyName "High-Performance" -FailuresToTolerate 2 -StripesPerObject 2 -IopsLimit 5000 -NoCompression
 
-    Explicitly creates a vSAN OSA storage policy.
-
-.EXAMPLE
-    New-VsanEsaStoragePolicy -PolicyName "Production-Policy" -ClusterName "Prod-Cluster" -Description "Production workload policy"
-
-    Auto-detects storage type and creates a policy with a custom description.
+    Creates high-performance policies (e.g., "High-Performance-ESA") with FTT=2, 2 stripes per object, 5000 IOPS limit, and compression disabled.
 
 .EXAMPLE
-    New-VsanEsaStoragePolicy -PolicyName "High-Performance" -ClusterName "Prod-Cluster" -FailuresToTolerate 2 -StripesPerObject 2 -IopsLimit 5000
+    New-AVSStoragePolicy -PolicyName "Encrypted-Storage" -VmEncryption $true -ObjectSpaceReservation 50
 
-    Creates a high-performance policy with FTT=2, 2 stripes per object, and 5000 IOPS limit.
-
-.EXAMPLE
-    New-VsanEsaStoragePolicy -PolicyName "Encrypted-Storage" -StorageType "ESA" -VmEncryption $true -ObjectSpaceReservation 50
-
-    Creates an encrypted storage policy with 50% thick provisioning.
-
-.EXAMPLE
-    New-VsanEsaStoragePolicy -PolicyName "ESA-Dedupe" -StorageType "ESA" -Deduplication $true -Compression $true
-
-    Creates an ESA policy with both deduplication and compression enabled.
-
-.EXAMPLE
-    New-VsanEsaStoragePolicy -PolicyName "ESA-RAID1-Compressed"
+    Creates encrypted storage policies with 50% thick provisioning.
 
 .NOTES
     Requires VMware PowerCLI and an active connection to vCenter Server.
@@ -936,7 +912,7 @@ Function Remove-AVSStoragePolicy {
     - Storage Type: vSAN ESA or OSA (configurable)
     - Failure Tolerance Method: RAID-1 (Mirroring)
     - Failures To Tolerate: 1
-    - Compression: Enabled
+    - Compression: Enabled (ESA default)
 #>
 
 function New-AVSStoragePolicy {
@@ -995,50 +971,45 @@ function New-AVSStoragePolicy {
         [bool]$ForceProvisioning = $false,
 
         [Parameter(Mandatory = $false,
-            HelpMessage = "Enable compression (ESA only)")]
-        [bool]$Compression = $true,
-
-        [Parameter(Mandatory = $false,
-            HelpMessage = "Enable deduplication (ESA only)")]
-        [bool]$Deduplication = $false,
+            HelpMessage = "Disable compression (ESA only)")]
+        [switch]$NoCompression,
 
         [Parameter(Mandatory = $false,
             HelpMessage = "Description for the storage policy")]
         [string]$Description
     )
 
-    Begin {
+    begin {
         Write-Verbose "Using vCenter Server: $($VIServer.Name)"
 
-        # Always auto detect storage type
-        $StorageType = "Auto"
-
-        # Auto-detect storage type
-        if ($StorageType -eq "Auto") {
-            Write-Host "Auto-detecting vSAN storage architecture from cluster: $ClusterName"
-
-            try {
-
-                $clusters = Get-Cluster
-
-                # Check for ESA by looking at the vSAN version and configuration
-                # ESA uses a different storage architecture without disk groups
-                if ((Get-VsanClusterConfiguration -Cluster $clusters).VsanEsaEnabled -contains $true) {
-                    $StorageType = "ESA"
-                    Write-Information "Detected vSAN ESA (Express Storage Architecture)"
-                }
-                else {
-                    $StorageType = "OSA"
-                    Write-Information "Detected vSAN OSA (Original Storage Architecture)"
+        # Detect vSAN types present in the environment
+        $typesToCreate = @()
+        try {
+            $clusters = Get-Cluster
+            foreach ($cluster in $clusters) {
+                try {
+                    # Check for ESA by looking at the vSAN version and configuration
+                    $config = Get-VsanClusterConfiguration -Cluster $cluster -ErrorAction Stop
+                    if ($config.VsanEsaEnabled) {
+                        if ($typesToCreate -notcontains "ESA") { $typesToCreate += "ESA" }
+                    } else {
+                        if ($typesToCreate -notcontains "OSA") { $typesToCreate += "OSA" }
+                    }
+                } catch {
+                    Write-Verbose "Cluster $($cluster.Name) is not a vSAN cluster or config retrieval failed."
                 }
             }
-            catch {
-                Write-Error "Failed to auto-detect vSAN type from"
-                throw
-            }
+        } catch {
+            Write-Error "Failed to enumerate clusters."
+            throw
         }
 
-        Write-Verbose "Storage Type: $StorageType"
+        if ($typesToCreate.Count -eq 0) {
+            Write-Error "No vSAN clusters found."
+            throw
+        }
+
+        Write-Information "Detected vSAN types: $($typesToCreate -join ', ')"
 
         # Validate FTT and Failure Tolerance Method combination
         if ($FailureToleranceMethod -eq "None" -and $FailuresToTolerate -ne 0) {
@@ -1057,193 +1028,192 @@ function New-AVSStoragePolicy {
             Write-Error "RAID-6 erasure coding requires FailuresToTolerate = 2"
             throw
         }
-
-        # Set default description if not provided
-        if (-not $Description) {
-            $ftmText = switch ($FailureToleranceMethod) {
-                "None" { "no redundancy" }
-                "RAID1" { "RAID-1 FTT=$FailuresToTolerate" }
-                "RAID5" { "RAID-5 FTT=1" }
-                "RAID6" { "RAID-6 FTT=2" }
-            }
-
-            # if ($StorageType -eq "ESA") {
-                $compressionText = if ($Compression) { "compression" } else { "no compression" }
-                $dedupeText = if ($Deduplication) { " and deduplication" } else { "" }
-                $Description = "vSAN ESA policy with $ftmText, $compressionText$dedupeText"
-            # }
-            # else {
-                $Description = "vSAN OSA policy with $ftmText"
-            # }
-        }
     }
 
-    Process {
-        try {
-            # Check if policy with this name already exists
-            $existingPolicy = Get-SpbmStoragePolicy -Name $PolicyName -ErrorAction SilentlyContinue -Server $VIServer
-            if ($existingPolicy) {
-                Write-Error "A storage policy with the name '$PolicyName' already exists. Please choose a different name."
-                throw
-            }
+    process {
+        $createdPolicies = @()
 
-            Write-Information "Creating vSAN $StorageType storage policy: $PolicyName"
+        foreach ($StorageType in $typesToCreate) {
+            try {
+                # Append type to policy name
+                $CurrentPolicyName = "$PolicyName-$StorageType"
 
-            # Create individual capability rules
-            $rules = @()
+                # Generate description if not provided
+                $CurrentDescription = $Description
+                if (-not $CurrentDescription) {
+                    $ftmText = switch ($FailureToleranceMethod) {
+                        "None" { "no redundancy" }
+                        "RAID1" { "RAID-1 FTT=$FailuresToTolerate" }
+                        "RAID5" { "RAID-5 FTT=1" }
+                        "RAID6" { "RAID-6 FTT=2" }
+                    }
 
-            # VSAN Storage Type
-            if ($StorageType -eq "ESA") {
-                Write-Information "Configuring for ESA architecture (Allflash)"
-                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.storageType" -Server $VIServer) -Value "Allflash"
-            }
-            else {
-                Write-Information "Configuring for OSA architecture"
-                # OSA can be Allflash or Hybrid - using Allflash as default
-                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.storageType" -Server $VIServer) -Value "Allflash"
-            }
-
-            # Failures To Tolerate
-            $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.hostFailuresToTolerate" -Server $VIServer) -Value $FailuresToTolerate
-
-            # Failure Tolerance Method
-            if ($FailureToleranceMethod -ne "None") {
-                $replicaValue = switch ($FailureToleranceMethod) {
-                    "RAID1" { "RAID-1 (Mirroring) - Performance" }
-                    { $_ -in "RAID5", "RAID6" } { "RAID-5/6 (Erasure Coding) - Capacity" }
+                    if ($StorageType -eq "ESA") {
+                        $compressionText = if (-not $NoCompression) { "compression" } else { "no compression" }
+                        $CurrentDescription = "vSAN ESA policy with $ftmText, $compressionText"
+                    } else {
+                        $CurrentDescription = "vSAN OSA policy with $ftmText"
+                    }
                 }
-                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" -Server $VIServer) -Value $replicaValue
-            }
 
-            # Site Disaster Tolerance
-            if ($DisasterTolerance -ne "None") {
-                $siteToleranceValue = switch ($DisasterTolerance) {
-                    "Dual" { "VSAN.siteDisasterTolerance.Dual" }
-                    "Preferred" { "VSAN.siteDisasterTolerance.Preferred" }
+                # Check if policy with this name already exists
+                $existingPolicy = Get-SpbmStoragePolicy -Name $CurrentPolicyName -ErrorAction SilentlyContinue -Server $VIServer
+                if ($existingPolicy) {
+                    Write-Warning "A storage policy with the name '$CurrentPolicyName' already exists. Skipping."
+                    continue
                 }
-                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.siteDisasterTolerance" -Server $VIServer) -Value $siteToleranceValue
-            }
 
-            # Space Efficiency (Compression/Deduplication) - ESA only
-            if ($StorageType -eq "ESA") {
-                if ($Deduplication -and $Compression) {
-                    # Both deduplication and compression
-                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.datastoreSpaceEfficiency" -Server $VIServer) -Value "DedupAndCompression"
+                Write-Information "Creating vSAN $StorageType storage policy: $CurrentPolicyName"
+
+                # Create individual capability rules
+                $rules = @()
+
+                # VSAN Storage Type
+                if ($StorageType -eq "ESA") {
+                    Write-Information "Configuring for ESA architecture (Allflash)"
+                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.storageType" -Server $VIServer) -Value "Allflash"
+                } else {
+                    Write-Information "Configuring for OSA architecture"
+                    # OSA can be Allflash or Hybrid - using Allflash as default
+                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.storageType" -Server $VIServer) -Value "Allflash"
                 }
-                elseif ($Compression) {
-                    # Compression only
-                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.datastoreSpaceEfficiency" -Server $VIServer) -Value "CompressionOnly"
+
+                # Failures To Tolerate
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.hostFailuresToTolerate" -Server $VIServer) -Value $FailuresToTolerate
+
+                # Failure Tolerance Method
+                if ($FailureToleranceMethod -ne "None") {
+                    $replicaValue = switch ($FailureToleranceMethod) {
+                        "RAID1" { "RAID-1 (Mirroring) - Performance" }
+                        { $_ -in "RAID5", "RAID6" } { "RAID-5/6 (Erasure Coding) - Capacity" }
+                    }
+                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" -Server $VIServer) -Value $replicaValue
                 }
-                else {
-                    # No space efficiency
-                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.datastoreSpaceEfficiency" -Server $VIServer) -Value "NoSpaceEfficiency"
+
+                # Site Disaster Tolerance
+                if ($DisasterTolerance -ne "None") {
+                    $siteToleranceValue = switch ($DisasterTolerance) {
+                        "Dual" { "VSAN.siteDisasterTolerance.Dual" }
+                        "Preferred" { "VSAN.siteDisasterTolerance.Preferred" }
+                    }
+                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.siteDisasterTolerance" -Server $VIServer) -Value $siteToleranceValue
                 }
-            }
 
-            # VM Encryption
-            if ($VmEncryption) {
-                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.dataAtRestEncryption" -Server $VIServer) -Value $true
-            }
-
-            # Object Space Reservation
-            if ($ObjectSpaceReservation -gt 0) {
-                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.proportionalCapacity" -Server $VIServer) -Value $ObjectSpaceReservation
-            }
-
-            # Stripes Per Object
-            if ($StripesPerObject -gt 1) {
-                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.stripeWidth" -Server $VIServer) -Value $StripesPerObject
-            }
-
-            # IOPS Limit
-            if ($IopsLimit -gt 0) {
-                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.iopsLimit" -Server $VIServer) -Value $IopsLimit
-            }
-
-            # Cache Reservation
-            if ($CacheReservation -gt 0) {
-                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.cacheReservation" -Server $VIServer) -Value $CacheReservation
-            }
-
-            # Disable Checksum
-            if ($DisableChecksum) {
-                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.checksumDisabled" -Server $VIServer) -Value $true
-            }
-
-            # Force Provisioning
-            if ($ForceProvisioning) {
-                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.forceProvisioning" -Server $VIServer) -Value $true
-            }
-
-            # Create the rule set
-            $ruleSet = New-SpbmRuleSet -AllOfRules $rules
-
-            # Create the storage policy
-            $policy = New-SpbmStoragePolicy -Name $PolicyName -Description $Description -AnyOfRuleSets $ruleSet -Server $VIServer
-
-            Write-Information "Successfully created storage policy: $PolicyName"
-
-            # Display policy details
-            Write-Information "`nPolicy Details:"
-            Write-Information "  Name: $($policy.Name)"
-            Write-Information "  Description: $($policy.Description)"
-            Write-Information "  ID: $($policy.Id)"
-            Write-Information "`nConfiguration:"
-            Write-Information "  Storage Type: vSAN $StorageType"
-            Write-Information "  Failures To Tolerate: $FailuresToTolerate"
-            $ftmDisplay = switch ($FailureToleranceMethod) {
-                "None" { "None (No data redundancy)" }
-                "RAID1" { "RAID-1 (Mirroring)" }
-                "RAID5" { "RAID-5 (Erasure Coding)" }
-                "RAID6" { "RAID-6 (Erasure Coding)" }
-            }
-            Write-Information "  Failure Tolerance Method: $ftmDisplay"
-            if ($DisasterTolerance -ne "None") {
-                Write-Information "  Site Disaster Tolerance: $DisasterTolerance"
-            }
-            if ($StorageType -eq "ESA") {
-                if ($Compression) {
-                    Write-Information "  Compression: Enabled"
+                # Space Efficiency (Compression) - ESA only
+                if ($StorageType -eq "ESA") {
+                    if (-not $NoCompression) {
+                        # Compression only
+                        $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.datastoreSpaceEfficiency" -Server $VIServer) -Value "CompressionOnly"
+                    } else {
+                        # No space efficiency
+                        $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.datastoreSpaceEfficiency" -Server $VIServer) -Value "NoSpaceEfficiency"
+                    }
                 }
-                if ($Deduplication) {
-                    Write-Information "  Deduplication: Enabled"
-                }
-            }
-            else {
-                Write-Information "  Compression/Deduplication: Cluster-level (OSA)"
-            }
-            if ($VmEncryption) {
-                Write-Information "  VM Encryption: Enabled"
-            }
-            if ($ObjectSpaceReservation -gt 0) {
-                Write-Information "  Object Space Reservation: $ObjectSpaceReservation%"
-            }
-            if ($StripesPerObject -gt 1) {
-                Write-Information "  Stripes Per Object: $StripesPerObject"
-            }
-            if ($IopsLimit -gt 0) {
-                Write-Information "  IOPS Limit: $IopsLimit"
-            }
-            if ($CacheReservation -gt 0) {
-                Write-Information "  Cache Reservation: $CacheReservation%"
-            }
-            if ($DisableChecksum) {
-                Write-Information "  Checksum: Disabled"
-            }
-            if ($ForceProvisioning) {
-                Write-Information "  Force Provisioning: Enabled"
-            }
+                # OSA: No compression/dedupe rules added
 
-            # Return the created policy object
-            return $policy
+                # VM Encryption
+                if ($VmEncryption) {
+                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.dataAtRestEncryption" -Server $VIServer) -Value $true
+                }
+
+                # Object Space Reservation
+                if ($ObjectSpaceReservation -gt 0) {
+                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.proportionalCapacity" -Server $VIServer) -Value $ObjectSpaceReservation
+                }
+
+                # Stripes Per Object
+                if ($StripesPerObject -gt 1) {
+                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.stripeWidth" -Server $VIServer) -Value $StripesPerObject
+                }
+
+                # IOPS Limit
+                if ($IopsLimit -gt 0) {
+                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.iopsLimit" -Server $VIServer) -Value $IopsLimit
+                }
+
+                # Cache Reservation
+                if ($CacheReservation -gt 0) {
+                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.cacheReservation" -Server $VIServer) -Value $CacheReservation
+                }
+
+                # Disable Checksum
+                if ($DisableChecksum) {
+                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.checksumDisabled" -Server $VIServer) -Value $true
+                }
+
+                # Force Provisioning
+                if ($ForceProvisioning) {
+                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.forceProvisioning" -Server $VIServer) -Value $true
+                }
+
+                # Create the rule set
+                $ruleSet = New-SpbmRuleSet -AllOfRules $rules
+
+                # Create the storage policy
+                $policy = New-SpbmStoragePolicy -Name $CurrentPolicyName -Description $CurrentDescription -AnyOfRuleSets $ruleSet -Server $VIServer
+
+                $createdPolicies += $policy
+
+                Write-Information "Successfully created storage policy: $CurrentPolicyName"
+
+                # Display policy details
+                Write-Information "`nPolicy Details:"
+                Write-Information "  Name: $($policy.Name)"
+                Write-Information "  Description: $($policy.Description)"
+                Write-Information "  ID: $($policy.Id)"
+                Write-Information "`nConfiguration:"
+                Write-Information "  Storage Type: vSAN $StorageType"
+                Write-Information "  Failures To Tolerate: $FailuresToTolerate"
+                $ftmDisplay = switch ($FailureToleranceMethod) {
+                    "None" { "None (No data redundancy)" }
+                    "RAID1" { "RAID-1 (Mirroring)" }
+                    "RAID5" { "RAID-5 (Erasure Coding)" }
+                    "RAID6" { "RAID-6 (Erasure Coding)" }
+                }
+                Write-Information "  Failure Tolerance Method: $ftmDisplay"
+                if ($DisasterTolerance -ne "None") {
+                    Write-Information "  Site Disaster Tolerance: $DisasterTolerance"
+                }
+                if ($StorageType -eq "ESA") {
+                    if (-not $NoCompression) {
+                        Write-Information "  Compression: Enabled"
+                    } else {
+                        Write-Information "  Compression: Disabled"
+                    }
+                } else {
+                    Write-Information "  Compression/Deduplication: Cluster-level (OSA)"
+                }
+                if ($VmEncryption) {
+                    Write-Information "  VM Encryption: Enabled"
+                }
+                if ($ObjectSpaceReservation -gt 0) {
+                    Write-Information "  Object Space Reservation: $ObjectSpaceReservation%"
+                }
+                if ($StripesPerObject -gt 1) {
+                    Write-Information "  Stripes Per Object: $StripesPerObject"
+                }
+                if ($IopsLimit -gt 0) {
+                    Write-Information "  IOPS Limit: $IopsLimit"
+                }
+                if ($CacheReservation -gt 0) {
+                    Write-Information "  Cache Reservation: $CacheReservation%"
+                }
+                if ($DisableChecksum) {
+                    Write-Information "  Checksum: Disabled"
+                }
+                if ($ForceProvisioning) {
+                    Write-Information "  Force Provisioning: Enabled"
+                }
+            } catch {
+                Write-Error "Failed to create storage policy for $StorageType : $_"
+            }
         }
-        catch {
-            Write-Error "Failed to create storage policy: $_"
-            throw
-        }
+
+        # Return the created policy objects
+        return $createdPolicies
     }
 
-    End {
+    end {
         Write-Information "Storage policy creation completed"
     }
 }
