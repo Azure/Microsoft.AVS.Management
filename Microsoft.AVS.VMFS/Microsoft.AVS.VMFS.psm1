@@ -322,6 +322,13 @@ function New-VmfsDatastore {
         throw "Invalid Size $SizeInBytes provided. Size should be between 1 GB and 64 TB."
     }
 
+    if (-not(
+        $DeviceNaaId.StartsWith("naa.60003ff") -or # Microsoft
+        $DeviceNaaId.StartsWith("naa.600a098") -or # NetApp
+        $DeviceNaaId.StartsWith("naa.624a937"))) { # Pure Storage
+        throw "The datastore with NAA $DeviceNaaId is not supported for VMFS volume creation."
+    }
+
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
     if (-not $Cluster) {
         throw "Cluster $ClusterName does not exist."
