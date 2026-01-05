@@ -16,13 +16,8 @@ stages:
     steps:
     - task: NuGetAuthenticate@1
 
-    - task: AzureCLI@2
-      inputs:
-        azureSubscription: Scripting Metadata
-        scriptLocation: 'inlineScript'
-        scriptType: 'pscore'
-        inlineScript: |
-          az artifacts universal download `
+    - pwsh: |
+        az artifacts universal download `
             --organization $(consumptionAuthority) `
             --project=$(consumptionProject) `
             --scope project `
@@ -30,14 +25,11 @@ stages:
             --name shuttle `
             --version $(shuttleVersion) `
             --path shuttle          
-      displayName: Prepare shuttle
-      env:
-        AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
-
-    - pwsh: |
         .build-tools/registerSources.ps1 $(consumptionFeedUrl) $(destination)
         .build-tools/getRequiredModules.ps1 '$(System.AccessToken)' '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
       displayName: 'Restore Dependencies for ${{ parameters.moduleFolderName }}'
+      env:
+        AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
 
     - task: PowerShell@2
       displayName: 'Pre-Validate Module and Scripts for ${{ parameters.moduleFolderName }}'
