@@ -117,7 +117,7 @@
             Tags = @("VMware", "PowerCLI", "Azure", "AVS")
 
             # A URL to the license for this module.
-            # LicenseUri = ''
+            LicenseUri = 'https://raw.githubusercontent.com/Azure/Microsoft.AVS.Management/refs/heads/main/LICENSE'
 
             # A URL to the main website for this project.
             ProjectUri = 'https://github.com/Azure/Microsoft.AVS.Management'
