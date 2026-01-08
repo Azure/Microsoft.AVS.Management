@@ -1,11 +1,13 @@
 #!/usr/bin/pwsh
 param (
-    [Parameter(Mandatory=$true)][string]$modulesFolderPath
+    [Parameter(Mandatory=$true)][string]$modulesFolderPath,
+    [Parameter(Mandatory=$true)][string]$accessToken
 )
 
 $script:zeroPSAnalyzerErrorsFound = $true
 $script:zeroTestScriptFileInfoErrorsFound = $true
 $script:zeroTestModuleManifestErrorsFound = $true
+$script:zeroPesterErrorsFound = $true
 
 function Get-PrevalidationResults {
     param (
@@ -60,16 +62,62 @@ $fileExtList = @("*.ps1","*.psm1","*.psd1")
 
 Get-PrevalidationResults (Join-Path -Path $repoRoot -ChildPath $modulesFolderPath) $fileExtList
 
+# Check for and run Pester tests if they exist
+$moduleFolderName = Split-Path -Leaf $modulesFolderPath
+$testsDir = Join-Path -Path $repoRoot -ChildPath "tests"
+$pesterTestFile = Join-Path -Path $testsDir -ChildPath "$moduleFolderName.Tests.ps1"
+
+if (Test-Path $pesterTestFile) {
+    Write-Output "Found Pester test file: $pesterTestFile"
+    Write-Output "Running Pester tests..."
+    
+    $env:SKIP_INTEGRATION_TESTS = 'false'
+    $Global:FeedSettings = @{ 
+        Credential = [PSCredential]::new("ado", ($accessToken | ConvertTo-SecureString -AsPlainText -Force))
+        Repository = "ConsumptionV3"
+    }
+    
+    $pesterConfig = [PesterConfiguration]@{
+        Run = @{
+            Path = $pesterTestFile
+            Exit = $false
+        }
+        Output = @{
+            Verbosity = 'Detailed'
+        }
+        Should = @{
+            ErrorAction = 'Continue'
+        }
+    }
+    
+    $pesterResults = Invoke-Pester -Configuration $pesterConfig
+    
+    if ($pesterResults.FailedCount -gt 0) {
+        $script:zeroPesterErrorsFound = $false
+        Write-Error -Message "Pester tests failed: $($pesterResults.FailedCount) test(s) failed"
+    } else {
+        Write-Output "SUCCESS: All Pester tests passed ($($pesterResults.PassedCount) passed)"
+    }
+} else {
+    Write-Output "No Pester test file found at: $pesterTestFile"
+}
+
 if (!$script:zeroPSAnalyzerErrorsFound) {
     Write-Error -Message "PRE-VALIDATION FAILED: PSScriptAnalyzer found errors"
-}if (!$script:zeroTestScriptFileInfoErrorsFound) {
+}
+if (!$script:zeroTestScriptFileInfoErrorsFound) {
     Write-Error -Message "PRE-VALIDATION FAILED: Test-PSScriptFileInfo found errors"
-}if (!$script:zeroTestModuleManifestErrorsFound) {
+}
+if (!$script:zeroTestModuleManifestErrorsFound) {
     Write-Error -Message "PRE-VALIDATION FAILED: Test-ModuleManifest found errors"
-}if (!$script:zeroPSAnalyzerErrorsFound -or !$script:zeroTestScriptFileInfoErrorsFound -or !$script:zeroTestModuleManifestErrorsFound) {
+}
+if (!$script:zeroPesterErrorsFound) {
+    Write-Error -Message "PRE-VALIDATION FAILED: Pester tests failed"
+}
+if (!$script:zeroPSAnalyzerErrorsFound -or !$script:zeroTestScriptFileInfoErrorsFound -or !$script:zeroTestModuleManifestErrorsFound -or !$script:zeroPesterErrorsFound) {
     Write-Error -Message "PRE-VALIDATION FAILED: See above errors"
     Throw "Prevalidation failed"
-}else {
+} else {
     Write-Output "SUCCESS: completed pre-validation"
 } 
 
