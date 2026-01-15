@@ -1002,12 +1002,12 @@ function New-AVSStoragePolicy {
             }
         } catch {
             Write-Error "Failed to enumerate clusters."
-            throw
+            return
         }
 
         if ($typesToCreate.Count -eq 0) {
             Write-Error "No vSAN clusters found."
-            throw
+            return
         }
 
         Write-Information "Detected vSAN types: $($typesToCreate -join ', ')"
@@ -1015,19 +1015,19 @@ function New-AVSStoragePolicy {
         # Validate FTT and Failure Tolerance Method combination
         if ($FailureToleranceMethod -eq "None" -and $FailuresToTolerate -ne 0) {
             Write-Error "Failure tolerance method 'None' requires FailuresToTolerate = 0"
-            throw
+            return
         }
         if ($FailuresToTolerate -eq 0 -and $FailureToleranceMethod -ne "None") {
             Write-Error "FailuresToTolerate = 0 requires FailureToleranceMethod = 'None'"
-            throw
+            return
         }
         if ($FailureToleranceMethod -eq "RAID5" -and $FailuresToTolerate -ne 1) {
             Write-Error "RAID-5 erasure coding requires FailuresToTolerate = 1"
-            throw
+            return
         }
         if ($FailureToleranceMethod -eq "RAID6" -and $FailuresToTolerate -ne 2) {
             Write-Error "RAID-6 erasure coding requires FailuresToTolerate = 2"
-            throw
+            return
         }
     }
 
