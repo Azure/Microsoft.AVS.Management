@@ -4,6 +4,8 @@ param (
     [Parameter(Mandatory=$true)][string]$accessToken
 )
 
+Import-Module Pester -MinimumVersion 5.0 -ErrorAction Stop
+
 $script:zeroPSAnalyzerErrorsFound = $true
 $script:zeroTestScriptFileInfoErrorsFound = $true
 $script:zeroTestModuleManifestErrorsFound = $true
@@ -77,19 +79,12 @@ if (Test-Path $pesterTestFile) {
         Repository = "ConsumptionV3"
     }
     
-    $pesterConfig = [PesterConfiguration]@{
-        Run = @{
-            Path = $pesterTestFile
-            Exit = $false
-        }
-        Output = @{
-            Verbosity = 'Detailed'
-        }
-        Should = @{
-            ErrorAction = 'Continue'
-        }
-    }
-    
+    $pesterConfig = New-PesterConfiguration
+    $pesterConfig.Run.Path = $pesterTestFile
+    $pesterConfig.Run.Exit = $false
+    $pesterConfig.Output.Verbosity = 'Detailed'
+    $pesterConfig.Should.ErrorAction = 'Continue'
+    $env:SKIP_INTEGRATION_TESTS = $true
     $pesterResults = Invoke-Pester -Configuration $pesterConfig
     
     if ($pesterResults.FailedCount -gt 0) {

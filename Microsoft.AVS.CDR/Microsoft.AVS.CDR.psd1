@@ -7,89 +7,62 @@
 #
 
 @{
+    RootModule = 'Microsoft.AVS.CDR.psm1'
 
-# Script module or binary module file associated with this manifest.
-RootModule = 'Microsoft.AVS.CDR'
+    ModuleVersion = '1.0.1'
 
-# Version number of this module.
-ModuleVersion = '1.0.1'
+    # CompatiblePSEditions = @()
 
-# Supported PSEditions
-# CompatiblePSEditions = @()
+    GUID = '44aa8397-56c2-428e-a0db-eb6c7f167c2b'
 
-# ID used to uniquely identify this module
-GUID = '44aa8397-56c2-428e-a0db-eb6c7f167c2b'
+    Author = 'Microsoft'
 
-# Author of this module
-Author = 'Microsoft'
+    CompanyName = 'Microsoft'
 
-# Company or vendor of this module
-CompanyName = 'Microsoft'
+    Copyright = '(c) Microsoft. All rights reserved.'
 
-# Copyright statement for this module
-Copyright = '(c) Microsoft. All rights reserved.'
+    Description = 'Conservative dependency resolver'
 
-# Description of the functionality provided by this module
-Description = 'Conservative dependency resolver'
+    PowerShellVersion = '7.4'
 
-# Minimum version of the PowerShell engine required by this module
-PowerShellVersion = '7.4'
+    RequiredModules = @()
 
-# Modules that must be imported into the global environment prior to importing this module
-RequiredModules = @(
-    @{ ModuleName = 'Microsoft.PowerShell.PSResourceGet'; RequiredVersion = '1.2.0-rc1' }
-)
+    FunctionsToExport = @('Install-PSResourcePinned', 'Import-ModulePinned')
 
-# Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @('Install-PSResourcePinned', 'Import-ModulePinned')
+    CmdletsToExport = '*'
 
-# Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
-CmdletsToExport = '*'
+    VariablesToExport = '*'
 
-# Variables to export from this module
-VariablesToExport = '*'
+    AliasesToExport = '*'
 
-# Aliases to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no aliases to export.
-AliasesToExport = '*'
+    PrivateData = @{
 
-# Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
-PrivateData = @{
+        PSData = @{
 
-    PSData = @{
+            # Tags applied to this module. These help with module discovery in online galleries.
+            Tags = @('PowerCLI', 'AVS')
 
-        # Tags applied to this module. These help with module discovery in online galleries.
-        Tags = @('PowerCLI', 'AVS')
+            LicenseUri = 'https://raw.githubusercontent.com/Azure/Microsoft.AVS.Management/refs/heads/main/LICENSE'
 
-        # A URL to the license for this module.
-        LicenseUri = 'https://raw.githubusercontent.com/Azure/Microsoft.AVS.Management/refs/heads/main/LICENSE'
+            ProjectUri = 'https://github.com/Azure/Microsoft.AVS.Management'
 
-        # A URL to the main website for this project.
-        ProjectUri = 'https://github.com/Azure/Microsoft.AVS.Management'
+            # IconUri = ''
 
-        # A URL to an icon representing this module.
-        # IconUri = ''
+            # ReleaseNotes = ''
 
-        # ReleaseNotes of this module
-        # ReleaseNotes = ''
+            # Prerelease = ''
 
-        # Prerelease string of this module
-        # Prerelease = ''
+            # RequireLicenseAcceptance = $false
 
-        # Flag to indicate whether the module requires explicit user acceptance for install/update/save
-        # RequireLicenseAcceptance = $false
+            # ExternalModuleDependencies = @()
 
-        # External dependent modules of this module
-        # ExternalModuleDependencies = @()
+        } # End of PSData hashtable
 
-    } # End of PSData hashtable
+    } # End of PrivateData hashtable
 
-} # End of PrivateData hashtable
+    # HelpInfoURI = ''
 
-# HelpInfo URI of this module
-# HelpInfoURI = ''
-
-# Default prefix for commands exported from this module. Override the default prefix using Import-Module -Prefix.
-# DefaultCommandPrefix = ''
+    # DefaultCommandPrefix = ''
 
 }
 

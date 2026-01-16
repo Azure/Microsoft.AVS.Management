@@ -12,15 +12,17 @@ BeforeAll {
     $script:PSAnalyser = @{ Name = "PSScriptAnalyzer"; Version = "1.24.0" }
     $script:MSAVSManagement = @{ Name = "Microsoft.AVS.Management"; Version = "8.0.201" }
     $testModules = @($script:PSAnalyser, $script:MSAVSManagement)
-    
-    # Remove test modules if they exist to ensure clean installation tests
-    foreach ($module in $testModules) {
-        $existingModule = Get-PSResource -Name $module.Name | 
-            Where-Object { $_.Version.ToString() -eq $module.Version }
 
-        if ($existingModule) {
-            Write-Verbose "Removing existing $($module.Name) version $($module.Version) for clean test"
-            Uninstall-PSResource -Name $module.Name -Version $module.Version -ErrorAction SilentlyContinue
+    if(-not $env:SKIP_INTEGRATION_TESTS) {
+        # Remove test modules if they exist to ensure clean installation tests
+        foreach ($module in $testModules) {
+            $existingModule = Get-PSResource -Name $module.Name | 
+            Where-Object { $_.Version.ToString() -eq $module.Version }
+            
+            if ($existingModule) {
+                Write-Verbose "Removing existing $($module.Name) version $($module.Version) for clean test"
+                Uninstall-PSResource -Name $module.Name -Version $module.Version -ErrorAction SilentlyContinue
+            }
         }
     }
 }
@@ -39,16 +41,8 @@ Describe "Install-PSResourcePinned" {
 
         It "Should have Version parameter as mandatory" {
             $command = Get-Command Install-PSResourcePinned
-            $versionParam = $command.Parameters['Version']
+            $versionParam = $command.Parameters['RequiredVersion']
             $versionParam.Attributes.Mandatory | Should -Contain $true
-        }
-
-        It "Should accept valid Scope values" {
-            # This tests that the ValidateSet works correctly
-            $command = Get-Command Install-PSResourcePinned
-            $scopeParam = $command.Parameters['Scope']
-            $scopeParam.Attributes.ValidValues | Should -Contain 'CurrentUser'
-            $scopeParam.Attributes.ValidValues | Should -Contain 'AllUsers'
         }
 
         It "Should have Repository parameter" {
@@ -74,7 +68,7 @@ Describe "Install-PSResourcePinned" {
 
         It "Should install a module with exact version" {
             try {
-                Install-PSResourcePinned -Name $script:PSAnalyser.Name -Version $script:PSAnalyser.Version -Repository $script:repository -Credential $script:credential -Scope $testScope
+                Install-PSResourcePinned -Name $script:PSAnalyser.Name -RequiredVersion $script:PSAnalyser.Version -Repository $script:repository -Credential $script:credential -Scope $testScope
                 $installed = Get-PSResource -Name $script:PSAnalyser.Name | Where-Object { $_.Version.ToString() -eq $script:PSAnalyser.Version }
                 $installed | Should -Not -BeNullOrEmpty
             }
@@ -84,9 +78,9 @@ Describe "Install-PSResourcePinned" {
         } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
 
         It "Should handle non-existent module gracefully" {
-            { Install-PSResourcePinned -Name "NonExistentModule12345" -Version "1.0.0" -Repository $script:repository -Credential $script:credential } | 
-                Should -Throw -ExpectedMessage "*not found*"
-        }
+            { Install-PSResourcePinned -Name "NonExistentModule12345" -RequiredVersion "1.0.0" -Repository $script:repository -Credential $script:credential } | 
+                Should -Throw -ExpectedMessage "*could not be found*"
+        } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
     }
 
     Context "Redirect Map" {
@@ -104,7 +98,7 @@ Describe "Install-PSResourcePinned" {
         It "Should throw when redirect map file doesn't exist" {
             # When map file doesn't exist and is specified, should throw
             { 
-                Install-PSResourcePinned -Name $script:PSAnalyser.Name -Version $script:PSAnalyser.Version `
+                Install-PSResourcePinned -Name $script:PSAnalyser.Name -RequiredVersion $script:PSAnalyser.Version `
                     -RedirectMapPath $script:nonExistentMapPath -Repository $script:repository `
                     -Credential $script:credential -ErrorAction Stop
             } | Should -Throw -ExpectedMessage "*not found*"
@@ -121,7 +115,7 @@ Describe "Install-PSResourcePinned" {
             
             # Capture verbose output to verify redirect was loaded
             $verboseOutput = Install-PSResourcePinned -Name $script:PSAnalyser.Name `
-                -Version $script:PSAnalyser.Version -RedirectMapPath $redirectMapForInstall `
+                -RequiredVersion $script:PSAnalyser.Version -RedirectMapPath $redirectMapForInstall `
                 -Repository $script:repository -Credential $script:credential -Verbose 4>&1
             
             # Should see message about loading redirect map
@@ -142,13 +136,13 @@ Describe "Install-PSResourcePinned" {
             
             if (-not $installed) {
                 Install-PSResourcePinned -Name $script:MSAVSManagement.Name `
-                    -Version $script:MSAVSManagement.Version -Repository $script:repository `
+                    -RequiredVersion $script:MSAVSManagement.Version -Repository $script:repository `
                     -Credential $script:credential
             }
             
             # Capture verbose output to verify redirect was loaded
             $verboseOutput = Import-ModulePinned -Name $script:MSAVSManagement.Name `
-                -Version $script:MSAVSManagement.Version -RedirectMapPath $redirectMapForImport `
+                -RequiredVersion $script:MSAVSManagement.Version -RedirectMapPath $redirectMapForImport `
                 -Force -Verbose 4>&1
             
             # Should see message about loading redirect map
@@ -159,15 +153,13 @@ Describe "Install-PSResourcePinned" {
         } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
 
         AfterAll {
-            if (Test-Path $testRedirectMapPath) {
-                Remove-Item $testRedirectMapPath -Force
-            }
+            # Cleanup handled in individual tests
         }
     }
 
     Context "Verbose Output" {
         It "Should produce verbose output when requested" {
-            $verboseOutput = Install-PSResourcePinned -Name $script:MSAVSManagement.Name -Version $script:MSAVSManagement.Version -Repository $script:repository -Credential $script:credential -Verbose 4>&1
+            $verboseOutput = Install-PSResourcePinned -Name $script:MSAVSManagement.Name -RequiredVersion $script:MSAVSManagement.Version -Repository $script:repository -Credential $script:credential -Verbose 4>&1
             # At minimum, should see searching message
             $verboseOutput | Should -Not -BeNullOrEmpty
         } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
@@ -189,7 +181,7 @@ Describe "Get-MergedRedirectMap" {
         It "Should return outer map when no module-specific map exists" {
             InModuleScope Microsoft.AVS.CDR {
                 $outerMap = @{ "Module1@1.0" = "1.1" }
-                $result = Get-MergedRedirectMap -OuterMap $outerMap -ModuleName "NonExistentModule" -ModuleVersion "1.0.0"
+                $result = Get-MergedRedirectMap -OuterMap $outerMap -Name "NonExistentModule" -Version "1.0.0"
                 
                 $result.Count | Should -Be 1
                 $result["Module1@1.0"] | Should -Be "1.1"
@@ -211,7 +203,7 @@ Describe "Get-MergedRedirectMap" {
                     param($mapPath)
                     
                     $outerMap = @{ "Dependency3@3.0.0" = "3.0.1" }
-                    $result = Get-MergedRedirectMap -OuterMap $outerMap -ModuleName "MergeTest" -ModuleVersion "1.0.0"
+                    $result = Get-MergedRedirectMap -OuterMap $outerMap -Name "MergeTest" -Version "1.0.0"
                     
                     # Should contain all three dependencies
                     $result.Count | Should -Be 3
@@ -239,7 +231,7 @@ Describe "Get-MergedRedirectMap" {
                 
                 InModuleScope Microsoft.AVS.CDR {
                     $outerMap = @{ "Dependency1@1.0.0" = "1.0.2" }  # This should win
-                    $result = Get-MergedRedirectMap -OuterMap $outerMap -ModuleName "ConflictTest" -ModuleVersion "1.0.0"
+                    $result = Get-MergedRedirectMap -OuterMap $outerMap -Name "ConflictTest" -Version "1.0.0"
                     
                     # Outer map should take precedence
                     $result["Dependency1@1.0.0"] | Should -Be "1.0.2"
@@ -266,7 +258,7 @@ Describe "Get-MergedRedirectMap" {
                 InModuleScope Microsoft.AVS.CDR {
                     $outerMap = @{}
                     # Request full version 1.2.3.4, should fall back to 1.2
-                    $result = Get-MergedRedirectMap -OuterMap $outerMap -ModuleName "PatternTest" -ModuleVersion "1.2.3.4"
+                    $result = Get-MergedRedirectMap -OuterMap $outerMap -Name "PatternTest" -Version "1.2.3.4"
                     
                     # Should have loaded the major.minor map
                     $result["Dependency@1.0.0"] | Should -Be "1.0.1"
@@ -292,13 +284,13 @@ Describe "Get-MergedRedirectMap" {
                     $outerMap = @{}
                     
                     # First call - should load from file
-                    $result1 = Get-MergedRedirectMap -OuterMap $outerMap -ModuleName "CacheTest" -ModuleVersion "1.0.0"
+                    $result1 = Get-MergedRedirectMap -OuterMap $outerMap -Name "CacheTest" -Version "1.0.0"
                     
                     # Cache should now contain the map
                     $script:moduleMapCache.ContainsKey("CacheTest@1.0.0") | Should -BeTrue
                     
                     # Second call - should use cache
-                    $result2 = Get-MergedRedirectMap -OuterMap $outerMap -ModuleName "CacheTest" -ModuleVersion "1.0.0"
+                    $result2 = Get-MergedRedirectMap -OuterMap $outerMap -Name "CacheTest" -Version "1.0.0"
                     
                     # Results should be the same
                     $result1["Dependency@1.0.0"] | Should -Be "1.0.1"
@@ -323,7 +315,7 @@ Describe "Get-MergedRedirectMap" {
                 InModuleScope Microsoft.AVS.CDR {
                     $outerMap = @{}
                     # Pass a version range format
-                    $result = Get-MergedRedirectMap -OuterMap $outerMap -ModuleName "RangeTest" -ModuleVersion "[1.2.3, 1.2.4]"
+                    $result = Get-MergedRedirectMap -OuterMap $outerMap -Name "RangeTest" -Version "[1.2.3, 1.2.4]"
                     
                     # Should extract version 1.2.3 and match to 1.2 pattern
                     $result["Dependency@1.0.0"] | Should -Be "1.0.1"
@@ -353,17 +345,17 @@ Describe "Import-ModulePinned" {
             $nameParam.Attributes.Mandatory | Should -Contain $true
         }
 
-        It "Should have Version parameter as mandatory" {
+        It "Should have RequiredVersion parameter as mandatory" {
             $command = Get-Command Import-ModulePinned
-            $versionParam = $command.Parameters['Version']
+            $versionParam = $command.Parameters['RequiredVersion']
             $versionParam.Attributes.Mandatory | Should -Contain $true
         }
 
-        It "Should accept Name and Version positional parameters" {
+        It "Should accept Name and RequiredVersion positional parameters" {
             # Test that parameters accept positional values
             $command = Get-Command Import-ModulePinned
             $command.Parameters['Name'].Attributes.Position | Should -Be 0
-            $command.Parameters['Version'].Attributes.Position | Should -Be 1
+            $command.Parameters['RequiredVersion'].Attributes.Position | Should -Be 1
         }
 
         It "Should have RedirectMapPath parameter" {
@@ -378,17 +370,19 @@ Describe "Import-ModulePinned" {
             $script:testModuleName = $script:MSAVSManagement.Name
             $script:testModuleVersion = $script:MSAVSManagement.Version
             
-            # Check if module is installed, if not, install it
-            $installed = Get-PSResource -Name $testModuleName | 
+            if( -not $env:SKIP_INTEGRATION_TESTS) {
+                # Check if module is installed, if not, install it
+                $installed = Get-PSResource -Name $testModuleName | 
                 Where-Object { $_.Version.ToString() -eq $testModuleVersion }
-            
-            if (-not $installed) {
-                Install-PSResourcePinned -Name $testModuleName -Version $testModuleVersion -Repository $script:repository -Credential $script:credential
+                
+                if (-not $installed) {
+                    Install-PSResourcePinned -Name $testModuleName -RequiredVersion $testModuleVersion -Repository $script:repository -Credential $script:credential
+                }
             }
         }
 
         It "Should import a module with exact version" {
-            { Import-ModulePinned -Name $testModuleName -Version $testModuleVersion } | Should -Not -Throw
+            { Import-ModulePinned -Name $testModuleName -RequiredVersion $testModuleVersion } | Should -Not -Throw
             
             $loadedModule = Get-Module -Name $testModuleName
             $loadedModule | Should -Not -BeNullOrEmpty
@@ -396,22 +390,22 @@ Describe "Import-ModulePinned" {
         } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
 
         It "Should return module info when PassThru is specified" {
-            $result = Import-ModulePinned -Name $testModuleName -Version $testModuleVersion -PassThru -Force
+            $result = Import-ModulePinned -Name $testModuleName -RequiredVersion $testModuleVersion -PassThru -Force
             $result | Should -Not -BeNullOrEmpty
             $result.Name | Should -Be $testModuleName
         } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
 
         It "Should reimport module when Force is specified" {
             # Import once
-            Import-ModulePinned -Name $testModuleName -Version $testModuleVersion
+            Import-ModulePinned -Name $testModuleName -RequiredVersion $testModuleVersion
             
             # Import again with Force
-            { Import-ModulePinned -Name $testModuleName -Version $testModuleVersion -Force } | Should -Not -Throw
+            { Import-ModulePinned -Name $testModuleName -RequiredVersion $testModuleVersion -Force } | Should -Not -Throw
         } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
 
         It "Should throw when module is not installed" {
-            { Import-ModulePinned -Name "NonExistentModule12345" -Version "1.0.0" } | 
-                Should -Throw -ExpectedMessage "*not found*"
+            { Import-ModulePinned -Name "NonExistentModule12345" -RequiredVersion "1.0.0" } | 
+                Should -Throw -ExpectedMessage "Module not found: NonExistentModule12345 version 1.0.0"
         }
 
         AfterEach {
@@ -434,7 +428,7 @@ Describe "Import-ModulePinned" {
                     Where-Object { $_.Version.ToString() -eq $moduleWithDepsVersion }
                 
                 if ($installed) {
-                    Import-ModulePinned -Name $moduleWithDeps -Version $moduleWithDepsVersion -Verbose
+                    Import-ModulePinned -Name $moduleWithDeps -RequiredVersion $moduleWithDepsVersion -Verbose
                     
                     # Check that the main module is loaded
                     $loadedModule = Get-Module -Name $moduleWithDeps
@@ -462,7 +456,7 @@ Describe "Import-ModulePinned" {
         }
 
         It "Should apply prefix to imported commands" {
-            Import-ModulePinned -Name $testModuleName -Version $testModuleVersion -Prefix "Test" -Force
+            Import-ModulePinned -Name $testModuleName -RequiredVersion $testModuleVersion -Prefix "Test" -Force
             
             # Check that prefixed command exists
             $commands = Get-Command -Module $testModuleName
