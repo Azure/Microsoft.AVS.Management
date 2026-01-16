@@ -39,6 +39,11 @@ extends:
     stages:
     - template: templates/common-validation-stages.yml@self
       parameters:
+        moduleFolderName: ${{ variables.cdrModuleFolderName }}
+        moduleDisplayName: ${{ variables.cdrModuleDisplayName }}
+
+    - template: templates/common-validation-stages.yml@self
+      parameters:
         moduleFolderName: ${{ variables.managementModuleFolderName }}
         moduleDisplayName: ${{ variables.managementModuleDisplayName }}
 

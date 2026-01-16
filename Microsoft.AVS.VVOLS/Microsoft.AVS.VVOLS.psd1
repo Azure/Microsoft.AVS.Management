@@ -48,7 +48,7 @@
 
     # Modules that must be imported into the global environment prior to importing this module
     RequiredModules   = @(
-        @{ "ModuleName" = "Microsoft.AVS.Management"; "ModuleVersion" = "7.0.175" }
+        @{ ModuleName = "Microsoft.AVS.Management"; RequiredVersion = "8.0.201" }
     )
 
     # Assemblies that must be loaded prior to importing this module
