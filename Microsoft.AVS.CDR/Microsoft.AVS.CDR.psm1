@@ -506,9 +506,10 @@ function Import-ModulePinned {
         Imports a PowerShell module with explicit, recursive dependency loading at required versions.
     
     .DESCRIPTION
-        This function imports a module and explicitly loads all its dependencies recursively,
-        ensuring each dependency is loaded at the exact version specified in the manifest.
-        This provides deterministic module loading and prevents version conflicts.
+        This function imports a module by first building the complete transitive dependency graph,
+        computing topological order, and pre-loading ALL dependencies with exact versions before
+        importing the main module. This prevents PowerShell's manifest processing from loading
+        wrong versions due to minimum version semantics.
         
     .PARAMETER Name
         The name of the module to import.
@@ -527,9 +528,6 @@ function Import-ModulePinned {
         
     .PARAMETER PassThru
         Returns the module info object after import.
-        
-    .PARAMETER Global
-        Import the module into the global session state.
         
     .EXAMPLE
         Import-ModulePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0"
@@ -555,10 +553,7 @@ function Import-ModulePinned {
         [string]$Prefix,
         
         [Parameter(Mandatory = $false)]
-        [switch]$PassThru,
-        
-        [Parameter(Mandatory = $false)]
-        [switch]$Global
+        [switch]$PassThru
     )
     
     # Load redirect map from file or use default
@@ -577,198 +572,271 @@ function Import-ModulePinned {
     # Merge with module-specific redirect map
     $redirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $Name -Version $RequiredVersion
     
-    # Track imported modules to avoid circular dependencies
-    $script:importedModules = @{}
+    # Build complete dependency graph
+    # Graph structure: key = "ModuleName@Version", value = @{ Name, Version, Dependencies = @("Dep@Ver", ...) }
+    $dependencyGraph = @{}
     
-    # Recursive function to import dependencies
-    function Import-DependenciesRecursive {
+    function Build-DependencyGraph {
         param(
             [Parameter(Mandatory = $true)]
-            [string]$Name,
-            
-            [Parameter(Mandatory = $false)]
-            [string]$Version,
+            [string]$ModuleName,
             
             [Parameter(Mandatory = $true)]
-            [hashtable]$ImportedModules,
+            [string]$ModuleVersion,
+            
+            [Parameter(Mandatory = $true)]
+            [hashtable]$Graph,
             
             [Parameter(Mandatory = $true)]
             [hashtable]$RedirectMap,
-            
-            [Parameter(Mandatory = $false)]
-            [switch]$ForceReimport,
-            
-            [Parameter(Mandatory = $false)]
-            [switch]$GlobalScope,
             
             [Parameter(Mandatory = $false)]
             [int]$Depth = 0
         )
         
         $indent = "  " * $Depth
+        $moduleKey = "${ModuleName}@${ModuleVersion}"
         
-        # Check if already imported
-        $moduleKey = if ($Version) { "${Name}@${Version}" } else { $Name }
-        if ($ImportedModules.ContainsKey($moduleKey) -and -not $ForceReimport) {
-            Write-Verbose "${indent}Module already imported: $Name $(if($Version){"version $Version"})"
+        # Skip if already processed
+        if ($Graph.ContainsKey($moduleKey)) {
+            Write-Verbose "${indent}Already in graph: $moduleKey"
             return
         }
         
         # Find the installed module
-        $findParams = @{
-            Name = $Name
-        }
-        if ($Version) {
-            $findParams['Version'] = $Version
-        }
-        
-        $installedModule = Get-PSResource @findParams -ErrorAction SilentlyContinue | Select-Object -First 1
+        $installedModule = Get-PSResource -Name $ModuleName -Version $ModuleVersion -ErrorAction SilentlyContinue | Select-Object -First 1
         
         if (-not $installedModule) {
-            Write-Error "${indent}Module not found: $Name $(if($Version){"version $Version"})"
-            throw "Please install the module first using Install-PSResourcePinned"
+            throw "Module not found: $ModuleName version $ModuleVersion. Please install using Install-PSResourcePinned first."
         }
         
         $actualVersion = $installedModule.Version.ToString()
-        Write-Verbose "${indent}Processing module: $Name version $actualVersion"
+        Write-Verbose "${indent}Building graph for: $ModuleName version $actualVersion"
         
-        # Load the module manifest to get dependencies
-        $manifestPath = Join-Path $installedModule.InstalledLocation "$Name.psd1"
-        if (Test-Path $manifestPath) {
-            try {
-                $manifest = Import-PowerShellDataFile -Path $manifestPath
+        # PSResource InstalledLocation is the base modules folder, need to add ModuleName/Version subpath
+        $moduleVersionPath = Join-Path $installedModule.InstalledLocation $ModuleName $actualVersion
+        
+        # Initialize graph node
+        $graphNode = @{
+            Name = $ModuleName
+            Version = $actualVersion
+            Dependencies = [System.Collections.ArrayList]@()
+            InstalledLocation = $moduleVersionPath
+        }
+        $Graph[$moduleKey] = $graphNode
+        
+        # Get dependencies from Get-PSResource (consistent with how we found the module)
+        $deps = $installedModule.Dependencies
+        if (-not $deps -or $deps.Count -eq 0) {
+            Write-Verbose "${indent}No dependencies for $ModuleName"
+            return
+        }
+        
+        Write-Verbose "${indent}Found $($deps.Count) dependency(ies)"
+        
+        foreach ($dep in $deps) {
+            # Get-PSResource Dependencies have Name and VersionRange properties
+            $depName = $dep.Name
+            $depVersion = $dep.VersionRange
+            
+            # Apply redirect to resolve version
+            $redirectResult = Find-DependencyRedirect -DependencyName $depName -DependencyVersion $depVersion `
+                -RedirectMap $RedirectMap -Indent $indent
+            
+            $resolvedDepVersion = $redirectResult.ResolvedVersion
+            $resolvedDepName = $redirectResult.ResolvedName
+            
+            $depKey = "${resolvedDepName}@${resolvedDepVersion}"
+            Write-Verbose "${indent}  Dependency: $depKey"
+            
+            # Add to this node's dependencies
+            [void]$graphNode.Dependencies.Add($depKey)
+            
+            # Merge redirect map for this dependency
+            $depRedirectMap = Get-MergedRedirectMap -OuterMap $RedirectMap -Name $resolvedDepName -Version $resolvedDepVersion
+            
+            # Recursively build graph for this dependency
+            Build-DependencyGraph -ModuleName $resolvedDepName -ModuleVersion $resolvedDepVersion `
+                -Graph $Graph -RedirectMap $depRedirectMap -Depth ($Depth + 1)
+        }
+    }
+    
+    Write-Verbose "Building dependency graph for $Name version $RequiredVersion"
+    Build-DependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion -Graph $dependencyGraph -RedirectMap $redirectMap
+    
+    # Detect and resolve diamond dependencies (same module, different versions)
+    # Group nodes by module name (without version)
+    $moduleVersions = @{}
+    foreach ($nodeKey in $dependencyGraph.Keys) {
+        $node = $dependencyGraph[$nodeKey]
+        $moduleName = $node.Name
+        if (-not $moduleVersions.ContainsKey($moduleName)) {
+            $moduleVersions[$moduleName] = @()
+        }
+        $moduleVersions[$moduleName] += @{
+            Key = $nodeKey
+            Version = [System.Version]$node.Version
+            Node = $node
+        }
+    }
+    
+    # Find and resolve conflicts - select highest version
+    foreach ($moduleName in $moduleVersions.Keys) {
+        $versions = $moduleVersions[$moduleName]
+        if ($versions.Count -gt 1) {
+            # Sort by version descending, pick highest
+            $sorted = $versions | Sort-Object { $_.Version } -Descending
+            $highest = $sorted[0]
+            $conflicts = $sorted | Select-Object -Skip 1
+            
+            Write-Warning "Diamond dependency detected for '$moduleName': versions $($versions.Version -join ', '). Using highest: $($highest.Version)"
+            
+            foreach ($conflict in $conflicts) {
+                $oldKey = $conflict.Key
+                $newKey = $highest.Key
                 
-                # Process RequiredModules
-                if ($manifest.RequiredModules) {
-                    Write-Verbose "${indent}Found $($manifest.RequiredModules.Count) required module(s)"
-                    
-                    foreach ($reqModule in $manifest.RequiredModules) {
-                        $depName = if ($reqModule -is [string]) { $reqModule } else { $reqModule.ModuleName }
-                        $depVersion = if ($reqModule -is [hashtable]) { 
-                            if ($reqModule.RequiredVersion) { 
-                                $reqModule.RequiredVersion 
-                            } 
-                            elseif ($reqModule.ModuleVersion) { 
-                                $reqModule.ModuleVersion 
-                            }
+                Write-Verbose "  Redirecting $oldKey -> $newKey"
+                
+                # Update all references from old version to new version
+                foreach ($nodeKey in $dependencyGraph.Keys) {
+                    $node = $dependencyGraph[$nodeKey]
+                    for ($i = 0; $i -lt $node.Dependencies.Count; $i++) {
+                        if ($node.Dependencies[$i] -eq $oldKey) {
+                            $node.Dependencies[$i] = $newKey
                         }
-                        
-                        # Find and apply redirect (handles all version parsing and resolution)
-                        $redirectResult = Find-DependencyRedirect -DependencyName $depName -DependencyVersion $depVersion `
-                            -RedirectMap $RedirectMap -Indent $indent
-                        
-                        $depVersion = $redirectResult.ResolvedVersion
-                        $depName = $redirectResult.ResolvedName
-                        
-                        Write-Verbose "${indent}Required dependency: $depName $(if($depVersion){"version $depVersion"})"
-                        
-                        # Merge redirect map with dependency-specific map
-                        $depRedirectMap = Get-MergedRedirectMap -OuterMap $RedirectMap -Name $depName -Version $depVersion
-                        
-                        # Recursively import the dependency
-                        Import-DependenciesRecursive -Name $depName -Version $depVersion `
-                            -ImportedModules $ImportedModules -RedirectMap $depRedirectMap -ForceReimport:$ForceReimport `
-                            -GlobalScope:$GlobalScope -Depth ($Depth + 1)
                     }
                 }
+                
+                # Remove the old version node from the graph
+                $dependencyGraph.Remove($oldKey)
             }
-            catch {
-                throw "Could not parse manifest for $($Name): $_"
+        }
+    }
+    
+    Write-Verbose "Dependency graph contains $($dependencyGraph.Count) modules:"
+    
+    foreach ($nodeKey in $dependencyGraph.Keys | Sort-Object) {
+        $node = $dependencyGraph[$nodeKey]
+        Write-Verbose "  $nodeKey"
+        Write-Verbose "    Location: $($node.InstalledLocation)"
+        if ($node.Dependencies.Count -gt 0) {
+            Write-Verbose "    Dependencies:"
+            foreach ($dep in $node.Dependencies) {
+                Write-Verbose "      -> $dep"
             }
+        }
+        else {
+            Write-Verbose "    Dependencies: (none)"
+        }
+    }
+    
+    function Get-TopologicalOrder {
+        param(
+            [Parameter(Mandatory = $true)]
+            [hashtable]$Graph
+        )
+        
+        $visited = @{}
+        $visiting = @{}  # For cycle detection
+        $order = [System.Collections.ArrayList]@()
+        
+        function Visit {
+            param([string]$NodeKey)
+            
+            if ($visited.ContainsKey($NodeKey)) {
+                return
+            }
+            
+            if ($visiting.ContainsKey($NodeKey)) {
+                Write-Warning "Circular dependency detected involving: $NodeKey"
+                return
+            }
+            
+            $visiting[$NodeKey] = $true
+            
+            if ($Graph.ContainsKey($NodeKey)) {
+                $node = $Graph[$NodeKey]
+                foreach ($depKey in $node.Dependencies) {
+                    Visit -NodeKey $depKey
+                }
+            }
+            
+            $visiting.Remove($NodeKey)
+            $visited[$NodeKey] = $true
+            [void]$order.Add($NodeKey)
         }
         
-        # Import the module
+        # Visit all nodes
+        foreach ($nodeKey in $Graph.Keys) {
+            Visit -NodeKey $nodeKey
+        }
+        
+        return $order.ToArray()
+    }
+    
+    Write-Verbose "Computing topological order"
+    $topologicalOrder = Get-TopologicalOrder -Graph $dependencyGraph
+    
+    Write-Verbose "Import order ($($topologicalOrder.Count) modules):"
+    for ($i = 0; $i -lt $topologicalOrder.Count; $i++) {
+        Write-Verbose "  $($i + 1). $($topologicalOrder[$i])"
+    }
+    Write-Verbose "Pre-loading all modules in topological order"
+    
+    $importedModules = @{}
+    
+    foreach ($moduleKey in $topologicalOrder) {
+        $node = $dependencyGraph[$moduleKey]
+        $modName = $node.Name
+        $modVersion = $node.Version
+        
+        # Check if already loaded with exact version
+        $loadedModule = Get-Module -Name $modName | Where-Object { $_.Version.ToString() -eq $modVersion }
+        
+        if ($loadedModule -and -not $Force) {
+            Write-Verbose "Already loaded: $modName version $modVersion"
+            $importedModules[$moduleKey] = $loadedModule
+            continue
+        }
+        
+        # Import with exact version
+        # Always use -Global to ensure modules persist after this function returns
+        $importParams = @{
+            Name = $modName
+            RequiredVersion = $modVersion
+            ErrorAction = 'Stop'
+            DisableNameChecking = $true
+            Global = $true
+        }
+        
+        if ($Force) {
+            $importParams['Force'] = $true
+        }
+        
         try {
-            $importParams = @{
-                Name = $Name
-                ErrorAction = 'Stop'
-            }
-            
-            if ($Version) {
-                $importParams['RequiredVersion'] = $Version
-            }
-            
-            if ($ForceReimport) {
-                $importParams['Force'] = $true
-            }
-            
-            if ($GlobalScope) {
-                $importParams['Global'] = $true
-            }
-            
-            Write-Verbose "${indent}Importing: $Name version $actualVersion"
-            
-            # Check if module with this exact version is already loaded
-            $loadedModule = Get-Module -Name $Name | Where-Object { $_.Version.ToString() -eq $Version }
-            
-            if ($loadedModule -and -not $ForceReimport) {
-                Write-Verbose "${indent}Module $Name version $Version already loaded in session"
-                $ImportedModules[$moduleKey] = $true
-            }
-            else {
-                Import-Module @importParams
-                # Mark as imported
-                $ImportedModules[$moduleKey] = $true
-            }
+            Write-Verbose "Importing: $modName version $modVersion"
+            $imported = Import-Module @importParams -PassThru
+            $importedModules[$moduleKey] = $imported
         }
         catch {
-            throw "Failed to import $($Name): $_"
+            throw "Failed to import $modName version $($modVersion): $_"
         }
     }
     
-    Write-Verbose "Importing module: $Name version $RequiredVersion"
+    Write-Verbose "Returning main module"
     
-    # Import dependencies recursively
-    $importDepParams = @{
-        Name = $Name
-        Version = $RequiredVersion
-        ImportedModules = $script:importedModules
-        RedirectMap = $redirectMap
-        ForceReimport = $Force
-        GlobalScope = $Global
+    # The main module should already be loaded from the topological import
+    $mainModuleKey = "${Name}@${RequiredVersion}"
+    $mainModule = $importedModules[$mainModuleKey]
+    
+    if (-not $mainModule) {
+        # Shouldn't happen, but fallback just in case
+        $mainModule = Get-Module -Name $Name | Where-Object { $_.Version.ToString() -eq $RequiredVersion }
     }
     
-    Import-DependenciesRecursive @importDepParams
-    
-    # Check if the main module is already loaded (it would be if it was a dependency)
-    $loadedMainModule = Get-Module -Name $Name | Where-Object { $_.Version.ToString() -eq $RequiredVersion }
-    
-    if ($loadedMainModule -and -not $Force) {
-        Write-Verbose "Module $Name version $RequiredVersion already loaded in session"
-        if ($PassThru) {
-            return $loadedMainModule
-        }
-        return
-    }
-    
-    # Import the main module with user-specified options
-    $finalImportParams = @{
-        Name = $Name
-        RequiredVersion = $RequiredVersion
-        ErrorAction = 'Stop'
-    }
-    
-    if ($Force) {
-        $finalImportParams['Force'] = $true
-    }
-    
-    if ($Prefix) {
-        $finalImportParams['Prefix'] = $Prefix
-    }
+    Write-Verbose "Successfully imported $Name version $RequiredVersion (and $($importedModules.Count - 1) dependencies)"
     
     if ($PassThru) {
-        $finalImportParams['PassThru'] = $true
-    }
-    
-    if ($Global) {
-        $finalImportParams['Global'] = $true
-    }
-    
-    $result = Import-Module @finalImportParams
-    
-    Write-Verbose "Successfully imported $Name version $RequiredVersion"
-    
-    if ($PassThru) {
-        return $result
+        return $mainModule
     }
 }
