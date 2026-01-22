@@ -35,7 +35,9 @@ stages:
       displayName: 'Pre-Validate Module and Scripts for ${{ parameters.moduleFolderName }}'
       inputs:
         filePath: 'tests/prevalidateModules.ps1'
-        arguments: "${{ parameters.moduleFolderName }}"
+        arguments: >
+          "${{ parameters.moduleFolderName }}"
+          "$(System.AccessToken)"
         pwsh: true
 
     - task: PowerShell@2
