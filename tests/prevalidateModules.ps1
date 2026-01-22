@@ -27,7 +27,7 @@ function Get-PrevalidationResults {
         $numberOfErrors = ($scriptIssues | Where-Object {$_.Severity -eq "Error" || $_.Severity -eq "ParseError"}).Count
         $numberOfWarnings = ($scriptIssues | Where-Object {$_.Severity -eq "Warning"}).Count
         $numberOfInfos = ($scriptIssues | Where-Object {$_.Severity -eq "Information"}).Count
-        if ($numberOfErrorss -gt 0) {
+        if ($numberOfErrors -gt 0) {
             $script:zeroPSAnalyzerErrorsFound = $false
         }
 
@@ -46,7 +46,7 @@ function Get-PrevalidationResults {
                 Write-Output "Found extension $fileExtension. Running 'Test-ModuleManifest' on $($script.Name)"
                 Test-ModuleManifest -Path ($script.FullName)
                 if (!$?) {
-                    $script:zeroTestScriptFileInfoErrorsFound = $false
+                    $script:zeroTestModuleManifestErrorsFound = $false
                 }
                 Write-Output "Errors found in manifest: $(!$script:zeroTestModuleManifestErrorsFound)"
              }
