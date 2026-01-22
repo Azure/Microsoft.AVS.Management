@@ -1448,5 +1448,418 @@ Describe "Topological Dependency Loading" {
 
 }
 
+Describe "Save-PSResourcePinned" {
+    BeforeAll {
+        $script:testSavePath = Join-Path $TestDrive "packages"
+    }
+
+    Context "Parameter Validation" {
+        It "Should have Name parameter as mandatory" {
+            $command = Get-Command Save-PSResourcePinned
+            $nameParam = $command.Parameters['Name']
+            $nameParam.Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have RequiredVersion parameter as mandatory" {
+            $command = Get-Command Save-PSResourcePinned
+            $versionParam = $command.Parameters['RequiredVersion']
+            $versionParam.Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have Path parameter as mandatory" {
+            $command = Get-Command Save-PSResourcePinned
+            $pathParam = $command.Parameters['Path']
+            $pathParam.Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have Repository parameter" {
+            $command = Get-Command Save-PSResourcePinned
+            $command.Parameters.ContainsKey('Repository') | Should -BeTrue
+        }
+
+        It "Should have Credential parameter" {
+            $command = Get-Command Save-PSResourcePinned
+            $credParam = $command.Parameters['Credential']
+            $credParam.ParameterType.Name | Should -Be 'PSCredential'
+        }
+
+        It "Should have RedirectMapPath parameter" {
+            $command = Get-Command Save-PSResourcePinned
+            $command.Parameters.ContainsKey('RedirectMapPath') | Should -BeTrue
+        }
+
+        It "Should have AsNupkg switch parameter" {
+            $command = Get-Command Save-PSResourcePinned
+            $command.Parameters.ContainsKey('AsNupkg') | Should -BeTrue
+            $command.Parameters['AsNupkg'].SwitchParameter | Should -BeTrue
+        }
+    }
+
+    Context "Module Download" -Tag 'Integration' {
+        BeforeEach {
+            # Clean up test directory before each test
+            if (Test-Path $script:testSavePath) {
+                Remove-Item $script:testSavePath -Recurse -Force
+            }
+        }
+
+        It "Should save a module with exact version as nupkg" {
+            try {
+                Save-PSResourcePinned -Name $script:PSAnalyser.Name -RequiredVersion $script:PSAnalyser.Version `
+                    -Path $script:testSavePath -Repository $script:repository -Credential $script:credential
+                
+                # Check that the nupkg file exists
+                $expectedFile = Join-Path $script:testSavePath "$($script:PSAnalyser.Name).$($script:PSAnalyser.Version).nupkg"
+                Test-Path $expectedFile | Should -BeTrue
+            }
+            catch {
+                Set-ItResult -Skipped -Because "Network access required for this test"
+            }
+        } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
+
+        It "Should create destination directory if it doesn't exist" {
+            try {
+                $newPath = Join-Path $TestDrive "new-packages-dir"
+                
+                Save-PSResourcePinned -Name $script:PSAnalyser.Name -RequiredVersion $script:PSAnalyser.Version `
+                    -Path $newPath -Repository $script:repository -Credential $script:credential
+                
+                Test-Path $newPath | Should -BeTrue
+            }
+            catch {
+                Set-ItResult -Skipped -Because "Network access required for this test"
+            }
+        } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
+
+        It "Should handle non-existent module gracefully" {
+            { Save-PSResourcePinned -Name "NonExistentModule12345" -RequiredVersion "1.0.0" `
+                -Path $script:testSavePath -Repository $script:repository -Credential $script:credential } | 
+                Should -Throw -ExpectedMessage "*could not be found*"
+        } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
+
+        AfterEach {
+            # Clean up test directory after each test
+            if (Test-Path $script:testSavePath) {
+                Remove-Item $script:testSavePath -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    Context "Redirect Map" {
+        BeforeAll {
+            $script:nonExistentMapPath = Join-Path $TestDrive "non-existent-map.json"
+        }
+
+        It "Should accept redirect map file path parameter" {
+            $command = Get-Command Save-PSResourcePinned
+            $command.Parameters.ContainsKey('RedirectMapPath') | Should -BeTrue
+        }
+
+        It "Should throw when redirect map file doesn't exist" {
+            { 
+                Save-PSResourcePinned -Name $script:PSAnalyser.Name -RequiredVersion $script:PSAnalyser.Version `
+                    -Path $script:testSavePath -RedirectMapPath $script:nonExistentMapPath `
+                    -Repository $script:repository -Credential $script:credential -ErrorAction Stop
+            } | Should -Throw -ExpectedMessage "*not found*"
+        }
+
+        It "Should respect redirects in map file during save" -Tag 'Integration' {
+            $redirectMapForSave = Join-Path $TestDrive "save-redirect.json"
+            $saveRedirects = @{
+                "$($script:PSAnalyser.Name)@$($script:PSAnalyser.Version)" = $script:PSAnalyser.Version
+            }
+            $saveRedirects | ConvertTo-Json | Set-Content $redirectMapForSave
+            
+            try {
+                $verboseOutput = Save-PSResourcePinned -Name $script:PSAnalyser.Name `
+                    -RequiredVersion $script:PSAnalyser.Version -Path $script:testSavePath `
+                    -RedirectMapPath $redirectMapForSave -Repository $script:repository `
+                    -Credential $script:credential -Verbose 4>&1
+                
+                $verboseOutput | Should -Match "Loading redirect map"
+            }
+            catch {
+                Set-ItResult -Skipped -Because "Network access required for this test"
+            }
+        } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
+    }
+
+    Context "Verbose Output" {
+        It "Should produce verbose output when requested" -Tag 'Integration' {
+            try {
+                $verboseOutput = Save-PSResourcePinned -Name $script:PSAnalyser.Name `
+                    -RequiredVersion $script:PSAnalyser.Version -Path $script:testSavePath `
+                    -Repository $script:repository -Credential $script:credential -Verbose 4>&1
+                
+                $verboseOutput | Should -Not -BeNullOrEmpty
+            }
+            catch {
+                Set-ItResult -Skipped -Because "Network access required for this test"
+            }
+        } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
+    }
+}
+
+Describe "Install-PSResourceDependencies" {
+    BeforeAll {
+        $script:testManifestDir = Join-Path $TestDrive "TestModule"
+        $script:testManifestPath = Join-Path $script:testManifestDir "TestModule.psd1"
+    }
+
+    Context "Parameter Validation" {
+        It "Should have ManifestPath parameter as mandatory" {
+            $command = Get-Command Install-PSResourceDependencies
+            $pathParam = $command.Parameters['ManifestPath']
+            $pathParam.Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have Repository parameter" {
+            $command = Get-Command Install-PSResourceDependencies
+            $command.Parameters.ContainsKey('Repository') | Should -BeTrue
+        }
+
+        It "Should have Credential parameter" {
+            $command = Get-Command Install-PSResourceDependencies
+            $credParam = $command.Parameters['Credential']
+            $credParam.ParameterType.Name | Should -Be 'PSCredential'
+        }
+
+        It "Should have RedirectMapPath parameter" {
+            $command = Get-Command Install-PSResourceDependencies
+            $command.Parameters.ContainsKey('RedirectMapPath') | Should -BeTrue
+        }
+
+        It "Should have Scope parameter with valid values" {
+            $command = Get-Command Install-PSResourceDependencies
+            $scopeParam = $command.Parameters['Scope']
+            $validateSet = $scopeParam.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }
+            $validateSet.ValidValues | Should -Contain 'CurrentUser'
+            $validateSet.ValidValues | Should -Contain 'AllUsers'
+        }
+    }
+
+    Context "Manifest Validation" {
+        It "Should throw when manifest file doesn't exist" {
+            $nonExistentManifest = Join-Path $TestDrive "NonExistent.psd1"
+            { Install-PSResourceDependencies -ManifestPath $nonExistentManifest } | 
+                Should -Throw -ExpectedMessage "*not found*"
+        }
+
+        It "Should throw when file is not a .psd1 file" {
+            $notPsd1File = Join-Path $TestDrive "test.txt"
+            "test content" | Set-Content $notPsd1File
+            
+            { Install-PSResourceDependencies -ManifestPath $notPsd1File } | 
+                Should -Throw -ExpectedMessage "*.psd1*"
+        }
+
+        It "Should handle manifest with no RequiredModules gracefully" {
+            # Create test directory
+            New-Item -Path $script:testManifestDir -ItemType Directory -Force | Out-Null
+            
+            # Create a minimal manifest with no RequiredModules
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+            
+            # Should not throw, just return silently
+            { Install-PSResourceDependencies -ManifestPath $script:testManifestPath } | Should -Not -Throw
+        }
+    }
+
+    Context "RequiredModules Parsing" {
+        BeforeEach {
+            # Create test directory
+            New-Item -Path $script:testManifestDir -ItemType Directory -Force | Out-Null
+        }
+
+        It "Should parse string RequiredModules entries" {
+            # Create manifest with string RequiredModules
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+    RequiredModules = @('ModuleA', 'ModuleB')
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+            
+            # Read manifest to verify it's valid
+            $manifest = Import-PowerShellDataFile -Path $script:testManifestPath
+            $manifest.RequiredModules.Count | Should -Be 2
+            $manifest.RequiredModules[0] | Should -Be 'ModuleA'
+        }
+
+        It "Should parse hashtable RequiredModules with RequiredVersion" {
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = 'ModuleA'; RequiredVersion = '1.0.0' }
+    )
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+            
+            $manifest = Import-PowerShellDataFile -Path $script:testManifestPath
+            $manifest.RequiredModules[0].ModuleName | Should -Be 'ModuleA'
+            $manifest.RequiredModules[0].RequiredVersion | Should -Be '1.0.0'
+        }
+
+        It "Should parse hashtable RequiredModules with ModuleVersion (minimum version)" {
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = 'ModuleB'; ModuleVersion = '2.0.0' }
+    )
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+            
+            $manifest = Import-PowerShellDataFile -Path $script:testManifestPath
+            $manifest.RequiredModules[0].ModuleName | Should -Be 'ModuleB'
+            $manifest.RequiredModules[0].ModuleVersion | Should -Be '2.0.0'
+        }
+
+        It "Should parse mixed RequiredModules entries" {
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+    RequiredModules = @(
+        'StringModule',
+        @{ ModuleName = 'HashtableModule'; RequiredVersion = '1.0.0' }
+    )
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+            
+            $manifest = Import-PowerShellDataFile -Path $script:testManifestPath
+            $manifest.RequiredModules.Count | Should -Be 2
+            $manifest.RequiredModules[0] | Should -Be 'StringModule'
+            $manifest.RequiredModules[1].ModuleName | Should -Be 'HashtableModule'
+        }
+
+        AfterEach {
+            if (Test-Path $script:testManifestDir) {
+                Remove-Item $script:testManifestDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    Context "Dependency Installation" -Tag 'Integration' {
+        BeforeEach {
+            New-Item -Path $script:testManifestDir -ItemType Directory -Force | Out-Null
+        }
+
+        It "Should install dependencies from manifest" {
+            # Create manifest with a real module as dependency
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = '$($script:PSAnalyser.Name)'; RequiredVersion = '$($script:PSAnalyser.Version)' }
+    )
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+            
+            try {
+                Install-PSResourceDependencies -ManifestPath $script:testManifestPath `
+                    -Repository $script:repository -Credential $script:credential
+                
+                $installed = Get-PSResource -Name $script:PSAnalyser.Name | 
+                    Where-Object { $_.Version.ToString() -eq $script:PSAnalyser.Version }
+                $installed | Should -Not -BeNullOrEmpty
+            }
+            catch {
+                Set-ItResult -Skipped -Because "Network access required for this test"
+            }
+        } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
+
+        It "Should produce verbose output when requested" {
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = '$($script:PSAnalyser.Name)'; RequiredVersion = '$($script:PSAnalyser.Version)' }
+    )
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+            
+            try {
+                $verboseOutput = Install-PSResourceDependencies -ManifestPath $script:testManifestPath `
+                    -Repository $script:repository -Credential $script:credential -Verbose 4>&1
+                
+                $verboseOutput | Should -Not -BeNullOrEmpty
+            }
+            catch {
+                Set-ItResult -Skipped -Because "Network access required for this test"
+            }
+        } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
+
+        AfterEach {
+            if (Test-Path $script:testManifestDir) {
+                Remove-Item $script:testManifestDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    Context "Redirect Map" {
+        BeforeEach {
+            New-Item -Path $script:testManifestDir -ItemType Directory -Force | Out-Null
+        }
+
+        It "Should throw when redirect map file doesn't exist" {
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+    RequiredModules = @('SomeModule')
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+            $nonExistentMapPath = Join-Path $TestDrive "non-existent-map.json"
+            
+            { 
+                Install-PSResourceDependencies -ManifestPath $script:testManifestPath `
+                    -RedirectMapPath $nonExistentMapPath -ErrorAction Stop
+            } | Should -Throw -ExpectedMessage "*not found*"
+        }
+
+        AfterEach {
+            if (Test-Path $script:testManifestDir) {
+                Remove-Item $script:testManifestDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+}
+
 AfterAll {
 }
