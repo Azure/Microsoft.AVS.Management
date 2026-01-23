@@ -920,7 +920,6 @@ Function Remove-AVSStoragePolicy {
         Else { Remove-SpbmStoragePolicy -StoragePolicy $StoragePolicy -Confirm:$false }
         }    
     }
-}
 
 Function New-AVSStoragePolicy {
     <#
@@ -1056,11 +1055,6 @@ Function New-AVSStoragePolicy {
 
     )
 
-        #Protected Policy Object Name Validation Check
-        If (Test-AVSProtectedObjectName -Name $Name) {
-            Write-Error "$Name is a protected policy name.  Please choose a different policy name."
-            return
-        }
 
     Begin {
         # Internal helper to add or append a VSAN capability instance to the profile spec ensuring the VSAN subprofile exists
@@ -1095,6 +1089,11 @@ Function New-AVSStoragePolicy {
         If (![string]::IsNullOrEmpty($Description)) { $Description = Limit-WildcardsandCodeInjectionCharacters -String $Description }
         Write-Information "Description value after cleanup: $Description"
 
+        #Protected Policy Object Name Validation Check
+        If (Test-AVSProtectedObjectName -Name $Name) {
+            Write-Error "$Name is a protected policy name.  Please choose a different policy name."
+            return
+        }
         #Check for existing policy
         $ExistingPolicy = Get-AVSStoragePolicy -Name $Name
         Write-Information ("Existing Policy: " + $ExistingPolicy.name)
@@ -1553,6 +1552,11 @@ Function New-AVSStoragePolicy {
 
     }
     process {
+        #Protected Policy Object Name Validation Check
+        If (Test-AVSProtectedObjectName -Name $Name) {
+            Write-Error "$Name is a protected policy name.  Please choose a different policy name."
+            return
+        }
         $profilespec.Description = $Description
         #return $profilespec #Uncomment to capture and debug profile spec.
         If ($profilespec.Constraints.SubProfiles.count -eq 0) {
