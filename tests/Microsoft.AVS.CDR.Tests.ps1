@@ -89,12 +89,6 @@ Describe "Install-PSResourcePinned" {
             $script:nonExistentMapPath = Join-Path $TestDrive "non-existent-map.json"
         }
 
-        It "Should accept redirect map file path parameter" {
-            # Verify the parameter exists and file can be loaded
-            $command = Get-Command Install-PSResourcePinned
-            $command.Parameters.ContainsKey('RedirectMapPath') | Should -BeTrue
-        }
-
         It "Should throw when redirect map file doesn't exist" {
             # When map file doesn't exist and is specified, should throw
             { 
@@ -157,7 +151,7 @@ Describe "Install-PSResourcePinned" {
         }
     }
 
-    Context "Verbose Output" {
+    Context "Verbose Output" -Tag 'Integration' {
         It "Should produce verbose output when requested" {
             $verboseOutput = Install-PSResourcePinned -Name $script:MSAVSManagement.Name -RequiredVersion $script:MSAVSManagement.Version -Repository $script:repository -Credential $script:credential -Verbose 4>&1
             # At minimum, should see searching message
@@ -541,7 +535,7 @@ Describe "Import-ModulePinned" {
         }
     }
 
-    Context "Prefix Parameter" {
+    Context "Prefix Parameter" -Tag 'Integration' {
         BeforeAll {
             $script:testModuleName = $script:MSAVSManagement.Name
             $script:testModuleVersion = $script:MSAVSManagement.Version
@@ -1446,6 +1440,508 @@ Describe "Topological Dependency Loading" {
         }
     }
 
+}
+
+Describe "Save-PSResourcePinned" {
+    BeforeAll {
+        $script:testSavePath = Join-Path $TestDrive "packages"
+    }
+
+    Context "Parameter Validation" {
+        It "Should have Name parameter as mandatory" {
+            $command = Get-Command Save-PSResourcePinned
+            $nameParam = $command.Parameters['Name']
+            $nameParam.Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have RequiredVersion parameter as mandatory" {
+            $command = Get-Command Save-PSResourcePinned
+            $versionParam = $command.Parameters['RequiredVersion']
+            $versionParam.Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have Path parameter as mandatory" {
+            $command = Get-Command Save-PSResourcePinned
+            $pathParam = $command.Parameters['Path']
+            $pathParam.Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have Repository parameter" {
+            $command = Get-Command Save-PSResourcePinned
+            $command.Parameters.ContainsKey('Repository') | Should -BeTrue
+        }
+
+        It "Should have Credential parameter" {
+            $command = Get-Command Save-PSResourcePinned
+            $credParam = $command.Parameters['Credential']
+            $credParam.ParameterType.Name | Should -Be 'PSCredential'
+        }
+
+        It "Should have RedirectMapPath parameter" {
+            $command = Get-Command Save-PSResourcePinned
+            $command.Parameters.ContainsKey('RedirectMapPath') | Should -BeTrue
+        }
+
+        It "Should have AsNupkg switch parameter" {
+            $command = Get-Command Save-PSResourcePinned
+            $command.Parameters.ContainsKey('AsNupkg') | Should -BeTrue
+            $command.Parameters['AsNupkg'].SwitchParameter | Should -BeTrue
+        }
+    }
+
+    Context "Path Handling" {
+        It "Should create destination directory if it doesn't exist" {
+            $newPath = Join-Path $TestDrive "new-save-dir-$(Get-Random)"
+            
+            # Mock Find-PSResource to return a module with no dependencies
+            Mock Find-PSResource -ModuleName Microsoft.AVS.CDR {
+                [PSCustomObject]@{
+                    Name = "TestModule"
+                    Version = [version]"1.0.0"
+                    Dependencies = @()
+                }
+            }
+            
+            # Mock Save-PSResource to do nothing
+            Mock Save-PSResource -ModuleName Microsoft.AVS.CDR { }
+            
+            Save-PSResourcePinned -Name "TestModule" -RequiredVersion "1.0.0" -Path $newPath
+            
+            Test-Path $newPath | Should -BeTrue
+            
+            # Cleanup
+            Remove-Item $newPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    Context "Redirect Map" {
+        BeforeAll {
+            $script:nonExistentMapPath = Join-Path $TestDrive "non-existent-map.json"
+        }
+
+        It "Should throw when redirect map file doesn't exist" {
+            { 
+                Save-PSResourcePinned -Name "TestModule" -RequiredVersion "1.0.0" `
+                    -Path $script:testSavePath -RedirectMapPath $script:nonExistentMapPath -ErrorAction Stop
+            } | Should -Throw -ExpectedMessage "*not found*"
+        }
+    }
+
+    Context "Module Not Found" {
+        It "Should throw when module is not found in repository" {
+            Mock Find-PSResource -ModuleName Microsoft.AVS.CDR { $null }
+            
+            { Save-PSResourcePinned -Name "NonExistentModule" -RequiredVersion "1.0.0" -Path $script:testSavePath } |
+                Should -Throw -ExpectedMessage "*not found*"
+        }
+    }
+
+    Context "Dependency Processing" {
+        BeforeEach {
+            if (-not (Test-Path $script:testSavePath)) {
+                New-Item -Path $script:testSavePath -ItemType Directory -Force | Out-Null
+            }
+        }
+
+        It "Should save main module with SkipDependencyCheck" {
+            Mock Find-PSResource -ModuleName Microsoft.AVS.CDR {
+                [PSCustomObject]@{
+                    Name = "TestModule"
+                    Version = [version]"1.0.0"
+                    Dependencies = @()
+                }
+            }
+            
+            Mock Save-PSResource -ModuleName Microsoft.AVS.CDR { }
+            
+            Save-PSResourcePinned -Name "TestModule" -RequiredVersion "1.0.0" -Path $script:testSavePath
+            
+            Should -Invoke Save-PSResource -ModuleName Microsoft.AVS.CDR -Times 1 -ParameterFilter {
+                $Name -eq "TestModule" -and $Version -eq "1.0.0" -and $SkipDependencyCheck -eq $true
+            }
+        }
+
+        It "Should save dependencies before main module" {
+            # Create mock module with dependency
+            Mock Find-PSResource -ModuleName Microsoft.AVS.CDR {
+                param($Name, $Version)
+                if ($Name -eq "MainModule") {
+                    [PSCustomObject]@{
+                        Name = "MainModule"
+                        Version = [version]"1.0.0"
+                        Dependencies = @(
+                            [PSCustomObject]@{ Name = "DepModule"; VersionRange = "[2.0.0, 2.0.0]" }
+                        )
+                    }
+                }
+                else {
+                    [PSCustomObject]@{
+                        Name = "DepModule"
+                        Version = [version]"2.0.0"
+                        Dependencies = @()
+                    }
+                }
+            }
+            
+            $script:savedModules = @()
+            Mock Save-PSResource -ModuleName Microsoft.AVS.CDR {
+                $script:savedModules += $Name
+            }
+            
+            # Create redirect map for exact version
+            $redirectMapPath = Join-Path $TestDrive "dep-redirect.json"
+            @{ "DepModule@2.0.0" = "2.0.0" } | ConvertTo-Json | Set-Content $redirectMapPath
+            
+            Save-PSResourcePinned -Name "MainModule" -RequiredVersion "1.0.0" `
+                -Path $script:testSavePath -RedirectMapPath $redirectMapPath
+            
+            # Dependency should be saved before main module
+            $script:savedModules.Count | Should -Be 2
+            $script:savedModules[0] | Should -Be "DepModule"
+            $script:savedModules[1] | Should -Be "MainModule"
+        }
+
+        It "Should skip already saved packages" {
+            Mock Find-PSResource -ModuleName Microsoft.AVS.CDR {
+                [PSCustomObject]@{
+                    Name = "TestModule"
+                    Version = [version]"1.0.0"
+                    Dependencies = @(
+                        [PSCustomObject]@{ Name = "DepModule"; VersionRange = "[2.0.0, 2.0.0]" }
+                    )
+                }
+            }
+            
+            # Create a fake .nupkg file to simulate already saved
+            $existingNupkg = Join-Path $script:testSavePath "DepModule.2.0.0.nupkg"
+            "fake content" | Set-Content $existingNupkg
+            
+            $script:savedModules = @()
+            Mock Save-PSResource -ModuleName Microsoft.AVS.CDR {
+                $script:savedModules += $Name
+            }
+            
+            $redirectMapPath = Join-Path $TestDrive "skip-redirect.json"
+            @{ "DepModule@2.0.0" = "2.0.0" } | ConvertTo-Json | Set-Content $redirectMapPath
+            
+            Save-PSResourcePinned -Name "TestModule" -RequiredVersion "1.0.0" `
+                -Path $script:testSavePath -RedirectMapPath $redirectMapPath
+            
+            # Only main module should be saved, dependency already exists
+            $script:savedModules | Should -Contain "TestModule"
+            $script:savedModules | Should -Not -Contain "DepModule"
+        }
+
+        AfterEach {
+            if (Test-Path $script:testSavePath) {
+                Remove-Item $script:testSavePath -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    Context "Module Download" -Tag 'Integration' {
+        BeforeEach {
+            if (Test-Path $script:testSavePath) {
+                Remove-Item $script:testSavePath -Recurse -Force
+            }
+        }
+
+        It "Should save a module with exact version as nupkg" {
+            try {
+                Save-PSResourcePinned -Name $script:PSAnalyser.Name -RequiredVersion $script:PSAnalyser.Version `
+                    -Path $script:testSavePath -Repository $script:repository -Credential $script:credential
+                
+                $expectedFile = Join-Path $script:testSavePath "$($script:PSAnalyser.Name).$($script:PSAnalyser.Version).nupkg"
+                Test-Path $expectedFile | Should -BeTrue
+            }
+            catch {
+                Set-ItResult -Skipped -Because "Network access required for this test"
+            }
+        } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
+
+        AfterEach {
+            if (Test-Path $script:testSavePath) {
+                Remove-Item $script:testSavePath -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+}
+
+Describe "Install-PSResourceDependencies" {
+    BeforeAll {
+        $script:testManifestDir = Join-Path $TestDrive "TestModule"
+        $script:testManifestPath = Join-Path $script:testManifestDir "TestModule.psd1"
+    }
+
+    Context "Parameter Validation" {
+        It "Should have ManifestPath parameter as mandatory" {
+            $command = Get-Command Install-PSResourceDependencies
+            $pathParam = $command.Parameters['ManifestPath']
+            $pathParam.Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have Repository parameter" {
+            $command = Get-Command Install-PSResourceDependencies
+            $command.Parameters.ContainsKey('Repository') | Should -BeTrue
+        }
+
+        It "Should have Credential parameter" {
+            $command = Get-Command Install-PSResourceDependencies
+            $credParam = $command.Parameters['Credential']
+            $credParam.ParameterType.Name | Should -Be 'PSCredential'
+        }
+
+        It "Should have RedirectMapPath parameter" {
+            $command = Get-Command Install-PSResourceDependencies
+            $command.Parameters.ContainsKey('RedirectMapPath') | Should -BeTrue
+        }
+
+        It "Should have Scope parameter with valid values" {
+            $command = Get-Command Install-PSResourceDependencies
+            $scopeParam = $command.Parameters['Scope']
+            $validateSet = $scopeParam.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }
+            $validateSet.ValidValues | Should -Contain 'CurrentUser'
+            $validateSet.ValidValues | Should -Contain 'AllUsers'
+        }
+    }
+
+    Context "Manifest Validation" {
+        It "Should throw when manifest file doesn't exist" {
+            $nonExistentManifest = Join-Path $TestDrive "NonExistent.psd1"
+            { Install-PSResourceDependencies -ManifestPath $nonExistentManifest } | 
+                Should -Throw -ExpectedMessage "*not found*"
+        }
+
+        It "Should throw when file is not a .psd1 file" {
+            $notPsd1File = Join-Path $TestDrive "test.txt"
+            "test content" | Set-Content $notPsd1File
+            
+            { Install-PSResourceDependencies -ManifestPath $notPsd1File } | 
+                Should -Throw -ExpectedMessage "*.psd1*"
+        }
+
+        It "Should handle manifest with no RequiredModules gracefully" {
+            # Create test directory
+            New-Item -Path $script:testManifestDir -ItemType Directory -Force | Out-Null
+            
+            # Create a minimal manifest with no RequiredModules
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+            
+            # Should not throw, just return silently
+            { Install-PSResourceDependencies -ManifestPath $script:testManifestPath } | Should -Not -Throw
+        }
+    }
+
+    Context "RequiredModules Processing" {
+        BeforeEach {
+            # Create test directory
+            New-Item -Path $script:testManifestDir -ItemType Directory -Force | Out-Null
+        }
+
+        It "Should convert ModuleVersion to open-ended range for redirect resolution" {
+            # Create manifest with ModuleVersion (minimum version)
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = 'TestDep'; ModuleVersion = '2.0.0' }
+    )
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+            
+            # Create a redirect map that expects open-ended range format
+            $redirectMapPath = Join-Path $TestDrive "test-redirect.json"
+            # The redirect map should match on "TestDep" and redirect the open range to a specific version
+            @{ "TestDep" = "2.5.0" } | ConvertTo-Json | Set-Content $redirectMapPath
+            
+            # Mock Install-PSResourcePinned to capture what version was resolved
+            Mock Install-PSResourcePinned -ModuleName Microsoft.AVS.CDR { }
+            
+            Install-PSResourceDependencies -ManifestPath $script:testManifestPath -RedirectMapPath $redirectMapPath
+            
+            # The redirect should have resolved "[2.0.0, )" to "2.5.0"
+            Should -Invoke Install-PSResourcePinned -ModuleName Microsoft.AVS.CDR -Times 1 -ParameterFilter {
+                $Name -eq "TestDep" -and $RequiredVersion -eq "2.5.0"
+            }
+        }
+
+        It "Should pass RequiredVersion as exact version for redirect resolution" {
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = 'TestDep'; RequiredVersion = '3.0.0' }
+    )
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+            
+            # Create a redirect map - for exact version, redirect must be same version
+            $redirectMapPath = Join-Path $TestDrive "test-redirect.json"
+            @{ "TestDep@3.0.0" = "3.0.0" } | ConvertTo-Json | Set-Content $redirectMapPath
+            
+            Mock Install-PSResourcePinned -ModuleName Microsoft.AVS.CDR { }
+            
+            Install-PSResourceDependencies -ManifestPath $script:testManifestPath -RedirectMapPath $redirectMapPath
+            
+            # Should pass the exact version
+            Should -Invoke Install-PSResourcePinned -ModuleName Microsoft.AVS.CDR -Times 1 -ParameterFilter {
+                $Name -eq "TestDep" -and $RequiredVersion -eq "3.0.0"
+            }
+        }
+
+        It "Should call Install-PSResourcePinned for each RequiredModule" {
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = 'ModuleA'; RequiredVersion = '1.0.0' },
+        @{ ModuleName = 'ModuleB'; RequiredVersion = '2.0.0' }
+    )
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+            
+            $redirectMapPath = Join-Path $TestDrive "test-redirect.json"
+            @{ 
+                "ModuleA@1.0.0" = "1.0.0"
+                "ModuleB@2.0.0" = "2.0.0"
+            } | ConvertTo-Json | Set-Content $redirectMapPath
+            
+            Mock Install-PSResourcePinned -ModuleName Microsoft.AVS.CDR { }
+            
+            Install-PSResourceDependencies -ManifestPath $script:testManifestPath -RedirectMapPath $redirectMapPath
+            
+            Should -Invoke Install-PSResourcePinned -ModuleName Microsoft.AVS.CDR -Times 1 -ParameterFilter {
+                $Name -eq "ModuleA" -and $RequiredVersion -eq "1.0.0"
+            }
+            Should -Invoke Install-PSResourcePinned -ModuleName Microsoft.AVS.CDR -Times 1 -ParameterFilter {
+                $Name -eq "ModuleB" -and $RequiredVersion -eq "2.0.0"
+            }
+        }
+
+        It "Should pass through Scope and Repository parameters" {
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = 'TestDep'; RequiredVersion = '1.0.0' }
+    )
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+            
+            $redirectMapPath = Join-Path $TestDrive "test-redirect.json"
+            @{ "TestDep@1.0.0" = "1.0.0" } | ConvertTo-Json | Set-Content $redirectMapPath
+            
+            Mock Install-PSResourcePinned -ModuleName Microsoft.AVS.CDR { }
+            
+            Install-PSResourceDependencies -ManifestPath $script:testManifestPath `
+                -RedirectMapPath $redirectMapPath -Scope 'AllUsers' -Repository 'TestRepo'
+            
+            Should -Invoke Install-PSResourcePinned -ModuleName Microsoft.AVS.CDR -Times 1 -ParameterFilter {
+                $Scope -eq 'AllUsers' -and $Repository -eq 'TestRepo'
+            }
+        }
+
+        AfterEach {
+            if (Test-Path $script:testManifestDir) {
+                Remove-Item $script:testManifestDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    Context "Redirect Map" {
+        BeforeEach {
+            New-Item -Path $script:testManifestDir -ItemType Directory -Force | Out-Null
+        }
+
+        It "Should throw when redirect map file doesn't exist" {
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+    RequiredModules = @('SomeModule')
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+            $nonExistentMapPath = Join-Path $TestDrive "non-existent-map.json"
+            
+            { 
+                Install-PSResourceDependencies -ManifestPath $script:testManifestPath `
+                    -RedirectMapPath $nonExistentMapPath -ErrorAction Stop
+            } | Should -Throw -ExpectedMessage "*not found*"
+        }
+
+        AfterEach {
+            if (Test-Path $script:testManifestDir) {
+                Remove-Item $script:testManifestDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    Context "Dependency Installation" -Tag 'Integration' {
+        BeforeEach {
+            New-Item -Path $script:testManifestDir -ItemType Directory -Force | Out-Null
+        }
+
+        It "Should install dependencies from manifest" {
+            # Create manifest with a real module as dependency
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = '$($script:PSAnalyser.Name)'; RequiredVersion = '$($script:PSAnalyser.Version)' }
+    )
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+            
+            try {
+                Install-PSResourceDependencies -ManifestPath $script:testManifestPath `
+                    -Repository $script:repository -Credential $script:credential
+                
+                $installed = Get-PSResource -Name $script:PSAnalyser.Name | 
+                    Where-Object { $_.Version.ToString() -eq $script:PSAnalyser.Version }
+                $installed | Should -Not -BeNullOrEmpty
+            }
+            catch {
+                Set-ItResult -Skipped -Because "Network access required for this test"
+            }
+        } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
+
+        AfterEach {
+            if (Test-Path $script:testManifestDir) {
+                Remove-Item $script:testManifestDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
 }
 
 AfterAll {

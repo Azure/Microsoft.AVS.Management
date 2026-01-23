@@ -27,7 +27,11 @@
 
     RequiredModules = @()
 
-    FunctionsToExport = @('Install-PSResourcePinned', 'Import-ModulePinned')
+    FunctionsToExport = @(
+        'Install-PSResourcePinned'
+        'Import-ModulePinned'
+        'Install-PSResourceDependencies'
+        'Save-PSResourcePinned')
 
     CmdletsToExport = '*'
 

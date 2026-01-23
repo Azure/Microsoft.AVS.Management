@@ -500,6 +500,406 @@ function Install-PSResourcePinned {
     Write-Host "Successfully installed $Name version $requestedVersion"
 }
 
+function Save-PSResourcePinned {
+    <#
+    .SYNOPSIS
+        Downloads a PowerShell module as NuGet packages with conservative dependency resolution.
+    
+    .DESCRIPTION
+        This function downloads a module and all its dependencies as NuGet packages (.nupkg files)
+        to a specified destination path, using the same conservative dependency resolution logic
+        as Install-PSResourcePinned.
+        
+    .PARAMETER Name
+        The name of the module to download.
+        
+    .PARAMETER RequiredVersion
+        The version of the module to download.
+        
+    .PARAMETER Path
+        The destination path where NuGet packages will be saved.
+        
+    .PARAMETER RedirectMapPath
+        Path to JSON file containing version redirects. If not specified, uses default map.
+        
+    .PARAMETER Repository
+        The repository to search for and download the module from. If not specified, searches all registered repositories.
+        
+    .PARAMETER Credential
+        Credentials to use when accessing the repository.
+        
+    .PARAMETER AsNupkg
+        Save the module as a .nupkg file. Default is $true.
+        
+    .EXAMPLE
+        Save-PSResourcePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0" -Path "./packages"
+        
+    .EXAMPLE
+        Save-PSResourcePinned -Name "Microsoft.AVS.Management" -RequiredVersion "1.0.0" -Path "C:\Packages" -Repository PSGallery
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$RequiredVersion,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$RedirectMapPath,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$Repository,
+        
+        [Parameter(Mandatory = $false)]
+        [PSCredential]$Credential,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$AsNupkg = $true
+    )
+    
+    # Validate and create destination path if needed
+    if (-not (Test-Path $Path)) {
+        Write-Verbose "Creating destination directory: $Path"
+        New-Item -ItemType Directory -Path $Path -Force | Out-Null
+    }
+    
+    $resolvedPath = Resolve-Path $Path
+    Write-Verbose "Saving packages to: $resolvedPath"
+    
+    # Load redirect map from file or use default
+    if ($RedirectMapPath) {
+        if (-not (Test-Path $RedirectMapPath)) {
+            throw "Redirect map file not found: $RedirectMapPath"
+        }
+        Write-Verbose "Loading redirect map from: $RedirectMapPath"
+        $redirectMap = Get-Content $RedirectMapPath -Raw | ConvertFrom-Json -AsHashtable
+    }
+    else {
+        Write-Verbose "Using default redirect map"
+        $redirectMap = $script:defaultRedirectMap
+    }
+    
+    # Merge with module-specific redirect map
+    $redirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $Name -Version $RequiredVersion
+    
+    # Get module metadata
+    Write-Verbose "Searching for module: $Name version $RequiredVersion"
+    $findParams = @{
+        Name = $Name
+    }
+    if ($RequiredVersion) {
+        $findParams['Version'] = $RequiredVersion
+    }
+    if ($Repository) {
+        $findParams['Repository'] = $Repository
+    }
+    if ($Credential) {
+        $findParams['Credential'] = $Credential
+    }
+    
+    $moduleInfo = Find-PSResource @findParams | Select-Object -First 1
+    if (-not $moduleInfo) {
+        throw "Module '$Name' $(if($RequiredVersion){"version $RequiredVersion"}) not found"
+    }
+    
+    $requestedVersion = $moduleInfo.Version.ToString()
+    Write-Verbose "Saving $Name version $requestedVersion"
+    
+    # Track processed modules to avoid circular dependencies
+    $processedModules = @{}
+    
+    # Recursive function to save dependencies
+    function Save-DependenciesRecursive {
+        param(
+            [Parameter(Mandatory = $true)]
+            $ModuleInfo,
+            [Parameter(Mandatory = $true)]
+            [hashtable]$RedirectMap,
+            [Parameter(Mandatory = $true)]
+            [hashtable]$ProcessedModules,
+            [Parameter(Mandatory = $true)]
+            [string]$DestinationPath,
+            [Parameter(Mandatory = $false)]
+            [string]$Repository,
+            [Parameter(Mandatory = $false)]
+            [PSCredential]$Credential,
+            [Parameter(Mandatory = $false)]
+            [switch]$AsNupkg,
+            [Parameter(Mandatory = $false)]
+            [int]$Depth = 0
+        )
+        
+        $indent = "  " * $Depth
+        
+        if (-not $ModuleInfo.Dependencies) {
+            return
+        }
+        
+        foreach ($dep in $ModuleInfo.Dependencies) {
+            $depName = $dep.Name
+            $depVersion = $dep.VersionRange
+            
+            # Find and apply redirect (handles all version parsing and resolution)
+            $redirectResult = Find-DependencyRedirect -DependencyName $depName -DependencyVersion $depVersion `
+                -RedirectMap $RedirectMap -Indent $indent
+            
+            $depVersion = $redirectResult.ResolvedVersion
+            $depName = $redirectResult.ResolvedName
+            
+            # Check if already processed
+            $moduleKey = "${depName}@${depVersion}"
+            if ($ProcessedModules.ContainsKey($moduleKey)) {
+                Write-Verbose "${indent}Dependency already processed: $depName version $depVersion"
+                continue
+            }
+            
+            # Mark as processed
+            $ProcessedModules[$moduleKey] = $true
+            
+            # Get dependency metadata to check for nested dependencies
+            $findDepParams = @{
+                Name = $depName
+                Version = $depVersion
+            }
+            if ($Repository) {
+                $findDepParams['Repository'] = $Repository
+            }
+            if ($Credential) {
+                $findDepParams['Credential'] = $Credential
+            }
+            
+            $depModuleInfo = Find-PSResource @findDepParams -ErrorAction SilentlyContinue | Select-Object -First 1
+            
+            if ($depModuleInfo) {
+                # Merge redirect map with dependency-specific map
+                $depRedirectMap = Get-MergedRedirectMap -OuterMap $RedirectMap -Name $depName -Version $depVersion
+                
+                # Recursively save nested dependencies
+                Save-DependenciesRecursive -ModuleInfo $depModuleInfo -RedirectMap $depRedirectMap `
+                    -ProcessedModules $ProcessedModules -DestinationPath $DestinationPath -Repository $Repository `
+                    -Credential $Credential -AsNupkg:$AsNupkg -Depth ($Depth + 1)
+            }
+            
+            # Check if already saved
+            $expectedFileName = "$depName.$depVersion.nupkg"
+            $expectedPath = Join-Path $DestinationPath $expectedFileName
+            
+            if (-not (Test-Path $expectedPath)) {
+                Write-Verbose "${indent}Saving dependency: $depName version $depVersion"
+                $saveParams = @{
+                    Name = $depName
+                    Version = $depVersion
+                    Path = $DestinationPath
+                    TrustRepository = $true
+                    SkipDependencyCheck = $true
+                }
+                if ($AsNupkg) {
+                    $saveParams['AsNupkg'] = $true
+                }
+                if ($Repository) {
+                    $saveParams['Repository'] = $Repository
+                }
+                if ($Credential) {
+                    $saveParams['Credential'] = $Credential
+                }
+                
+                Save-PSResource @saveParams
+            }
+            else {
+                Write-Verbose "${indent}Dependency already saved: $depName version $depVersion"
+            }
+        }
+    }
+    
+    # Save all dependencies recursively
+    $saveDepParams = @{
+        ModuleInfo = $moduleInfo
+        RedirectMap = $redirectMap
+        ProcessedModules = $processedModules
+        DestinationPath = $resolvedPath.Path
+        AsNupkg = $AsNupkg
+    }
+    if ($Repository) {
+        $saveDepParams['Repository'] = $Repository
+    }
+    if ($Credential) {
+        $saveDepParams['Credential'] = $Credential
+    }
+    
+    Save-DependenciesRecursive @saveDepParams
+    
+    # Save the main module
+    $mainSaveParams = @{
+        Name = $Name
+        Version = $requestedVersion
+        Path = $resolvedPath.Path
+        TrustRepository = $true
+        SkipDependencyCheck = $true
+    }
+    if ($AsNupkg) {
+        $mainSaveParams['AsNupkg'] = $true
+    }
+    if ($Repository) {
+        $mainSaveParams['Repository'] = $Repository
+    }
+    if ($Credential) {
+        $mainSaveParams['Credential'] = $Credential
+    }
+    
+    Save-PSResource @mainSaveParams
+    Write-Host "Successfully saved $Name version $requestedVersion and dependencies to $resolvedPath"
+}
+
+function Install-PSResourceDependencies {
+    <#
+    .SYNOPSIS
+        Installs dependencies from a PowerShell module manifest with conservative version resolution.
+    
+    .DESCRIPTION
+        This function reads a .psd1 module manifest file and installs all RequiredModules
+        using the same conservative dependency resolution logic as Install-PSResourcePinned.
+        
+    .PARAMETER ManifestPath
+        The path to the .psd1 module manifest file.
+        
+    .PARAMETER RedirectMapPath
+        Path to JSON file containing version redirects. If not specified, uses default map.
+        
+    .PARAMETER Scope
+        Installation scope: CurrentUser or AllUsers. Default is CurrentUser.
+        
+    .PARAMETER Repository
+        The repository to search for and install modules from. If not specified, searches all registered repositories.
+        
+    .PARAMETER Credential
+        Credentials to use when accessing the repository.
+        
+    .EXAMPLE
+        Install-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
+        
+    .EXAMPLE
+        Install-PSResourceDependencies -ManifestPath "./MyModule.psd1" -Scope AllUsers -Repository PSGallery
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ManifestPath,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$RedirectMapPath,
+        
+        [Parameter(Mandatory = $false)]
+        [ValidateSet('CurrentUser', 'AllUsers')]
+        [string]$Scope = 'CurrentUser',
+        
+        [Parameter(Mandatory = $false)]
+        [string]$Repository,
+        
+        [Parameter(Mandatory = $false)]
+        [PSCredential]$Credential
+    )
+    
+    # Validate manifest path
+    if (-not (Test-Path $ManifestPath)) {
+        throw "Manifest file not found: $ManifestPath"
+    }
+    
+    $resolvedPath = Resolve-Path $ManifestPath
+    if (-not $resolvedPath.Path.EndsWith('.psd1')) {
+        throw "File must be a PowerShell module manifest (.psd1): $ManifestPath"
+    }
+    
+    Write-Verbose "Reading manifest from: $resolvedPath"
+    
+    # Parse the manifest
+    $manifest = Import-PowerShellDataFile -Path $resolvedPath
+    
+    if (-not $manifest.RequiredModules -or $manifest.RequiredModules.Count -eq 0) {
+        Write-Verbose "No RequiredModules found in manifest"
+        return
+    }
+    
+    # Load redirect map from file or use default
+    if ($RedirectMapPath) {
+        if (-not (Test-Path $RedirectMapPath)) {
+            throw "Redirect map file not found: $RedirectMapPath"
+        }
+        Write-Verbose "Loading redirect map from: $RedirectMapPath"
+        $redirectMap = Get-Content $RedirectMapPath -Raw | ConvertFrom-Json -AsHashtable
+    }
+    else {
+        Write-Verbose "Using default redirect map"
+        $redirectMap = $script:defaultRedirectMap
+    }
+    
+    Write-Verbose "Found $($manifest.RequiredModules.Count) required module(s) in manifest"
+    
+    foreach ($requiredModule in $manifest.RequiredModules) {
+        $moduleName = $null
+        $moduleVersion = $null
+        
+        # RequiredModules can be a string (module name only) or a hashtable with ModuleName and ModuleVersion/RequiredVersion
+        if ($requiredModule -is [string]) {
+            $moduleName = $requiredModule
+        }
+        elseif ($requiredModule -is [hashtable]) {
+            $moduleName = $requiredModule.ModuleName
+            # Check for RequiredVersion first (exact version), then ModuleVersion (minimum version)
+            if ($requiredModule.RequiredVersion) {
+                $moduleVersion = $requiredModule.RequiredVersion.ToString()
+            }
+            elseif ($requiredModule.ModuleVersion) {
+                # ModuleVersion in manifest means minimum version, treat as open-ended range
+                $moduleVersion = "[$($requiredModule.ModuleVersion), )"
+            }
+        }
+        else {
+            Write-Warning "Skipping unrecognized RequiredModule format: $requiredModule"
+            continue
+        }
+        
+        if (-not $moduleName) {
+            Write-Warning "Skipping RequiredModule with no module name"
+            continue
+        }
+        
+        # Apply redirect to resolve version
+        $mergedRedirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $moduleName -Version ($moduleVersion ?? "")
+        $redirectResult = Find-DependencyRedirect -DependencyName $moduleName -DependencyVersion $moduleVersion `
+            -RedirectMap $mergedRedirectMap -Indent ""
+        
+        $resolvedName = $redirectResult.ResolvedName
+        $resolvedVersion = $redirectResult.ResolvedVersion
+        
+        Write-Host "Installing dependency: $resolvedName version $resolvedVersion"
+        
+        # Build install parameters
+        $installParams = @{
+            Name = $resolvedName
+            RequiredVersion = $resolvedVersion
+            Scope = $Scope
+        }
+        if ($RedirectMapPath) {
+            $installParams['RedirectMapPath'] = $RedirectMapPath
+        }
+        if ($Repository) {
+            $installParams['Repository'] = $Repository
+        }
+        if ($Credential) {
+            $installParams['Credential'] = $Credential
+        }
+        
+        # Use Install-PSResourcePinned for consistent dependency resolution
+        Install-PSResourcePinned @installParams
+    }
+    
+    Write-Host "Successfully installed all dependencies from manifest"
+}
+
 function Import-ModulePinned {
     <#
     .SYNOPSIS
