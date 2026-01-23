@@ -3,6 +3,9 @@ parameters:
   type: string
 - name: moduleDisplayName
   type: string
+- name: genMetadata
+  type: bool
+  default: false
 
 stages:
 - stage: 'Build_${{ parameters.moduleDisplayName }}' # Valid stage name cannot contain the character '.'
@@ -90,3 +93,4 @@ stages:
         AZURE_DEVOPS_EXT_PAT: $(accessToken)
         METADATA: $(metadataAuthority)/$(metadataProject)/_artifacts/feed/$(metadataFeed)
       displayName: 'Generate metadata'
+      condition: eq(${{ parameters.genMetadata }}, true)
