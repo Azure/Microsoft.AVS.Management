@@ -902,17 +902,14 @@ Function Remove-AVSStoragePolicy {
         [string]
         $Name
     )
-    Begin {
-        #Remove Wildcards characters from Name
-        $Name = Limit-WildcardsandCodeInjectionCharacters $Name
-        #Protected Policy Object Name Validation Check
-        If (Test-AVSProtectedObjectName -Name $Name) {
-            Write-Error "$Name is a protected policy name.  Please choose a different policy name."
-            return
-        }
-
+    #Remove Wildcards characters from Name
+    $Name = Limit-WildcardsandCodeInjectionCharacters $Name
+    #Protected Policy Object Name Validation Check
+    If (Test-AVSProtectedObjectName -Name $Name) {
+        Write-Error "$Name is a protected policy name.  Please choose a different policy name."
+        return
     }
-    Process {
+    Else{
         #Get Storage Policy
         $StoragePolicy = Get-SpbmStoragePolicy -Name $Name -ErrorAction SilentlyContinue
         #Remove Storage Policy
@@ -921,9 +918,8 @@ Function Remove-AVSStoragePolicy {
             return
         }
         Else { Remove-SpbmStoragePolicy -StoragePolicy $StoragePolicy -Confirm:$false }
-
+        }    
     }
-}
 
 Function New-AVSStoragePolicy {
     <#
@@ -1060,7 +1056,6 @@ Function New-AVSStoragePolicy {
     )
 
 
-
     Begin {
         # Internal helper to add or append a VSAN capability instance to the profile spec ensuring the VSAN subprofile exists
         function Add-VsanCapabilityInstanceLocal {
@@ -1097,9 +1092,8 @@ Function New-AVSStoragePolicy {
         #Protected Policy Object Name Validation Check
         If (Test-AVSProtectedObjectName -Name $Name) {
             Write-Error "$Name is a protected policy name.  Please choose a different policy name."
-            break
+            return
         }
-
         #Check for existing policy
         $ExistingPolicy = Get-AVSStoragePolicy -Name $Name
         Write-Information ("Existing Policy: " + $ExistingPolicy.name)
@@ -1558,6 +1552,11 @@ Function New-AVSStoragePolicy {
 
     }
     process {
+        #Protected Policy Object Name Validation Check
+        If (Test-AVSProtectedObjectName -Name $Name) {
+            Write-Error "$Name is a protected policy name.  Please choose a different policy name."
+            return
+        }
         $profilespec.Description = $Description
         #return $profilespec #Uncomment to capture and debug profile spec.
         If ($profilespec.Constraints.SubProfiles.count -eq 0) {
