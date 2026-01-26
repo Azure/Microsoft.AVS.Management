@@ -3,6 +3,9 @@ parameters:
   type: string
 - name: moduleDisplayName
   type: string
+- name: genMetadata
+  type: bool
+  default: false
 
 stages:
 - stage: 'Validation_${{ parameters.moduleDisplayName }}' # Valid stage name cannot contain the character '.'
@@ -56,3 +59,4 @@ stages:
       env:
         METADATA: uri://console
       displayName: 'Generate metadata'
+      condition: eq(${{ parameters.genMetadata }}, true)

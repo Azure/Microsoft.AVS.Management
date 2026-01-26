@@ -323,7 +323,10 @@ function Install-PSResourcePinned {
         [string]$Repository,
         
         [Parameter(Mandatory = $false)]
-        [PSCredential]$Credential
+        [PSCredential]$Credential,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$Prerelease
     )
     
     # Load redirect map from file or use default
@@ -558,7 +561,10 @@ function Save-PSResourcePinned {
         [PSCredential]$Credential,
         
         [Parameter(Mandatory = $false)]
-        [switch]$AsNupkg = $true
+        [switch]$AsNupkg = $true,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$Prerelease
     )
     
     # Validate and create destination path if needed
@@ -599,6 +605,9 @@ function Save-PSResourcePinned {
     }
     if ($Credential) {
         $findParams['Credential'] = $Credential
+    }
+    if ($Prerelease) {
+        $findParams['Prerelease'] = $true
     }
     
     $moduleInfo = Find-PSResource @findParams | Select-Object -First 1
@@ -1239,4 +1248,221 @@ function Import-ModulePinned {
     if ($PassThru) {
         return $mainModule
     }
+}
+
+function Find-PSResourcesPinned {
+    <#
+    .SYNOPSIS
+        Finds a PowerShell module and all its dependencies with conservative version resolution.
+    
+    .DESCRIPTION
+        This function searches for a module and recursively resolves all its dependencies,
+        using the same conservative dependency resolution logic as Install-PSResourcePinned.
+        Returns an array of PSResourceInfo objects for the main module and all dependencies.
+        
+    .PARAMETER Name
+        The name of the module to find.
+        
+    .PARAMETER RequiredVersion
+        The version of the module to find.
+        
+    .PARAMETER RedirectMapPath
+        Path to JSON file containing version redirects. If not specified, uses default map.
+        
+    .PARAMETER Repository
+        The repository to search for the module from. If not specified, searches all registered repositories.
+        
+    .PARAMETER Credential
+        Credentials to use when accessing the repository.
+        
+    .EXAMPLE
+        Find-PSResourcesPinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0"
+        
+    .EXAMPLE
+        Find-PSResourcesPinned -Name "Microsoft.AVS.Management" -RequiredVersion "1.0.0" -Repository PSGallery
+        
+    .OUTPUTS
+        Returns an array of objects with Name, Version, and Dependencies properties for each resolved module.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$RequiredVersion,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$RedirectMapPath,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$Repository,
+        
+        [Parameter(Mandatory = $false)]
+        [PSCredential]$Credential,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$Prerelease
+    )
+    
+    # Load redirect map from file or use default
+    if ($RedirectMapPath) {
+        if (-not (Test-Path $RedirectMapPath)) {
+            throw "Redirect map file not found: $RedirectMapPath"
+        }
+        Write-Verbose "Loading redirect map from: $RedirectMapPath"
+        $redirectMap = Get-Content $RedirectMapPath -Raw | ConvertFrom-Json -AsHashtable
+    }
+    else {
+        Write-Verbose "Using default redirect map"
+        $redirectMap = $script:defaultRedirectMap
+    }
+    
+    # Merge with module-specific redirect map
+    $redirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $Name -Version $RequiredVersion
+    
+    # Get module metadata
+    Write-Verbose "Searching for module: $Name version $RequiredVersion"
+    $findParams = @{
+        Name = $Name
+    }
+    if ($RequiredVersion) {
+        $findParams['Version'] = $RequiredVersion
+    }
+    if ($Repository) {
+        $findParams['Repository'] = $Repository
+    }
+    if ($Credential) {
+        $findParams['Credential'] = $Credential
+    }
+    if ($Prerelease) {
+        $findParams['Prerelease'] = $true
+    }
+    
+    $moduleInfo = Find-PSResource @findParams | Select-Object -First 1
+    if (-not $moduleInfo) {
+        throw "Module '$Name' $(if($RequiredVersion){"version $RequiredVersion"}) not found"
+    }
+    
+    $requestedVersion = $moduleInfo.Version.ToString()
+    Write-Verbose "Found $Name version $requestedVersion"
+    
+    # Track processed modules to avoid circular dependencies
+    $processedModules = @{}
+    # Collect all resolved modules
+    $resolvedModules = [System.Collections.ArrayList]@()
+    
+    # Recursive function to find dependencies
+    function Find-DependenciesRecursive {
+        param(
+            [Parameter(Mandatory = $true)]
+            $ModuleInfo,
+            [Parameter(Mandatory = $true)]
+            [hashtable]$RedirectMap,
+            [Parameter(Mandatory = $true)]
+            [hashtable]$ProcessedModules,
+            [Parameter(Mandatory = $true)]
+            [AllowEmptyCollection()]
+            [System.Collections.ArrayList]$ResolvedModules,
+            [Parameter(Mandatory = $false)]
+            [string]$Repository,
+            [Parameter(Mandatory = $false)]
+            [PSCredential]$Credential,
+            [Parameter(Mandatory = $false)]
+            [int]$Depth = 0
+        )
+        
+        $indent = "  " * $Depth
+        
+        if (-not $ModuleInfo.Dependencies) {
+            return
+        }
+        
+        foreach ($dep in $ModuleInfo.Dependencies) {
+            $depName = $dep.Name
+            $depVersion = $dep.VersionRange
+            
+            # Find and apply redirect (handles all version parsing and resolution)
+            $redirectResult = Find-DependencyRedirect -DependencyName $depName -DependencyVersion $depVersion `
+                -RedirectMap $RedirectMap -Indent $indent
+            
+            $depVersion = $redirectResult.ResolvedVersion
+            $depName = $redirectResult.ResolvedName
+            
+            # Check if already processed
+            $moduleKey = "${depName}@${depVersion}"
+            if ($ProcessedModules.ContainsKey($moduleKey)) {
+                Write-Verbose "${indent}Dependency already processed: $depName version $depVersion"
+                continue
+            }
+            
+            # Mark as processed
+            $ProcessedModules[$moduleKey] = $true
+            
+            # Get dependency metadata to check for nested dependencies
+            $findDepParams = @{
+                Name = $depName
+                Version = $depVersion
+            }
+            if ($Repository) {
+                $findDepParams['Repository'] = $Repository
+            }
+            if ($Credential) {
+                $findDepParams['Credential'] = $Credential
+            }
+            
+            $depModuleInfo = Find-PSResource @findDepParams -ErrorAction SilentlyContinue | Select-Object -First 1
+            
+            if ($depModuleInfo) {
+                Write-Verbose "${indent}Found dependency: $depName version $($depModuleInfo.Version.ToString())"
+                
+                # Merge redirect map with dependency-specific map
+                $depRedirectMap = Get-MergedRedirectMap -OuterMap $RedirectMap -Name $depName -Version $depVersion
+                
+                # Recursively find nested dependencies
+                Find-DependenciesRecursive -ModuleInfo $depModuleInfo -RedirectMap $depRedirectMap `
+                    -ProcessedModules $ProcessedModules -ResolvedModules $ResolvedModules -Repository $Repository `
+                    -Credential $Credential -Depth ($Depth + 1)
+                
+                # Add this dependency to the resolved list
+                [void]$ResolvedModules.Add([PSCustomObject]@{
+                    Name = $depModuleInfo.Name
+                    Version = $depModuleInfo.Version.ToString()
+                    Repository = $depModuleInfo.Repository
+                    Dependencies = $depModuleInfo.Dependencies
+                })
+            }
+            else {
+                throw "${indent}Dependency not found: $depName version $depVersion"
+            }
+        }
+    }
+    
+    # Find all dependencies recursively
+    $findDepParams = @{
+        ModuleInfo = $moduleInfo
+        RedirectMap = $redirectMap
+        ProcessedModules = $processedModules
+        ResolvedModules = $resolvedModules
+    }
+    if ($Repository) {
+        $findDepParams['Repository'] = $Repository
+    }
+    if ($Credential) {
+        $findDepParams['Credential'] = $Credential
+    }
+    
+    Find-DependenciesRecursive @findDepParams
+    
+    # Add the main module to the resolved list
+    [void]$resolvedModules.Add([PSCustomObject]@{
+        Name = $moduleInfo.Name
+        Version = $requestedVersion
+        Repository = $moduleInfo.Repository
+        Dependencies = $moduleInfo.Dependencies
+    })
+    
+    Write-Verbose "Found $($resolvedModules.Count) module(s) (including main module and all dependencies)"
+    
+    return $resolvedModules.ToArray()
 }

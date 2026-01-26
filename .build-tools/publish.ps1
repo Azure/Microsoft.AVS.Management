@@ -6,6 +6,10 @@ param (
     [Parameter(Mandatory=$true)][string]$previewFeed,
     [string]$prereleaseString = ""
 )
+
+# Import the CDR module for conservative dependency resolution
+Import-Module "$PSScriptRoot/../Microsoft.AVS.CDR/Microsoft.AVS.CDR.psd1" -Force -ErrorAction Stop
+
 function update-moduleversion {
     $manifestVersionAsArray = (Import-PowerShellDataFile $absolutePathToManifest).ModuleVersion -split "\."
     $updatedModuleVersion = @( $manifestVersionAsArray[0], $manifestVersionAsArray[1],  $buildNumber ) | Join-String -Separator '.'
@@ -23,20 +27,25 @@ function update-moduleversion {
     Get-Content $absolutePathToManifest
 }
 
-function upload-package ([string]$name, [string]$version, [string]$feed, [PSCredential]$credential) {
-    # We do not need to do the install before Import because it is done in the restore dependencies task.
-    Import-Module -Name $name -RequiredVersion $version -ErrorAction Stop
-    $m = Get-Module -Name $name -ErrorAction Stop
-    foreach($d in $m.RequiredModules) { 
-        upload-package $d.Name $d.Version $feed $credential
+function replicate-packages ([string]$name, [string]$version, [string]$packagePath, [PSCredential]$credential) {
+    # Use CDR to save the module and all its dependencies with conservative resolution
+    Write-Output "Saving $name@$version and dependencies using CDR..."
+    Save-PSResourcePinned -Name $name -RequiredVersion $version -Path $packagePath -Repository ConsumptionV3 -Credential $credential
+    
+    # Publish all saved packages to the preview feed
+    $packages = Get-ChildItem -Path $packagePath -Filter "*.nupkg"
+    foreach ($pkg in $packages) {
+        $pkgName = $pkg.BaseName -replace '\.\d+\.\d+\.\d+.*$', ''
+        $existing = Find-PSResource -Repository PreviewV3 -Name $pkgName -Prerelease -ErrorAction SilentlyContinue -Credential $credential | 
+            Where-Object { $pkg.Name -like "$($_.Name).$($_.Version)*" }
+        
+        if ($null -eq $existing) {
+            Write-Output "Publishing $($pkg.Name) to preview feed..."
+            Publish-PSResource -NupkgPath $pkg.FullName -Repository PreviewV3 -ApiKey "key" -ErrorAction Stop -Credential $credential
+        } else {
+            Write-Output "$($pkg.Name) already in the feed"
+        }
     }
-    $existing = Find-PSResource -Repository PreviewV3 -Name $m.Name -Prerelease -Version $version -ErrorAction SilentlyContinue -Credential $credential
-    if($null -eq $existing) { 
-        Write-Output "Pushing dependency $m@$version to $feed"
-        Save-PSResource -Name $m.Name -Version $version -Repository ConsumptionV3 -AsNupkg -Path . -ErrorAction Stop -Credential $credential -SkipDependencyCheck
-        Publish-PSResource -NupkgPath "$($m.Name).$version.nupkg" -Repository PreviewV3 -ApiKey "key" -ErrorAction Stop -Credential $credential
-    } else { Write-Output "$name@$version already in the feed" }
-    Write-Host ""
 }
 
 Write-Output "Updating module version in $absolutePathToManifest to $buildNumber"
@@ -45,15 +54,34 @@ update-moduleversion
 Write-Output "Uploading dependencies to $previewFeed"
 $manifest = Test-ModuleManifest "$absolutePathToManifest" -ErrorAction Stop
 
-$c =  [PSCredential]::new("ONEBRANCH_TOKEN", ($accessToken | ConvertTo-SecureString -AsPlainText -Force))
-foreach($d in $manifest.RequiredModules) {
-    upload-package $d.Name $d.Version $previewFeed $c
+$c = [PSCredential]::new("ONEBRANCH_TOKEN", ($accessToken | ConvertTo-SecureString -AsPlainText -Force))
+
+# Create a temporary directory for packages
+$packagePath = Join-Path ([System.IO.Path]::GetTempPath()) "avs-packages-$(Get-Date -Format 'yyyyMMddHHmmss')"
+New-Item -ItemType Directory -Path $packagePath -Force | Out-Null
+
+try {
+    # Use CDR to replicate each required module and its dependencies
+    foreach ($d in $manifest.RequiredModules) {
+        replicate-packages -name $d.Name -version $d.Version -packagePath $packagePath -credential $c
+    }
+    
+    # Publish the main module
+    Publish-PSResource -Path $manifest.Name -Repository PreviewV3 -ApiKey "key" -ErrorAction Stop -Credential $c
+    
+    # Verify installation using CDR's pinned install
+    $version = if ([String]::IsNullOrWhiteSpace($manifest.PrivateData.PSData.Prerelease)) {
+        $manifest.Version.ToString()
+    } else {
+        "$($manifest.Version)-$($manifest.PrivateData.PSData.Prerelease)" 
+    }
+    
+    Write-Output "Verifying installation of $($manifest.Name)@$version..."
+    Install-PSResourcePinned -Name $manifest.Name -RequiredVersion $version -Repository PreviewV3 -Credential $c
 }
-Publish-PSResource -Path $manifest.Name -Repository PreviewV3 -ApiKey "key" -ErrorAction Stop -Credential $c
-# try installing it
-$version = if( [String]::IsNullOrWhiteSpace($manifest.PrivateData.PSData.Prerelease)) {
-    $manifest.Version
-} else {
-    "$($manifest.Version)-$($manifest.PrivateData.PSData.Prerelease)" 
+finally {
+    # Cleanup temporary package directory
+    if (Test-Path $packagePath) {
+        Remove-Item -Path $packagePath -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
-Install-PSResource -Name $manifest.Name -Version $version -Prerelease -Repository PreviewV3 -ErrorAction Stop -Credential $c
