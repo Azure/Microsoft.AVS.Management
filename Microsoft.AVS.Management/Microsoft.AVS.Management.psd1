@@ -51,10 +51,11 @@
     # ProcessorArchitecture = ''
     
     # Modules that must be imported into the global environment prior to importing this module
-    RequiredModules = @(@{ModuleName = 'VMware.vSphere.SsoAdmin'; RequiredVersion = '1.4.0'; }, 
-                   @{ModuleName = 'VMware.VimAutomation.Core'; RequiredVersion = '13.3.0.24145081'; }, 
-                   @{ModuleName = 'VMware.VimAutomation.Storage'; RequiredVersion = '13.3.0.24145081'; }, 
-                   @{ModuleName = 'Posh-SSH'; RequiredVersion = '3.2.4'; })
+    RequiredModules = @(
+        @{ModuleName = 'VMware.vSphere.SsoAdmin'; RequiredVersion = '1.4.0' }
+        @{ModuleName = 'VMware.VimAutomation.Core'; RequiredVersion = '13.3.0.24145081' }
+        @{ModuleName = 'VMware.VimAutomation.Storage'; RequiredVersion = '13.3.0.24145081' }
+        @{ModuleName = 'Posh-SSH'; RequiredVersion = '3.2.4' })
     
     # Assemblies that must be loaded prior to importing this module
     # RequiredAssemblies = @()

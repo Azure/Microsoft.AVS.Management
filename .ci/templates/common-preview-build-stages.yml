@@ -4,8 +4,8 @@ parameters:
 - name: moduleDisplayName
   type: string
 - name: genMetadata
-  type: bool
-  default: false
+  type: boolean
+  default: true
 
 stages:
 - stage: 'Build_${{ parameters.moduleDisplayName }}' # Valid stage name cannot contain the character '.'

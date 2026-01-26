@@ -4,7 +4,7 @@ param (
     [Parameter(Mandatory=$true)][string]$psdPath,
     [switch]$SkipPrereq
 )
-
+$ErrorActionPreference = "Stop"
 if (-not $SkipPrereq) {
     $requiredModules = @(
         @{ Name = "PSScriptAnalyzer"; Version = "1.21.0" }
@@ -21,8 +21,10 @@ if (-not $SkipPrereq) {
         throw "Failed to get required modules."
     }
 }
-
-import-module Microsoft.AVS.CDR
-
-$c = [PSCredential]::new("ado", ($accessToken | ConvertTo-SecureString -AsPlainText -Force))
-Install-PSResourceDependencies -ModulePath $psdPath -Repository ConsumptionV3 -Credential $c
+else 
+{
+    import-module (Join-Path $PSScriptRoot "../Microsoft.AVS.CDR") -Verbose
+    
+    $c = [PSCredential]::new("ado", ($accessToken | ConvertTo-SecureString -AsPlainText -Force))
+    Install-PSResourceDependencies -ManifestPath $psdPath -Repository ConsumptionV3 -Credential $c -Verbose
+}

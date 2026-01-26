@@ -39,6 +39,7 @@ extends:
       parameters:
         moduleFolderName: ${{ variables.managementModuleFolderName }}
         moduleDisplayName: ${{ variables.managementModuleDisplayName }}
+        genMetadata: false
 
     - template: templates/common-preview-build-stages.yml@self
       parameters:
