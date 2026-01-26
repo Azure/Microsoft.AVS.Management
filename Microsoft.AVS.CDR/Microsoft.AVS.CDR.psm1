@@ -323,7 +323,10 @@ function Install-PSResourcePinned {
         [string]$Repository,
         
         [Parameter(Mandatory = $false)]
-        [PSCredential]$Credential
+        [PSCredential]$Credential,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$Prerelease
     )
     
     # Load redirect map from file or use default
@@ -558,7 +561,10 @@ function Save-PSResourcePinned {
         [PSCredential]$Credential,
         
         [Parameter(Mandatory = $false)]
-        [switch]$AsNupkg = $true
+        [switch]$AsNupkg = $true,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$Prerelease
     )
     
     # Validate and create destination path if needed
@@ -599,6 +605,9 @@ function Save-PSResourcePinned {
     }
     if ($Credential) {
         $findParams['Credential'] = $Credential
+    }
+    if ($Prerelease) {
+        $findParams['Prerelease'] = $true
     }
     
     $moduleInfo = Find-PSResource @findParams | Select-Object -First 1
@@ -1290,7 +1299,10 @@ function Find-PSResourcesPinned {
         [string]$Repository,
         
         [Parameter(Mandatory = $false)]
-        [PSCredential]$Credential
+        [PSCredential]$Credential,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$Prerelease
     )
     
     # Load redirect map from file or use default
@@ -1322,6 +1334,9 @@ function Find-PSResourcesPinned {
     }
     if ($Credential) {
         $findParams['Credential'] = $Credential
+    }
+    if ($Prerelease) {
+        $findParams['Prerelease'] = $true
     }
     
     $moduleInfo = Find-PSResource @findParams | Select-Object -First 1
