@@ -1944,5 +1944,389 @@ Describe "Install-PSResourceDependencies" {
     }
 }
 
+Describe "Find-PSResourcesPinned" {
+    BeforeAll {
+        $modulePath = Join-Path $PSScriptRoot ".." "Microsoft.AVS.CDR" "Microsoft.AVS.CDR.psd1"
+        Import-Module $modulePath -Force
+    }
+
+    Context "Parameter Validation" {
+        It "Should have Name parameter as mandatory" {
+            $command = Get-Command Find-PSResourcesPinned
+            $nameParam = $command.Parameters['Name']
+            $nameParam.Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have RequiredVersion parameter as mandatory" {
+            $command = Get-Command Find-PSResourcesPinned
+            $versionParam = $command.Parameters['RequiredVersion']
+            $versionParam.Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have Repository parameter" {
+            $command = Get-Command Find-PSResourcesPinned
+            $command.Parameters.ContainsKey('Repository') | Should -BeTrue
+        }
+
+        It "Should have Credential parameter" {
+            $command = Get-Command Find-PSResourcesPinned
+            $credParam = $command.Parameters['Credential']
+            $credParam.ParameterType.Name | Should -Be 'PSCredential'
+        }
+
+        It "Should have RedirectMapPath parameter" {
+            $command = Get-Command Find-PSResourcesPinned
+            $command.Parameters.ContainsKey('RedirectMapPath') | Should -BeTrue
+        }
+    }
+
+    Context "Redirect Map Validation" {
+        It "Should throw when redirect map file doesn't exist" {
+            $nonExistentMapPath = Join-Path $TestDrive "non-existent-map.json"
+            
+            InModuleScope Microsoft.AVS.CDR {
+                param($mapPath)
+                
+                Mock Find-PSResource { }
+                
+                { 
+                    Find-PSResourcesPinned -Name "TestModule" -RequiredVersion "1.0.0" `
+                        -RedirectMapPath $mapPath -ErrorAction Stop
+                } | Should -Throw -ExpectedMessage "*not found*"
+            } -ArgumentList $nonExistentMapPath
+        }
+
+        It "Should load redirect map when file exists" {
+            $redirectMapPath = Join-Path $TestDrive "test-redirect.json"
+            @{ "Dep1@1.0.0" = "1.0.1" } | ConvertTo-Json | Set-Content $redirectMapPath
+            
+            InModuleScope Microsoft.AVS.CDR {
+                param($mapPath)
+                
+                # Mock Find-PSResource to return a module with no dependencies
+                Mock Find-PSResource {
+                    [PSCustomObject]@{
+                        Name = "TestModule"
+                        Version = [version]"1.0.0"
+                        Repository = "TestRepo"
+                        Dependencies = @()
+                    }
+                }
+                
+                # Should not throw when redirect map file exists
+                { Find-PSResourcesPinned -Name "TestModule" -RequiredVersion "1.0.0" `
+                    -RedirectMapPath $mapPath } | Should -Not -Throw
+                
+                # Verify result is returned
+                $result = Find-PSResourcesPinned -Name "TestModule" -RequiredVersion "1.0.0" `
+                    -RedirectMapPath $mapPath
+                $result | Should -Not -BeNullOrEmpty
+            } -ArgumentList $redirectMapPath
+        }
+    }
+
+    Context "Module Not Found" {
+        It "Should throw when main module is not found" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource { $null }
+                
+                { 
+                    Find-PSResourcesPinned -Name "NonExistentModule" -RequiredVersion "1.0.0" -ErrorAction Stop
+                } | Should -Throw -ExpectedMessage "*not found*"
+            }
+        }
+
+        It "Should throw when dependency is not found" {
+            InModuleScope Microsoft.AVS.CDR {
+                # First call returns main module, second call for dependency returns null
+                $script:callCount = 0
+                Mock Find-PSResource {
+                    $script:callCount++
+                    if ($script:callCount -eq 1) {
+                        [PSCustomObject]@{
+                            Name = "MainModule"
+                            Version = [version]"1.0.0"
+                            Repository = "TestRepo"
+                            Dependencies = @(
+                                [PSCustomObject]@{ Name = "MissingDep"; VersionRange = "1.0.0" }
+                            )
+                        }
+                    }
+                    else {
+                        $null
+                    }
+                }
+                
+                { 
+                    Find-PSResourcesPinned -Name "MainModule" -RequiredVersion "1.0.0" -ErrorAction Stop
+                } | Should -Throw -ExpectedMessage "*Dependency not found*"
+            }
+        }
+    }
+
+    Context "Module Without Dependencies" {
+        It "Should return only the main module when it has no dependencies" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    [PSCustomObject]@{
+                        Name = "SimpleModule"
+                        Version = [version]"2.0.0"
+                        Repository = "PSGallery"
+                        Dependencies = @()
+                    }
+                }
+                
+                $result = Find-PSResourcesPinned -Name "SimpleModule" -RequiredVersion "2.0.0"
+                
+                $result | Should -Not -BeNullOrEmpty
+                $result.Count | Should -Be 1
+                $result[0].Name | Should -Be "SimpleModule"
+                $result[0].Version | Should -Be "2.0.0"
+            }
+        }
+    }
+
+    Context "Module With Dependencies" {
+        It "Should resolve and return all dependencies" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    param($Name, $Version)
+                    
+                    switch ($Name) {
+                        "ParentModule" {
+                            [PSCustomObject]@{
+                                Name = "ParentModule"
+                                Version = [version]"1.0.0"
+                                Repository = "TestRepo"
+                                Dependencies = @(
+                                    [PSCustomObject]@{ Name = "ChildDep"; VersionRange = "2.0.0" }
+                                )
+                            }
+                        }
+                        "ChildDep" {
+                            [PSCustomObject]@{
+                                Name = "ChildDep"
+                                Version = [version]"2.0.0"
+                                Repository = "TestRepo"
+                                Dependencies = @()
+                            }
+                        }
+                    }
+                }
+                
+                $result = Find-PSResourcesPinned -Name "ParentModule" -RequiredVersion "1.0.0"
+                
+                $result | Should -Not -BeNullOrEmpty
+                $result.Count | Should -Be 2
+                
+                # Check that both modules are present
+                $parentModule = $result | Where-Object { $_.Name -eq "ParentModule" }
+                $childDep = $result | Where-Object { $_.Name -eq "ChildDep" }
+                
+                $parentModule | Should -Not -BeNullOrEmpty
+                $childDep | Should -Not -BeNullOrEmpty
+                $childDep.Version | Should -Be "2.0.0"
+            }
+        }
+
+        It "Should resolve transitive dependencies" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    param($Name, $Version)
+                    
+                    switch ($Name) {
+                        "RootModule" {
+                            [PSCustomObject]@{
+                                Name = "RootModule"
+                                Version = [version]"1.0.0"
+                                Repository = "TestRepo"
+                                Dependencies = @(
+                                    [PSCustomObject]@{ Name = "Level1Dep"; VersionRange = "1.0.0" }
+                                )
+                            }
+                        }
+                        "Level1Dep" {
+                            [PSCustomObject]@{
+                                Name = "Level1Dep"
+                                Version = [version]"1.0.0"
+                                Repository = "TestRepo"
+                                Dependencies = @(
+                                    [PSCustomObject]@{ Name = "Level2Dep"; VersionRange = "1.0.0" }
+                                )
+                            }
+                        }
+                        "Level2Dep" {
+                            [PSCustomObject]@{
+                                Name = "Level2Dep"
+                                Version = [version]"1.0.0"
+                                Repository = "TestRepo"
+                                Dependencies = @()
+                            }
+                        }
+                    }
+                }
+                
+                $result = Find-PSResourcesPinned -Name "RootModule" -RequiredVersion "1.0.0"
+                
+                $result.Count | Should -Be 3
+                ($result | Where-Object { $_.Name -eq "RootModule" }) | Should -Not -BeNullOrEmpty
+                ($result | Where-Object { $_.Name -eq "Level1Dep" }) | Should -Not -BeNullOrEmpty
+                ($result | Where-Object { $_.Name -eq "Level2Dep" }) | Should -Not -BeNullOrEmpty
+            }
+        }
+
+        It "Should not include duplicate dependencies (circular reference protection)" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    param($Name, $Version)
+                    
+                    switch ($Name) {
+                        "ModuleA" {
+                            [PSCustomObject]@{
+                                Name = "ModuleA"
+                                Version = [version]"1.0.0"
+                                Repository = "TestRepo"
+                                Dependencies = @(
+                                    [PSCustomObject]@{ Name = "SharedDep"; VersionRange = "1.0.0" }
+                                    [PSCustomObject]@{ Name = "ModuleB"; VersionRange = "1.0.0" }
+                                )
+                            }
+                        }
+                        "ModuleB" {
+                            [PSCustomObject]@{
+                                Name = "ModuleB"
+                                Version = [version]"1.0.0"
+                                Repository = "TestRepo"
+                                Dependencies = @(
+                                    [PSCustomObject]@{ Name = "SharedDep"; VersionRange = "1.0.0" }
+                                )
+                            }
+                        }
+                        "SharedDep" {
+                            [PSCustomObject]@{
+                                Name = "SharedDep"
+                                Version = [version]"1.0.0"
+                                Repository = "TestRepo"
+                                Dependencies = @()
+                            }
+                        }
+                    }
+                }
+                
+                $result = Find-PSResourcesPinned -Name "ModuleA" -RequiredVersion "1.0.0"
+                
+                # Should have 3 unique modules: ModuleA, ModuleB, SharedDep
+                $result.Count | Should -Be 3
+                
+                # SharedDep should only appear once
+                $sharedDepCount = ($result | Where-Object { $_.Name -eq "SharedDep" }).Count
+                $sharedDepCount | Should -Be 1
+            }
+        }
+    }
+
+    Context "Redirect Map Application" {
+        It "Should apply version redirects from map" {
+            $redirectMapPath = Join-Path $TestDrive "version-redirect.json"
+            @{ "OldDep@1.0.0" = "2.0.0" } | ConvertTo-Json | Set-Content $redirectMapPath
+            
+            InModuleScope Microsoft.AVS.CDR {
+                param($mapPath)
+                
+                Mock Find-PSResource {
+                    param($Name, $Version)
+                    
+                    if ($Name -eq "MainModule") {
+                        [PSCustomObject]@{
+                            Name = "MainModule"
+                            Version = [version]"1.0.0"
+                            Repository = "TestRepo"
+                            Dependencies = @(
+                                [PSCustomObject]@{ Name = "OldDep"; VersionRange = "[1.0.0, )" }
+                            )
+                        }
+                    }
+                    elseif ($Name -eq "OldDep" -and $Version -eq "2.0.0") {
+                        [PSCustomObject]@{
+                            Name = "OldDep"
+                            Version = [version]"2.0.0"
+                            Repository = "TestRepo"
+                            Dependencies = @()
+                        }
+                    }
+                    else {
+                        $null
+                    }
+                }
+                
+                $result = Find-PSResourcesPinned -Name "MainModule" -RequiredVersion "1.0.0" -RedirectMapPath $mapPath
+                
+                $dep = $result | Where-Object { $_.Name -eq "OldDep" }
+                $dep.Version | Should -Be "2.0.0"
+            } -ArgumentList $redirectMapPath
+        }
+    }
+
+    Context "Output Format" {
+        It "Should return objects with expected properties" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    [PSCustomObject]@{
+                        Name = "TestModule"
+                        Version = [version]"1.0.0"
+                        Repository = "PSGallery"
+                        Dependencies = @()
+                    }
+                }
+                
+                $result = Find-PSResourcesPinned -Name "TestModule" -RequiredVersion "1.0.0"
+                
+                $result[0].PSObject.Properties.Name | Should -Contain 'Name'
+                $result[0].PSObject.Properties.Name | Should -Contain 'Version'
+                $result[0].PSObject.Properties.Name | Should -Contain 'Repository'
+                $result[0].PSObject.Properties.Name | Should -Contain 'Dependencies'
+            }
+        }
+
+        It "Should return result that can be iterated" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    [PSCustomObject]@{
+                        Name = "SingleModule"
+                        Version = [version]"1.0.0"
+                        Repository = "TestRepo"
+                        Dependencies = @()
+                    }
+                }
+                
+                $result = Find-PSResourcesPinned -Name "SingleModule" -RequiredVersion "1.0.0"
+                
+                # Verify result is iterable and has expected count
+                @($result).Count | Should -Be 1
+                $result.Name | Should -Be "SingleModule"
+            }
+        }
+    }
+
+    Context "Repository and Credential Passthrough" {
+        It "Should pass Repository parameter to Find-PSResource" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    [PSCustomObject]@{
+                        Name = "TestModule"
+                        Version = [version]"1.0.0"
+                        Repository = "CustomRepo"
+                        Dependencies = @()
+                    }
+                }
+                
+                Find-PSResourcesPinned -Name "TestModule" -RequiredVersion "1.0.0" -Repository "CustomRepo"
+                
+                Should -Invoke Find-PSResource -ParameterFilter { $Repository -eq "CustomRepo" }
+            }
+        }
+    }
+}
+
 AfterAll {
 }
