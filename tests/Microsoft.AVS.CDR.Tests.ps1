@@ -321,6 +321,78 @@ Describe "Get-MergedRedirectMap" {
                 }
             }
         }
+
+        It "Should handle prerelease versions like 1.0.0-preview" {
+            $testModuleMapPath = Join-Path $script:mapsDir "PrereleaseTest@1.0.json"
+            
+            try {
+                # Create a map for version 1.0 (major.minor fallback)
+                $versionMap = @{ "Dependency@2.0.0" = "2.0.1" }
+                $versionMap | ConvertTo-Json | Set-Content $testModuleMapPath
+                
+                InModuleScope Microsoft.AVS.CDR {
+                    $outerMap = @{}
+                    # Pass a prerelease version - should not throw and should fall back to 1.0 pattern
+                    $result = Get-MergedRedirectMap -OuterMap $outerMap -Name "PrereleaseTest" -Version "1.0.0-preview"
+                    
+                    # Should have loaded the major.minor (1.0) map
+                    $result["Dependency@2.0.0"] | Should -Be "2.0.1"
+                }
+            }
+            finally {
+                if (Test-Path $testModuleMapPath) {
+                    Remove-Item $testModuleMapPath -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It "Should handle complex prerelease versions like 2.1.0-beta.1" {
+            $testModuleMapPath = Join-Path $script:mapsDir "ComplexPrereleaseTest@2.1.json"
+            
+            try {
+                # Create a map for version 2.1 (major.minor fallback)
+                $versionMap = @{ "SomeDep@1.0.0" = "1.0.5" }
+                $versionMap | ConvertTo-Json | Set-Content $testModuleMapPath
+                
+                InModuleScope Microsoft.AVS.CDR {
+                    $outerMap = @{}
+                    # Pass a complex prerelease version
+                    $result = Get-MergedRedirectMap -OuterMap $outerMap -Name "ComplexPrereleaseTest" -Version "2.1.0-beta.1"
+                    
+                    # Should have loaded the major.minor (2.1) map
+                    $result["SomeDep@1.0.0"] | Should -Be "1.0.5"
+                }
+            }
+            finally {
+                if (Test-Path $testModuleMapPath) {
+                    Remove-Item $testModuleMapPath -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It "Should handle prerelease versions in version ranges" {
+            $testModuleMapPath = Join-Path $script:mapsDir "PrereleaseRangeTest@3.0.json"
+            
+            try {
+                # Create a map for version 3.0
+                $versionMap = @{ "AnotherDep@1.0.0" = "1.0.2" }
+                $versionMap | ConvertTo-Json | Set-Content $testModuleMapPath
+                
+                InModuleScope Microsoft.AVS.CDR {
+                    $outerMap = @{}
+                    # Pass a version range with prerelease version
+                    $result = Get-MergedRedirectMap -OuterMap $outerMap -Name "PrereleaseRangeTest" -Version "[3.0.0-alpha, )"
+                    
+                    # Should extract 3.0.0-alpha and fall back to 3.0 pattern
+                    $result["AnotherDep@1.0.0"] | Should -Be "1.0.2"
+                }
+            }
+            finally {
+                if (Test-Path $testModuleMapPath) {
+                    Remove-Item $testModuleMapPath -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
     }
 
     AfterAll {

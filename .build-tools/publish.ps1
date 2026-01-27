@@ -73,7 +73,6 @@ try {
     # Publish the main module
     Publish-PSResource -Path $moduleName -Repository PreviewV3 -ApiKey "key"  -Credential $c
     
-    # Verify installation using CDR's pinned install (for remote feeds) or basic install (for local folders)
     $version = if ([String]::IsNullOrWhiteSpace($manifest.PrivateData.PSData.Prerelease)) {
         $manifest.ModuleVersion.ToString()
     } else {
