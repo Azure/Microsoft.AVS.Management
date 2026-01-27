@@ -158,6 +158,124 @@ Describe "Install-PSResourcePinned" {
             $verboseOutput | Should -Not -BeNullOrEmpty
         } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
     }
+
+    Context "Prerelease Version Handling" {
+        It "Should have Prerelease parameter" {
+            $command = Get-Command Install-PSResourcePinned
+            $command.Parameters.ContainsKey('Prerelease') | Should -BeTrue
+            $command.Parameters['Prerelease'].SwitchParameter | Should -BeTrue
+        }
+
+        It "Should pass Prerelease flag through to Build-RemoteDependencyGraph" {
+            InModuleScope Microsoft.AVS.CDR {
+                $buildGraphCalled = $false
+                $prereleasePassedToGraph = $false
+                
+                Mock Build-RemoteDependencyGraph {
+                    param($ModuleName, $ModuleVersion, $Graph, $RedirectMap, $Repository, $Credential, $Prerelease)
+                    $script:buildGraphCalled = $true
+                    $script:prereleasePassedToGraph = $Prerelease
+                    
+                    # Add a mock node to the graph
+                    $Graph["$ModuleName@$ModuleVersion"] = @{
+                        Name = $ModuleName
+                        Version = $ModuleVersion
+                        Dependencies = [System.Collections.ArrayList]@()
+                        Repository = "TestRepo"
+                    }
+                }
+                
+                Mock Get-PSResource { $null }
+                Mock Install-PSResource { }
+                
+                Install-PSResourcePinned -Name "TestModule" -RequiredVersion "1.0.0-dev" -Prerelease
+                
+                Should -Invoke Build-RemoteDependencyGraph -Times 1 -ParameterFilter { $Prerelease -eq $true }
+            }
+        }
+
+        It "Should correctly compare installed prerelease versions" {
+            InModuleScope Microsoft.AVS.CDR {
+                # Mock Build-RemoteDependencyGraph to add a prerelease module to the graph
+                Mock Build-RemoteDependencyGraph {
+                    param($ModuleName, $ModuleVersion, $Graph)
+                    $Graph["$ModuleName@$ModuleVersion"] = @{
+                        Name = $ModuleName
+                        Version = "1.0.0-dev"  # Full version with prerelease
+                        Dependencies = [System.Collections.ArrayList]@()
+                        Repository = "TestRepo"
+                    }
+                }
+                
+                # Mock Get-PSResource to return an installed prerelease version
+                Mock Get-PSResource {
+                    [PSCustomObject]@{
+                        Name = "TestModule"
+                        Version = [version]"1.0.0"
+                        Prerelease = "dev"
+                    }
+                }
+                
+                Mock Install-PSResource { }
+                
+                Install-PSResourcePinned -Name "TestModule" -RequiredVersion "1.0.0-dev" -Prerelease
+                
+                # Install-PSResource should NOT be called because module is already installed
+                Should -Invoke Install-PSResource -Times 0
+            }
+        }
+
+        It "Should install when prerelease version is not yet installed" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Build-RemoteDependencyGraph {
+                    param($ModuleName, $ModuleVersion, $Graph)
+                    $Graph["$ModuleName@$ModuleVersion"] = @{
+                        Name = $ModuleName
+                        Version = "2.0.0-beta"
+                        Dependencies = [System.Collections.ArrayList]@()
+                        Repository = "TestRepo"
+                    }
+                }
+                
+                # Mock Get-PSResource to return a different version
+                Mock Get-PSResource {
+                    [PSCustomObject]@{
+                        Name = "TestModule"
+                        Version = [version]"1.0.0"
+                        Prerelease = $null
+                    }
+                }
+                
+                Mock Install-PSResource { }
+                
+                Install-PSResourcePinned -Name "TestModule" -RequiredVersion "2.0.0-beta" -Prerelease
+                
+                # Install-PSResource SHOULD be called because version doesn't match
+                Should -Invoke Install-PSResource -Times 1
+            }
+        }
+
+        It "Should pass Prerelease flag to Install-PSResource" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Build-RemoteDependencyGraph {
+                    param($ModuleName, $ModuleVersion, $Graph)
+                    $Graph["$ModuleName@$ModuleVersion"] = @{
+                        Name = $ModuleName
+                        Version = "1.0.0-alpha"
+                        Dependencies = [System.Collections.ArrayList]@()
+                        Repository = "TestRepo"
+                    }
+                }
+                
+                Mock Get-PSResource { $null }
+                Mock Install-PSResource { }
+                
+                Install-PSResourcePinned -Name "TestModule" -RequiredVersion "1.0.0-alpha" -Prerelease
+                
+                Should -Invoke Install-PSResource -Times 1 -ParameterFilter { $Prerelease -eq $true }
+            }
+        }
+    }
 }
 
 Describe "Get-MergedRedirectMap" {
@@ -932,7 +1050,7 @@ Describe "Topological Dependency Loading" {
         It "Should return empty order for empty graph" {
             InModuleScope Microsoft.AVS.CDR {
                 $emptyGraph = @{}
-                $result = Get-TopologicalOrder -Graph $emptyGraph
+                $result = @(Get-TopologicalOrder -Graph $emptyGraph)
                 $result.Count | Should -Be 0
             }
         }
@@ -1129,14 +1247,88 @@ Describe "Topological Dependency Loading" {
                     }
                 }
                 
-                $result = Get-TopologicalOrder -Graph $graph
+                $result = @(Get-TopologicalOrder -Graph $graph)
                 
                 # D should only appear once
-                $dOccurrences = ($result | Where-Object { $_ -eq "ModuleD@1.0.0" }).Count
+                $dOccurrences = @($result | Where-Object { $_ -eq "ModuleD@1.0.0" }).Count
                 $dOccurrences | Should -Be 1
                 
                 # Total count should be exactly 4
                 $result.Count | Should -Be 4
+            }
+        }
+    }
+
+    Context "Compare-SemVer Function" {
+        It "Should return 0 for equal versions" {
+            InModuleScope Microsoft.AVS.CDR {
+                Compare-SemVer -Version1 "1.0.0" -Version2 "1.0.0" | Should -Be 0
+                Compare-SemVer -Version1 "2.1.3" -Version2 "2.1.3" | Should -Be 0
+            }
+        }
+
+        It "Should return positive when Version1 is greater" {
+            InModuleScope Microsoft.AVS.CDR {
+                Compare-SemVer -Version1 "2.0.0" -Version2 "1.0.0" | Should -BeGreaterThan 0
+                Compare-SemVer -Version1 "1.1.0" -Version2 "1.0.0" | Should -BeGreaterThan 0
+                Compare-SemVer -Version1 "1.0.1" -Version2 "1.0.0" | Should -BeGreaterThan 0
+            }
+        }
+
+        It "Should return negative when Version1 is lesser" {
+            InModuleScope Microsoft.AVS.CDR {
+                Compare-SemVer -Version1 "1.0.0" -Version2 "2.0.0" | Should -BeLessThan 0
+                Compare-SemVer -Version1 "1.0.0" -Version2 "1.1.0" | Should -BeLessThan 0
+                Compare-SemVer -Version1 "1.0.0" -Version2 "1.0.1" | Should -BeLessThan 0
+            }
+        }
+
+        It "Should treat release version as greater than prerelease" {
+            InModuleScope Microsoft.AVS.CDR {
+                # 1.0.0 > 1.0.0-alpha (release beats prerelease)
+                Compare-SemVer -Version1 "1.0.0" -Version2 "1.0.0-alpha" | Should -BeGreaterThan 0
+                Compare-SemVer -Version1 "1.0.0" -Version2 "1.0.0-dev" | Should -BeGreaterThan 0
+                Compare-SemVer -Version1 "1.0.0" -Version2 "1.0.0-beta.1" | Should -BeGreaterThan 0
+            }
+        }
+
+        It "Should treat prerelease version as lesser than release" {
+            InModuleScope Microsoft.AVS.CDR {
+                # 1.0.0-alpha < 1.0.0 (prerelease is less than release)
+                Compare-SemVer -Version1 "1.0.0-alpha" -Version2 "1.0.0" | Should -BeLessThan 0
+                Compare-SemVer -Version1 "1.0.0-dev" -Version2 "1.0.0" | Should -BeLessThan 0
+            }
+        }
+
+        It "Should compare prerelease labels lexicographically" {
+            InModuleScope Microsoft.AVS.CDR {
+                # alpha < beta < dev < rc (lexicographic)
+                Compare-SemVer -Version1 "1.0.0-alpha" -Version2 "1.0.0-beta" | Should -BeLessThan 0
+                Compare-SemVer -Version1 "1.0.0-beta" -Version2 "1.0.0-dev" | Should -BeLessThan 0
+                Compare-SemVer -Version1 "1.0.0-dev" -Version2 "1.0.0-rc" | Should -BeLessThan 0
+            }
+        }
+
+        It "Should return 0 for equal prerelease versions" {
+            InModuleScope Microsoft.AVS.CDR {
+                Compare-SemVer -Version1 "1.0.0-dev" -Version2 "1.0.0-dev" | Should -Be 0
+                Compare-SemVer -Version1 "2.0.0-alpha.1" -Version2 "2.0.0-alpha.1" | Should -Be 0
+            }
+        }
+
+        It "Should handle complex prerelease labels" {
+            InModuleScope Microsoft.AVS.CDR {
+                # alpha.1 < alpha.2 (lexicographic)
+                Compare-SemVer -Version1 "1.0.0-alpha.1" -Version2 "1.0.0-alpha.2" | Should -BeLessThan 0
+                Compare-SemVer -Version1 "1.0.0-beta.10" -Version2 "1.0.0-beta.9" | Should -BeLessThan 0  # Lexicographic: "10" < "9"
+            }
+        }
+
+        It "Should prioritize base version over prerelease" {
+            InModuleScope Microsoft.AVS.CDR {
+                # 2.0.0-alpha > 1.0.0 (base version wins)
+                Compare-SemVer -Version1 "2.0.0-alpha" -Version2 "1.0.0" | Should -BeGreaterThan 0
+                Compare-SemVer -Version1 "1.0.0" -Version2 "2.0.0-alpha" | Should -BeLessThan 0
             }
         }
     }
@@ -1199,6 +1391,113 @@ Describe "Topological Dependency Loading" {
                 Resolve-DiamondDependencies -Graph $graph
                 
                 $graph.Count | Should -Be $originalCount
+            }
+        }
+
+        It "Should resolve diamond dependencies with prerelease versions" {
+            InModuleScope Microsoft.AVS.CDR {
+                # Graph with prerelease versions
+                $graph = @{
+                    "ModuleA@1.0.0" = @{
+                        Name = "ModuleA"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0-alpha")
+                    }
+                    "ModuleB@1.0.0" = @{
+                        Name = "ModuleB"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0-beta")
+                    }
+                    "SharedDep@1.0.0-alpha" = @{
+                        Name = "SharedDep"
+                        Version = "1.0.0-alpha"
+                        Dependencies = [System.Collections.ArrayList]@()
+                    }
+                    "SharedDep@1.0.0-beta" = @{
+                        Name = "SharedDep"
+                        Version = "1.0.0-beta"
+                        Dependencies = [System.Collections.ArrayList]@()
+                    }
+                }
+                
+                Resolve-DiamondDependencies -Graph $graph
+                
+                # beta > alpha (lexicographic), so beta should be kept
+                $graph.ContainsKey("SharedDep@1.0.0-beta") | Should -BeTrue
+                $graph.ContainsKey("SharedDep@1.0.0-alpha") | Should -BeFalse
+                
+                # ModuleA's dependency should be updated to point to beta version
+                $graph["ModuleA@1.0.0"].Dependencies | Should -Contain "SharedDep@1.0.0-beta"
+            }
+        }
+
+        It "Should prefer release version over prerelease in diamond resolution" {
+            InModuleScope Microsoft.AVS.CDR {
+                # Graph with release vs prerelease
+                $graph = @{
+                    "ModuleA@1.0.0" = @{
+                        Name = "ModuleA"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@("SharedDep@2.0.0-dev")
+                    }
+                    "ModuleB@1.0.0" = @{
+                        Name = "ModuleB"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@("SharedDep@2.0.0")
+                    }
+                    "SharedDep@2.0.0-dev" = @{
+                        Name = "SharedDep"
+                        Version = "2.0.0-dev"
+                        Dependencies = [System.Collections.ArrayList]@()
+                    }
+                    "SharedDep@2.0.0" = @{
+                        Name = "SharedDep"
+                        Version = "2.0.0"
+                        Dependencies = [System.Collections.ArrayList]@()
+                    }
+                }
+                
+                Resolve-DiamondDependencies -Graph $graph
+                
+                # Release 2.0.0 > prerelease 2.0.0-dev
+                $graph.ContainsKey("SharedDep@2.0.0") | Should -BeTrue
+                $graph.ContainsKey("SharedDep@2.0.0-dev") | Should -BeFalse
+                
+                # ModuleA's dependency should be updated to release version
+                $graph["ModuleA@1.0.0"].Dependencies | Should -Contain "SharedDep@2.0.0"
+            }
+        }
+
+        It "Should handle complex prerelease labels in diamond resolution" {
+            InModuleScope Microsoft.AVS.CDR {
+                $graph = @{
+                    "ModuleA@1.0.0" = @{
+                        Name = "ModuleA"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0-alpha.1")
+                    }
+                    "ModuleB@1.0.0" = @{
+                        Name = "ModuleB"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0-alpha.2")
+                    }
+                    "SharedDep@1.0.0-alpha.1" = @{
+                        Name = "SharedDep"
+                        Version = "1.0.0-alpha.1"
+                        Dependencies = [System.Collections.ArrayList]@()
+                    }
+                    "SharedDep@1.0.0-alpha.2" = @{
+                        Name = "SharedDep"
+                        Version = "1.0.0-alpha.2"
+                        Dependencies = [System.Collections.ArrayList]@()
+                    }
+                }
+                
+                Resolve-DiamondDependencies -Graph $graph
+                
+                # alpha.2 > alpha.1 (lexicographic)
+                $graph.ContainsKey("SharedDep@1.0.0-alpha.2") | Should -BeTrue
+                $graph.ContainsKey("SharedDep@1.0.0-alpha.1") | Should -BeFalse
             }
         }
     }
@@ -1335,6 +1634,8 @@ Describe "Save-PSResourcePinned" {
                 [PSCustomObject]@{
                     Name = "TestModule"
                     Version = [version]"1.0.0"
+                    Prerelease = $null
+                    Repository = "TestRepo"
                     Dependencies = @()
                 }
             }
@@ -1385,6 +1686,8 @@ Describe "Save-PSResourcePinned" {
                 [PSCustomObject]@{
                     Name = "TestModule"
                     Version = [version]"1.0.0"
+                    Prerelease = $null
+                    Repository = "TestRepo"
                     Dependencies = @()
                 }
             }
@@ -1406,6 +1709,8 @@ Describe "Save-PSResourcePinned" {
                     [PSCustomObject]@{
                         Name = "MainModule"
                         Version = [version]"1.0.0"
+                        Prerelease = $null
+                        Repository = "TestRepo"
                         Dependencies = @(
                             [PSCustomObject]@{ Name = "DepModule"; VersionRange = "[2.0.0, 2.0.0]" }
                         )
@@ -1415,6 +1720,8 @@ Describe "Save-PSResourcePinned" {
                     [PSCustomObject]@{
                         Name = "DepModule"
                         Version = [version]"2.0.0"
+                        Prerelease = $null
+                        Repository = "TestRepo"
                         Dependencies = @()
                     }
                 }
@@ -1508,6 +1815,73 @@ Describe "Save-PSResourcePinned" {
                 Set-ItResult -Skipped -Because "Network access required for this test"
             }
         } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
+
+        AfterEach {
+            if (Test-Path $script:testSavePath) {
+                Remove-Item $script:testSavePath -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    Context "Prerelease Version Handling" {
+        BeforeEach {
+            if (-not (Test-Path $script:testSavePath)) {
+                New-Item -Path $script:testSavePath -ItemType Directory -Force | Out-Null
+            }
+        }
+
+        It "Should have Prerelease parameter" {
+            $command = Get-Command Save-PSResourcePinned
+            $command.Parameters.ContainsKey('Prerelease') | Should -BeTrue
+            $command.Parameters['Prerelease'].SwitchParameter | Should -BeTrue
+        }
+
+        It "Should pass Prerelease flag to Build-RemoteDependencyGraph" {
+            $testPath = $script:testSavePath
+            InModuleScope Microsoft.AVS.CDR -ArgumentList $testPath {
+                param($savePath)
+                
+                Mock Build-RemoteDependencyGraph {
+                    param($ModuleName, $ModuleVersion, $Graph, $RedirectMap, $Repository, $Credential, $Prerelease)
+                    
+                    $Graph["$ModuleName@$ModuleVersion"] = @{
+                        Name = $ModuleName
+                        Version = "1.0.0-dev"
+                        Dependencies = [System.Collections.ArrayList]@()
+                        Repository = "TestRepo"
+                    }
+                }
+                
+                Mock Save-PSResource { }
+                
+                Save-PSResourcePinned -Name "TestModule" -RequiredVersion "1.0.0-dev" -Path $savePath -Prerelease
+                
+                Should -Invoke Build-RemoteDependencyGraph -Times 1 -ParameterFilter { $Prerelease -eq $true }
+            }
+        }
+
+        It "Should pass Prerelease flag to Save-PSResource" {
+            $testPath = $script:testSavePath
+            InModuleScope Microsoft.AVS.CDR -ArgumentList $testPath {
+                param($savePath)
+                
+                Mock Build-RemoteDependencyGraph {
+                    param($ModuleName, $ModuleVersion, $Graph)
+                    $Graph["$ModuleName@$ModuleVersion"] = @{
+                        Name = $ModuleName
+                        Version = "1.0.0-beta"
+                        Dependencies = [System.Collections.ArrayList]@()
+                        Repository = "TestRepo"
+                    }
+                }
+                
+                Mock Save-PSResource { }
+                
+                Save-PSResourcePinned -Name "TestModule" -RequiredVersion "1.0.0-beta" -Path $savePath -Prerelease
+                
+                Should -Invoke Save-PSResource -Times 1 -ParameterFilter { $Prerelease -eq $true }
+            }
+        }
 
         AfterEach {
             if (Test-Path $script:testSavePath) {
@@ -1768,10 +2142,8 @@ Describe "Build-RemoteDependencyGraph" {
 
         It "Should not duplicate nodes for shared dependencies" {
             InModuleScope Microsoft.AVS.CDR {
-                $findCount = 0
                 Mock Find-PSResource {
                     param($Name, $Version)
-                    $script:findCount++
                     
                     switch ($Name) {
                         "ModuleA" {
@@ -1779,6 +2151,7 @@ Describe "Build-RemoteDependencyGraph" {
                                 Name = "ModuleA"
                                 Version = [version]"1.0.0"
                                 Repository = "TestRepo"
+                                Prerelease = $null
                                 Dependencies = @(
                                     [PSCustomObject]@{ Name = "SharedDep"; VersionRange = "1.0.0" }
                                 )
@@ -1789,6 +2162,7 @@ Describe "Build-RemoteDependencyGraph" {
                                 Name = "ModuleB"
                                 Version = [version]"1.0.0"
                                 Repository = "TestRepo"
+                                Prerelease = $null
                                 Dependencies = @(
                                     [PSCustomObject]@{ Name = "SharedDep"; VersionRange = "1.0.0" }
                                 )
@@ -1811,8 +2185,142 @@ Describe "Build-RemoteDependencyGraph" {
                 Build-RemoteDependencyGraph -ModuleName "ModuleB" -ModuleVersion "1.0.0" -Graph $graph -RedirectMap $redirectMap
                 
                 # SharedDep should only appear once in the graph
-                $sharedDepCount = ($graph.Keys | Where-Object { $_ -like "SharedDep*" }).Count
+                $sharedDepCount = @($graph.Keys | Where-Object { $_ -like "SharedDep*" }).Count
                 $sharedDepCount | Should -Be 1
+            }
+        }
+    }
+
+    Context "Prerelease Version Handling" {
+        It "Should build graph for prerelease module with Prerelease property" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    [PSCustomObject]@{
+                        Name = "PrereleaseModule"
+                        Version = [version]"1.0.0"
+                        Prerelease = "dev"
+                        Repository = "TestRepo"
+                        Dependencies = @()
+                    }
+                }
+                
+                $graph = @{}
+                $redirectMap = @{}
+                Build-RemoteDependencyGraph -ModuleName "PrereleaseModule" -ModuleVersion "1.0.0-dev" -Graph $graph -RedirectMap $redirectMap -Prerelease
+                
+                $graph.Count | Should -Be 1
+                $graph.ContainsKey("PrereleaseModule@1.0.0-dev") | Should -BeTrue
+                $graph["PrereleaseModule@1.0.0-dev"].Version | Should -Be "1.0.0-dev"
+            }
+        }
+
+        It "Should pass Prerelease flag to Find-PSResource" {
+            InModuleScope Microsoft.AVS.CDR {
+                $findPSResourceCalled = $false
+                $prereleaseWasPassed = $false
+                
+                Mock Find-PSResource {
+                    param($Name, $Version, $Repository, $Credential, $Prerelease)
+                    $script:findPSResourceCalled = $true
+                    $script:prereleaseWasPassed = $Prerelease
+                    
+                    [PSCustomObject]@{
+                        Name = "TestModule"
+                        Version = [version]"2.0.0"
+                        Prerelease = "beta"
+                        Repository = "TestRepo"
+                        Dependencies = @()
+                    }
+                }
+                
+                $graph = @{}
+                $redirectMap = @{}
+                Build-RemoteDependencyGraph -ModuleName "TestModule" -ModuleVersion "2.0.0-beta" -Graph $graph -RedirectMap $redirectMap -Prerelease
+                
+                # Verify Find-PSResource was called with -Prerelease
+                Should -Invoke Find-PSResource -Times 1 -ParameterFilter { $Prerelease -eq $true }
+            }
+        }
+
+        It "Should construct full version string with prerelease label" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    [PSCustomObject]@{
+                        Name = "VersionTestModule"
+                        Version = [version]"3.1.4"
+                        Prerelease = "alpha.1"
+                        Repository = "TestRepo"
+                        Dependencies = @()
+                    }
+                }
+                
+                $graph = @{}
+                $redirectMap = @{}
+                Build-RemoteDependencyGraph -ModuleName "VersionTestModule" -ModuleVersion "3.1.4-alpha.1" -Graph $graph -RedirectMap $redirectMap -Prerelease
+                
+                # Version stored in graph should include the prerelease label
+                $graph["VersionTestModule@3.1.4-alpha.1"].Version | Should -Be "3.1.4-alpha.1"
+            }
+        }
+
+        It "Should handle module without prerelease label correctly" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    [PSCustomObject]@{
+                        Name = "StableModule"
+                        Version = [version]"1.0.0"
+                        Prerelease = $null
+                        Repository = "TestRepo"
+                        Dependencies = @()
+                    }
+                }
+                
+                $graph = @{}
+                $redirectMap = @{}
+                Build-RemoteDependencyGraph -ModuleName "StableModule" -ModuleVersion "1.0.0" -Graph $graph -RedirectMap $redirectMap
+                
+                # Version should not have a trailing hyphen
+                $graph["StableModule@1.0.0"].Version | Should -Be "1.0.0"
+            }
+        }
+
+        It "Should propagate Prerelease flag to recursive dependency calls" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    param($Name, $Version, $Prerelease)
+                    
+                    switch ($Name) {
+                        "RootPrerelease" {
+                            [PSCustomObject]@{
+                                Name = "RootPrerelease"
+                                Version = [version]"1.0.0"
+                                Prerelease = "dev"
+                                Repository = "TestRepo"
+                                Dependencies = @(
+                                    [PSCustomObject]@{ Name = "DepModule"; VersionRange = "1.0.0" }
+                                )
+                            }
+                        }
+                        "DepModule" {
+                            [PSCustomObject]@{
+                                Name = "DepModule"
+                                Version = [version]"1.0.0"
+                                Prerelease = $null
+                                Repository = "TestRepo"
+                                Dependencies = @()
+                            }
+                        }
+                    }
+                }
+                
+                $graph = @{}
+                $redirectMap = @{}
+                Build-RemoteDependencyGraph -ModuleName "RootPrerelease" -ModuleVersion "1.0.0-dev" -Graph $graph -RedirectMap $redirectMap -Prerelease
+                
+                # Both modules should be in the graph
+                $graph.Count | Should -Be 2
+                # Find-PSResource should have been called twice, both times with Prerelease
+                Should -Invoke Find-PSResource -Times 2 -ParameterFilter { $Prerelease -eq $true }
             }
         }
     }

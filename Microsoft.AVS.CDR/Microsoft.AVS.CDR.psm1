@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
 
 # Default redirect map - keyed on dependency name@version or name only
 # falls back to name-only for missing versions
@@ -327,6 +328,9 @@ function Build-RemoteDependencyGraph {
         [PSCredential]$Credential,
         
         [Parameter(Mandatory = $false)]
+        [switch]$Prerelease,
+        
+        [Parameter(Mandatory = $false)]
         [int]$Depth = 0
     )
     
@@ -350,6 +354,9 @@ function Build-RemoteDependencyGraph {
     if ($Credential) {
         $findParams['Credential'] = $Credential
     }
+    if ($Prerelease) {
+        $findParams['Prerelease'] = $true
+    }
     
     $moduleInfo = Find-PSResource @findParams -ErrorAction SilentlyContinue | Select-Object -First 1
     
@@ -357,13 +364,12 @@ function Build-RemoteDependencyGraph {
         throw "Module not found: $ModuleName version $ModuleVersion"
     }
     
-    $actualVersion = $moduleInfo.Version.ToString()
-    Write-Verbose "${indent}Building graph for: $ModuleName version $actualVersion"
+    Write-Verbose "${indent}Building graph for: $ModuleName version $ModuleVersion"
     
     # Initialize graph node
     $graphNode = @{
         Name = $ModuleName
-        Version = $actualVersion
+        Version = $ModuleVersion
         Dependencies = [System.Collections.ArrayList]@()
         Repository = $moduleInfo.Repository
     }
@@ -400,8 +406,73 @@ function Build-RemoteDependencyGraph {
         
         # Recursively build graph for this dependency
         Build-RemoteDependencyGraph -ModuleName $resolvedDepName -ModuleVersion $resolvedDepVersion `
-            -Graph $Graph -RedirectMap $depRedirectMap -Repository $Repository -Credential $Credential -Depth ($Depth + 1)
+            -Graph $Graph -RedirectMap $depRedirectMap -Repository $Repository -Credential $Credential -Prerelease:$Prerelease -Depth ($Depth + 1)
     }
+}
+
+<#
+.SYNOPSIS
+    Compares two semantic version strings, including prerelease labels.
+    
+.DESCRIPTION
+    Compares version strings that may include prerelease suffixes (e.g., "1.0.0-dev", "2.0.0-beta.1").
+    Returns -1 if Version1 < Version2, 0 if equal, 1 if Version1 > Version2.
+    Prerelease versions are considered lower than their release counterparts (1.0.0-alpha < 1.0.0).
+    
+.PARAMETER Version1
+    The first version string to compare.
+    
+.PARAMETER Version2
+    The second version string to compare.
+#>
+function Compare-SemVer {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Version1,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$Version2
+    )
+    
+    # Split version and prerelease parts
+    $v1Parts = $Version1 -split '-', 2
+    $v2Parts = $Version2 -split '-', 2
+    
+    $v1Base = $v1Parts[0]
+    $v2Base = $v2Parts[0]
+    $v1Prerelease = if ($v1Parts.Count -gt 1) { $v1Parts[1] } else { $null }
+    $v2Prerelease = if ($v2Parts.Count -gt 1) { $v2Parts[1] } else { $null }
+    
+    # Compare base versions
+    try {
+        $v1Ver = [System.Version]$v1Base
+        $v2Ver = [System.Version]$v2Base
+        $baseCompare = $v1Ver.CompareTo($v2Ver)
+    }
+    catch {
+        # Fallback to string comparison if version parsing fails
+        $baseCompare = [string]::Compare($v1Base, $v2Base, [StringComparison]::OrdinalIgnoreCase)
+    }
+    
+    if ($baseCompare -ne 0) {
+        return $baseCompare
+    }
+    
+    # Base versions are equal, compare prerelease
+    # No prerelease > any prerelease (1.0.0 > 1.0.0-alpha)
+    if ($null -eq $v1Prerelease -and $null -eq $v2Prerelease) {
+        return 0
+    }
+    if ($null -eq $v1Prerelease) {
+        return 1  # v1 is release, v2 is prerelease
+    }
+    if ($null -eq $v2Prerelease) {
+        return -1  # v1 is prerelease, v2 is release
+    }
+    
+    # Both have prerelease, compare lexicographically
+    # This handles cases like alpha < beta < dev < rc
+    return [string]::Compare($v1Prerelease, $v2Prerelease, [StringComparison]::OrdinalIgnoreCase)
 }
 
 <#
@@ -431,7 +502,7 @@ function Resolve-DiamondDependencies {
         }
         $moduleVersions[$moduleName] += @{
             Key = $nodeKey
-            Version = [System.Version]$node.Version
+            VersionString = $node.Version
             Node = $node
         }
     }
@@ -440,12 +511,31 @@ function Resolve-DiamondDependencies {
     foreach ($moduleName in $moduleVersions.Keys) {
         $versions = $moduleVersions[$moduleName]
         if ($versions.Count -gt 1) {
-            # Sort by version descending, pick highest
-            $sorted = $versions | Sort-Object { $_.Version } -Descending
+            # Sort using Compare-SemVer for proper semver ordering (descending)
+            $sorted = $versions | Sort-Object -Property @{
+                Expression = {
+                    # Create a sortable key: base version padded + prerelease indicator + prerelease label
+                    $ver = $_.VersionString
+                    $parts = $ver -split '-', 2
+                    $base = $parts[0]
+                    $prerelease = if ($parts.Count -gt 1) { $parts[1] } else { $null }
+                    
+                    # Pad version parts for proper numeric sorting
+                    $verParts = $base -split '\.'
+                    $paddedBase = ($verParts | ForEach-Object { $_.PadLeft(10, '0') }) -join '.'
+                    
+                    # Release versions sort after prereleases (z > any prerelease label)
+                    $prereleaseKey = if ($null -eq $prerelease) { 'zzzzzzzzzz' } else { $prerelease }
+                    
+                    "$paddedBase|$prereleaseKey"
+                }
+                Descending = $true
+            }
+            
             $highest = $sorted[0]
             $conflicts = $sorted | Select-Object -Skip 1
             
-            Write-Warning "Diamond dependency detected for '$moduleName': versions $($versions.Version -join ', '). Using highest: $($highest.Version)"
+            Write-Warning "Diamond dependency detected for '$moduleName': versions $($versions.VersionString -join ', '). Using highest: $($highest.VersionString)"
             
             foreach ($conflict in $conflicts) {
                 $oldKey = $conflict.Key
@@ -710,14 +800,14 @@ function Install-PSResourcePinned {
     $dependencyGraph = @{}
     
     Build-RemoteDependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion `
-        -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential
+        -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential -Prerelease:$Prerelease
     
     # Resolve diamond dependencies
     Resolve-DiamondDependencies -Graph $dependencyGraph
     
     # Compute topological order (dependencies first)
     Write-Verbose "Computing topological order"
-    $topologicalOrder = Get-TopologicalOrder -Graph $dependencyGraph
+    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
     
     Write-Verbose "Install order ($($topologicalOrder.Count) modules):"
     for ($i = 0; $i -lt $topologicalOrder.Count; $i++) {
@@ -730,9 +820,16 @@ function Install-PSResourcePinned {
         $modName = $node.Name
         $modVersion = $node.Version
         
-        # Check if already installed with exact version
+        # Check if already installed with exact version (including prerelease label)
         $installed = Get-PSResource -Name $modName -ErrorAction SilentlyContinue | 
-            Where-Object { $_.Version.ToString() -eq $modVersion }
+            Where-Object {
+                if (-not $_) { return $false }
+                $installedVersion = $_.Version.ToString()
+                if ($_.Prerelease) {
+                    $installedVersion = "$installedVersion-$($_.Prerelease)"
+                }
+                $installedVersion -eq $modVersion
+            }
         
         if (-not $installed) {
             Write-Verbose "Installing: $modName version $modVersion"
@@ -740,6 +837,7 @@ function Install-PSResourcePinned {
                 Name = $modName
                 Version = $modVersion
                 Scope = $Scope
+                Prerelease = $Prerelease
                 TrustRepository = $true
                 SkipDependencyCheck = $true
             }
@@ -856,14 +954,14 @@ function Save-PSResourcePinned {
     $dependencyGraph = @{}
     
     Build-RemoteDependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion `
-        -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential
+        -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential -Prerelease:$Prerelease
     
     # Resolve diamond dependencies
     Resolve-DiamondDependencies -Graph $dependencyGraph
     
     # Compute topological order (dependencies first)
     Write-Verbose "Computing topological order"
-    $topologicalOrder = Get-TopologicalOrder -Graph $dependencyGraph
+    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
     
     Write-Verbose "Save order ($($topologicalOrder.Count) modules):"
     for ($i = 0; $i -lt $topologicalOrder.Count; $i++) {
@@ -886,6 +984,7 @@ function Save-PSResourcePinned {
                 Name = $modName
                 Version = $modVersion
                 Path = $resolvedPath.Path
+                Prerelease = $Prerelease
                 TrustRepository = $true
                 SkipDependencyCheck = $true
             }
@@ -956,7 +1055,10 @@ function Find-PSResourceDependencies {
         [string]$Repository,
         
         [Parameter(Mandatory = $false)]
-        [PSCredential]$Credential
+        [PSCredential]$Credential,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$Prerelease
     )
     
     # Validate manifest path
@@ -974,7 +1076,9 @@ function Find-PSResourceDependencies {
     # Parse the manifest
     $manifest = Import-PowerShellDataFile -Path $resolvedPath
     
-    if (-not $manifest.RequiredModules -or $manifest.RequiredModules.Count -eq 0) {
+    # Check if RequiredModules exists and has content
+    $hasRequiredModules = $manifest.ContainsKey('RequiredModules') -and $manifest.RequiredModules -and $manifest.RequiredModules.Count -gt 0
+    if (-not $hasRequiredModules) {
         Write-Verbose "No RequiredModules found in manifest"
         return @()
     }
@@ -1038,14 +1142,14 @@ function Find-PSResourceDependencies {
         
         # Build dependency graph for this required module
         Build-RemoteDependencyGraph -ModuleName $redirectResult.ResolvedName -ModuleVersion $redirectResult.ResolvedVersion `
-            -Graph $dependencyGraph -RedirectMap $mergedRedirectMap -Repository $Repository -Credential $Credential
+            -Graph $dependencyGraph -RedirectMap $mergedRedirectMap -Repository $Repository -Credential $Credential -Prerelease:$Prerelease
     }
     
     # Resolve diamond dependencies
     Resolve-DiamondDependencies -Graph $dependencyGraph
     
     # Compute topological order
-    $topologicalOrder = Get-TopologicalOrder -Graph $dependencyGraph
+    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
     
     # Build result array in topological order
     $resolvedDependencies = [System.Collections.ArrayList]@()
@@ -1273,7 +1377,7 @@ function Import-ModulePinned {
     
     # Compute topological order using shared function
     Write-Verbose "Computing topological order"
-    $topologicalOrder = Get-TopologicalOrder -Graph $dependencyGraph
+    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
     
     Write-Verbose "Import order ($($topologicalOrder.Count) modules):"
     for ($i = 0; $i -lt $topologicalOrder.Count; $i++) {
@@ -1415,14 +1519,14 @@ function Find-PSResourcesPinned {
     $dependencyGraph = @{}
     
     Build-RemoteDependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion `
-        -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential
+        -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential -Prerelease:$Prerelease
     
     # Resolve diamond dependencies
     Resolve-DiamondDependencies -Graph $dependencyGraph
     
     # Compute topological order
     Write-Verbose "Computing topological order"
-    $topologicalOrder = Get-TopologicalOrder -Graph $dependencyGraph
+    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
     
     # Build result array in topological order
     $resolvedModules = [System.Collections.ArrayList]@()
