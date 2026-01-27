@@ -763,35 +763,31 @@ function Save-PSResourcePinned {
     Write-Host "Successfully saved $Name version $requestedVersion and dependencies to $resolvedPath"
 }
 
-function Install-PSResourceDependencies {
+function Find-PSResourceDependencies {
     <#
     .SYNOPSIS
-        Installs dependencies from a PowerShell module manifest with conservative version resolution.
+        Finds and resolves dependencies from a PowerShell module manifest with conservative version resolution.
     
     .DESCRIPTION
-        This function reads a .psd1 module manifest file and installs all RequiredModules
-        using the same conservative dependency resolution logic as Install-PSResourcePinned.
+        This function reads a .psd1 module manifest file and resolves all RequiredModules
+        using conservative dependency resolution logic. Returns an array of resolved dependencies
+        with their names and versions.
         
     .PARAMETER ManifestPath
         The path to the .psd1 module manifest file.
         
     .PARAMETER RedirectMapPath
-        Path to JSON file containing version redirects. If not specified, uses default map.
-        
-    .PARAMETER Scope
-        Installation scope: CurrentUser or AllUsers. Default is CurrentUser.
-        
-    .PARAMETER Repository
-        The repository to search for and install modules from. If not specified, searches all registered repositories.
-        
-    .PARAMETER Credential
-        Credentials to use when accessing the repository.
+        Path to JSON file containing version redirects. If not specified, looks for a redirect map
+        in the maps directory based on the manifest's module name and version.
         
     .EXAMPLE
-        Install-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
+        Find-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
         
     .EXAMPLE
-        Install-PSResourceDependencies -ManifestPath "./MyModule.psd1" -Scope AllUsers -Repository PSGallery
+        Find-PSResourceDependencies -ManifestPath "./MyModule.psd1" -RedirectMapPath "./redirects.json"
+        
+    .OUTPUTS
+        Returns an array of PSCustomObject with Name, Version, and OriginalVersion properties for each resolved dependency.
     #>
     [CmdletBinding()]
     param(
@@ -799,17 +795,7 @@ function Install-PSResourceDependencies {
         [string]$ManifestPath,
         
         [Parameter(Mandatory = $false)]
-        [string]$RedirectMapPath,
-        
-        [Parameter(Mandatory = $false)]
-        [ValidateSet('CurrentUser', 'AllUsers')]
-        [string]$Scope = 'CurrentUser',
-        
-        [Parameter(Mandatory = $false)]
-        [string]$Repository,
-        
-        [Parameter(Mandatory = $false)]
-        [PSCredential]$Credential
+        [string]$RedirectMapPath
     )
     
     # Validate manifest path
@@ -829,8 +815,12 @@ function Install-PSResourceDependencies {
     
     if (-not $manifest.RequiredModules -or $manifest.RequiredModules.Count -eq 0) {
         Write-Verbose "No RequiredModules found in manifest"
-        return
+        return @()
     }
+    
+    # Extract module name and version from manifest for redirect map lookup
+    $manifestModuleName = [System.IO.Path]::GetFileNameWithoutExtension($resolvedPath.Path)
+    $manifestModuleVersion = if ($manifest.ModuleVersion) { $manifest.ModuleVersion.ToString() } else { "" }
     
     # Load redirect map from file or use default
     if ($RedirectMapPath) {
@@ -841,11 +831,14 @@ function Install-PSResourceDependencies {
         $redirectMap = Get-Content $RedirectMapPath -Raw | ConvertFrom-Json -AsHashtable
     }
     else {
-        Write-Verbose "Using default redirect map"
-        $redirectMap = $script:defaultRedirectMap
+        Write-Verbose "Looking for redirect map based on manifest: $manifestModuleName version $manifestModuleVersion"
+        # Merge default map with module-specific map based on manifest name and version
+        $redirectMap = Get-MergedRedirectMap -OuterMap $script:defaultRedirectMap -Name $manifestModuleName -Version $manifestModuleVersion
     }
     
     Write-Verbose "Found $($manifest.RequiredModules.Count) required module(s) in manifest"
+    
+    $resolvedDependencies = [System.Collections.ArrayList]@()
     
     foreach ($requiredModule in $manifest.RequiredModules) {
         $moduleName = $null
@@ -881,15 +874,92 @@ function Install-PSResourceDependencies {
         $redirectResult = Find-DependencyRedirect -DependencyName $moduleName -DependencyVersion $moduleVersion `
             -RedirectMap $mergedRedirectMap -Indent ""
         
-        $resolvedName = $redirectResult.ResolvedName
-        $resolvedVersion = $redirectResult.ResolvedVersion
+        [void]$resolvedDependencies.Add([PSCustomObject]@{
+            Name = $redirectResult.ResolvedName
+            Version = $redirectResult.ResolvedVersion
+            OriginalName = $moduleName
+            OriginalVersion = $moduleVersion
+            IsRedirected = $redirectResult.IsRedirected
+        })
+    }
+    
+    return $resolvedDependencies.ToArray()
+}
+
+function Install-PSResourceDependencies {
+    <#
+    .SYNOPSIS
+        Installs dependencies from a PowerShell module manifest with conservative version resolution.
+    
+    .DESCRIPTION
+        This function reads a .psd1 module manifest file and installs all RequiredModules
+        using the same conservative dependency resolution logic as Install-PSResourcePinned.
         
-        Write-Host "Installing dependency: $resolvedName version $resolvedVersion"
+    .PARAMETER ManifestPath
+        The path to the .psd1 module manifest file.
+        
+    .PARAMETER RedirectMapPath
+        Path to JSON file containing version redirects. If not specified, looks for a redirect map
+        in the maps directory based on the manifest's module name and version.
+        
+    .PARAMETER Scope
+        Installation scope: CurrentUser or AllUsers. Default is CurrentUser.
+        
+    .PARAMETER Repository
+        The repository to search for and install modules from. If not specified, searches all registered repositories.
+        
+    .PARAMETER Credential
+        Credentials to use when accessing the repository.
+        
+    .EXAMPLE
+        Install-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
+        
+    .EXAMPLE
+        Install-PSResourceDependencies -ManifestPath "./MyModule.psd1" -Scope AllUsers -Repository PSGallery
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ManifestPath,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$RedirectMapPath,
+        
+        [Parameter(Mandatory = $false)]
+        [ValidateSet('CurrentUser', 'AllUsers')]
+        [string]$Scope = 'CurrentUser',
+        
+        [Parameter(Mandatory = $false)]
+        [string]$Repository,
+        
+        [Parameter(Mandatory = $false)]
+        [PSCredential]$Credential
+    )
+    
+    # Find and resolve all dependencies
+    $findParams = @{
+        ManifestPath = $ManifestPath
+    }
+    if ($RedirectMapPath) {
+        $findParams['RedirectMapPath'] = $RedirectMapPath
+    }
+    
+    $resolvedDependencies = Find-PSResourceDependencies @findParams
+    
+    if (-not $resolvedDependencies -or $resolvedDependencies.Count -eq 0) {
+        Write-Verbose "No dependencies to install"
+        return
+    }
+    
+    Write-Verbose "Installing $($resolvedDependencies.Count) resolved dependency(ies)"
+    
+    foreach ($dependency in $resolvedDependencies) {
+        Write-Host "Installing dependency: $($dependency.Name) version $($dependency.Version)"
         
         # Build install parameters
         $installParams = @{
-            Name = $resolvedName
-            RequiredVersion = $resolvedVersion
+            Name = $dependency.Name
+            RequiredVersion = $dependency.Version
             Scope = $Scope
         }
         if ($RedirectMapPath) {

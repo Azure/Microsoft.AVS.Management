@@ -31,6 +31,7 @@
         'Install-PSResourcePinned'
         'Import-ModulePinned'
         'Install-PSResourceDependencies'
+        'Find-PSResourceDependencies'
         'Save-PSResourcePinned'
         'Find-PSResourcesPinned')
 
