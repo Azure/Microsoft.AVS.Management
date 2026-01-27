@@ -220,16 +220,19 @@ function Get-MergedRedirectMap {
     else {
         # Parse version - handle version ranges like "[1.3.9, 1.3.9]", "[1.3.9, )", etc.
         $baseVersion = $Version
-        if ($Version -match '[\[\(]([0-9\.]+)') {
+        if ($Version -match '[\[\(]([0-9][0-9a-zA-Z.\-]*)') {
             # Extract the first version number from a version range
             $baseVersion = $matches[1]
         }
         
-        $parsedVersion = [version]$baseVersion
+        # Extract major and minor using string splitting (supports prerelease versions like "1.0.0-preview")
+        $versionParts = $baseVersion -split '[.\-]'
+        $major = $versionParts[0]
+        $minor = if ($versionParts.Count -gt 1) { $versionParts[1] } else { "0" }
         $versionPatterns = @(
-            $baseVersion,  # Full version (e.g., 1.4.0.15939652)
-            "$($parsedVersion.Major).$($parsedVersion.Minor)",  # Major.Minor (e.g., 1.4)
-            "$($parsedVersion.Major)"  # Major only (e.g., 1)
+            $baseVersion,  # Full version (e.g., 1.4.0.15939652 or 1.0.0-preview)
+            "$major.$minor",  # Major.Minor (e.g., 1.4)
+            "$major"  # Major only (e.g., 1)
         )
     }
     
