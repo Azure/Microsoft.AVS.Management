@@ -12,22 +12,20 @@ function Remove-AvsUnassociatedObject {
     .DESCRIPTION
         Scans a given vSphere cluster for unassociated vSAN objects.
         Performs safety checks against management VMs, system-like objects, and object health.
-        Deletes objects only if they pass all checks. Supports -WhatIf for dry runs.
+        Deletes objects only if they pass all checks. 
+
+        IMPORTANT: Deletion of vSAN objects is irreversible.
+        Once an object is deleted, it cannot be recovered or reverted.
+        Use with caution and ensure the provided UUID is correct before execution.
+
 
     .PARAMETER Uuid
         The UUID of the vSAN object to delete.
 
     .PARAMETER ClusterName
         The name of the vSphere cluster containing the object.
-
-    .EXAMPLE
-        Remove-AvsUnassociatedObject -Uuid '' -ClusterName 'Cluster-1'
-
-    .EXAMPLE
-        Remove-AvsUnassociatedObject -Uuid '' -ClusterName 'Cluster-1' -WhatIf
-        # Performs a dry run without deleting the object
     #>
-    [CmdletBinding(SupportsShouldProcess = $true)]
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Uuid,
         [Parameter(Mandatory)][string]$ClusterName
@@ -88,13 +86,12 @@ function Remove-AvsUnassociatedObject {
         }
 
         
-        if ($PSCmdlet.ShouldProcess($id.Uuid, "Delete vSAN object")) {
-            try {
-                [void]$vsanIntSys.DeleteVsanObjects(@($id.Uuid), $true)
-                Write-Host "Deleted $($id.Uuid)" -ForegroundColor Green
-            } catch {
-                Write-Warning "Failed to delete $($id.Uuid): $($_.Exception.Message)"
-            }
+        
+        try {
+            [void]$vsanIntSys.DeleteVsanObjects(@($id.Uuid), $true)
+            Write-Host "Deleted $($id.Uuid)" -ForegroundColor Green
+        } catch {
+            Write-Warning "Failed to delete $($id.Uuid): $($_.Exception.Message)"
         }
     }
 }
