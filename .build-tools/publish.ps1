@@ -6,9 +6,9 @@ param (
     [Parameter(Mandatory=$true)][string]$previewFeed,
     [string]$prereleaseString = ""
 )
-
+$ErrorActionPreference = "Stop"
 # Import the CDR module for conservative dependency resolution
-Import-Module "$PSScriptRoot/../Microsoft.AVS.CDR/Microsoft.AVS.CDR.psd1" -Force -ErrorAction Stop
+Import-Module "$PSScriptRoot/../Microsoft.AVS.CDR/Microsoft.AVS.CDR.psd1" -Force 
 
 function update-moduleversion {
     $manifestVersionAsArray = (Import-PowerShellDataFile $absolutePathToManifest).ModuleVersion -split "\."
@@ -20,7 +20,7 @@ function update-moduleversion {
         $targetModuleParams.Prerelease = $prereleaseString
     }
     
-    Update-PSModuleManifest @targetModuleParams -ErrorAction Stop
+    Update-PSModuleManifest @targetModuleParams 
     
     Write-Host "##vso[task.setvariable variable=moduleVersion]$updatedModuleVersion"
 
@@ -43,7 +43,7 @@ function replicate-package ([string]$name, [string]$version, [string]$packagePat
     
     if ($pkg) {
         Write-Output "Publishing $($pkg.Name) to preview feed..."
-        Publish-PSResource -NupkgPath $pkg.FullName -Repository PreviewV3 -ApiKey "key" -ErrorAction Stop -Credential $credential
+        Publish-PSResource -NupkgPath $pkg.FullName -Repository PreviewV3 -ApiKey "key"  -Credential $credential
     }
 }
 
@@ -62,7 +62,7 @@ New-Item -ItemType Directory -Path $packagePath -Force | Out-Null
 
 try {
     # Use CDR to find and resolve all required modules with conservative dependency resolution
-    $allPackages = Find-PSResourceDependencies -ManifestPath $absolutePathToManifest
+    $allPackages = Find-PSResourceDependencies -ManifestPath $absolutePathToManifest -Repository ConsumptionV3 -Credential $c
     
     Write-Output "Found $($allPackages.Count) total packages (including transitive dependencies)"
     
@@ -71,17 +71,23 @@ try {
     }
     
     # Publish the main module
-    Publish-PSResource -Path $moduleName -Repository PreviewV3 -ApiKey "key" -ErrorAction Stop -Credential $c
+    Publish-PSResource -Path $moduleName -Repository PreviewV3 -ApiKey "key"  -Credential $c
     
-    # Verify installation using CDR's pinned install
+    # Verify installation using CDR's pinned install (for remote feeds) or basic install (for local folders)
     $version = if ([String]::IsNullOrWhiteSpace($manifest.PrivateData.PSData.Prerelease)) {
         $manifest.ModuleVersion.ToString()
     } else {
         "$($manifest.ModuleVersion)-$($manifest.PrivateData.PSData.Prerelease)" 
     }
     
-    Write-Output "Verifying installation of $moduleName@$version..."
-    Install-PSResourcePinned -Name $moduleName -RequiredVersion $version -Repository PreviewV3 -Credential $c
+    $isRemoteFeed = $previewFeed -match '^https?://'
+    if ($isRemoteFeed) {
+        Write-Output "Verifying installation of $moduleName@$version..."
+        Install-PSResourcePinned -Name $moduleName -RequiredVersion $version -Repository PreviewV3 -Credential $c
+    } else {
+        Write-Output "Verifying installation of $moduleName@$version (local folder, skipping dependencies)..."
+        Install-PSResource -Name $moduleName -Version $version -Repository PreviewV3 -SkipDependencyCheck -TrustRepository
+    }
 }
 finally {
     # Cleanup temporary package directory

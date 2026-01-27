@@ -273,6 +273,363 @@ function Get-MergedRedirectMap {
     return $redirectMap
 }
 
+<#
+.SYNOPSIS
+    Builds a complete dependency graph for a module from a remote repository.
+    
+.DESCRIPTION
+    This function builds a dependency graph by recursively querying the repository
+    for module metadata. Unlike Build-DependencyGraph (for installed modules),
+    this uses Find-PSResource to query remote repositories.
+    
+.PARAMETER ModuleName
+    The name of the module.
+    
+.PARAMETER ModuleVersion
+    The version of the module.
+    
+.PARAMETER Graph
+    The hashtable to build the graph into.
+    
+.PARAMETER RedirectMap
+    The redirect map for version resolution.
+    
+.PARAMETER Repository
+    The repository to search in.
+    
+.PARAMETER Credential
+    Credentials for repository access.
+    
+.PARAMETER Depth
+    Current recursion depth for indentation.
+#>
+function Build-RemoteDependencyGraph {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ModuleName,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$ModuleVersion,
+        
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Graph,
+        
+        [Parameter(Mandatory = $true)]
+        [hashtable]$RedirectMap,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$Repository,
+        
+        [Parameter(Mandatory = $false)]
+        [PSCredential]$Credential,
+        
+        [Parameter(Mandatory = $false)]
+        [int]$Depth = 0
+    )
+    
+    $indent = "  " * $Depth
+    $moduleKey = "${ModuleName}@${ModuleVersion}"
+    
+    # Skip if already processed
+    if ($Graph.ContainsKey($moduleKey)) {
+        Write-Verbose "${indent}Already in graph: $moduleKey"
+        return
+    }
+    
+    # Find the module in the repository
+    $findParams = @{
+        Name = $ModuleName
+        Version = $ModuleVersion
+    }
+    if ($Repository) {
+        $findParams['Repository'] = $Repository
+    }
+    if ($Credential) {
+        $findParams['Credential'] = $Credential
+    }
+    
+    $moduleInfo = Find-PSResource @findParams -ErrorAction SilentlyContinue | Select-Object -First 1
+    
+    if (-not $moduleInfo) {
+        throw "Module not found: $ModuleName version $ModuleVersion"
+    }
+    
+    $actualVersion = $moduleInfo.Version.ToString()
+    Write-Verbose "${indent}Building graph for: $ModuleName version $actualVersion"
+    
+    # Initialize graph node
+    $graphNode = @{
+        Name = $ModuleName
+        Version = $actualVersion
+        Dependencies = [System.Collections.ArrayList]@()
+        Repository = $moduleInfo.Repository
+    }
+    $Graph[$moduleKey] = $graphNode
+    
+    # Get dependencies
+    $deps = $moduleInfo.Dependencies
+    if (-not $deps -or $deps.Count -eq 0) {
+        Write-Verbose "${indent}No dependencies for $ModuleName"
+        return
+    }
+    
+    Write-Verbose "${indent}Found $($deps.Count) dependency(ies)"
+    
+    foreach ($dep in $deps) {
+        $depName = $dep.Name
+        $depVersion = $dep.VersionRange
+        
+        # Apply redirect to resolve version
+        $redirectResult = Find-DependencyRedirect -DependencyName $depName -DependencyVersion $depVersion `
+            -RedirectMap $RedirectMap -Indent $indent
+        
+        $resolvedDepVersion = $redirectResult.ResolvedVersion
+        $resolvedDepName = $redirectResult.ResolvedName
+        
+        $depKey = "${resolvedDepName}@${resolvedDepVersion}"
+        Write-Verbose "${indent}  Dependency: $depKey"
+        
+        # Add to this node's dependencies
+        [void]$graphNode.Dependencies.Add($depKey)
+        
+        # Merge redirect map for this dependency
+        $depRedirectMap = Get-MergedRedirectMap -OuterMap $RedirectMap -Name $resolvedDepName -Version $resolvedDepVersion
+        
+        # Recursively build graph for this dependency
+        Build-RemoteDependencyGraph -ModuleName $resolvedDepName -ModuleVersion $resolvedDepVersion `
+            -Graph $Graph -RedirectMap $depRedirectMap -Repository $Repository -Credential $Credential -Depth ($Depth + 1)
+    }
+}
+
+<#
+.SYNOPSIS
+    Resolves diamond dependencies in a dependency graph by selecting the highest version.
+    
+.DESCRIPTION
+    When multiple versions of the same module exist in the graph (diamond dependency),
+    this function selects the highest version and updates all references.
+    
+.PARAMETER Graph
+    The dependency graph hashtable to resolve.
+#>
+function Resolve-DiamondDependencies {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Graph
+    )
+    
+    # Group nodes by module name (without version)
+    $moduleVersions = @{}
+    foreach ($nodeKey in $Graph.Keys) {
+        $node = $Graph[$nodeKey]
+        $moduleName = $node.Name
+        if (-not $moduleVersions.ContainsKey($moduleName)) {
+            $moduleVersions[$moduleName] = @()
+        }
+        $moduleVersions[$moduleName] += @{
+            Key = $nodeKey
+            Version = [System.Version]$node.Version
+            Node = $node
+        }
+    }
+    
+    # Find and resolve conflicts - select highest version
+    foreach ($moduleName in $moduleVersions.Keys) {
+        $versions = $moduleVersions[$moduleName]
+        if ($versions.Count -gt 1) {
+            # Sort by version descending, pick highest
+            $sorted = $versions | Sort-Object { $_.Version } -Descending
+            $highest = $sorted[0]
+            $conflicts = $sorted | Select-Object -Skip 1
+            
+            Write-Warning "Diamond dependency detected for '$moduleName': versions $($versions.Version -join ', '). Using highest: $($highest.Version)"
+            
+            foreach ($conflict in $conflicts) {
+                $oldKey = $conflict.Key
+                $newKey = $highest.Key
+                
+                Write-Verbose "  Redirecting $oldKey -> $newKey"
+                
+                # Update all references from old version to new version
+                foreach ($nodeKey in $Graph.Keys) {
+                    $node = $Graph[$nodeKey]
+                    for ($i = 0; $i -lt $node.Dependencies.Count; $i++) {
+                        if ($node.Dependencies[$i] -eq $oldKey) {
+                            $node.Dependencies[$i] = $newKey
+                        }
+                    }
+                }
+                
+                # Remove the old version node from the graph
+                $Graph.Remove($oldKey)
+            }
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Computes topological order of a dependency graph.
+    
+.DESCRIPTION
+    Returns an array of module keys in dependency order (dependencies first).
+    Detects and warns about circular dependencies.
+    
+.PARAMETER Graph
+    The dependency graph hashtable.
+#>
+function Get-TopologicalOrder {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Graph
+    )
+    
+    $visited = @{}
+    $visiting = @{}  # For cycle detection
+    $order = [System.Collections.ArrayList]@()
+    
+    function Visit {
+        param([string]$NodeKey)
+        
+        if ($visited.ContainsKey($NodeKey)) {
+            return
+        }
+        
+        if ($visiting.ContainsKey($NodeKey)) {
+            Write-Warning "Circular dependency detected involving: $NodeKey"
+            return
+        }
+        
+        $visiting[$NodeKey] = $true
+        
+        if ($Graph.ContainsKey($NodeKey)) {
+            $node = $Graph[$NodeKey]
+            foreach ($depKey in $node.Dependencies) {
+                Visit -NodeKey $depKey
+            }
+        }
+        
+        $visiting.Remove($NodeKey)
+        $visited[$NodeKey] = $true
+        [void]$order.Add($NodeKey)
+    }
+    
+    # Visit all nodes
+    foreach ($nodeKey in $Graph.Keys) {
+        Visit -NodeKey $nodeKey
+    }
+    
+    return $order.ToArray()
+}
+
+<#
+.SYNOPSIS
+    Builds a complete dependency graph for an installed module.
+    
+.DESCRIPTION
+    This function builds a dependency graph by querying installed modules
+    using Get-PSResource. Used by Import-ModulePinned to load modules
+    with correct dependency versions.
+    
+.PARAMETER ModuleName
+    The name of the module.
+    
+.PARAMETER ModuleVersion
+    The version of the module.
+    
+.PARAMETER Graph
+    The hashtable to build the graph into.
+    
+.PARAMETER RedirectMap
+    The redirect map for version resolution.
+    
+.PARAMETER Depth
+    Current recursion depth for indentation.
+#>
+function Build-InstalledDependencyGraph {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ModuleName,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$ModuleVersion,
+        
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Graph,
+        
+        [Parameter(Mandatory = $true)]
+        [hashtable]$RedirectMap,
+        
+        [Parameter(Mandatory = $false)]
+        [int]$Depth = 0
+    )
+    
+    $indent = "  " * $Depth
+    $moduleKey = "${ModuleName}@${ModuleVersion}"
+    
+    # Skip if already processed
+    if ($Graph.ContainsKey($moduleKey)) {
+        Write-Verbose "${indent}Already in graph: $moduleKey"
+        return
+    }
+    
+    # Find the installed module
+    $installedModule = Get-PSResource -Name $ModuleName -Version $ModuleVersion -ErrorAction SilentlyContinue | Select-Object -First 1
+    
+    if (-not $installedModule) {
+        throw "Module not found: $ModuleName version $ModuleVersion. Please install using Install-PSResourcePinned first."
+    }
+    
+    $actualVersion = $installedModule.Version.ToString()
+    Write-Verbose "${indent}Building graph for: $ModuleName version $actualVersion"
+    
+    # PSResource InstalledLocation is the base modules folder, need to add ModuleName/Version subpath
+    $moduleVersionPath = Join-Path $installedModule.InstalledLocation $ModuleName $actualVersion
+    
+    # Initialize graph node
+    $graphNode = @{
+        Name = $ModuleName
+        Version = $actualVersion
+        Dependencies = [System.Collections.ArrayList]@()
+        InstalledLocation = $moduleVersionPath
+    }
+    $Graph[$moduleKey] = $graphNode
+    
+    # Get dependencies from Get-PSResource
+    $deps = $installedModule.Dependencies
+    if (-not $deps -or $deps.Count -eq 0) {
+        Write-Verbose "${indent}No dependencies for $ModuleName"
+        return
+    }
+    
+    Write-Verbose "${indent}Found $($deps.Count) dependency(ies)"
+    
+    foreach ($dep in $deps) {
+        $depName = $dep.Name
+        $depVersion = $dep.VersionRange
+        
+        # Apply redirect to resolve version
+        $redirectResult = Find-DependencyRedirect -DependencyName $depName -DependencyVersion $depVersion `
+            -RedirectMap $RedirectMap -Indent $indent
+        
+        $resolvedDepVersion = $redirectResult.ResolvedVersion
+        $resolvedDepName = $redirectResult.ResolvedName
+        
+        $depKey = "${resolvedDepName}@${resolvedDepVersion}"
+        Write-Verbose "${indent}  Dependency: $depKey"
+        
+        # Add to this node's dependencies
+        [void]$graphNode.Dependencies.Add($depKey)
+        
+        # Merge redirect map for this dependency
+        $depRedirectMap = Get-MergedRedirectMap -OuterMap $RedirectMap -Name $resolvedDepName -Version $resolvedDepVersion
+        
+        # Recursively build graph for this dependency
+        Build-InstalledDependencyGraph -ModuleName $resolvedDepName -ModuleVersion $resolvedDepVersion `
+            -Graph $Graph -RedirectMap $depRedirectMap -Depth ($Depth + 1)
+    }
+}
+
 function Install-PSResourcePinned {
     <#
     .SYNOPSIS
@@ -345,162 +702,61 @@ function Install-PSResourcePinned {
     # Merge with module-specific redirect map
     $redirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $Name -Version $RequiredVersion
     
-    # Get module metadata
-    Write-Verbose "Searching for module: $Name version $RequiredVersion"
-    $findParams = @{
-        Name = $Name
-    }
-    if ($RequiredVersion) {
-        $findParams['Version'] = $RequiredVersion
-    }
-    if ($Repository) {
-        $findParams['Repository'] = $Repository
-    }
-    if ($Credential) {
-        $findParams['Credential'] = $Credential
+    # Build complete dependency graph
+    Write-Verbose "Building dependency graph for $Name version $RequiredVersion"
+    $dependencyGraph = @{}
+    
+    Build-RemoteDependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion `
+        -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential
+    
+    # Resolve diamond dependencies
+    Resolve-DiamondDependencies -Graph $dependencyGraph
+    
+    # Compute topological order (dependencies first)
+    Write-Verbose "Computing topological order"
+    $topologicalOrder = Get-TopologicalOrder -Graph $dependencyGraph
+    
+    Write-Verbose "Install order ($($topologicalOrder.Count) modules):"
+    for ($i = 0; $i -lt $topologicalOrder.Count; $i++) {
+        Write-Verbose "  $($i + 1). $($topologicalOrder[$i])"
     }
     
-    $moduleInfo = Find-PSResource @findParams | Select-Object -First 1
-    if (-not $moduleInfo) {
-        throw "Module '$Name' $(if($RequiredVersion){"version $RequiredVersion"}) not found"
-    }
-    
-    $requestedVersion = $moduleInfo.Version.ToString()
-    Write-Verbose "Installing $Name version $requestedVersion"
-    
-    # Track processed modules to avoid circular dependencies
-    $processedModules = @{}
-    
-    # Recursive function to install dependencies
-    function Install-DependenciesRecursive {
-        param(
-            [Parameter(Mandatory = $true)]
-            $ModuleInfo,
-            [Parameter(Mandatory = $true)]
-            [hashtable]$RedirectMap,
-            [Parameter(Mandatory = $true)]
-            [hashtable]$ProcessedModules,
-            [Parameter(Mandatory = $true)]
-            [string]$Scope,
-            [Parameter(Mandatory = $false)]
-            [string]$Repository,
-            [Parameter(Mandatory = $false)]
-            [PSCredential]$Credential,
-            [Parameter(Mandatory = $false)]
-            [int]$Depth = 0
-        )
+    # Install modules in topological order
+    foreach ($moduleKey in $topologicalOrder) {
+        $node = $dependencyGraph[$moduleKey]
+        $modName = $node.Name
+        $modVersion = $node.Version
         
-        $indent = "  " * $Depth
+        # Check if already installed with exact version
+        $installed = Get-PSResource -Name $modName -ErrorAction SilentlyContinue | 
+            Where-Object { $_.Version.ToString() -eq $modVersion }
         
-        if (-not $ModuleInfo.Dependencies) {
-            return
-        }
-        
-        foreach ($dep in $ModuleInfo.Dependencies) {
-            $depName = $dep.Name
-            $depVersion = $dep.VersionRange
-            
-            # Find and apply redirect (handles all version parsing and resolution)
-            $redirectResult = Find-DependencyRedirect -DependencyName $depName -DependencyVersion $depVersion `
-                -RedirectMap $RedirectMap -Indent $indent
-            
-            $depVersion = $redirectResult.ResolvedVersion
-            $depName = $redirectResult.ResolvedName
-            
-            # Check if already processed
-            $moduleKey = "${depName}@${depVersion}"
-            if ($ProcessedModules.ContainsKey($moduleKey)) {
-                Write-Verbose "${indent}Dependency already processed: $depName version $depVersion"
-                continue
-            }
-            
-            # Mark as processed
-            $ProcessedModules[$moduleKey] = $true
-            
-            # Get dependency metadata to check for nested dependencies
-            $findDepParams = @{
-                Name = $depName
-                Version = $depVersion
+        if (-not $installed) {
+            Write-Verbose "Installing: $modName version $modVersion"
+            $installParams = @{
+                Name = $modName
+                Version = $modVersion
+                Scope = $Scope
+                TrustRepository = $true
+                SkipDependencyCheck = $true
             }
             if ($Repository) {
-                $findDepParams['Repository'] = $Repository
+                $installParams['Repository'] = $Repository
             }
             if ($Credential) {
-                $findDepParams['Credential'] = $Credential
+                $installParams['Credential'] = $Credential
             }
             
-            $depModuleInfo = Find-PSResource @findDepParams -ErrorAction SilentlyContinue | Select-Object -First 1
-            
-            if ($depModuleInfo) {
-                # Merge redirect map with dependency-specific map
-                $depRedirectMap = Get-MergedRedirectMap -OuterMap $RedirectMap -Name $depName -Version $depVersion
-                
-                # Recursively install nested dependencies
-                Install-DependenciesRecursive -ModuleInfo $depModuleInfo -RedirectMap $depRedirectMap `
-                    -ProcessedModules $ProcessedModules -Scope $Scope -Repository $Repository `
-                    -Credential $Credential -Depth ($Depth + 1)
-            }
-            
-            # Check if already installed with exact version
-            $installed = Get-PSResource -Name $depName -ErrorAction SilentlyContinue | 
-                Where-Object { $_.Version.ToString() -eq $depVersion }
-            
-            if (-not $installed) {
-                $installParams = @{
-                    Name = $depName
-                    Version = $depVersion
-                    Scope = $Scope
-                    TrustRepository = $true
-                    SkipDependencyCheck = $true
-                }
-                if ($Repository) {
-                    $installParams['Repository'] = $Repository
-                }
-                if ($Credential) {
-                    $installParams['Credential'] = $Credential
-                }
-                
-                Install-PSResource @installParams
-            }
-            else {
-                Write-Verbose "${indent}Dependency already installed: $depName version $depVersion"
-            }
+            Install-PSResource @installParams
+        }
+        else {
+            Write-Verbose "Already installed: $modName version $modVersion"
         }
     }
     
-    # Install all dependencies recursively
-    $installDepParams = @{
-        ModuleInfo = $moduleInfo
-        RedirectMap = $redirectMap
-        ProcessedModules = $processedModules
-        Scope = $Scope
-    }
-    if ($Repository) {
-        $installDepParams['Repository'] = $Repository
-    }
-    if ($Credential) {
-        $installDepParams['Credential'] = $Credential
-    }
-    
-    Install-DependenciesRecursive @installDepParams
-    
-    # Install the main module without resolving dependencies (already handled)
-    $mainInstallParams = @{
-        Name = $Name
-        Version = $requestedVersion
-        Scope = $Scope
-        TrustRepository = $true
-        SkipDependencyCheck = $true
-    }
-    if ($Repository) {
-        $mainInstallParams['Repository'] = $Repository
-    }
-    if ($Credential) {
-        $mainInstallParams['Credential'] = $Credential
-    }
-    
-    Install-PSResource @mainInstallParams
-    Write-Host "Successfully installed $Name version $requestedVersion"
+    $mainModuleKey = "${Name}@${RequiredVersion}"
+    $mainNode = $dependencyGraph[$mainModuleKey]
+    Write-Host "Successfully installed $Name version $($mainNode.Version)"
 }
 
 function Save-PSResourcePinned {
@@ -592,175 +848,64 @@ function Save-PSResourcePinned {
     # Merge with module-specific redirect map
     $redirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $Name -Version $RequiredVersion
     
-    # Get module metadata
-    Write-Verbose "Searching for module: $Name version $RequiredVersion"
-    $findParams = @{
-        Name = $Name
-    }
-    if ($RequiredVersion) {
-        $findParams['Version'] = $RequiredVersion
-    }
-    if ($Repository) {
-        $findParams['Repository'] = $Repository
-    }
-    if ($Credential) {
-        $findParams['Credential'] = $Credential
-    }
-    if ($Prerelease) {
-        $findParams['Prerelease'] = $true
+    # Build complete dependency graph
+    Write-Verbose "Building dependency graph for $Name version $RequiredVersion"
+    $dependencyGraph = @{}
+    
+    Build-RemoteDependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion `
+        -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential
+    
+    # Resolve diamond dependencies
+    Resolve-DiamondDependencies -Graph $dependencyGraph
+    
+    # Compute topological order (dependencies first)
+    Write-Verbose "Computing topological order"
+    $topologicalOrder = Get-TopologicalOrder -Graph $dependencyGraph
+    
+    Write-Verbose "Save order ($($topologicalOrder.Count) modules):"
+    for ($i = 0; $i -lt $topologicalOrder.Count; $i++) {
+        Write-Verbose "  $($i + 1). $($topologicalOrder[$i])"
     }
     
-    $moduleInfo = Find-PSResource @findParams | Select-Object -First 1
-    if (-not $moduleInfo) {
-        throw "Module '$Name' $(if($RequiredVersion){"version $RequiredVersion"}) not found"
-    }
-    
-    $requestedVersion = $moduleInfo.Version.ToString()
-    Write-Verbose "Saving $Name version $requestedVersion"
-    
-    # Track processed modules to avoid circular dependencies
-    $processedModules = @{}
-    
-    # Recursive function to save dependencies
-    function Save-DependenciesRecursive {
-        param(
-            [Parameter(Mandatory = $true)]
-            $ModuleInfo,
-            [Parameter(Mandatory = $true)]
-            [hashtable]$RedirectMap,
-            [Parameter(Mandatory = $true)]
-            [hashtable]$ProcessedModules,
-            [Parameter(Mandatory = $true)]
-            [string]$DestinationPath,
-            [Parameter(Mandatory = $false)]
-            [string]$Repository,
-            [Parameter(Mandatory = $false)]
-            [PSCredential]$Credential,
-            [Parameter(Mandatory = $false)]
-            [switch]$AsNupkg,
-            [Parameter(Mandatory = $false)]
-            [int]$Depth = 0
-        )
+    # Save modules in topological order
+    foreach ($moduleKey in $topologicalOrder) {
+        $node = $dependencyGraph[$moduleKey]
+        $modName = $node.Name
+        $modVersion = $node.Version
         
-        $indent = "  " * $Depth
+        # Check if already saved
+        $expectedFileName = "$modName.$modVersion.nupkg"
+        $expectedPath = Join-Path $resolvedPath.Path $expectedFileName
         
-        if (-not $ModuleInfo.Dependencies) {
-            return
-        }
-        
-        foreach ($dep in $ModuleInfo.Dependencies) {
-            $depName = $dep.Name
-            $depVersion = $dep.VersionRange
-            
-            # Find and apply redirect (handles all version parsing and resolution)
-            $redirectResult = Find-DependencyRedirect -DependencyName $depName -DependencyVersion $depVersion `
-                -RedirectMap $RedirectMap -Indent $indent
-            
-            $depVersion = $redirectResult.ResolvedVersion
-            $depName = $redirectResult.ResolvedName
-            
-            # Check if already processed
-            $moduleKey = "${depName}@${depVersion}"
-            if ($ProcessedModules.ContainsKey($moduleKey)) {
-                Write-Verbose "${indent}Dependency already processed: $depName version $depVersion"
-                continue
+        if (-not (Test-Path $expectedPath)) {
+            Write-Verbose "Saving: $modName version $modVersion"
+            $saveParams = @{
+                Name = $modName
+                Version = $modVersion
+                Path = $resolvedPath.Path
+                TrustRepository = $true
+                SkipDependencyCheck = $true
             }
-            
-            # Mark as processed
-            $ProcessedModules[$moduleKey] = $true
-            
-            # Get dependency metadata to check for nested dependencies
-            $findDepParams = @{
-                Name = $depName
-                Version = $depVersion
+            if ($AsNupkg) {
+                $saveParams['AsNupkg'] = $true
             }
             if ($Repository) {
-                $findDepParams['Repository'] = $Repository
+                $saveParams['Repository'] = $Repository
             }
             if ($Credential) {
-                $findDepParams['Credential'] = $Credential
+                $saveParams['Credential'] = $Credential
             }
             
-            $depModuleInfo = Find-PSResource @findDepParams -ErrorAction SilentlyContinue | Select-Object -First 1
-            
-            if ($depModuleInfo) {
-                # Merge redirect map with dependency-specific map
-                $depRedirectMap = Get-MergedRedirectMap -OuterMap $RedirectMap -Name $depName -Version $depVersion
-                
-                # Recursively save nested dependencies
-                Save-DependenciesRecursive -ModuleInfo $depModuleInfo -RedirectMap $depRedirectMap `
-                    -ProcessedModules $ProcessedModules -DestinationPath $DestinationPath -Repository $Repository `
-                    -Credential $Credential -AsNupkg:$AsNupkg -Depth ($Depth + 1)
-            }
-            
-            # Check if already saved
-            $expectedFileName = "$depName.$depVersion.nupkg"
-            $expectedPath = Join-Path $DestinationPath $expectedFileName
-            
-            if (-not (Test-Path $expectedPath)) {
-                Write-Verbose "${indent}Saving dependency: $depName version $depVersion"
-                $saveParams = @{
-                    Name = $depName
-                    Version = $depVersion
-                    Path = $DestinationPath
-                    TrustRepository = $true
-                    SkipDependencyCheck = $true
-                }
-                if ($AsNupkg) {
-                    $saveParams['AsNupkg'] = $true
-                }
-                if ($Repository) {
-                    $saveParams['Repository'] = $Repository
-                }
-                if ($Credential) {
-                    $saveParams['Credential'] = $Credential
-                }
-                
-                Save-PSResource @saveParams
-            }
-            else {
-                Write-Verbose "${indent}Dependency already saved: $depName version $depVersion"
-            }
+            Save-PSResource @saveParams
+        }
+        else {
+            Write-Verbose "Already saved: $modName version $modVersion"
         }
     }
     
-    # Save all dependencies recursively
-    $saveDepParams = @{
-        ModuleInfo = $moduleInfo
-        RedirectMap = $redirectMap
-        ProcessedModules = $processedModules
-        DestinationPath = $resolvedPath.Path
-        AsNupkg = $AsNupkg
-    }
-    if ($Repository) {
-        $saveDepParams['Repository'] = $Repository
-    }
-    if ($Credential) {
-        $saveDepParams['Credential'] = $Credential
-    }
-    
-    Save-DependenciesRecursive @saveDepParams
-    
-    # Save the main module
-    $mainSaveParams = @{
-        Name = $Name
-        Version = $requestedVersion
-        Path = $resolvedPath.Path
-        TrustRepository = $true
-        SkipDependencyCheck = $true
-    }
-    if ($AsNupkg) {
-        $mainSaveParams['AsNupkg'] = $true
-    }
-    if ($Repository) {
-        $mainSaveParams['Repository'] = $Repository
-    }
-    if ($Credential) {
-        $mainSaveParams['Credential'] = $Credential
-    }
-    
-    Save-PSResource @mainSaveParams
-    Write-Host "Successfully saved $Name version $requestedVersion and dependencies to $resolvedPath"
+    $mainModuleKey = "${Name}@${RequiredVersion}"
+    $mainNode = $dependencyGraph[$mainModuleKey]
+    Write-Host "Successfully saved $Name version $($mainNode.Version) and dependencies to $resolvedPath"
 }
 
 function Find-PSResourceDependencies {
@@ -770,8 +915,8 @@ function Find-PSResourceDependencies {
     
     .DESCRIPTION
         This function reads a .psd1 module manifest file and resolves all RequiredModules
-        using conservative dependency resolution logic. Returns an array of resolved dependencies
-        with their names and versions.
+        and their transitive dependencies using graph-based dependency resolution.
+        Returns an array of resolved dependencies with their names and versions.
         
     .PARAMETER ManifestPath
         The path to the .psd1 module manifest file.
@@ -779,6 +924,13 @@ function Find-PSResourceDependencies {
     .PARAMETER RedirectMapPath
         Path to JSON file containing version redirects. If not specified, looks for a redirect map
         in the maps directory based on the manifest's module name and version.
+        
+    .PARAMETER Repository
+        The repository to search for and resolve module dependencies from.
+        If not specified, searches all registered repositories.
+        
+    .PARAMETER Credential
+        Credentials to use when accessing the repository.
         
     .EXAMPLE
         Find-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
@@ -795,7 +947,13 @@ function Find-PSResourceDependencies {
         [string]$ManifestPath,
         
         [Parameter(Mandatory = $false)]
-        [string]$RedirectMapPath
+        [string]$RedirectMapPath,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$Repository,
+        
+        [Parameter(Mandatory = $false)]
+        [PSCredential]$Credential
     )
     
     # Validate manifest path
@@ -838,7 +996,8 @@ function Find-PSResourceDependencies {
     
     Write-Verbose "Found $($manifest.RequiredModules.Count) required module(s) in manifest"
     
-    $resolvedDependencies = [System.Collections.ArrayList]@()
+    # Build complete dependency graph for all required modules
+    $dependencyGraph = @{}
     
     foreach ($requiredModule in $manifest.RequiredModules) {
         $moduleName = $null
@@ -874,14 +1033,32 @@ function Find-PSResourceDependencies {
         $redirectResult = Find-DependencyRedirect -DependencyName $moduleName -DependencyVersion $moduleVersion `
             -RedirectMap $mergedRedirectMap -Indent ""
         
+        # Build dependency graph for this required module
+        Build-RemoteDependencyGraph -ModuleName $redirectResult.ResolvedName -ModuleVersion $redirectResult.ResolvedVersion `
+            -Graph $dependencyGraph -RedirectMap $mergedRedirectMap -Repository $Repository -Credential $Credential
+    }
+    
+    # Resolve diamond dependencies
+    Resolve-DiamondDependencies -Graph $dependencyGraph
+    
+    # Compute topological order
+    $topologicalOrder = Get-TopologicalOrder -Graph $dependencyGraph
+    
+    # Build result array in topological order
+    $resolvedDependencies = [System.Collections.ArrayList]@()
+    
+    foreach ($moduleKey in $topologicalOrder) {
+        $node = $dependencyGraph[$moduleKey]
+        
         [void]$resolvedDependencies.Add([PSCustomObject]@{
-            Name = $redirectResult.ResolvedName
-            Version = $redirectResult.ResolvedVersion
-            OriginalName = $moduleName
-            OriginalVersion = $moduleVersion
-            IsRedirected = $redirectResult.IsRedirected
+            Name = $node.Name
+            Version = $node.Version
+            Repository = $node.Repository
+            IsRedirected = $false  # Graph already has redirected versions applied
         })
     }
+    
+    Write-Verbose "Resolved $($resolvedDependencies.Count) module(s) (including transitive dependencies)"
     
     return $resolvedDependencies.ToArray()
 }
@@ -936,12 +1113,18 @@ function Install-PSResourceDependencies {
         [PSCredential]$Credential
     )
     
-    # Find and resolve all dependencies
+    # Find and resolve all dependencies (already in topological order)
     $findParams = @{
         ManifestPath = $ManifestPath
     }
     if ($RedirectMapPath) {
         $findParams['RedirectMapPath'] = $RedirectMapPath
+    }
+    if ($Repository) {
+        $findParams['Repository'] = $Repository
+    }
+    if ($Credential) {
+        $findParams['Credential'] = $Credential
     }
     
     $resolvedDependencies = Find-PSResourceDependencies @findParams
@@ -953,27 +1136,34 @@ function Install-PSResourceDependencies {
     
     Write-Verbose "Installing $($resolvedDependencies.Count) resolved dependency(ies)"
     
+    # Dependencies are already in topological order from Find-PSResourceDependencies
     foreach ($dependency in $resolvedDependencies) {
-        Write-Host "Installing dependency: $($dependency.Name) version $($dependency.Version)"
+        # Check if already installed with exact version
+        $installed = Get-PSResource -Name $dependency.Name -ErrorAction SilentlyContinue | 
+            Where-Object { $_.Version.ToString() -eq $dependency.Version }
         
-        # Build install parameters
-        $installParams = @{
-            Name = $dependency.Name
-            RequiredVersion = $dependency.Version
-            Scope = $Scope
+        if (-not $installed) {
+            Write-Host "Installing dependency: $($dependency.Name) version $($dependency.Version)"
+            
+            $installParams = @{
+                Name = $dependency.Name
+                Version = $dependency.Version
+                Scope = $Scope
+                TrustRepository = $true
+                SkipDependencyCheck = $true
+            }
+            if ($Repository) {
+                $installParams['Repository'] = $Repository
+            }
+            if ($Credential) {
+                $installParams['Credential'] = $Credential
+            }
+            
+            Install-PSResource @installParams
         }
-        if ($RedirectMapPath) {
-            $installParams['RedirectMapPath'] = $RedirectMapPath
+        else {
+            Write-Verbose "Already installed: $($dependency.Name) version $($dependency.Version)"
         }
-        if ($Repository) {
-            $installParams['Repository'] = $Repository
-        }
-        if ($Credential) {
-            $installParams['Credential'] = $Credential
-        }
-        
-        # Use Install-PSResourcePinned for consistent dependency resolution
-        Install-PSResourcePinned @installParams
     }
     
     Write-Host "Successfully installed all dependencies from manifest"
@@ -1051,146 +1241,15 @@ function Import-ModulePinned {
     # Merge with module-specific redirect map
     $redirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $Name -Version $RequiredVersion
     
-    # Build complete dependency graph
-    # Graph structure: key = "ModuleName@Version", value = @{ Name, Version, Dependencies = @("Dep@Ver", ...) }
+    # Build complete dependency graph using shared function
+    Write-Verbose "Building dependency graph for $Name version $RequiredVersion"
     $dependencyGraph = @{}
     
-    function Build-DependencyGraph {
-        param(
-            [Parameter(Mandatory = $true)]
-            [string]$ModuleName,
-            
-            [Parameter(Mandatory = $true)]
-            [string]$ModuleVersion,
-            
-            [Parameter(Mandatory = $true)]
-            [hashtable]$Graph,
-            
-            [Parameter(Mandatory = $true)]
-            [hashtable]$RedirectMap,
-            
-            [Parameter(Mandatory = $false)]
-            [int]$Depth = 0
-        )
-        
-        $indent = "  " * $Depth
-        $moduleKey = "${ModuleName}@${ModuleVersion}"
-        
-        # Skip if already processed
-        if ($Graph.ContainsKey($moduleKey)) {
-            Write-Verbose "${indent}Already in graph: $moduleKey"
-            return
-        }
-        
-        # Find the installed module
-        $installedModule = Get-PSResource -Name $ModuleName -Version $ModuleVersion -ErrorAction SilentlyContinue | Select-Object -First 1
-        
-        if (-not $installedModule) {
-            throw "Module not found: $ModuleName version $ModuleVersion. Please install using Install-PSResourcePinned first."
-        }
-        
-        $actualVersion = $installedModule.Version.ToString()
-        Write-Verbose "${indent}Building graph for: $ModuleName version $actualVersion"
-        
-        # PSResource InstalledLocation is the base modules folder, need to add ModuleName/Version subpath
-        $moduleVersionPath = Join-Path $installedModule.InstalledLocation $ModuleName $actualVersion
-        
-        # Initialize graph node
-        $graphNode = @{
-            Name = $ModuleName
-            Version = $actualVersion
-            Dependencies = [System.Collections.ArrayList]@()
-            InstalledLocation = $moduleVersionPath
-        }
-        $Graph[$moduleKey] = $graphNode
-        
-        # Get dependencies from Get-PSResource (consistent with how we found the module)
-        $deps = $installedModule.Dependencies
-        if (-not $deps -or $deps.Count -eq 0) {
-            Write-Verbose "${indent}No dependencies for $ModuleName"
-            return
-        }
-        
-        Write-Verbose "${indent}Found $($deps.Count) dependency(ies)"
-        
-        foreach ($dep in $deps) {
-            # Get-PSResource Dependencies have Name and VersionRange properties
-            $depName = $dep.Name
-            $depVersion = $dep.VersionRange
-            
-            # Apply redirect to resolve version
-            $redirectResult = Find-DependencyRedirect -DependencyName $depName -DependencyVersion $depVersion `
-                -RedirectMap $RedirectMap -Indent $indent
-            
-            $resolvedDepVersion = $redirectResult.ResolvedVersion
-            $resolvedDepName = $redirectResult.ResolvedName
-            
-            $depKey = "${resolvedDepName}@${resolvedDepVersion}"
-            Write-Verbose "${indent}  Dependency: $depKey"
-            
-            # Add to this node's dependencies
-            [void]$graphNode.Dependencies.Add($depKey)
-            
-            # Merge redirect map for this dependency
-            $depRedirectMap = Get-MergedRedirectMap -OuterMap $RedirectMap -Name $resolvedDepName -Version $resolvedDepVersion
-            
-            # Recursively build graph for this dependency
-            Build-DependencyGraph -ModuleName $resolvedDepName -ModuleVersion $resolvedDepVersion `
-                -Graph $Graph -RedirectMap $depRedirectMap -Depth ($Depth + 1)
-        }
-    }
+    Build-InstalledDependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion `
+        -Graph $dependencyGraph -RedirectMap $redirectMap
     
-    Write-Verbose "Building dependency graph for $Name version $RequiredVersion"
-    Build-DependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion -Graph $dependencyGraph -RedirectMap $redirectMap
-    
-    # Detect and resolve diamond dependencies (same module, different versions)
-    # Group nodes by module name (without version)
-    $moduleVersions = @{}
-    foreach ($nodeKey in $dependencyGraph.Keys) {
-        $node = $dependencyGraph[$nodeKey]
-        $moduleName = $node.Name
-        if (-not $moduleVersions.ContainsKey($moduleName)) {
-            $moduleVersions[$moduleName] = @()
-        }
-        $moduleVersions[$moduleName] += @{
-            Key = $nodeKey
-            Version = [System.Version]$node.Version
-            Node = $node
-        }
-    }
-    
-    # Find and resolve conflicts - select highest version
-    foreach ($moduleName in $moduleVersions.Keys) {
-        $versions = $moduleVersions[$moduleName]
-        if ($versions.Count -gt 1) {
-            # Sort by version descending, pick highest
-            $sorted = $versions | Sort-Object { $_.Version } -Descending
-            $highest = $sorted[0]
-            $conflicts = $sorted | Select-Object -Skip 1
-            
-            Write-Warning "Diamond dependency detected for '$moduleName': versions $($versions.Version -join ', '). Using highest: $($highest.Version)"
-            
-            foreach ($conflict in $conflicts) {
-                $oldKey = $conflict.Key
-                $newKey = $highest.Key
-                
-                Write-Verbose "  Redirecting $oldKey -> $newKey"
-                
-                # Update all references from old version to new version
-                foreach ($nodeKey in $dependencyGraph.Keys) {
-                    $node = $dependencyGraph[$nodeKey]
-                    for ($i = 0; $i -lt $node.Dependencies.Count; $i++) {
-                        if ($node.Dependencies[$i] -eq $oldKey) {
-                            $node.Dependencies[$i] = $newKey
-                        }
-                    }
-                }
-                
-                # Remove the old version node from the graph
-                $dependencyGraph.Remove($oldKey)
-            }
-        }
-    }
+    # Resolve diamond dependencies using shared function
+    Resolve-DiamondDependencies -Graph $dependencyGraph
     
     Write-Verbose "Dependency graph contains $($dependencyGraph.Count) modules:"
     
@@ -1209,50 +1268,7 @@ function Import-ModulePinned {
         }
     }
     
-    function Get-TopologicalOrder {
-        param(
-            [Parameter(Mandatory = $true)]
-            [hashtable]$Graph
-        )
-        
-        $visited = @{}
-        $visiting = @{}  # For cycle detection
-        $order = [System.Collections.ArrayList]@()
-        
-        function Visit {
-            param([string]$NodeKey)
-            
-            if ($visited.ContainsKey($NodeKey)) {
-                return
-            }
-            
-            if ($visiting.ContainsKey($NodeKey)) {
-                Write-Warning "Circular dependency detected involving: $NodeKey"
-                return
-            }
-            
-            $visiting[$NodeKey] = $true
-            
-            if ($Graph.ContainsKey($NodeKey)) {
-                $node = $Graph[$NodeKey]
-                foreach ($depKey in $node.Dependencies) {
-                    Visit -NodeKey $depKey
-                }
-            }
-            
-            $visiting.Remove($NodeKey)
-            $visited[$NodeKey] = $true
-            [void]$order.Add($NodeKey)
-        }
-        
-        # Visit all nodes
-        foreach ($nodeKey in $Graph.Keys) {
-            Visit -NodeKey $nodeKey
-        }
-        
-        return $order.ToArray()
-    }
-    
+    # Compute topological order using shared function
     Write-Verbose "Computing topological order"
     $topologicalOrder = Get-TopologicalOrder -Graph $dependencyGraph
     
@@ -1326,9 +1342,9 @@ function Find-PSResourcesPinned {
         Finds a PowerShell module and all its dependencies with conservative version resolution.
     
     .DESCRIPTION
-        This function searches for a module and recursively resolves all its dependencies,
-        using the same conservative dependency resolution logic as Install-PSResourcePinned.
-        Returns an array of PSResourceInfo objects for the main module and all dependencies.
+        This function searches for a module and resolves all its dependencies using
+        graph-based dependency resolution. Returns an array of objects for the main
+        module and all dependencies in topological order.
         
     .PARAMETER Name
         The name of the module to find.
@@ -1352,7 +1368,7 @@ function Find-PSResourcesPinned {
         Find-PSResourcesPinned -Name "Microsoft.AVS.Management" -RequiredVersion "1.0.0" -Repository PSGallery
         
     .OUTPUTS
-        Returns an array of objects with Name, Version, and Dependencies properties for each resolved module.
+        Returns an array of objects with Name, Version, Repository and Dependencies properties for each resolved module.
     #>
     [CmdletBinding()]
     param(
@@ -1391,146 +1407,33 @@ function Find-PSResourcesPinned {
     # Merge with module-specific redirect map
     $redirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $Name -Version $RequiredVersion
     
-    # Get module metadata
-    Write-Verbose "Searching for module: $Name version $RequiredVersion"
-    $findParams = @{
-        Name = $Name
-    }
-    if ($RequiredVersion) {
-        $findParams['Version'] = $RequiredVersion
-    }
-    if ($Repository) {
-        $findParams['Repository'] = $Repository
-    }
-    if ($Credential) {
-        $findParams['Credential'] = $Credential
-    }
-    if ($Prerelease) {
-        $findParams['Prerelease'] = $true
-    }
+    # Build complete dependency graph
+    Write-Verbose "Building dependency graph for $Name version $RequiredVersion"
+    $dependencyGraph = @{}
     
-    $moduleInfo = Find-PSResource @findParams | Select-Object -First 1
-    if (-not $moduleInfo) {
-        throw "Module '$Name' $(if($RequiredVersion){"version $RequiredVersion"}) not found"
-    }
+    Build-RemoteDependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion `
+        -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential
     
-    $requestedVersion = $moduleInfo.Version.ToString()
-    Write-Verbose "Found $Name version $requestedVersion"
+    # Resolve diamond dependencies
+    Resolve-DiamondDependencies -Graph $dependencyGraph
     
-    # Track processed modules to avoid circular dependencies
-    $processedModules = @{}
-    # Collect all resolved modules
+    # Compute topological order
+    Write-Verbose "Computing topological order"
+    $topologicalOrder = Get-TopologicalOrder -Graph $dependencyGraph
+    
+    # Build result array in topological order
     $resolvedModules = [System.Collections.ArrayList]@()
     
-    # Recursive function to find dependencies
-    function Find-DependenciesRecursive {
-        param(
-            [Parameter(Mandatory = $true)]
-            $ModuleInfo,
-            [Parameter(Mandatory = $true)]
-            [hashtable]$RedirectMap,
-            [Parameter(Mandatory = $true)]
-            [hashtable]$ProcessedModules,
-            [Parameter(Mandatory = $true)]
-            [AllowEmptyCollection()]
-            [System.Collections.ArrayList]$ResolvedModules,
-            [Parameter(Mandatory = $false)]
-            [string]$Repository,
-            [Parameter(Mandatory = $false)]
-            [PSCredential]$Credential,
-            [Parameter(Mandatory = $false)]
-            [int]$Depth = 0
-        )
+    foreach ($moduleKey in $topologicalOrder) {
+        $node = $dependencyGraph[$moduleKey]
         
-        $indent = "  " * $Depth
-        
-        if (-not $ModuleInfo.Dependencies) {
-            return
-        }
-        
-        foreach ($dep in $ModuleInfo.Dependencies) {
-            $depName = $dep.Name
-            $depVersion = $dep.VersionRange
-            
-            # Find and apply redirect (handles all version parsing and resolution)
-            $redirectResult = Find-DependencyRedirect -DependencyName $depName -DependencyVersion $depVersion `
-                -RedirectMap $RedirectMap -Indent $indent
-            
-            $depVersion = $redirectResult.ResolvedVersion
-            $depName = $redirectResult.ResolvedName
-            
-            # Check if already processed
-            $moduleKey = "${depName}@${depVersion}"
-            if ($ProcessedModules.ContainsKey($moduleKey)) {
-                Write-Verbose "${indent}Dependency already processed: $depName version $depVersion"
-                continue
-            }
-            
-            # Mark as processed
-            $ProcessedModules[$moduleKey] = $true
-            
-            # Get dependency metadata to check for nested dependencies
-            $findDepParams = @{
-                Name = $depName
-                Version = $depVersion
-            }
-            if ($Repository) {
-                $findDepParams['Repository'] = $Repository
-            }
-            if ($Credential) {
-                $findDepParams['Credential'] = $Credential
-            }
-            
-            $depModuleInfo = Find-PSResource @findDepParams -ErrorAction SilentlyContinue | Select-Object -First 1
-            
-            if ($depModuleInfo) {
-                Write-Verbose "${indent}Found dependency: $depName version $($depModuleInfo.Version.ToString())"
-                
-                # Merge redirect map with dependency-specific map
-                $depRedirectMap = Get-MergedRedirectMap -OuterMap $RedirectMap -Name $depName -Version $depVersion
-                
-                # Recursively find nested dependencies
-                Find-DependenciesRecursive -ModuleInfo $depModuleInfo -RedirectMap $depRedirectMap `
-                    -ProcessedModules $ProcessedModules -ResolvedModules $ResolvedModules -Repository $Repository `
-                    -Credential $Credential -Depth ($Depth + 1)
-                
-                # Add this dependency to the resolved list
-                [void]$ResolvedModules.Add([PSCustomObject]@{
-                    Name = $depModuleInfo.Name
-                    Version = $depModuleInfo.Version.ToString()
-                    Repository = $depModuleInfo.Repository
-                    Dependencies = $depModuleInfo.Dependencies
-                })
-            }
-            else {
-                throw "${indent}Dependency not found: $depName version $depVersion"
-            }
-        }
+        [void]$resolvedModules.Add([PSCustomObject]@{
+            Name = $node.Name
+            Version = $node.Version
+            Repository = $node.Repository
+            Dependencies = $node.Dependencies
+        })
     }
-    
-    # Find all dependencies recursively
-    $findDepParams = @{
-        ModuleInfo = $moduleInfo
-        RedirectMap = $redirectMap
-        ProcessedModules = $processedModules
-        ResolvedModules = $resolvedModules
-    }
-    if ($Repository) {
-        $findDepParams['Repository'] = $Repository
-    }
-    if ($Credential) {
-        $findDepParams['Credential'] = $Credential
-    }
-    
-    Find-DependenciesRecursive @findDepParams
-    
-    # Add the main module to the resolved list
-    [void]$resolvedModules.Add([PSCustomObject]@{
-        Name = $moduleInfo.Name
-        Version = $requestedVersion
-        Repository = $moduleInfo.Repository
-        Dependencies = $moduleInfo.Dependencies
-    })
     
     Write-Verbose "Found $($resolvedModules.Count) module(s) (including main module and all dependencies)"
     
