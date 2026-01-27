@@ -23,8 +23,9 @@ if (-not $SkipPrereq) {
 }
 else 
 {
-    import-module (Join-Path $PSScriptRoot "../Microsoft.AVS.CDR") -Verbose
-    
+    $cdr = Join-Path $PSScriptRoot "../Microsoft.AVS.CDR"
+    import-module $cdr -Verbose
+
     $c = [PSCredential]::new("ado", ($accessToken | ConvertTo-SecureString -AsPlainText -Force))
     Install-PSResourceDependencies -ManifestPath $psdPath -Repository ConsumptionV3 -Credential $c -Verbose
 }
