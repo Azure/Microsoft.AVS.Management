@@ -178,7 +178,6 @@ function Find-DependencyRedirect {
         }
     }
     else {
-        Write-Verbose "${Indent}Processing dependency: $DependencyName version $DependencyVersion"
         return @{
             ResolvedVersion = $normalizedDepVersion
             ResolvedName = $DependencyName
@@ -355,9 +354,10 @@ function Build-RemoteDependencyGraph {
         $findParams['Credential'] = $Credential
     }
     if ($Prerelease) {
-        $findParams['Prerelease'] = $true
+        $findParams['Prerelease'] = $Prerelease
     }
     
+    Write-Verbose "Looking for dependencies: $ModuleName version $ModuleVersion"
     $moduleInfo = Find-PSResource @findParams -ErrorAction SilentlyContinue | Select-Object -First 1
     
     if (-not $moduleInfo) {
