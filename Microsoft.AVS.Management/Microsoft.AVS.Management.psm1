@@ -1246,20 +1246,35 @@ function New-AVSStoragePolicy {
                 $tagCategory = New-TagCategory -Name "StorageTier" -Cardinality Single -EntityType Datastore
             }
 
+            $alltags = $Tags + $NotTags
+            $TagNames = @()
+            foreach ($t in $alltags) {
+                $TagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
+            }
+            foreach ($TagName in $TagNames) {
+                $tagExists = (Get-Tag -Name $TagName -ErrorAction SilentlyContinue).Category.Name -match "StorageTier"
+                if ( $tagExists -match "true" ) {
+                    Write-Information "Tag '$TagName' in Category 'StorageTier' already exists for Storage Policy Tag based placement"
+                } else {
+                    Write-Information "Creating Tag '$TagName' in Category 'StorageTier' for Storage Policy Tag based placement"
+                    New-Tag -Name $TagName -Category $tagCategory | Out-Null
+                }
+            }
+
             if ($Tags) {
+                $withTagNames = @()
                 foreach ($t in $Tags) {
                     $withTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
                 }
-
-                foreach ($withtagname in $withTagNames) {
-                    $tagExists = (Get-Tag -Name $withtagname -ErrorAction SilentlyContinue).Category.Name -match "StorageTier"
-                    if ( $tagExists -match "true" ) {
-                        Write-Information "Tag '$withtagname' in Category 'StorageTier' already exists for Storage Policy Tag based placement"
-                    } else {
-                        Write-Information "Creating Tag '$withtagname' in Category 'StorageTier' for Storage Policy Tag based placement"
-                        New-Tag -Name $withtagname -Category $tagCategory | Out-Null
-                    }
-                }
+                # foreach ($withtagname in $withTagNames) {
+                #     $tagExists = (Get-Tag -Name $withtagname -ErrorAction SilentlyContinue).Category.Name -match "StorageTier"
+                #     if ( $tagExists -match "true" ) {
+                #         Write-Information "Tag '$withtagname' in Category 'StorageTier' already exists for Storage Policy Tag based placement"
+                #     } else {
+                #         Write-Information "Creating Tag '$withtagname' in Category 'StorageTier' for Storage Policy Tag based placement"
+                #         New-Tag -Name $withtagname -Category $tagCategory | Out-Null
+                #     }
+                # }
 
                 # Create SpbmRule objects from each tag
                 $withTagRules = $withTagNames | ForEach-Object {
@@ -1271,19 +1286,20 @@ function New-AVSStoragePolicy {
             }
 
             if ($NotTags) {
+                $withTagNames = @()
                 foreach ($t in $NotTags) {
                     $withTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
                 }
 
-                foreach ($withtagname in $withTagNames) {
-                    $tagExists = (Get-Tag -Name $withtagname -ErrorAction SilentlyContinue).Category.Name -match "StorageTier"
-                    if ( $tagExists -match "true" ) {
-                        Write-Information "Tag '$withtagname' in Category 'StorageTier' already exists for Storage Policy Tag based placement"
-                    } else {
-                        Write-Information "Creating Tag '$withtagname' in Category 'StorageTier' for Storage Policy Tag based placement"
-                        New-Tag -Name $withtagname -Category $tagCategory | Out-Null
-                    }
-                }
+                # foreach ($withtagname in $withTagNames) {
+                #     $tagExists = (Get-Tag -Name $withtagname -ErrorAction SilentlyContinue).Category.Name -match "StorageTier"
+                #     if ( $tagExists -match "true" ) {
+                #         Write-Information "Tag '$withtagname' in Category 'StorageTier' already exists for Storage Policy Tag based placement"
+                #     } else {
+                #         Write-Information "Creating Tag '$withtagname' in Category 'StorageTier' for Storage Policy Tag based placement"
+                #         New-Tag -Name $withtagname -Category $tagCategory | Out-Null
+                #     }
+                # }
 
                 # Create SpbmRule objects from each tag
                 $notTagRules = $withTagNames | ForEach-Object {
