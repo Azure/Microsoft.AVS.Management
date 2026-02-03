@@ -875,17 +875,13 @@ function Remove-AVSStoragePolicy {
         [string]
         $Name
     )
-    begin {
-        #Remove Wildcards characters from Name
-        $Name = Limit-WildcardsandCodeInjectionCharacters $Name
-        #Protected Policy Object Name Validation Check
-        if (Test-AVSProtectedObjectName -Name $Name) {
-            Write-Error "$Name is a protected policy name.  Please choose a different policy name."
-            return
-        }
-
-    }
-    process {
+    #Remove Wildcards characters from Name
+    $Name = Limit-WildcardsandCodeInjectionCharacters $Name
+    #Protected Policy Object Name Validation Check
+    if (Test-AVSProtectedObjectName -Name $Name) {
+        Write-Error "$Name is a protected policy name.  Please choose a different policy name."
+        return
+    } else {
         #Get Storage Policy
         $StoragePolicy = Get-SpbmStoragePolicy -Name $Name -ErrorAction SilentlyContinue
         #Remove Storage Policy
@@ -893,7 +889,6 @@ function Remove-AVSStoragePolicy {
             Write-Error "Storage Policy $Name does not exist."
             return
         } else { Remove-SpbmStoragePolicy -StoragePolicy $StoragePolicy -Confirm:$false }
-
     }
 }
 
