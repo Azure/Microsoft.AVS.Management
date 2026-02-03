@@ -360,8 +360,11 @@ function Build-RemoteDependencyGraph {
     Write-Verbose "Looking for dependencies: $ModuleName version $ModuleVersion"
     $moduleInfo = Find-PSResource @findParams -ErrorAction SilentlyContinue | Select-Object -First 1
     
+    $notFound = $false
     if (-not $moduleInfo) {
-        throw "Module not found: $ModuleName version $ModuleVersion"
+        # Mark as not found - may be resolved later if a higher version exists (diamond dependency)
+        Write-Verbose "${indent}Module not found in repository: $ModuleName version $ModuleVersion (will validate after resolution)"
+        $notFound = $true
     }
     
     Write-Verbose "${indent}Building graph for: $ModuleName version $ModuleVersion"
@@ -371,9 +374,15 @@ function Build-RemoteDependencyGraph {
         Name = $ModuleName
         Version = $ModuleVersion
         Dependencies = [System.Collections.ArrayList]@()
-        Repository = $moduleInfo.Repository
+        Repository = if ($moduleInfo) { $moduleInfo.Repository } else { $null }
+        NotFound = $notFound
     }
     $Graph[$moduleKey] = $graphNode
+    
+    # If module was not found, we can't get its dependencies - skip
+    if ($notFound) {
+        return
+    }
     
     # Get dependencies
     $deps = $moduleInfo.Dependencies
@@ -504,17 +513,24 @@ function Resolve-DiamondDependencies {
             Key = $nodeKey
             VersionString = $node.Version
             Node = $node
+            NotFound = $node.NotFound
         }
     }
     
-    # Find and resolve conflicts - select highest version
+    # Find and resolve conflicts - select highest available version
     foreach ($moduleName in $moduleVersions.Keys) {
         $versions = $moduleVersions[$moduleName]
         if ($versions.Count -gt 1) {
-            # Sort using Compare-SemVer for proper semver ordering (descending)
+            # Sort: prefer found versions, then by semver descending
+            # NotFound versions are sorted to the end so they get discarded
             $sorted = $versions | Sort-Object -Property @{
                 Expression = {
-                    # Create a sortable key: base version padded + prerelease indicator + prerelease label
+                    # Primary sort: found versions before not-found
+                    if ($_.NotFound) { "1" } else { "0" }
+                }
+            }, @{
+                Expression = {
+                    # Secondary sort: by version descending
                     $ver = $_.VersionString
                     $parts = $ver -split '-', 2
                     $base = $parts[0]
@@ -535,7 +551,13 @@ function Resolve-DiamondDependencies {
             $highest = $sorted[0]
             $conflicts = $sorted | Select-Object -Skip 1
             
-            Write-Warning "Diamond dependency detected for '$moduleName': versions $($versions.VersionString -join ', '). Using highest: $($highest.VersionString)"
+            # Check if any not-found versions are being discarded (informational)
+            $discardedNotFound = $conflicts | Where-Object { $_.NotFound }
+            if ($discardedNotFound) {
+                Write-Verbose "  Discarding unavailable version(s): $($discardedNotFound.VersionString -join ', ') (higher version available)"
+            }
+            
+            Write-Warning "Diamond dependency detected for '$moduleName': versions $($versions.VersionString -join ', '). Using highest available: $($highest.VersionString)"
             
             foreach ($conflict in $conflicts) {
                 $oldKey = $conflict.Key
@@ -556,6 +578,14 @@ function Resolve-DiamondDependencies {
                 # Remove the old version node from the graph
                 $Graph.Remove($oldKey)
             }
+        }
+    }
+    
+    # After resolution, validate that all remaining nodes were found
+    foreach ($nodeKey in $Graph.Keys) {
+        $node = $Graph[$nodeKey]
+        if ($node.NotFound) {
+            throw "Module not found in repository: $($node.Name) version $($node.Version). No alternative version available to satisfy the dependency."
         }
     }
 }

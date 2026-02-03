@@ -182,6 +182,7 @@ Describe "Install-PSResourcePinned" {
                         Version = $ModuleVersion
                         Dependencies = [System.Collections.ArrayList]@()
                         Repository = "TestRepo"
+                        NotFound = $false
                     }
                 }
                 
@@ -204,6 +205,7 @@ Describe "Install-PSResourcePinned" {
                         Version = "1.0.0-dev"  # Full version with prerelease
                         Dependencies = [System.Collections.ArrayList]@()
                         Repository = "TestRepo"
+                        NotFound = $false
                     }
                 }
                 
@@ -234,6 +236,7 @@ Describe "Install-PSResourcePinned" {
                         Version = "2.0.0-beta"
                         Dependencies = [System.Collections.ArrayList]@()
                         Repository = "TestRepo"
+                        NotFound = $false
                     }
                 }
                 
@@ -264,6 +267,7 @@ Describe "Install-PSResourcePinned" {
                         Version = "1.0.0-alpha"
                         Dependencies = [System.Collections.ArrayList]@()
                         Repository = "TestRepo"
+                        NotFound = $false
                     }
                 }
                 
@@ -1342,21 +1346,25 @@ Describe "Topological Dependency Loading" {
                         Name = "ModuleA"
                         Version = "1.0.0"
                         Dependencies = @("SharedDep@1.0.0")
+                        NotFound = $false
                     }
                     "ModuleB@1.0.0" = @{
                         Name = "ModuleB"
                         Version = "1.0.0"
                         Dependencies = @("SharedDep@2.0.0")
+                        NotFound = $false
                     }
                     "SharedDep@1.0.0" = @{
                         Name = "SharedDep"
                         Version = "1.0.0"
                         Dependencies = @()
+                        NotFound = $false
                     }
                     "SharedDep@2.0.0" = @{
                         Name = "SharedDep"
                         Version = "2.0.0"
                         Dependencies = @()
+                        NotFound = $false
                     }
                 }
                 
@@ -1378,11 +1386,13 @@ Describe "Topological Dependency Loading" {
                         Name = "ModuleA"
                         Version = "1.0.0"
                         Dependencies = @("ModuleB@1.0.0")
+                        NotFound = $false
                     }
                     "ModuleB@1.0.0" = @{
                         Name = "ModuleB"
                         Version = "1.0.0"
                         Dependencies = @()
+                        NotFound = $false
                     }
                 }
                 
@@ -1402,21 +1412,25 @@ Describe "Topological Dependency Loading" {
                         Name = "ModuleA"
                         Version = "1.0.0"
                         Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0-alpha")
+                        NotFound = $false
                     }
                     "ModuleB@1.0.0" = @{
                         Name = "ModuleB"
                         Version = "1.0.0"
                         Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0-beta")
+                        NotFound = $false
                     }
                     "SharedDep@1.0.0-alpha" = @{
                         Name = "SharedDep"
                         Version = "1.0.0-alpha"
                         Dependencies = [System.Collections.ArrayList]@()
+                        NotFound = $false
                     }
                     "SharedDep@1.0.0-beta" = @{
                         Name = "SharedDep"
                         Version = "1.0.0-beta"
                         Dependencies = [System.Collections.ArrayList]@()
+                        NotFound = $false
                     }
                 }
                 
@@ -1439,21 +1453,25 @@ Describe "Topological Dependency Loading" {
                         Name = "ModuleA"
                         Version = "1.0.0"
                         Dependencies = [System.Collections.ArrayList]@("SharedDep@2.0.0-dev")
+                        NotFound = $false
                     }
                     "ModuleB@1.0.0" = @{
                         Name = "ModuleB"
                         Version = "1.0.0"
                         Dependencies = [System.Collections.ArrayList]@("SharedDep@2.0.0")
+                        NotFound = $false
                     }
                     "SharedDep@2.0.0-dev" = @{
                         Name = "SharedDep"
                         Version = "2.0.0-dev"
                         Dependencies = [System.Collections.ArrayList]@()
+                        NotFound = $false
                     }
                     "SharedDep@2.0.0" = @{
                         Name = "SharedDep"
                         Version = "2.0.0"
                         Dependencies = [System.Collections.ArrayList]@()
+                        NotFound = $false
                     }
                 }
                 
@@ -1475,21 +1493,25 @@ Describe "Topological Dependency Loading" {
                         Name = "ModuleA"
                         Version = "1.0.0"
                         Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0-alpha.1")
+                        NotFound = $false
                     }
                     "ModuleB@1.0.0" = @{
                         Name = "ModuleB"
                         Version = "1.0.0"
                         Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0-alpha.2")
+                        NotFound = $false
                     }
                     "SharedDep@1.0.0-alpha.1" = @{
                         Name = "SharedDep"
                         Version = "1.0.0-alpha.1"
                         Dependencies = [System.Collections.ArrayList]@()
+                        NotFound = $false
                     }
                     "SharedDep@1.0.0-alpha.2" = @{
                         Name = "SharedDep"
                         Version = "1.0.0-alpha.2"
                         Dependencies = [System.Collections.ArrayList]@()
+                        NotFound = $false
                     }
                 }
                 
@@ -1498,6 +1520,209 @@ Describe "Topological Dependency Loading" {
                 # alpha.2 > alpha.1 (lexicographic)
                 $graph.ContainsKey("SharedDep@1.0.0-alpha.2") | Should -BeTrue
                 $graph.ContainsKey("SharedDep@1.0.0-alpha.1") | Should -BeFalse
+            }
+        }
+
+        It "Should prefer found versions over not-found versions in diamond resolution" {
+            InModuleScope Microsoft.AVS.CDR {
+                # Graph where one version is not found but a higher version exists
+                $graph = @{
+                    "ModuleA@1.0.0" = @{
+                        Name = "ModuleA"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0")
+                        NotFound = $false
+                    }
+                    "ModuleB@1.0.0" = @{
+                        Name = "ModuleB"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@("SharedDep@2.0.0")
+                        NotFound = $false
+                    }
+                    "SharedDep@1.0.0" = @{
+                        Name = "SharedDep"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@()
+                        NotFound = $true  # This version doesn't exist in feed
+                    }
+                    "SharedDep@2.0.0" = @{
+                        Name = "SharedDep"
+                        Version = "2.0.0"
+                        Dependencies = [System.Collections.ArrayList]@()
+                        NotFound = $false  # This version exists
+                    }
+                }
+                
+                # Should not throw - the not-found version should be discarded
+                { Resolve-DiamondDependencies -Graph $graph } | Should -Not -Throw
+                
+                # Found version should be kept
+                $graph.ContainsKey("SharedDep@2.0.0") | Should -BeTrue
+                $graph.ContainsKey("SharedDep@1.0.0") | Should -BeFalse
+                
+                # ModuleA's dependency should be updated to found version
+                $graph["ModuleA@1.0.0"].Dependencies | Should -Contain "SharedDep@2.0.0"
+            }
+        }
+
+        It "Should prefer found lower version over not-found higher version" {
+            InModuleScope Microsoft.AVS.CDR {
+                # Graph where higher version is not found but lower version exists
+                $graph = @{
+                    "ModuleA@1.0.0" = @{
+                        Name = "ModuleA"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0")
+                        NotFound = $false
+                    }
+                    "ModuleB@1.0.0" = @{
+                        Name = "ModuleB"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@("SharedDep@2.0.0")
+                        NotFound = $false
+                    }
+                    "SharedDep@1.0.0" = @{
+                        Name = "SharedDep"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@()
+                        NotFound = $false  # This version exists
+                    }
+                    "SharedDep@2.0.0" = @{
+                        Name = "SharedDep"
+                        Version = "2.0.0"
+                        Dependencies = [System.Collections.ArrayList]@()
+                        NotFound = $true  # Higher version doesn't exist
+                    }
+                }
+                
+                # Should not throw - the not-found higher version should be discarded
+                { Resolve-DiamondDependencies -Graph $graph } | Should -Not -Throw
+                
+                # Found version should be kept even though it's lower
+                $graph.ContainsKey("SharedDep@1.0.0") | Should -BeTrue
+                $graph.ContainsKey("SharedDep@2.0.0") | Should -BeFalse
+                
+                # ModuleB's dependency should be updated to found version
+                $graph["ModuleB@1.0.0"].Dependencies | Should -Contain "SharedDep@1.0.0"
+            }
+        }
+
+        It "Should throw when all versions of a module are not found" {
+            InModuleScope Microsoft.AVS.CDR {
+                # Graph where all versions are not found
+                $graph = @{
+                    "ModuleA@1.0.0" = @{
+                        Name = "ModuleA"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0")
+                        NotFound = $false
+                    }
+                    "SharedDep@1.0.0" = @{
+                        Name = "SharedDep"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@()
+                        NotFound = $true  # Not found and no alternative
+                    }
+                }
+                
+                # Should throw because there's no found version to use
+                { Resolve-DiamondDependencies -Graph $graph } | Should -Throw -ExpectedMessage "*not found*"
+            }
+        }
+
+        It "Should throw when no alternative version available after diamond resolution" {
+            InModuleScope Microsoft.AVS.CDR {
+                # All versions of SharedDep are not found
+                $graph = @{
+                    "ModuleA@1.0.0" = @{
+                        Name = "ModuleA"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0")
+                        NotFound = $false
+                    }
+                    "ModuleB@1.0.0" = @{
+                        Name = "ModuleB"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@("SharedDep@2.0.0")
+                        NotFound = $false
+                    }
+                    "SharedDep@1.0.0" = @{
+                        Name = "SharedDep"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@()
+                        NotFound = $true
+                    }
+                    "SharedDep@2.0.0" = @{
+                        Name = "SharedDep"
+                        Version = "2.0.0"
+                        Dependencies = [System.Collections.ArrayList]@()
+                        NotFound = $true
+                    }
+                }
+                
+                # Should throw because even though we have diamond, both versions are not found
+                { Resolve-DiamondDependencies -Graph $graph } | Should -Throw -ExpectedMessage "*not found*"
+            }
+        }
+
+        It "Should handle mixed found/not-found with multiple modules" {
+            InModuleScope Microsoft.AVS.CDR {
+                # Complex scenario with multiple diamonds
+                $graph = @{
+                    "Root@1.0.0" = @{
+                        Name = "Root"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@("ModuleA@1.0.0", "ModuleB@1.0.0")
+                        NotFound = $false
+                    }
+                    "ModuleA@1.0.0" = @{
+                        Name = "ModuleA"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0", "OtherDep@1.0.0")
+                        NotFound = $false
+                    }
+                    "ModuleB@1.0.0" = @{
+                        Name = "ModuleB"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@("SharedDep@2.0.0", "OtherDep@2.0.0")
+                        NotFound = $false
+                    }
+                    "SharedDep@1.0.0" = @{
+                        Name = "SharedDep"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@()
+                        NotFound = $true  # Not found
+                    }
+                    "SharedDep@2.0.0" = @{
+                        Name = "SharedDep"
+                        Version = "2.0.0"
+                        Dependencies = [System.Collections.ArrayList]@()
+                        NotFound = $false  # Found
+                    }
+                    "OtherDep@1.0.0" = @{
+                        Name = "OtherDep"
+                        Version = "1.0.0"
+                        Dependencies = [System.Collections.ArrayList]@()
+                        NotFound = $false  # Found
+                    }
+                    "OtherDep@2.0.0" = @{
+                        Name = "OtherDep"
+                        Version = "2.0.0"
+                        Dependencies = [System.Collections.ArrayList]@()
+                        NotFound = $true  # Not found
+                    }
+                }
+                
+                # Should succeed - each diamond has at least one found version
+                { Resolve-DiamondDependencies -Graph $graph } | Should -Not -Throw
+                
+                # SharedDep should use 2.0.0 (found)
+                $graph.ContainsKey("SharedDep@2.0.0") | Should -BeTrue
+                $graph.ContainsKey("SharedDep@1.0.0") | Should -BeFalse
+                
+                # OtherDep should use 1.0.0 (found, even though lower)
+                $graph.ContainsKey("OtherDep@1.0.0") | Should -BeTrue
+                $graph.ContainsKey("OtherDep@2.0.0") | Should -BeFalse
             }
         }
     }
@@ -1849,6 +2074,7 @@ Describe "Save-PSResourcePinned" {
                         Version = "1.0.0-dev"
                         Dependencies = [System.Collections.ArrayList]@()
                         Repository = "TestRepo"
+                        NotFound = $false
                     }
                 }
                 
@@ -1872,6 +2098,7 @@ Describe "Save-PSResourcePinned" {
                         Version = "1.0.0-beta"
                         Dependencies = [System.Collections.ArrayList]@()
                         Repository = "TestRepo"
+                        NotFound = $false
                     }
                 }
                 
@@ -2321,6 +2548,126 @@ Describe "Build-RemoteDependencyGraph" {
                 $graph.Count | Should -Be 2
                 # Find-PSResource should have been called twice, both times with Prerelease
                 Should -Invoke Find-PSResource -Times 2 -ParameterFilter { $Prerelease -eq $true }
+            }
+        }
+    }
+
+    Context "NotFound Handling" {
+        It "Should mark module as NotFound when not in repository" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource { $null }  # Module not found
+                
+                $graph = @{}
+                $redirectMap = @{}
+                
+                # Should not throw - marks as NotFound instead
+                { Build-RemoteDependencyGraph -ModuleName "MissingModule" -ModuleVersion "1.0.0" -Graph $graph -RedirectMap $redirectMap } | Should -Not -Throw
+                
+                # Graph should contain the node
+                $graph.Count | Should -Be 1
+                $graph.ContainsKey("MissingModule@1.0.0") | Should -BeTrue
+                
+                # Node should be marked as NotFound
+                $graph["MissingModule@1.0.0"].NotFound | Should -BeTrue
+                $graph["MissingModule@1.0.0"].Dependencies.Count | Should -Be 0
+            }
+        }
+
+        It "Should set NotFound to false for found modules" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    [PSCustomObject]@{
+                        Name = "FoundModule"
+                        Version = [version]"1.0.0"
+                        Repository = "TestRepo"
+                        Dependencies = @()
+                    }
+                }
+                
+                $graph = @{}
+                $redirectMap = @{}
+                Build-RemoteDependencyGraph -ModuleName "FoundModule" -ModuleVersion "1.0.0" -Graph $graph -RedirectMap $redirectMap
+                
+                $graph["FoundModule@1.0.0"].NotFound | Should -BeFalse
+            }
+        }
+
+        It "Should skip dependency processing for not-found modules" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    param($Name)
+                    
+                    # Only return null for the root module
+                    if ($Name -eq "MissingRoot") {
+                        return $null
+                    }
+                    
+                    # This should never be called since we don't process dependencies of not-found modules
+                    [PSCustomObject]@{
+                        Name = $Name
+                        Version = [version]"1.0.0"
+                        Repository = "TestRepo"
+                        Dependencies = @()
+                    }
+                }
+                
+                $graph = @{}
+                $redirectMap = @{}
+                Build-RemoteDependencyGraph -ModuleName "MissingRoot" -ModuleVersion "1.0.0" -Graph $graph -RedirectMap $redirectMap
+                
+                # Should only call Find-PSResource once (for the root module)
+                Should -Invoke Find-PSResource -Times 1
+                
+                # Graph should only contain the not-found root
+                $graph.Count | Should -Be 1
+            }
+        }
+
+        It "Should handle mixed found and not-found in dependency chain" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    param($Name, $Version)
+                    
+                    switch ($Name) {
+                        "RootModule" {
+                            [PSCustomObject]@{
+                                Name = "RootModule"
+                                Version = [version]"1.0.0"
+                                Repository = "TestRepo"
+                                Dependencies = @(
+                                    [PSCustomObject]@{ Name = "FoundDep"; VersionRange = "1.0.0" },
+                                    [PSCustomObject]@{ Name = "MissingDep"; VersionRange = "1.0.0" }
+                                )
+                            }
+                        }
+                        "FoundDep" {
+                            [PSCustomObject]@{
+                                Name = "FoundDep"
+                                Version = [version]"1.0.0"
+                                Repository = "TestRepo"
+                                Dependencies = @()
+                            }
+                        }
+                        "MissingDep" {
+                            $null  # Not found
+                        }
+                        default { $null }
+                    }
+                }
+                
+                $graph = @{}
+                $redirectMap = @{}
+                Build-RemoteDependencyGraph -ModuleName "RootModule" -ModuleVersion "1.0.0" -Graph $graph -RedirectMap $redirectMap
+                
+                # All three should be in the graph
+                $graph.Count | Should -Be 3
+                
+                # Root and FoundDep should not be marked as NotFound
+                $graph["RootModule@1.0.0"].NotFound | Should -BeFalse
+                $graph["FoundDep@1.0.0"].NotFound | Should -BeFalse
+                
+                # MissingDep should be marked as NotFound
+                $graph["MissingDep@1.0.0"].NotFound | Should -BeTrue
             }
         }
     }
