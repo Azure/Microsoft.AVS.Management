@@ -254,13 +254,13 @@ Function Test-AVSProtectedObjectName {
         $Name = Limit-WildcardsandCodeInjectionCharacters -String $Name
     }
     Process {
-        ForEach ($ProtectedName in $ProtectedNames) {
-            if ($ProtectedName -eq $Name) {
-                Write-Error "$ProtectedName is a protected name.  Please use a different name."
-                Return $true
-                return
-            }
+        # Check if the name is in the protected names list
+        # If it is a protected name 'throw' and don't continue
+        if ($ProtectedNames -contains $Name) {
+            Write-Error "$Name is a protected name.  Please use a different name."
+            throw
         }
+        # If not a protected name, return false
         Write-Host -ForegroundColor Green "$Name is not a protected name."
         Return $false
     }
