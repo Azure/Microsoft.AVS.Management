@@ -581,7 +581,7 @@ function Set-ToolsRepo {
         [ValidateNotNullOrEmpty()]
         [ValidatePattern('^https?://')]
         [SecureString]
-        $Tools_URL
+        $ToolsURL
     )
 
     # Initialize variables
@@ -594,11 +594,11 @@ function Set-ToolsRepo {
 
     # Main execution wrapped in try-catch-finally
     try {
-        Write-Verbose "Starting Set-ToolsRepo with URL: $Tools_URL"
+        Write-Verbose "Starting Set-ToolsRepo with URL: $ToolsURL"
 
         # Validate URL accessibility
         try {
-            $webResponse = Invoke-WebRequest -Uri $Tools_URL -Method Head -TimeoutSec 30 -ErrorAction Stop
+            $webResponse = Invoke-WebRequest -Uri $ToolsURL -Method Head -TimeoutSec 30 -ErrorAction Stop
             if ($webResponse.StatusCode -ne 200) {
                 throw "URL returned status code: $($webResponse.StatusCode)"
             }
@@ -618,9 +618,9 @@ function Set-ToolsRepo {
 
         # Download the tools file with progress
         try {
-            Write-Information "Downloading tools from $Tools_URL..." -InformationAction Continue
+            Write-Information "Downloading tools from $ToolsURL..." -InformationAction Continue
             $ProgressPreference = 'Continue'
-            Invoke-WebRequest -Uri $Tools_URL -OutFile $tools_file -ErrorAction Stop
+            Invoke-WebRequest -Uri $ToolsURL -OutFile $tools_file -ErrorAction Stop
 
             # Validate downloaded file
             if (-not (Test-Path -Path $tools_file)) {
