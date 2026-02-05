@@ -579,10 +579,17 @@ function Set-ToolsRepo {
         [Parameter(Mandatory = $true,
             HelpMessage = 'A publicly available HTTP(S) URL to download the Tools zip file.')]
         [ValidateNotNullOrEmpty()]
-        [ValidatePattern('^https?://')]
         [SecureString]
         $ToolsURL
     )
+
+    # Convert SecureString to plain text for use with web requests
+    $ToolsURLPlain = [System.Net.NetworkCredential]::new('', $ToolsURL).Password
+
+    # Validate URL pattern (must be HTTP or HTTPS)
+    if ($ToolsURLPlain -notmatch '^https?://') {
+        throw "ToolsURL must be a valid HTTP or HTTPS URL."
+    }
 
     # Initialize variables
     $new_folder = 'GuestStore'
@@ -594,11 +601,11 @@ function Set-ToolsRepo {
 
     # Main execution wrapped in try-catch-finally
     try {
-        Write-Verbose "Starting Set-ToolsRepo with URL: $ToolsURL"
+        Write-Verbose "Starting Set-ToolsRepo"
 
         # Validate URL accessibility
         try {
-            $webResponse = Invoke-WebRequest -Uri $ToolsURL -Method Head -TimeoutSec 30 -ErrorAction Stop
+            $webResponse = Invoke-WebRequest -Uri $ToolsURLPlain -Method Head -TimeoutSec 30 -ErrorAction Stop
             if ($webResponse.StatusCode -ne 200) {
                 throw "URL returned status code: $($webResponse.StatusCode)"
             }
@@ -618,9 +625,9 @@ function Set-ToolsRepo {
 
         # Download the tools file with progress
         try {
-            Write-Information "Downloading tools from $ToolsURL..." -InformationAction Continue
+            Write-Information "Downloading tools..." -InformationAction Continue
             $ProgressPreference = 'Continue'
-            Invoke-WebRequest -Uri $ToolsURL -OutFile $tools_file -ErrorAction Stop
+            Invoke-WebRequest -Uri $ToolsURLPlain -OutFile $tools_file -ErrorAction Stop
 
             # Validate downloaded file
             if (-not (Test-Path -Path $tools_file)) {
