@@ -788,6 +788,83 @@ function Sync-ClusterVMHostStorage {
     $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
 }
 
+# Private helper function for removing iSCSI targets (both static and dynamic)
+function Remove-VMHostIScsiTargetsInternal {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [String] $ClusterName,
+
+        [Parameter(Mandatory=$false)]
+        [String] $VMHostName,
+
+        [Parameter(Mandatory=$true)]
+        [String] $iSCSIAddress,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateSet("Static", "Send")]
+        [String] $TargetType
+    )
+
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $ClusterName does not exist."
+    }
+
+    $iSCSIAddressList = $iSCSIAddress.Split(",")
+    $DatastoreDisks = Get-Datastore | Select-Object -ExpandProperty ExtensionData | Select-Object -ExpandProperty Info | Select-Object -ExpandProperty Vmfs | Select-Object -ExpandProperty Extent
+    $TargetsChanged = $False
+
+    $VMHosts = $null
+    if ($VMHostName) {
+        $VMHosts = $Cluster | Get-VMHost -Name $VMHostName
+    }
+    else {
+        $VMHosts = $Cluster | Get-VMHost
+    }
+    if (-not $VMHosts) {
+        throw "No hosts found in cluster $ClusterName"
+    }
+
+    $TargetTypeLabel = if ($TargetType -eq "Send") { "dynamic" } else { "static" }
+
+    # Remove iSCSI ip address from discovery from all of hosts if there is a match
+    $HBAs = $VMHosts | Get-VMHostHba -Type iScsi
+    foreach ($HBA in $HBAs) {
+        $DeviceIds = ($HBA | Get-ScsiLun).CanonicalName
+
+        # Find if any of the devices is used as backing for a datastore
+        $IsDeviceInUse = $False
+        foreach ($DeviceId in $DeviceIds) {
+            if ($DatastoreDisks.DiskName -contains $DeviceId) {
+                $IsDeviceInUse = $True
+                break
+            }
+        }
+        if ($IsDeviceInUse) {
+            Write-Warning "Datastore disk $DeviceId for host $($HBA.VMHost.Name) is in use, skipping iSCSI target removal"
+        }
+        else {
+            $Targets = $HBA | Get-IScsiHbaTarget | Where-Object {($_.Type -eq $TargetType) -and ($iSCSIAddressList -contains $_.Address)}
+            foreach ($Target in $Targets) {
+                Write-Host "Removing $TargetTypeLabel iSCSI target $Target from host $($HBA.VMHost.Name)"
+                try {
+                    $Target | Remove-IScsiHbaTarget -Confirm:$false
+                    $TargetsChanged = $True
+                }
+                catch {
+                    Write-Error "Failed to remove $TargetTypeLabel iSCSI target $Target from host $($HBA.VMHost.Name) with error: $_"
+                }
+            }
+        }
+    }
+
+    if ($TargetsChanged) {
+        # Rescan after removing the iSCSI targets
+        Write-Host "Rescanning storage"
+        $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
+    }
+}
+
 <#
     .SYNOPSIS
      This function removes the specified static iSCSI configurations from all of Esxi Hosts in a cluster
@@ -835,78 +912,62 @@ function Remove-VMHostStaticIScsiTargets {
         $iSCSIAddress
     )
 
-    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
-    if (-not $Cluster) {
-        throw "Cluster $ClusterName does not exist."
-    }
+    Remove-VMHostIScsiTargetsInternal -ClusterName $ClusterName -VMHostName $VMHostName -iSCSIAddress $iSCSIAddress -TargetType "Static"
+}
 
-    $iSCSIAddressList = $iSCSIAddress.Split(",")
-    $DatastoreDisks = Get-Datastore | Select-Object -ExpandProperty ExtensionData | Select-Object -ExpandProperty Info | Select-Object -ExpandProperty Vmfs | Select-Object -ExpandProperty Extent
-    $TargetsChanged = $False
+<#
+    .SYNOPSIS
+     This function removes the specified dynamic iSCSI configurations from all of Esxi Hosts in a cluster
 
-    $VMHosts = $null
-    if ($VMHostName) {
-        $VMHosts = $Cluster| Get-VMHost -Name $VMHostName
-    }
-    else {
-        $VMHosts = $Cluster | Get-VMHost
-    }
-    if (-not $VMHosts) {
-        throw "No hosts found in cluster $ClusterName"
-    }
+    .PARAMETER ClusterName
+     Cluster name
 
-    # Remove iSCSI ip address from static discovery from all of hosts if there is a match
-    $HBAs =  $VMHosts | Get-VMHostHba -Type iScsi
-    foreach ($HBA in $HBAs) {
-        $DeviceIds = ($HBA | Get-ScsiLun).CanonicalName
+    .PARAMETER iSCSIAddress
+     iSCSI target address. Multiple addresses can be seperated by ","
 
-        # Find if any of the devices is used as backing for a datastore
-        $IsDeviceInUse = $False
-        foreach ($DeviceId in $DeviceIds) {
-            if ($DatastoreDisks.DiskName -contains $DeviceId) {
-                $IsDeviceInUse = $True
-                break
-            }
-        }
-        if ($IsDeviceInUse) {
-            Write-Warning "Datastore disk $DeviceId for host $($HBA.VMHost.Name) is in use, skipping iSCSI target removal"
-        }
-        else {
-            $Targets = $HBA | Get-IScsiHbaTarget | Where-Object {($_.Type -eq "Static") -and ($iSCSIAddressList -contains $_.Address)}
-            foreach ($Target in $Targets) {
-                Write-Host "Removing iSCSI target $Target from host $($HBA.VMHost.Name)"
-                try {
-                    $Target | Remove-IScsiHbaTarget -Confirm:$false
-                    $TargetsChanged = $True
-                }
-                catch {
-                    Write-Error "Failed to remove iSCSI target $Target from host $($HBA.VMHost.Name) with error: $_"
-                }
-            }
-        }
-    }
+    .PARAMETER VMHostName
+      Name of the VMHost (ESXi server). If not specified, all hosts in the cluster will be updated.
 
-    if ($TargetsChanged) {
-        # Rescan after removing the iSCSI targets
-        Write-Host "Rescanning storage"
-        $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
-    }
+    .EXAMPLE
+     Remove-VMHostDynamicIScsiTargets -ClusterName "myCluster" -ISCSIAddress "192.168.1.10,192.168.1.11"
+
+    .INPUTS
+     vCenter cluster name and iSCSi target address
+
+    .OUTPUTS
+     None
+#>
+function Remove-VMHostDynamicIScsiTargets {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false, AutomationOnly = $true)]
+    Param (
+        [Parameter(
+                Mandatory=$true,
+                HelpMessage = 'Cluster name in vCenter')]
+        [ValidateNotNull()]
+        [String]
+        $ClusterName,
+
+        [Parameter(
+                Mandatory=$false,
+                HelpMessage = 'VMHost name')]        
+        [String]
+        $VMHostName,
+
+        [Parameter(
+                Mandatory=$true,
+                HelpMessage = 'IP Address of dynamic iSCSI target to remove. Multiple addresses can be seperated by ","')]
+        [ValidateNotNull()]
+        [String]
+        $iSCSIAddress
+    )
+
+    Remove-VMHostIScsiTargetsInternal -ClusterName $ClusterName -VMHostName $VMHostName -iSCSIAddress $iSCSIAddress -TargetType "Send"
 }
 
 <#
     .SYNOPSIS
      This function connects all ESXi host(s) to the specified storage cluster node/target via NVMe/TCP.
-
-     1. vSphere Cluster Name
-     2. Storage Node EndPoint Network address
-     3. Storage SystemNQN
-     4. NVMe/TCP Admin Queue Size (Optional)
-     5. Controller Id (Optional)
-     6. IO Queue Number (Optional)
-     7. IO Queue Size (Optional)
-     8. Keep Alive Timeout (Optional)
-     9. Target Port Number (Optional)
-
 
     .PARAMETER ClusterName
      vSphere Cluster Name
