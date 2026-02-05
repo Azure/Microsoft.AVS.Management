@@ -12,7 +12,7 @@ function Remove-AvsUnassociatedObject {
     .DESCRIPTION
         Scans a given vSphere cluster for unassociated vSAN objects.
         Performs safety checks against management VMs, system-like objects, and object health.
-        Deletes objects only if they pass all checks. 
+        Deletes objects only if they pass all checks.
 
         IMPORTANT: Deletion of vSAN objects is irreversible.
         Once an object is deleted, it cannot be recovered or reverted.
@@ -62,7 +62,7 @@ function Remove-AvsUnassociatedObject {
         $extRaw = $vsanIntSys.GetVsanObjExtAttrs($id.Uuid)
         $ext    = $null; try { $ext = $extRaw | ConvertFrom-Json } catch {}
 
-        
+
         $fields = @($id.Name, $ext.'User friendly name', $ext.'Object path', $id.Owner, $id.Content, $id.Type, $id.Description)
 
         # Check if object is part of management pool
@@ -85,8 +85,8 @@ function Remove-AvsUnassociatedObject {
             continue
         }
 
-        
-        
+
+
         try {
             [void]$vsanIntSys.DeleteVsanObjects(@($id.Uuid), $true)
             Write-Host "Deleted $($id.Uuid)" -ForegroundColor Green
@@ -150,35 +150,35 @@ function Get-UnassociatedVsanObjectsWithPolicy {
     <#
     .SYNOPSIS
         Lists all unassociated vSAN objects with a specified storage policy across all clusters.
-    
+
     .DESCRIPTION
         Scans all clusters for vSAN objects that are not associated with any VM and have the specified storage policy.
-    
+
     .PARAMETER PolicyName
         The name of the storage policy to filter unassociated objects.
-    
+
     .PARAMETER ClusterName
         The name of the vSphere cluster to scan for unassociated objects.
-    
+
     .EXAMPLE
         Get-UnassociatedVsanObjectsWithPolicy -PolicyName 'vSAN Default Storage Policy' -ClusterName 'Cluster1'
     #>
 
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]										
+    [AVSAttribute(10, UpdatesSDDC = $false)]
     Param (
         [Parameter(Mandatory = $true, HelpMessage = 'The storage policy name to filter unassociated objects')]
         [ValidateNotNullOrEmpty()]
         [string]$PolicyName,
-        
+
         [Parameter(Mandatory = $true, HelpMessage = 'The name of the vSphere cluster to scan for unassociated objects')]
         [ValidateNotNullOrEmpty()]
         [string]$ClusterName
     )
-    
+
     $totalObjects = 0
     $matchedObjects = 0
-    
+
     try {
         $cluster = Get-Cluster $ClusterName -ErrorAction Stop
 
@@ -220,7 +220,7 @@ function Get-UnassociatedVsanObjectsWithPolicy {
 
     Write-Output "Total unassociated objects found: $totalObjects"
     Write-Output "Unassociated objects with policy '$PolicyName': $matchedObjects"
-    
+
     if ($matchedObjects -eq 0) {
         Write-Output "No unassociated objects with policy '$PolicyName' found."
     }
@@ -230,50 +230,50 @@ function Update-StoragePolicyOfUnassociatedVsanObjects {
     <#
     .SYNOPSIS
         Updates the storage policy of unassociated vSAN objects from a current policy to a new target policy.
-    
+
     .DESCRIPTION
         This function scans all clusters for unassociated vSAN objects with a specified current policy and updates their storage policy to a new target policy.
-    
+
     .PARAMETER CurrentPolicyName
         The name of the current policy that unassociated objects currently have.
-    
+
     .PARAMETER TargetPolicyName
         The name of the new storage policy to apply to the unassociated objects.
-    
+
     .PARAMETER ClusterName
         The name of the vSphere cluster containing the unassociated objects to update.
-    
+
     .EXAMPLE
-        Update-StoragePolicyOfUnassociatedVsanObjects -CurrentPolicyName 'vSAN Default Storage Policy' -TargetPolicyName 'New Policy' -ClusterName 'Cluster1'													 
+        Update-StoragePolicyOfUnassociatedVsanObjects -CurrentPolicyName 'vSAN Default Storage Policy' -TargetPolicyName 'New Policy' -ClusterName 'Cluster1'
     #>
 
     [CmdletBinding()]
-	[AVSAttribute(30, UpdatesSDDC = $false)]										
+	[AVSAttribute(30, UpdatesSDDC = $false)]
     Param (
         [Parameter(Mandatory = $true, HelpMessage = 'Specify the name of the current storage policy assigned to the unassociated objects.')]
         [ValidateNotNullOrEmpty()]
         [string]$CurrentPolicyName,
-        
+
         [Parameter(Mandatory = $true, HelpMessage = 'Specify the name of the target storage policy to assign to the unassociated objects.')]
         [ValidateNotNullOrEmpty()]
         [string]$TargetPolicyName,
-        
+
         [Parameter(Mandatory = $true, HelpMessage = 'Specify the name of the vSphere cluster containing the unassociated objects to update.')]
         [ValidateNotNullOrEmpty()]
         [string]$ClusterName
     )
-    
-    try {								
+
+    try {
         $newPolicy = Get-SpbmStoragePolicy -Name $TargetPolicyName -ErrorAction Stop
     }
     catch {
         Write-Error "Failed to retrieve target storage policy '$TargetPolicyName': $($_.Exception.Message)"
         return
     }
-					 
+
     $totalUnassociatedObjects = 0
     $updatedObjects = 0
-    
+
     try {
         $cluster = Get-Cluster $ClusterName -ErrorAction Stop
 	    $clusterMoRef = $cluster.ExtensionData.MoRef
@@ -306,7 +306,7 @@ function Update-StoragePolicyOfUnassociatedVsanObjects {
     foreach ($obj in $unassociatedObjects) {
         $totalUnassociatedObjects++
         try {
-            $jsonResult = ($vsanIntSys.GetVsanObjExtAttrs($obj.Uuid)) | ConvertFrom-Json																	   
+            $jsonResult = ($vsanIntSys.GetVsanObjExtAttrs($obj.Uuid)) | ConvertFrom-Json
             $objectID = ($jsonResult.PSObject.Properties.Name | Select-Object -First 1)
             $objectInfo = $jsonResult.$objectID
         }
@@ -314,14 +314,14 @@ function Update-StoragePolicyOfUnassociatedVsanObjects {
             Write-Warning "Failed to retrieve or parse attributes for object $($obj.Uuid): $($_.Exception.Message)"
             continue
         }
-						  
+
         if ($null -eq $objectInfo.'User friendly name') {
             Write-Warning "No user friendly name for object UUID: $($obj.Uuid). Skipping Test-AVSProtectedObjectName check."
             $friendlyName = 'NO USER FRIENDLY NAME'
-        } 
+        }
         else {
             $friendlyName = $objectInfo.'User friendly name'
-            try {								   
+            try {
                 if (Test-AVSProtectedObjectName -Name $friendlyName) {
                     Write-Error "The object '$friendlyName' is protected. Skipping policy update for UUID: $($obj.Uuid)."
                     continue
@@ -332,7 +332,7 @@ function Update-StoragePolicyOfUnassociatedVsanObjects {
                 continue
             }
         }
-												   
+
         if ($obj.SpbmProfileName -eq $CurrentPolicyName) {
             Write-Output "Unassociated object $($obj.Uuid) with policy '$CurrentPolicyName' is being updated to '$TargetPolicyName'..."
             try {
@@ -882,7 +882,7 @@ function Set-vSANCompressDedupe {
     }
 }
 
-Function Remove-AVSStoragePolicy {
+function Remove-AVSStoragePolicy {
     <#
     .DESCRIPTION
         This function removes a storage policy.
@@ -901,22 +901,35 @@ Function Remove-AVSStoragePolicy {
     )
     #Remove Wildcards characters from Name
     $Name = Limit-WildcardsandCodeInjectionCharacters $Name
-    #Protected Policy Object Name Validation Check
-    If (Test-AVSProtectedObjectName -Name $Name) {
-        Write-Error "$Name is a protected policy name.  Please choose a different policy name."
+
+    # Protected Policy Object Name Validation Check
+    # It will throw an error if the name is protected
+    Test-AVSProtectedObjectName -Name $Name
+
+    try {
+        $StoragePolicy = Get-SpbmStoragePolicy -Name $Name -ErrorAction Stop
+    } catch {
+        Write-Information "Storage Policy $Name does not exist."
         return
     }
-    Else{
-        #Get Storage Policy
-        $StoragePolicy = Get-SpbmStoragePolicy -Name $Name -ErrorAction SilentlyContinue
-        #Remove Storage Policy
-        If ([string]::IsNullOrEmpty($StoragePolicy)) {
-            Write-Error "Storage Policy $Name does not exist."
-            return
-        }
-        Else { Remove-SpbmStoragePolicy -StoragePolicy $StoragePolicy -Confirm:$false }
-        }    
+
+    #Remove Storage Policy
+    try {
+        Remove-SpbmStoragePolicy -StoragePolicy $StoragePolicy -Confirm:$false -ErrorAction Stop
+        Write-Information "Storage Policy $Name removed successfully."
+    } catch {
+        Write-Error "Failed to remove Storage Policy $Name. $_"
+        return
     }
+
+    #Validate Storage Policy was removed
+    try {
+        $StoragePolicy = Get-SpbmStoragePolicy -Name $Name -ErrorAction Stop
+        Write-Error "Storage Policy $Name still exists after removal."
+    } catch {
+        Write-Information "Validated: Storage Policy $Name no longer exists."
+    }
+}
 
 Function New-AVSStoragePolicy {
     <#
