@@ -258,7 +258,7 @@ function Test-AVSProtectedObjectName {
             throw
         }
         # If not a protected name, return false
-        Write-Host -ForegroundColor Green "$Name is not a protected name."
+        Write-Information "$Name is not a protected name."
         return $false
     }
 }
