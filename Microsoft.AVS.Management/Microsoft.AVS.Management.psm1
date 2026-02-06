@@ -906,11 +906,9 @@ function Remove-AVSStoragePolicy {
     # It will throw an error if the name is protected
     Test-AVSProtectedObjectName -Name $Name
 
-    try {
-        $StoragePolicy = Get-SpbmStoragePolicy -Name $Name -ErrorAction Stop
-    } catch {
-        Write-Information "Storage Policy $Name does not exist."
-        return
+    $StoragePolicy = Get-SpbmStoragePolicy -Name $Name -ErrorAction SilentlyContinue
+    if (-not $StoragePolicy) {
+        throw "Storage Policy $Name does not exist."
     }
 
     #Remove Storage Policy
@@ -918,16 +916,15 @@ function Remove-AVSStoragePolicy {
         Remove-SpbmStoragePolicy -StoragePolicy $StoragePolicy -Confirm:$false -ErrorAction Stop
         Write-Information "Storage Policy $Name removed successfully."
     } catch {
-        Write-Error "Failed to remove Storage Policy $Name. $_"
-        return
+        throw "Failed to remove Storage Policy $Name. $_"
     }
 
     #Validate Storage Policy was removed
-    try {
-        $StoragePolicy = Get-SpbmStoragePolicy -Name $Name -ErrorAction Stop
-        Write-Error "Storage Policy $Name still exists after removal."
-    } catch {
-        Write-Information "Validated: Storage Policy $Name no longer exists."
+    $StoragePolicy = Get-SpbmStoragePolicy -Name $Name -ErrorAction SilentlyContinue
+    if (-not $StoragePolicy) {
+         "Storage Policy $Name removed successfully and validated."
+    } else {
+        throw "Storage Policy $Name still exists -- removal failed."
     }
 }
 

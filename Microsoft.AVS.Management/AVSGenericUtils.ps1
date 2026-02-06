@@ -254,8 +254,7 @@ function Test-AVSProtectedObjectName {
         # Check if the name is in the protected names list
         # If it is a protected name 'throw' and don't continue
         if ($ProtectedNames -contains $Name) {
-            Write-Error "$Name is a protected name.  Please use a different name."
-            throw
+            throw "$Name is a protected name.  Please use a different name."
         }
         # If not a protected name, return false
         Write-Information "$Name is not a protected name."
