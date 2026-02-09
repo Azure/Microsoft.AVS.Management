@@ -156,10 +156,7 @@ function Get-MgmtResourcePoolVMs {
     return [pscustomobject]@{ Names=@($names); MoRefs=@($mors); Count=$names.Count }
 }
 
-
-
-
-Function Test-AVSProtectedObjectName {
+function Test-AVSProtectedObjectName {
     <#
     .DESCRIPTION
         This function tests if an object name is valid.
@@ -176,7 +173,7 @@ Function Test-AVSProtectedObjectName {
         [string]
         $Name
     )
-    Begin {
+    begin {
         #Protected Policy Object Name Validation Check
         $ProtectedNames = @(
             "Microsoft vSAN Management Storage Policy"
@@ -250,19 +247,18 @@ Function Test-AVSProtectedObjectName {
             "CloudAdmin"
             "HmsRemoteUser"
             "NsxAuditor"
-            )
+        )
         $Name = Limit-WildcardsandCodeInjectionCharacters -String $Name
     }
-    Process {
-        ForEach ($ProtectedName in $ProtectedNames) {
-            if ($ProtectedName -eq $Name) {
-                Write-Error "$ProtectedName is a protected name.  Please use a different name."
-                Return $true
-                return
-            }
+    process {
+        # Check if the name is in the protected names list
+        # If it is a protected name 'throw' and don't continue
+        if ($ProtectedNames -contains $Name) {
+            throw "$Name is a protected name.  Please use a different name."
         }
-        Write-Host -ForegroundColor Green "$Name is not a protected name."
-        Return $false
+        # If not a protected name, return false
+        Write-Information "$Name is not a protected name."
+        return $false
     }
 }
 
