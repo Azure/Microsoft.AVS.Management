@@ -1021,6 +1021,11 @@ function New-AVSStoragePolicy {
         [Parameter(Mandatory = $false)]
         [ValidateRange(0, 3)]
         [int]
+        $vSANFailuresToToleratePJA,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateSet("None", "R1FTT1", "R5FTT1", "R1FTT2", "R6FTT2", "R1FTT3")]
+        [string]
         $vSANFailuresToTolerate,
 
         [Parameter(Mandatory = $false)]
@@ -1174,29 +1179,81 @@ function New-AVSStoragePolicy {
         Write-Information "Adding VSAN.storageType = Allflash to ProfileSpec"
         $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.storageType" ) -Value "Allflash"
 
-        # RAID Type
-        if ($vSANReplicationType) {
-            Write-Information "vSANReplicationType value set to: $vSANReplicationType"
-            switch ($vSANReplicationType) {
-                "RAID1" {
-                    Write-Information "Adding VSAN.replicaPreference = RAID-1 (Mirroring) - Performance to ProfileSpec"
-                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" ) -Value "RAID-1 (Mirroring) - Performance"
-                }
-                "RAID5" {
-                    Write-Information "Adding VSAN.replicaPreference = RAID-5/6 (Erasure Coding) - Capacity to ProfileSpec"
-                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" ) -Value "RAID-5/6 (Erasure Coding) - Capacity"
-                    # Write-Information "Adding VSAN.storageType = Allflash to ProfileSpec as required for Erasure Coding"
-                    # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.storageType" ) -Value "Allflash"
-                }
-                "RAID6" {
-                    Write-Information "Adding VSAN.replicaPreference = RAID-5/6 (Erasure Coding) - Capacity to ProfileSpec"
-                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" ) -Value "RAID-5/6 (Erasure Coding) - Capacity"
-                    # Write-Information "Adding VSAN.storageType = Allflash to ProfileSpec as required for Erasure Coding"
-                    # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.storageType" ) -Value "Allflash"
-                }
-                default {}
+        #vSANFailurestoTolerate / FTT (intra-site when stretch cluster selected)
+        Write-Information "vSANFailurestoTolerate value set to: $vSANFailuresToTolerate"
+        $isStretch = ($vSANSiteDisasterTolerance -and $vSANSiteDisasterTolerance -ne 'None')
+        $fttId = if ($isStretch) { 'subFailuresToTolerate' } else { 'hostFailuresToTolerate' }
+        switch ($vSANFailuresToTolerate) {
+            'None' {
+                Add-VsanCapabilityInstanceLocal -Id $fttId -Value 0 -ProfileSpecRef $profilespec | Out-Null
+                $Description = $Description + " - FTT 0 based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur."
+                Write-Warning "$Name policy setting $vSANFailurestoTolerate based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
+            'R1FTT1' {
+                Write-Information "Adding VSAN.replicaPreference = RAID-1 (Mirroring) - Performance to ProfileSpec"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" ) -Value "RAID-1 (Mirroring) - Performance"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name $fttId ) -Value $vSANFailuresToTolerate
+                # Add-VsanCapabilityInstanceLocal -Id $fttId -Value 1 -ProfileSpecRef $profilespec | Out-Null
+                # Add-VsanCapabilityInstanceLocal -Id 'replicaPreference' -Value 'RAID-1 (Mirroring) - Performance' -ProfileSpecRef $profilespec | Out-Null
+            }
+            'R5FTT1' {
+                Write-Information "Adding VSAN.replicaPreference = RAID-5/6 (Erasure Coding) - Capacity to ProfileSpec"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" ) -Value "RAID-5/6 (Erasure Coding) - Capacity"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name $fttId ) -Value $vSANFailuresToTolerate
+                # Add-VsanCapabilityInstanceLocal -Id $fttId -Value 1 -ProfileSpecRef $profilespec | Out-NullV
+                # Add-VsanCapabilityInstanceLocal -Id 'replicaPreference' -Value 'RAID-5/6 (Erasure Coding) - Capacity' -ProfileSpecRef $profilespec | Out-Null
+                # Add-VsanCapabilityInstanceLocal -Id 'storageType' -Value 'Allflash' -ProfileSpecRef $profilespec | Out-Null
+                Write-Information "All Flash added to ProfileSpec as required for $vSANFailuresToTolerate"
+            }
+            'R1FTT2' {
+                Write-Information "Adding VSAN.replicaPreference = RAID-1 (Mirroring) - Performance to ProfileSpec"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" ) -Value "RAID-1 (Mirroring) - Performance"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name $fttId ) -Value $vSANFailuresToTolerate
+                # Add-VsanCapabilityInstanceLocal -Id $fttId -Value 2 -ProfileSpecRef $profilespec | Out-Null
+                # Add-VsanCapabilityInstanceLocal -Id 'replicaPreference' -Value 'RAID-1 (Mirroring) - Performance' -ProfileSpecRef $profilespec | Out-Null
+            }
+            'R6FTT2' {
+                Write-Information "Adding VSAN.replicaPreference = RAID-5/6 (Erasure Coding) - Capacity to ProfileSpec"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" ) -Value "RAID-5/6 (Erasure Coding) - Capacity"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name $fttId ) -Value $vSANFailuresToTolerate
+                # Add-VsanCapabilityInstanceLocal -Id $fttId -Value 2 -ProfileSpecRef $profilespec | Out-Null
+                # Add-VsanCapabilityInstanceLocal -Id 'replicaPreference' -Value 'RAID-5/6 (Erasure Coding) - Capacity' -ProfileSpecRef $profilespec | Out-Null
+                # Add-VsanCapabilityInstanceLocal -Id 'storageType' -Value 'Allflash' -ProfileSpecRef $profilespec | Out-Null
+                Write-Information "All Flash added to ProfileSpec as required for $vSANFailuresToTolerate"
+            }
+            'R1FTT3' {
+                Write-Information "Adding VSAN.replicaPreference = RAID-1 (Mirroring) - Performance to ProfileSpec"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" ) -Value "RAID-1 (Mirroring) - Performance"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name $fttId ) -Value $vSANFailuresToTolerate
+                # Add-VsanCapabilityInstanceLocal -Id $fttId -Value 3 -ProfileSpecRef $profilespec | Out-Null
+                # Add-VsanCapabilityInstanceLocal -Id 'replicaPreference' -Value 'RAID-1 (Mirroring) - Performance' -ProfileSpecRef $profilespec | Out-Null
+            }
+            default {}
         }
+
+        # # RAID Type
+        # if ($vSANReplicationType) {
+        #     Write-Information "vSANReplicationType value set to: $vSANReplicationType"
+        #     switch ($vSANReplicationType) {
+        #         "RAID1" {
+        #             Write-Information "Adding VSAN.replicaPreference = RAID-1 (Mirroring) - Performance to ProfileSpec"
+        #             $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" ) -Value "RAID-1 (Mirroring) - Performance"
+        #         }
+        #         "RAID5" {
+        #             Write-Information "Adding VSAN.replicaPreference = RAID-5/6 (Erasure Coding) - Capacity to ProfileSpec"
+        #             $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" ) -Value "RAID-5/6 (Erasure Coding) - Capacity"
+        #             # Write-Information "Adding VSAN.storageType = Allflash to ProfileSpec as required for Erasure Coding"
+        #             # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.storageType" ) -Value "Allflash"
+        #         }
+        #         "RAID6" {
+        #             Write-Information "Adding VSAN.replicaPreference = RAID-5/6 (Erasure Coding) - Capacity to ProfileSpec"
+        #             $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" ) -Value "RAID-5/6 (Erasure Coding) - Capacity"
+        #             # Write-Information "Adding VSAN.storageType = Allflash to ProfileSpec as required for Erasure Coding"
+        #             # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.storageType" ) -Value "Allflash"
+        #         }
+        #         default {}
+        #     }
+        # }
 
         # vSAN Site Disaster Tolerance
         Write-Information "Configuring vSAN Site Disaster Tolerance and Failures to Tolerate settings"
@@ -1206,25 +1263,25 @@ function New-AVSStoragePolicy {
                 Write-Information "Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
                 $locality = "Preferred Fault Domain"
                 $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.locality" ) -Value $locality
-                $fttId = 'VSAN.subFailuresToTolerate'
+                # $fttId = 'VSAN.subFailuresToTolerate'
             }
             "Secondary" {
                 Write-Information "Writing to Secondary Fault Domain only"
                 Write-Information "Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
                 $locality = "Secondary Fault Domain"
                 $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.locality" ) -Value $locality
-                $fttId = 'VSAN.subFailuresToTolerate'
+                # $fttId = 'VSAN.subFailuresToTolerate'
             }
             default { $fttId = 'VSAN.hostFailuresToTolerate' }
         }
 
         # vSAN Failures to Tolerate
-        $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name $fttId ) -Value $vSANFailuresToTolerate
+        # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name $fttId ) -Value $vSANFailuresToTolerate
 
-        Write-Information "vSANFailurestoTolerate value set to: $vSANFailuresToTolerate"
+        # Write-Information "vSANFailurestoTolerate value set to: $vSANFailuresToTolerate"
+
         #vSANChecksumDisabled
         Write-Information "vSANChecksumDisabled value is: $vSANChecksumDisabled"
-        # Disable Checksum
         if ($vSANChecksumDisabled) {
             $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.checksumDisabled" ) -Value $true
         }
@@ -1240,7 +1297,6 @@ function New-AVSStoragePolicy {
         if ($vSANDiskStripesPerObject -gt 1) {
             $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.stripeWidth" ) -Value $vSANDiskStripesPerObject
         }
-
 
         #VSANIOLimit
         Write-Information "vSANIOLimit set to: $vSANIOLimit"
