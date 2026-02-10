@@ -198,18 +198,6 @@ function New-AVSStoragePolicy {
             # When both cluster types exist, check for suffixed policy names
             $checkNames += Get-AVSStoragePolicy -Name "$Name-esa"
             $checkNames += Get-AVSStoragePolicy -Name "$Name-osa"
-            # $ExistingESAPolicy = Get-AVSStoragePolicy -Name "$Name-esa"
-            # $ExistingOSAPolicy = Get-AVSStoragePolicy -Name "$Name-osa"
-            # Write-Information ("Existing ESA Policy: " + $ExistingESAPolicy.name)
-            # Write-Information ("Existing OSA Policy: " + $ExistingOSAPolicy.name)
-            # if (($ExistingESAPolicy -or $ExistingOSAPolicy) -and !$Overwrite) {
-            #     Write-Error "Storage Policy $Name-esa and/or $Name-osa already exists.  Set -Overwrite to `$true to overwrite existing policy."
-            #     break
-            # }
-            # if ((!$ExistingESAPolicy -and !$ExistingOSAPolicy) -and $Overwrite) {
-            #     Write-Error "Storage Policy $Name-esa and $Name-osa do not exist.  Set -Overwrite to `$false to create new policy."
-            #     break
-            # }
         }
 
         foreach ($policyName in $checkNames) {
