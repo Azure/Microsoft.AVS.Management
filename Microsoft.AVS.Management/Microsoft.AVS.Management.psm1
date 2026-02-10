@@ -917,6 +917,7 @@ Function Remove-AVSStoragePolicy {
         Else { Remove-SpbmStoragePolicy -StoragePolicy $StoragePolicy -Confirm:$false }
         }
     }
+
 function New-AVSStoragePolicy {
     <#
 	.DESCRIPTION
@@ -1005,7 +1006,7 @@ function New-AVSStoragePolicy {
         When only one cluster type exists, a single policy is created with the specified Name (no suffix).
         #>
     [CmdletBinding()]
-    # [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
     param(
         #Add parameterSetNames to allow for vSAN, Tags, VMEncryption, StorageIOControl, vSANDirect to be optional.
         [Parameter(Mandatory = $true)]
@@ -1068,10 +1069,11 @@ function New-AVSStoragePolicy {
         $NotTags,
 
         [Parameter(Mandatory = $false)]
-        [Boolean]
+        [Switch]
         $Overwrite,
 
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $false,
+            HelpMessage = "Disable compression for ESA clusters.  Compression is enabled by default for ESA clusters.")]
         [Switch]
         $NoCompression
     )
@@ -1115,8 +1117,8 @@ function New-AVSStoragePolicy {
         $checkNames = @($Name)
         if ($hasESA -and $hasOSA) {
             # When both cluster types exist, check for suffixed policy names
-            $checkNames += Get-AVSStoragePolicy -Name "$Name-esa"
-            $checkNames += Get-AVSStoragePolicy -Name "$Name-osa"
+            $checkNames += "$Name-esa"
+            $checkNames += "$Name-osa"
         }
 
         foreach ($policyName in $checkNames) {
@@ -1128,10 +1130,6 @@ function New-AVSStoragePolicy {
             } elseif ($ExistingPolicy -and !$Overwrite) {
                 Write-Error "Storage Policy $policyName already exists.  Set -Overwrite to `$true to overwrite existing policy."
                 break
-            } elseif (!$ExistingPolicy -and $Overwrite) {
-                Write-Error "Storage Policy $policyName does not exist.  Set -Overwrite to `$false to create new policy."
-                break
-            }
         }
 
         $rules = @()
