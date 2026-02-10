@@ -9,12 +9,10 @@ function New-AVSStoragePolicy {
         Description of Storage Policy you are creating, free form text.
     .PARAMETER vSANSiteDisasterTolerance
         Default is "None"
-        Valid Values are "None", "Dual", "Preferred", "Secondary", "NoneStretch"
-        None = No Site Redundancy (Recommended Option for Non-Stretch Clusters, NOT recommended for Stretch Clusters)
-        Dual = Dual Site Redundancy (Recommended Option for Stretch Clusters)
+        Valid Values are "None", "Preferred", "Secondary"
+        None = No Site Redundancy (Recommended Option for Non-Stretch Clusters)
         Preferred = No site redundancy - keep data on Preferred (stretched cluster)
-        Secondary = No site redundancy -  Keep data on Secondary Site (stretched cluster)
-        NoneStretch = No site redundancy - Not Recommended (https://kb.vmware.com/s/article/88358)
+        Secondary = No site redundancy - Keep data on Secondary Site (stretched cluster)
         Only valid for stretch clusters.
     .PARAMETER vSANFailuresToTolerate
         Default is "R1FTT1"
@@ -43,10 +41,14 @@ function New-AVSStoragePolicy {
     .PARAMETER vSANCacheReservation
         Default is 0. Valid values are 0..100
         Percentage of cache reservation for the policy.
-	.PARAMETER vSANChecksumDisabled
+	    .PARAMETER vSANChecksumDisabled
         Default is $false. Enable or disable checksum for the policy. Valid values are $true or $false.
         WARNING - Disabling checksum may lead to data LOSS and/or corruption.
         Recommended value is $false.
+    .PARAMETER NoCompression
+        Switch parameter. When specified, disables space efficiency (compression) for ESA clusters.
+        Only applies to vSAN ESA (Express Storage Architecture) clusters.
+        When not specified (default), compression is enabled for ESA clusters.
     .PARAMETER vSANForceProvisioning
         Default is $false. Force provisioning for the policy. Valid values are $true or $false.
         WARNING - vSAN Force Provisioned Objects are not covered under Microsoft SLA.  Data LOSS and vSAN instability may occur.
@@ -66,18 +68,25 @@ function New-AVSStoragePolicy {
         New-AVSStoragePolicy -Name "Encryption" -VMEncryption "PreIO"
     .EXAMPLE
         Creates a new storage policy named "RAID-1 FTT-1 with Pre-IO VM Encryption" with a description enabled for Pre-IO VM Encryption
-        New-AVSStoragePolicy -Name "RAID-1 FTT-1 with Pre-IO VM Encryption" -Description "My super secure and performant storage policy" -VMEncryption "PreIO" -vSANFailuresToTolerate "1 failure - RAID-1 (Mirroring)"
+        New-AVSStoragePolicy -Name "RAID-1 FTT-1 with Pre-IO VM Encryption" -Description "My super secure and performant storage policy" -VMEncryption "PreIO" -vSANFailuresToTolerate "R1FTT1"
     .EXAMPLE
         Creates a new storage policy named "Tagged Datastores" to use datastores tagged with "SSD" and "NVMe" and not datastores tagged "Slow"
         New-AVSStoragePolicy -Name "Tagged Datastores" -Tags "SSD","NVMe" -NotTags "Slow"
     .EXAMPLE
         Creates a new storage policy named "Production Only" to use datastore tagged w/ Production and not tagged w/ Test or Dev.  Set with RAID-1, 100% read cache, and Thick Provisioning of Disk.
-        New-AVSStoragePolicy -Name "Production Only" -Tags "Production" -NotTags "Test","Dev" -vSANFailuresToTolerate "1 failure - RAID-1 (Mirroring)" -vSANObjectSpaceReservation 100 -vSANCacheReservation 100
+        New-AVSStoragePolicy -Name "Production Only" -Tags "Production" -NotTags "Test","Dev" -vSANFailuresToTolerate "R1FTT1" -vSANObjectSpaceReservation 100 -vSANCacheReservation 100
     .EXAMPLE
         Passing -Overwrite:$true to any examples provided will overwrite an existing policy exactly as defined.  Those values not passed will be removed or set to default values.
+    .NOTES
+        ESA/OSA Dual Policy Behavior:
+        When both vSAN ESA (Express Storage Architecture) and OSA (Original Storage Architecture) clusters are detected,
+        this function automatically creates two separate policies with '-esa' and '-osa' suffixes appended to the Name.
+        - ESA policy includes space efficiency (compression) settings
+        - OSA policy excludes ESA-specific settings
+        When only one cluster type exists, a single policy is created with the specified Name (no suffix).
         #>
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    # [AVSAttribute(10, UpdatesSDDC = $false)]
     param(
         #Add parameterSetNames to allow for vSAN, Tags, VMEncryption, StorageIOControl, vSANDirect to be optional.
         [Parameter(Mandatory = $true)]
@@ -141,7 +150,11 @@ function New-AVSStoragePolicy {
 
         [Parameter(Mandatory = $false)]
         [Boolean]
-        $Overwrite
+        $Overwrite,
+
+        [Parameter(Mandatory = $false)]
+        [Switch]
+        $NoCompression
     )
 
     begin {
@@ -179,34 +192,40 @@ function New-AVSStoragePolicy {
             break
         }
 
-        #Check for existing policy
+        #Check for existing policy names
+        $checkNames = @($Name)
         if ($hasESA -and $hasOSA) {
             # When both cluster types exist, check for suffixed policy names
-            $ExistingESAPolicy = Get-AVSStoragePolicy -Name "$Name-esa"
-            $ExistingOSAPolicy = Get-AVSStoragePolicy -Name "$Name-osa"
-            Write-Information ("Existing ESA Policy: " + $ExistingESAPolicy.name)
-            Write-Information ("Existing OSA Policy: " + $ExistingOSAPolicy.name)
-            if (($ExistingESAPolicy -or $ExistingOSAPolicy) -and !$Overwrite) {
-                Write-Error "Storage Policy $Name-esa and/or $Name-osa already exists.  Set -Overwrite to `$true to overwrite existing policy."
-                break
-            }
-            if ((!$ExistingESAPolicy -and !$ExistingOSAPolicy) -and $Overwrite) {
-                Write-Error "Storage Policy $Name-esa and $Name-osa do not exist.  Set -Overwrite to `$false to create new policy."
-                break
-            }
-        } else {
-            $ExistingPolicy = Get-AVSStoragePolicy -Name $Name
+            $checkNames += Get-AVSStoragePolicy -Name "$Name-esa"
+            $checkNames += Get-AVSStoragePolicy -Name "$Name-osa"
+            # $ExistingESAPolicy = Get-AVSStoragePolicy -Name "$Name-esa"
+            # $ExistingOSAPolicy = Get-AVSStoragePolicy -Name "$Name-osa"
+            # Write-Information ("Existing ESA Policy: " + $ExistingESAPolicy.name)
+            # Write-Information ("Existing OSA Policy: " + $ExistingOSAPolicy.name)
+            # if (($ExistingESAPolicy -or $ExistingOSAPolicy) -and !$Overwrite) {
+            #     Write-Error "Storage Policy $Name-esa and/or $Name-osa already exists.  Set -Overwrite to `$true to overwrite existing policy."
+            #     break
+            # }
+            # if ((!$ExistingESAPolicy -and !$ExistingOSAPolicy) -and $Overwrite) {
+            #     Write-Error "Storage Policy $Name-esa and $Name-osa do not exist.  Set -Overwrite to `$false to create new policy."
+            #     break
+            # }
+        }
+
+        foreach ($policyName in $checkNames) {
+            $ExistingPolicy = Get-AVSStoragePolicy -Name $policyName
             Write-Information ("Existing Policy: " + $ExistingPolicy.name)
-            if ($ExistingPolicy -and !$Overwrite) {
-                Write-Error "Storage Policy $Name already exists.  Set -Overwrite to `$true to overwrite existing policy."
+            if ($ExistingPolicy -and $Overwrite) {
+                Write-Information "Storage Policy $policyName already exists and will be overwritten."
+                Remove-SpbmStoragePolicy -StoragePolicy $policyName -Confirm:$false
+            } elseif ($ExistingPolicy -and !$Overwrite) {
+                Write-Error "Storage Policy $policyName already exists.  Set -Overwrite to `$true to overwrite existing policy."
                 break
-            }
-            if (!$ExistingPolicy -and $Overwrite) {
-                Write-Error "Storage Policy $Name does not exist.  Set -Overwrite to `$false to create new policy."
+            } elseif (!$ExistingPolicy -and $Overwrite) {
+                Write-Error "Storage Policy $policyName does not exist.  Set -Overwrite to `$false to create new policy."
                 break
             }
         }
-        Write-Information "Overwrite value set to: $Overwrite"
 
         $rules = @()
         # vSAN Storage Type - All Flash
@@ -314,10 +333,14 @@ function New-AVSStoragePolicy {
                 $tagCategory = New-TagCategory -Name "StorageTier" -Cardinality Single -EntityType Datastore
             }
 
-            $alltags = $Tags + $NotTags
+            $alltags = @()
+            if ($Tags) { $alltags += $Tags }
+            if ($NotTags) { $alltags += $NotTags }
             $TagNames = @()
             foreach ($t in $alltags) {
-                $TagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
+                if (![string]::IsNullOrWhiteSpace($t)) {
+                    $TagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
+                }
             }
             foreach ($TagName in $TagNames) {
                 $tagExists = (Get-Tag -Name $TagName -ErrorAction SilentlyContinue).Category.Name -match "StorageTier"
@@ -332,7 +355,9 @@ function New-AVSStoragePolicy {
             if ($Tags) {
                 $withTagNames = @()
                 foreach ($t in $Tags) {
-                    $withTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
+                    if (![string]::IsNullOrWhiteSpace($t)) {
+                        $withTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
+                    }
                 }
 
                 # Create SpbmRule objects from each tag
@@ -345,13 +370,15 @@ function New-AVSStoragePolicy {
             }
 
             if ($NotTags) {
-                $withTagNames = @()
+                $notTagNames = @()
                 foreach ($t in $NotTags) {
-                    $withTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
+                    if (![string]::IsNullOrWhiteSpace($t)) {
+                        $notTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
+                    }
                 }
 
                 # Create SpbmRule objects from each tag
-                $notTagRules = $withTagNames | ForEach-Object {
+                $notTagRules = $notTagNames | ForEach-Object {
                     $tag = Get-Tag -Name $_ -Category $tagCategory
                     New-SpbmRule -AnyOfTags $tag -SpbmOperatorType 1
                 }
