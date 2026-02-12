@@ -1271,8 +1271,6 @@ function New-AVSStoragePolicy {
             $tagNames = @()
             # Split strings into arrays
             if ($Tags) {
-                # $pja = $Tags -split ","
-                # Write-Debug $pja
                 $TagsArray = ($Tags -split ",").Trim()
                 foreach ($t in $TagsArray) {
                     Write-Debug $t
@@ -1280,7 +1278,6 @@ function New-AVSStoragePolicy {
                         $withTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
                     }
                 }
-                # $Tags += $cleanTags
                 $TagNames += $withTagNames
             }
             if ($NotTags) {
@@ -1290,17 +1287,9 @@ function New-AVSStoragePolicy {
                         $notTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
                     }
                 }
-                # $NotTags += $cleanNotTags
                 $TagNames += $notTagNames
             }
 
-            # $TagNames = @()
-            # foreach ($t in $alltags) {
-            #     if (![string]::IsNullOrWhiteSpace($t)) {
-            #         $TagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
-            #     }
-            # }
-            # $TagNames | ForEach-Object { Write-Host "'$_'" }
             foreach ($TagName in $TagNames) {
                 $tagExists = (Get-Tag -Name $TagName -ErrorAction SilentlyContinue).Category.Name -match "StorageTier"
                 if ( $tagExists -match "true" ) {
@@ -1312,14 +1301,6 @@ function New-AVSStoragePolicy {
             }
 
             if ($Tags) {
-                # $withTagNames = @()
-                # foreach ($t in $Tags) {
-                #     if (![string]::IsNullOrWhiteSpace($t)) {
-                #         $withTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
-                #     }
-                # }
-
-                # Create SpbmRule objects from each tag
                 $withTagRules = $withTagNames | ForEach-Object {
                     $t = Get-Tag -Name $_ -Category $tagCategory
                     New-SpbmRule -AnyOfTags $t
@@ -1329,13 +1310,6 @@ function New-AVSStoragePolicy {
             }
 
             if ($NotTags) {
-                # $notTagNames = @()
-                # foreach ($t in $NotTags) {
-                #     if (![string]::IsNullOrWhiteSpace($t)) {
-                #         $notTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
-                #     }
-                # }
-
                 # Create SpbmRule objects from each tag
                 $notTagRules = $notTagNames | ForEach-Object {
                     $tag = Get-Tag -Name $_ -Category $tagCategory
