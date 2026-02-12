@@ -1039,15 +1039,17 @@ function New-AVSStoragePolicy {
         [string]
         $vSANSiteDisasterTolerance,
 
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $false,
+            HelpMessage = "Valid values are None, R1FTT1, R5FTT1, R1FTT2, R6FTT2, R1FTT3.")]
         [ValidateSet("None", "R1FTT1", "R5FTT1", "R1FTT2", "R6FTT2", "R1FTT3")]
         [string]
         $vSANFailuresToTolerate,
 
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $false,
+            HelpMessage = 'Specifies the VM encryption mode. Valid values are: None, PreIO, PostIO.')]
         [ValidateSet("None", "PreIO", "PostIO")]
         [string]
-        $VMEncryption = "None",
+        $VMEncryption,
 
         [Parameter(Mandatory = $false)]
         [ValidateRange(0, 100)]
@@ -1078,11 +1080,11 @@ function New-AVSStoragePolicy {
         $vSANForceProvisioning,
 
         [Parameter(Mandatory = $false)]
-        [array]
+        [string]
         $Tags,
 
         [Parameter(Mandatory = $false)]
-        [array]
+        [string]
         $NotTags,
 
         [Parameter(Mandatory = $false)]
@@ -1096,6 +1098,12 @@ function New-AVSStoragePolicy {
     )
 
     begin {
+        # Set $VMEncryption to "None" if an invalid value is passed in order to prevent errors in policy creation.
+        $VMEncryptionSet = @("None", "PreIO", "PostIO")
+        if ($VMEncryption -notin $VMEncryptionSet) {
+            $VMEncryption = "None"
+        }
+
         try {
             $clusters = Get-Cluster
             foreach ($cluster in $clusters) {
@@ -1161,7 +1169,8 @@ function New-AVSStoragePolicy {
         $fttId = if ($isStretch) { 'VSAN.subFailuresToTolerate' } else { 'VSAN.hostFailuresToTolerate' }
         switch ($vSANFailuresToTolerate) {
             'None' {
-                Add-VsanCapabilityInstanceLocal -Id $fttId -Value 0 -ProfileSpecRef $profilespec | Out-Null
+                # Add-VsanCapabilityInstanceLocal -Id $fttId -Value 0 -ProfileSpecRef $profilespec | Out-Null
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name $fttId ) -Value 0
                 $Description = $Description + " - FTT 0 based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur."
                 Write-Warning "$Name policy setting $vSANFailurestoTolerate based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
@@ -1256,15 +1265,42 @@ function New-AVSStoragePolicy {
                 $tagCategory = New-TagCategory -Name "StorageTier" -Cardinality Single -EntityType Datastore
             }
 
-            $alltags = @()
-            if ($Tags) { $alltags += $Tags }
-            if ($NotTags) { $alltags += $NotTags }
-            $TagNames = @()
-            foreach ($t in $alltags) {
-                if (![string]::IsNullOrWhiteSpace($t)) {
-                    $TagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
+            Write-Debug $Tags
+            $withTagNames = @()
+            $notTagNames = @()
+            $tagNames = @()
+            # Split strings into arrays
+            if ($Tags) {
+                # $pja = $Tags -split ","
+                # Write-Debug $pja
+                $TagsArray = ($Tags -split ",").Trim()
+                foreach ($t in $TagsArray) {
+                    Write-Debug $t
+                    if (![string]::IsNullOrWhiteSpace($t)) {
+                        $withTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
+                    }
                 }
+                # $Tags += $cleanTags
+                $TagNames += $withTagNames
             }
+            if ($NotTags) {
+                $NotTagsArray = ($NotTags -split ",").Trim()
+                foreach ($t in $NotTagsArray) {
+                    if (![string]::IsNullOrWhiteSpace($t)) {
+                        $notTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
+                    }
+                }
+                # $NotTags += $cleanNotTags
+                $TagNames += $notTagNames
+            }
+
+            # $TagNames = @()
+            # foreach ($t in $alltags) {
+            #     if (![string]::IsNullOrWhiteSpace($t)) {
+            #         $TagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
+            #     }
+            # }
+            # $TagNames | ForEach-Object { Write-Host "'$_'" }
             foreach ($TagName in $TagNames) {
                 $tagExists = (Get-Tag -Name $TagName -ErrorAction SilentlyContinue).Category.Name -match "StorageTier"
                 if ( $tagExists -match "true" ) {
@@ -1276,12 +1312,12 @@ function New-AVSStoragePolicy {
             }
 
             if ($Tags) {
-                $withTagNames = @()
-                foreach ($t in $Tags) {
-                    if (![string]::IsNullOrWhiteSpace($t)) {
-                        $withTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
-                    }
-                }
+                # $withTagNames = @()
+                # foreach ($t in $Tags) {
+                #     if (![string]::IsNullOrWhiteSpace($t)) {
+                #         $withTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
+                #     }
+                # }
 
                 # Create SpbmRule objects from each tag
                 $withTagRules = $withTagNames | ForEach-Object {
@@ -1293,12 +1329,12 @@ function New-AVSStoragePolicy {
             }
 
             if ($NotTags) {
-                $notTagNames = @()
-                foreach ($t in $NotTags) {
-                    if (![string]::IsNullOrWhiteSpace($t)) {
-                        $notTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
-                    }
-                }
+                # $notTagNames = @()
+                # foreach ($t in $NotTags) {
+                #     if (![string]::IsNullOrWhiteSpace($t)) {
+                #         $notTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
+                #     }
+                # }
 
                 # Create SpbmRule objects from each tag
                 $notTagRules = $notTagNames | ForEach-Object {
