@@ -365,7 +365,7 @@ Function New-AVSTag{
     If (!$Tag) {
         $Tag = New-Tag -Name $Name -Description $Description -Category $TagCategory
     } Else {
-        Set-Tag -Description $Description -Tag $Tag
+        Set-Tag -Description $Description -Tag $Tag # -Category $TagCategory
     }
 
     return $Tag
