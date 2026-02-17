@@ -332,6 +332,46 @@ Function Convert-StringToArray {
 
 }
 
+Function New-AVSTag{
+    <#
+        .DESCRIPTION
+            This function creates or adds a tag w/ associated to an AVS Tag Category
+        .PARAMETER Name
+            Name of Tag to create or add.
+        .PARAMETER Description
+            Description of Tag.  Description of existing tag will be updated if it already exists.
+        .PARAMETER Entity
+            vCenter Object to add tag to.
+    #>
+
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]
+        $Name,
+        [Parameter(Mandatory = $false)]
+        [string]
+        $Description = "Category for AVS Operations"
+    )
+
+    # check or create AVS Tag Category
+    $TagCategory = Get-TagCategory -Name "AVS" -errorAction SilentlyContinue
+    If (!$TagCategory) {
+        $TagCategory = New-TagCategory -Name "AVS" -Description "Category for AVS Operations" -Cardinality:Multiple
+    }
+
+    # check or create Tag, update description if it already exists
+    $Tag = Get-Tag -Name $Name -Category $TagCategory -errorAction SilentlyContinue
+    If (!$Tag) {
+        $Tag = New-Tag -Name $Name -Description $Description -Category $TagCategory
+    } Else {
+        Set-Tag -Description $Description -Tag $Tag
+    }
+
+    return $Tag
+
+}
+
 Function Add-AVSTag{
     <#
         .DESCRIPTION
@@ -351,22 +391,14 @@ Function Add-AVSTag{
         $Name,
         [Parameter(Mandatory = $false)]
         [string]
-        $Description,
+        $Description = "Category for AVS Operations",
         [Parameter(Mandatory = $true)]
         [VMware.VimAutomation.ViCore.Interop.V1.VIObjectCoreInterop]
         $Entity
     )
     Begin {
-        $TagCategory = Get-TagCategory -Name "AVS"
-        If (!$TagCategory) {
-            $TagCategory = New-TagCategory -Name "AVS" -Description "Category for AVS Operations" -Cardinality:Multiple
-        }
-        $Tag = Get-Tag -Name $Name -Category $TagCategory
-        If (!$Tag) {
-            $Tag = New-Tag -Name $Name -Description $Description -Category $TagCategory
-        }
-        Else {Set-Tag -Description $Description -Tag $Tag}
-        }
+        $Tag = New-AVSTag -Name $Name -Description $Description
+    }
 
     Process {
         try {
@@ -374,9 +406,7 @@ Function Add-AVSTag{
             return
         }
         catch {
-            <#Do this if a terminating exception happens#>
+            Write-Error "Failed to assign tag '$Name' to entity '$($Entity.Name)'. Error: $_"
         }
-
     }
-
 }

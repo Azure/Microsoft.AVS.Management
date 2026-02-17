@@ -1271,33 +1271,16 @@ function New-AVSStoragePolicy {
             $tagNames = @()
             # Split strings into arrays
             if ($Tags) {
-                $TagsArray = ($Tags -split ",").Trim()
-                foreach ($t in $TagsArray) {
-                    Write-Debug $t
-                    if (![string]::IsNullOrWhiteSpace($t)) {
-                        $withTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
-                    }
-                }
+                $withTagNames = Convert-StringToArray -String $Tags | ForEach-Object { Limit-WildcardsandCodeInjectionCharacters $_ }
                 $TagNames += $withTagNames
             }
             if ($NotTags) {
-                $NotTagsArray = ($NotTags -split ",").Trim()
-                foreach ($t in $NotTagsArray) {
-                    if (![string]::IsNullOrWhiteSpace($t)) {
-                        $notTagNames += Limit-WildcardsandCodeInjectionCharacters -String $t
-                    }
-                }
+                $NotTagsArray = Convert-StringToArray -String $NotTags | ForEach-Object { Limit-WildcardsandCodeInjectionCharacters $_ }
                 $TagNames += $notTagNames
             }
 
             foreach ($TagName in $TagNames) {
-                $tagExists = (Get-Tag -Name $TagName -ErrorAction SilentlyContinue).Category.Name -match "StorageTier"
-                if ( $tagExists -match "true" ) {
-                    Write-Information "Tag '$TagName' in Category 'StorageTier' already exists for Storage Policy Tag based placement"
-                } else {
-                    Write-Information "Creating Tag '$TagName' in Category 'StorageTier' for Storage Policy Tag based placement"
-                    New-Tag -Name $TagName -Category $tagCategory | Out-Null
-                }
+                New-AVSTag -Name $TagName
             }
 
             if ($Tags) {
