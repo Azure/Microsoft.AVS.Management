@@ -1319,6 +1319,25 @@ function New-AVSStoragePolicy {
         # IMPORTANT - Any additional functionality should be added before the VMEncryption Parameter.
         # The reason is that this subprofile must be added as a capability to all subprofile types for API to accept.
         Write-Information "VMEncryption set to: $VMEncryption"
+        switch ($VMEncryption) {
+            "PreIO" {
+                Write-Information "Adding VM Encryption with Pre-IO filter capability to ProfileSpec"
+                # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.dataAtRestEncryption" ) -Value $true
+                $IOPolicy = Get-AVSStoragePolicy -Name "AVS PRE IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
+                if (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS PRE IO Encryption" -Description "Encrypts VM before VAIO Filter" -PostIOEncryption $false }
+                $IOPolicy = Get-AVSStoragePolicy -Name "AVS PRE IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
+            }
+            "PostIO" {
+                Write-Information "Adding VM Encryption with Post-IO filter capability to ProfileSpec"
+                # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.dataAtRestEncryption" ) -Value $true
+                $IOPolicy = Get-AVSStoragePolicy -Name "AVS POST IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
+                if (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS POST IO Encryption" -Description "Encrypts VM after VAIO Filter" -PostIOEncryption $true }
+                $IOPolicy = Get-AVSStoragePolicy -Name "AVS POST IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
+            }
+            default {
+                Write-Information "No VM Encryption capability added to ProfileSpec"
+            }
+        }
     }
 
     process {
@@ -1416,25 +1435,25 @@ function New-AVSStoragePolicy {
         }
 
         if ($vmencryption -ne "None") {
-            switch ($VMEncryption) {
-                "PreIO" {
-                    Write-Information "Adding VM Encryption with Pre-IO filter capability to ProfileSpec"
-                    # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.dataAtRestEncryption" ) -Value $true
-                    $IOPolicy = Get-AVSStoragePolicy -Name "AVS PRE IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
-                    if (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS PRE IO Encryption" -Description "Encrypts VM before VAIO Filter" -PostIOEncryption $false }
-                    $IOPolicy = Get-AVSStoragePolicy -Name "AVS PRE IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
-                }
-                "PostIO" {
-                    Write-Information "Adding VM Encryption with Post-IO filter capability to ProfileSpec"
-                    # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.dataAtRestEncryption" ) -Value $true
-                    $IOPolicy = Get-AVSStoragePolicy -Name "AVS POST IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
-                    if (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS POST IO Encryption" -Description "Encrypts VM after VAIO Filter" -PostIOEncryption $true }
-                    $IOPolicy = Get-AVSStoragePolicy -Name "AVS POST IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
-                }
-                default {
-                    Write-Information "No VM Encryption capability added to ProfileSpec"
-                }
-            }
+            # switch ($VMEncryption) {
+            #     "PreIO" {
+            #         Write-Information "Adding VM Encryption with Pre-IO filter capability to ProfileSpec"
+            #         # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.dataAtRestEncryption" ) -Value $true
+            #         $IOPolicy = Get-AVSStoragePolicy -Name "AVS PRE IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
+            #         if (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS PRE IO Encryption" -Description "Encrypts VM before VAIO Filter" -PostIOEncryption $false }
+            #         $IOPolicy = Get-AVSStoragePolicy -Name "AVS PRE IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
+            #     }
+            #     "PostIO" {
+            #         Write-Information "Adding VM Encryption with Post-IO filter capability to ProfileSpec"
+            #         # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.dataAtRestEncryption" ) -Value $true
+            #         $IOPolicy = Get-AVSStoragePolicy -Name "AVS POST IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
+            #         if (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS POST IO Encryption" -Description "Encrypts VM after VAIO Filter" -PostIOEncryption $true }
+            #         $IOPolicy = Get-AVSStoragePolicy -Name "AVS POST IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
+            #     }
+            #     default {
+            #         Write-Information "No VM Encryption capability added to ProfileSpec"
+            #     }
+            # }
             # Get the PBM profile manager
             $serviceInstanceView = Get-SpbmView -Id "PbmServiceInstance-ServiceInstance"
             $spbmServiceContent = $serviceInstanceView.PbmRetrieveServiceContent()
