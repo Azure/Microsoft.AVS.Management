@@ -1023,7 +1023,7 @@ function New-AVSStoragePolicy {
         When only one cluster type exists, a single policy is created with the specified Name (no suffix).
         #>
     [CmdletBinding()]
-    # [AVSAttribute(10, UpdatesSDDC = $false)]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
     param(
         #Add parameterSetNames to allow for vSAN, Tags, VMEncryption, StorageIOControl, vSANDirect to be optional.
         [Parameter(Mandatory = $true)]
