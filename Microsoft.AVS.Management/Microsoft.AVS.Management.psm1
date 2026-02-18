@@ -1125,11 +1125,15 @@ function New-AVSStoragePolicy {
         }
 
         #Cleanup Wildcard and Code Injection Characters
-        Write-Information "Cleaning up Wildcard and Code Injection Characters from Name value: $Name"
+        Write-Debug "Cleaning up Wildcard and Code Injection Characters from Name value: $Name"
         $Name = Limit-WildcardsandCodeInjectionCharacters -String $Name
         Write-Information "Name value after cleanup: $Name"
-        Write-Information "Cleaning up Wildcard and Code Injection Characters from Description value: $Description"
-        if (![string]::IsNullOrEmpty($Description)) { $Description = Limit-WildcardsandCodeInjectionCharacters -String $Description }
+        Write-Debug "Cleaning up Wildcard and Code Injection Characters from Description value: $Description"
+        if (![string]::IsNullOrEmpty($Description)) {
+            $Description = Limit-WildcardsandCodeInjectionCharacters -String $Description
+        } else {
+            $Description = "AVS Storage Policy created via PowerCLI"
+        }
         Write-Information "Description value after cleanup: $Description"
 
         #Protected Policy Object Name Validation Check
@@ -1142,8 +1146,9 @@ function New-AVSStoragePolicy {
         $checkNames = @($Name)
         if ($hasESA -and $hasOSA) {
             # When both cluster types exist, check for suffixed policy names
-            $checkNames += "$Name-esa"
-            $checkNames += "$Name-osa"
+            $esaName = "$Name-esa"
+            $osaName = "$Name-osa"
+            $checkNames += $esaName, $osaName
         }
 
         foreach ($policyName in $checkNames) {
@@ -1350,9 +1355,9 @@ function New-AVSStoragePolicy {
         Write-Debug "withTagRuleSet: $($withTagRuleSet -ne $null)"
         Write-Debug "notTagRuleSet: $($notTagRuleSet -ne $null)"
 
-        if ($Description -eq "") {
-            $Description = "AVS Common Storage Policy created via PowerCLI"
-        }
+        # if ($Description -eq "") {
+        #     $Description = "AVS Common Storage Policy created via PowerCLI"
+        # }
 
         $createdPolicyNames = @()
 
@@ -1367,7 +1372,7 @@ function New-AVSStoragePolicy {
                 $esaRules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.datastoreSpaceEfficiency" ) -Value "CompressionOnly"
             }
             $esaRuleSet = New-SpbmRuleSet -AllOfRules $esaRules
-            $esaName = "$Name-esa"
+            # $esaName = "$Name-esa"
 
             if (($withTagRuleSet) -and (-not $notTagRuleSet)) {
                 $esaPolicy = New-SpbmStoragePolicy -Name $esaName -Description $Description -AnyOfRuleSets $esaRuleSet, $withTagRuleSet -Confirm:$false
@@ -1384,7 +1389,7 @@ function New-AVSStoragePolicy {
             # Create OSA policy with -osa suffix
             Write-Debug "Creating OSA policy with name: $osaName"
             $osaRuleSet = New-SpbmRuleSet -AllOfRules $rules
-            $osaName = "$Name-osa"
+            # $osaName = "$Name-osa"
 
             if (($withTagRuleSet) -and (-not $notTagRuleSet)) {
                 $osaPolicy = New-SpbmStoragePolicy -Name $osaName -Description $Description -AnyOfRuleSets $osaRuleSet, $withTagRuleSet -Confirm:$false
