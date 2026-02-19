@@ -978,7 +978,7 @@ function New-AVSStoragePolicy {
     .PARAMETER vSANCacheReservation
         Default is 0. Valid values are 0..100
         Percentage of cache reservation for the policy.
-	    .PARAMETER vSANChecksumDisabled
+	.PARAMETER vSANChecksumDisabled
         Default is $false. Enable or disable checksum for the policy. Valid values are $true or $false.
         WARNING - Disabling checksum may lead to data LOSS and/or corruption.
         Recommended value is $false.
@@ -992,10 +992,10 @@ function New-AVSStoragePolicy {
         Recommended value is $false.
     .PARAMETER Tags
         Match to datastores that do have these tags.  Tags are case sensitive.
-        Comma seperate multiple tags. Example: Tag1,Tag 2,Tag_3
+        Comma separate multiple tags. Example: Tag1,Tag 2,Tag_3
     .PARAMETER NotTags
         Match to datastores that do NOT have these tags. Tags are case sensitive.
-        Comma seperate multiple tags. Example: Tag1,Tag 2,Tag_3
+        Comma separate multiple tags. Example: Tag1,Tag 2,Tag_3
     .PARAMETER Overwrite
         Overwrite existing Storage Policy.  Default is $false.
         Passing overwrite true provided will overwrite an existing policy exactly as defined.
@@ -1079,11 +1079,13 @@ function New-AVSStoragePolicy {
         [boolean]
         $vSANForceProvisioning,
 
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $false,
+            HelpMessage = "Match to datastores that do have these tags.  Enter like: 'Tag1,Tag 2,Tag_3'")]
         [string]
         $Tags,
 
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $false,
+            HelpMessage = "Match to datastores that do not have these tags.  Enter like: 'Tag1,Tag 2,Tag_3'")]
         [string]
         $NotTags,
 
