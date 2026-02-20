@@ -940,6 +940,17 @@ function New-AVSStoragePolicy {
 	.DESCRIPTION
 		This function creates a new or overwrites an existing vSphere Storage Policy.
         Non vSAN-Based, vSAN Only, VMEncryption Only, Tag Only based and/or any combination of these policy types are supported.
+
+        Parameters can be used independently or in combination to create customized storage policies:
+        - vSAN parameters (vSANFailuresToTolerate, vSANObjectSpaceReservation, etc.) define data redundancy and performance
+        - VMEncryption parameter enables VM-level encryption with Pre-IO or Post-IO filtering
+        - Tag parameters (Tags, NotTags) enable datastore placement based on tags
+        - NoCompression switch disables space efficiency for ESA clusters
+
+        ESA/OSA Dual Policy Creation:
+        When both vSAN ESA (Express Storage Architecture) and OSA (Original Storage Architecture) clusters are detected,
+        this function automatically creates TWO separate policies with '-esa' and '-osa' suffixes appended to the policy name.
+        When only one cluster type exists, a single policy is created with the specified name (no suffix).
     .PARAMETER Name
         Name of Storage Policy - Wildcards are not allowed and will be stripped.
     .PARAMETER Description
@@ -1259,9 +1270,10 @@ function New-AVSStoragePolicy {
             $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.cacheReservation" ) -Value $vSANCacheReservation
         }
 
-        #VSANObjectReservation
-        if ($vSANObjectReservation -gt 0) {
-            $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.proportionalCapacity" ) -Value $vSANObjectReservation
+        # vSANObjectSpaceReservation
+        Write-Information "vSANObjectSpaceReservation set to: $vSANObjectSpaceReservation"
+        if ($vSANObjectSpaceReservation -gt 0) {
+            $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.proportionalCapacity" ) -Value $vSANObjectSpaceReservation
         }
 
         # Tags Based Placement
