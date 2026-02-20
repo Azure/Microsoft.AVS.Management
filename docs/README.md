@@ -151,7 +151,7 @@ Private AVS package repository will be used to install the modules. For the purp
 > <b>IMPORTANT:</b> When publishing the package, please ensure latest version of [Microsoft.AVS.Management](https://www.powershellgallery.com/packages/Microsoft.AVS.Management) is a listed [dependency](https://docs.microsoft.com/en-us/nuget/reference/nuspec#dependencies) of the package.
 > Please add any other additional dependencies as required.
 
-## Versioning and Module manifest
+## Versioning, Module manifest and Run Command API
 AVS scripting modules are expected to follow [semver guidelines](https://semver.org/) when publishing a new version. Adhering to the guidelines will ensure that any automation built around the ARM resources representing the commandlets will keep working while benefiting from the patch fixes.
 
 We also support following version suffixes:
@@ -161,6 +161,12 @@ We also support following version suffixes:
 Until there's an agreement with the AVS about the general availability, publish the package with `-dev` or `-preview` version suffix only. This would allow us to control the rollout and enable the consumer to opt-in into the experience before it is generally available.
 
 To direct the customers to the information about the module make sure to include `ProjectUri` in the module manifest, supplying the address of the product support landing page designed for AVS customers. 
+
+### Using Run Command API with semver-versioned modules
+
+AVS may require deprecation of certain package versions and to avoid breakages on the client side using Run Command API it is stronly recommended that any invocations via the API use "major.*" version pattern instead of referencing the specific version.
+
+For example, if an automation/client is invoking a function from Microsoft.AVS.VMFS package when the currently listed version is 1.0.151 the API call should call with `Microsoft.AVS.VMFS@1.*` instead.
 
 
 ## Lifecycle commandlets
