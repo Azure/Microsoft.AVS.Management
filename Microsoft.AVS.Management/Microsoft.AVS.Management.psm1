@@ -935,23 +935,32 @@ function Remove-AVSStoragePolicy {
     }
 }
 
-Function New-AVSStoragePolicy {
+function New-AVSStoragePolicy {
     <#
 	.DESCRIPTION
 		This function creates a new or overwrites an existing vSphere Storage Policy.
         Non vSAN-Based, vSAN Only, VMEncryption Only, Tag Only based and/or any combination of these policy types are supported.
+
+        Parameters can be used independently or in combination to create customized storage policies:
+        - vSAN parameters (vSANFailuresToTolerate, vSANObjectSpaceReservation, etc.) define data redundancy and performance
+        - VMEncryption parameter enables VM-level encryption with Pre-IO or Post-IO filtering
+        - Tag parameters (Tags, NotTags) enable datastore placement based on tags
+        - NoCompression switch disables space efficiency for ESA clusters
+
+        ESA/OSA Dual Policy Creation:
+        When both vSAN ESA (Express Storage Architecture) and OSA (Original Storage Architecture) clusters are detected,
+        this function automatically creates TWO separate policies with '-esa' and '-osa' suffixes appended to the policy name.
+        When only one cluster type exists, a single policy is created with the specified name (no suffix).
     .PARAMETER Name
         Name of Storage Policy - Wildcards are not allowed and will be stripped.
     .PARAMETER Description
         Description of Storage Policy you are creating, free form text.
     .PARAMETER vSANSiteDisasterTolerance
         Default is "None"
-        Valid Values are "None", "Dual", "Preferred", "Secondary", "NoneStretch"
-        None = No Site Redundancy (Recommended Option for Non-Stretch Clusters, NOT recommended for Stretch Clusters)
-        Dual = Dual Site Redundancy (Recommended Option for Stretch Clusters)
+        Valid Values are "None", "Preferred", "Secondary"
+        None = No Site Redundancy (Recommended Option for Non-Stretch Clusters)
         Preferred = No site redundancy - keep data on Preferred (stretched cluster)
-        Secondary = No site redundancy -  Keep data on Secondary Site (stretched cluster)
-        NoneStretch = No site redundancy - Not Recommended (https://kb.vmware.com/s/article/88358)
+        Secondary = No site redundancy - Keep data on Secondary Site (stretched cluster)
         Only valid for stretch clusters.
     .PARAMETER vSANFailuresToTolerate
         Default is "R1FTT1"
@@ -984,16 +993,20 @@ Function New-AVSStoragePolicy {
         Default is $false. Enable or disable checksum for the policy. Valid values are $true or $false.
         WARNING - Disabling checksum may lead to data LOSS and/or corruption.
         Recommended value is $false.
+    .PARAMETER NoCompression
+        Switch parameter. When specified, disables space efficiency (compression) for ESA clusters.
+        Only applies to vSAN ESA (Express Storage Architecture) clusters.
+        When not specified (default), compression is enabled for ESA clusters.
     .PARAMETER vSANForceProvisioning
         Default is $false. Force provisioning for the policy. Valid values are $true or $false.
         WARNING - vSAN Force Provisioned Objects are not covered under Microsoft SLA.  Data LOSS and vSAN instability may occur.
         Recommended value is $false.
     .PARAMETER Tags
         Match to datastores that do have these tags.  Tags are case sensitive.
-        Comma seperate multiple tags. Example: Tag1,Tag 2,Tag_3
+        Comma separate multiple tags. Example: Tag1,Tag 2,Tag_3
     .PARAMETER NotTags
         Match to datastores that do NOT have these tags. Tags are case sensitive.
-        Comma seperate multiple tags. Example: Tag1,Tag 2,Tag_3
+        Comma separate multiple tags. Example: Tag1,Tag 2,Tag_3
     .PARAMETER Overwrite
         Overwrite existing Storage Policy.  Default is $false.
         Passing overwrite true provided will overwrite an existing policy exactly as defined.
@@ -1003,15 +1016,22 @@ Function New-AVSStoragePolicy {
         New-AVSStoragePolicy -Name "Encryption" -VMEncryption "PreIO"
     .EXAMPLE
         Creates a new storage policy named "RAID-1 FTT-1 with Pre-IO VM Encryption" with a description enabled for Pre-IO VM Encryption
-        New-AVSStoragePolicy -Name "RAID-1 FTT-1 with Pre-IO VM Encryption" -Description "My super secure and performant storage policy" -VMEncryption "PreIO" -vSANFailuresToTolerate "1 failure - RAID-1 (Mirroring)"
+        New-AVSStoragePolicy -Name "RAID-1 FTT-1 with Pre-IO VM Encryption" -Description "My super secure and performant storage policy" -VMEncryption "PreIO" -vSANFailuresToTolerate "R1FTT1"
     .EXAMPLE
         Creates a new storage policy named "Tagged Datastores" to use datastores tagged with "SSD" and "NVMe" and not datastores tagged "Slow"
         New-AVSStoragePolicy -Name "Tagged Datastores" -Tags "SSD","NVMe" -NotTags "Slow"
     .EXAMPLE
         Creates a new storage policy named "Production Only" to use datastore tagged w/ Production and not tagged w/ Test or Dev.  Set with RAID-1, 100% read cache, and Thick Provisioning of Disk.
-        New-AVSStoragePolicy -Name "Production Only" -Tags "Production" -NotTags "Test","Dev" -vSANFailuresToTolerate "1 failure - RAID-1 (Mirroring)" -vSANObjectSpaceReservation 100 -vSANCacheReservation 100
+        New-AVSStoragePolicy -Name "Production Only" -Tags "Production" -NotTags "Test","Dev" -vSANFailuresToTolerate "R1FTT1" -vSANObjectSpaceReservation 100 -vSANCacheReservation 100
     .EXAMPLE
         Passing -Overwrite:$true to any examples provided will overwrite an existing policy exactly as defined.  Those values not passed will be removed or set to default values.
+    .NOTES
+        ESA/OSA Dual Policy Behavior:
+        When both vSAN ESA (Express Storage Architecture) and OSA (Original Storage Architecture) clusters are detected,
+        this function automatically creates two separate policies with '-esa' and '-osa' suffixes appended to the Name.
+        - ESA policy includes space efficiency (compression) settings
+        - OSA policy excludes ESA-specific settings
+        When only one cluster type exists, a single policy is created with the specified Name (no suffix).
         #>
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false)]
@@ -1020,580 +1040,479 @@ Function New-AVSStoragePolicy {
         [Parameter(Mandatory = $true)]
         [string]
         $Name,
+
         [Parameter(Mandatory = $false)]
         [string]
         $Description,
+
         [Parameter(Mandatory = $false)]
-        [ValidateSet("None", "Dual", "Preferred", "Secondary", "NoneStretch")]
+        [ValidateSet("None", "Preferred", "Secondary")]
         [string]
         $vSANSiteDisasterTolerance,
-        [Parameter(Mandatory = $false)]
+
+        [Parameter(Mandatory = $false,
+            HelpMessage = "Valid values are None, R1FTT1, R5FTT1, R1FTT2, R6FTT2, R1FTT3.")]
         [ValidateSet("None", "R1FTT1", "R5FTT1", "R1FTT2", "R6FTT2", "R1FTT3")]
         [string]
         $vSANFailuresToTolerate,
-        [Parameter(Mandatory = $false)]
+
+        [Parameter(Mandatory = $false,
+            HelpMessage = 'Specifies the VM encryption mode. Valid values are: None, PreIO, PostIO.')]
         [ValidateSet("None", "PreIO", "PostIO")]
         [string]
-        $VMEncryption = "None",
+        $VMEncryption,
+
         [Parameter(Mandatory = $false)]
         [ValidateRange(0, 100)]
         [int]
         $vSANObjectSpaceReservation,
+
         [Parameter(Mandatory = $false)]
         [ValidateRange(1, 12)]
         [int]
         $vSANDiskStripesPerObject,
+
         [Parameter(Mandatory = $false)]
         [ValidateRange(0, 2147483647)]
         [int]
         $vSANIOLimit,
+
         [Parameter(Mandatory = $false)]
         [ValidateRange(0, 100)]
         [int]
         $vSANCacheReservation,
+
         [Parameter(Mandatory = $false)]
         [boolean]
         $vSANChecksumDisabled,
+
         [Parameter(Mandatory = $false)]
         [boolean]
         $vSANForceProvisioning,
-        [Parameter(Mandatory = $false)]
+
+        [Parameter(Mandatory = $false,
+            HelpMessage = "Match to datastores that do have these tags.  Enter like: 'Tag1,Tag 2,Tag_3'")]
         [string]
         $Tags,
-        [Parameter(Mandatory = $false)]
+
+        [Parameter(Mandatory = $false,
+            HelpMessage = "Match to datastores that do not have these tags.  Enter like: 'Tag1,Tag 2,Tag_3'")]
         [string]
         $NotTags,
-        [Parameter(Mandatory = $false)]
-        [Boolean]
-        $Overwrite
 
+        [Parameter(Mandatory = $false)]
+        [Switch]
+        $Overwrite,
+
+        [Parameter(Mandatory = $false,
+            HelpMessage = "Disable compression for ESA clusters.  Compression is enabled by default for ESA clusters.")]
+        [Switch]
+        $NoCompression
     )
 
-
-    Begin {
-        # Internal helper to add or append a VSAN capability instance to the profile spec ensuring the VSAN subprofile exists
-        function Add-VsanCapabilityInstanceLocal {
-            param(
-                [Parameter(Mandatory)] [string] $Id,
-                [Parameter(Mandatory)] $Value,
-                [Parameter(Mandatory)] $ProfileSpecRef
-            )
-            $subProf = ($ProfileSpecRef.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' })
-            if (-not $subProf) {
-                $ProfileSpecRef.Constraints.SubProfiles += New-Object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{ Name = 'VSAN' }
-                Write-Information 'Added VSAN Subprofile to ProfileSpec'
-                $subProf = ($ProfileSpecRef.Constraints.SubProfiles | Where-Object { $_.Name -eq 'VSAN' })
-            }
-            $cap = New-Object VMware.Spbm.Views.PbmCapabilityInstance
-            $cap.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-            $cap.Id.Namespace = 'VSAN'
-            $cap.Id.Id = $Id
-            $cap.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-            $cap.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-            $cap.Constraint[0].PropertyInstance[0].id = $cap.Id.Id
-            $cap.Constraint[0].PropertyInstance[0].value = $Value
-            $subProf.Capability += $cap
-            return $cap
+    begin {
+        # Set $VMEncryption to "None" if an invalid value is passed in order to prevent errors in policy creation.
+        $VMEncryptionSet = @("None", "PreIO", "PostIO")
+        if ($VMEncryption -notin $VMEncryptionSet) {
+            $VMEncryption = "None"
         }
+
+        try {
+            $clusters = Get-Cluster
+            foreach ($cluster in $clusters) {
+                try {
+                    # Check for ESA by looking at the vSAN version and configuration
+                    $config = Get-VsanClusterConfiguration -Cluster $cluster -ErrorAction Stop
+                    if ($config.VsanEsaEnabled) {
+                        $hasESA = $true
+                    } else {
+                        $hasOSA = $true
+                    }
+                } catch {
+                    Write-Verbose "Cluster $($cluster.Name) is not a vSAN cluster or config retrieval failed."
+                }
+            }
+        } catch {
+            Write-Error "Failed to detect vSAN cluster types: $($_.Exception.Message)"
+            return $null
+        }
+
         #Cleanup Wildcard and Code Injection Characters
-        Write-Information "Cleaning up Wildcard and Code Injection Characters from Name value: $Name"
+        Write-Debug "Cleaning up Wildcard and Code Injection Characters from Name value: $Name"
         $Name = Limit-WildcardsandCodeInjectionCharacters -String $Name
         Write-Information "Name value after cleanup: $Name"
-        Write-Information "Cleaning up Wildcard and Code Injection Characters from Description value: $Description"
-        If (![string]::IsNullOrEmpty($Description)) { $Description = Limit-WildcardsandCodeInjectionCharacters -String $Description }
+        Write-Debug "Cleaning up Wildcard and Code Injection Characters from Description value: $Description"
+        if (![string]::IsNullOrEmpty($Description)) {
+            $Description = Limit-WildcardsandCodeInjectionCharacters -String $Description
+        } else {
+            $Description = "AVS Storage Policy created via PowerCLI"
+        }
         Write-Information "Description value after cleanup: $Description"
 
         #Protected Policy Object Name Validation Check
-        If (Test-AVSProtectedObjectName -Name $Name) {
+        if (Test-AVSProtectedObjectName -Name $Name) {
             Write-Error "$Name is a protected policy name.  Please choose a different policy name."
-            return
-        }
-        #Check for existing policy
-        $ExistingPolicy = Get-AVSStoragePolicy -Name $Name
-        Write-Information ("Existing Policy: " + $ExistingPolicy.name)
-        if ($ExistingPolicy -and !$Overwrite) {
-            Write-Error "Storage Policy $Name already exists.  Set -Overwrite to $true to overwrite existing policy."
             break
-        }
-        if (!$ExistingPolicy -and $Overwrite) {
-            Write-Error "Storage Policy $Name does not exist.  Set -Overwrite to $false to create new policy."
-            break
-        }
-        Write-Information "Overwrite value set to: $Overwrite"
-        Switch ($Overwrite) {
-            $true {
-                $pbmprofileresourcetype = new-object vmware.spbm.views.PbmProfileResourceType
-                $pbmprofileresourcetype.ResourceType = "STORAGE" # No other known valid value.
-                $profilespec = new-object VMware.Spbm.Views.PbmCapabilityProfileUpdateSpec
-                $profilespec.Name = $Name
-                $profilespec.Constraints = new-object vmware.spbm.views.PbmCapabilitySubProfileConstraints
-                If (![string]::IsNullOrEmpty($Description)) { $profilespec.Description = $Description }
-            }
-            $false {
-                $pbmprofileresourcetype = new-object vmware.spbm.views.PbmProfileResourceType
-                $pbmprofileresourcetype.ResourceType = "STORAGE" # No other known valid value.
-                $profilespec = new-object VMware.Spbm.Views.PbmCapabilityProfileCreateSpec
-                $profilespec.ResourceType = $pbmprofileresourcetype
-                $profilespec.Name = $Name
-                $profilespec.Constraints = new-object vmware.spbm.views.PbmCapabilitySubProfileConstraints
-                If (![string]::IsNullOrEmpty($Description)) { $profilespec.Description = $Description }
-                $profilespec.Category = "REQUIREMENT" #Valid options are REQUIREMENT = vSAN Storage Policies or RESOURCE = ?? or DATA_SERVICE_POLICY = Common Storage Policies such encryption and storage IO.
-                Write-Information "Profile Name set to: $($profilespec.Name)"
-                Write-Information "Profile Category set to: $($profilespec.Category)"
-            }
-        }
-        Write-Information "Getting SPBM Capabilities"
-        $SPBMCapabilities = Get-AVSSPBMCapabilities
-        Foreach ($Capability in $SPBMCapabilities) {
-            Write-Information "SPBM Capability: NameSpace: $($Capability.NameSpace), SubCategory: $($Capability.SubCategory), CapabilityMetaData Count: $($Capability.CapabilityMetadata.Count)"
         }
 
-        #vSAN Site Disaster Tolerance / Stretch Cluster specific configuration
-        Write-Information "vSANSiteDisasterTolerance value set to: $vSANSiteDisasterTolerance"
-        Switch ($vSANSiteDisasterTolerance) {
-            "None" {
-                #Left blank on purpose.  No additional configuration required.
-            }
-            "Dual" {
-                # Dual site stretch cluster with mirroring between sites.
-                # We'll set hostFailuresToTolerate=1 to indicate cross-site mirroring. Actual intra-site FTT will be applied later via subFailuresToTolerate.
-                Add-VsanCapabilityInstanceLocal -Id 'hostFailuresToTolerate' -Value 1 -ProfileSpecRef $profilespec | Out-Null
-                Add-VsanCapabilityInstanceLocal -Id 'locality' -Value 'None' -ProfileSpecRef $profilespec | Out-Null
-            }
-            "Preferred" {
-                # Indicate unmirrored (hostFailuresToTolerate=0) but with a site locality preference; FTT will map to subFailuresToTolerate later.
-                Add-VsanCapabilityInstanceLocal -Id 'hostFailuresToTolerate' -Value 0 -ProfileSpecRef $profilespec | Out-Null
-                Add-VsanCapabilityInstanceLocal -Id 'locality' -Value 'Preferred Fault Domain' -ProfileSpecRef $profilespec | Out-Null
-                $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
-                Write-Warning "$Name policy setting unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
-            }
-            "Secondary" {
-                Add-VsanCapabilityInstanceLocal -Id 'hostFailuresToTolerate' -Value 0 -ProfileSpecRef $profilespec | Out-Null
-                Add-VsanCapabilityInstanceLocal -Id 'locality' -Value 'Secondary Fault Domain' -ProfileSpecRef $profilespec | Out-Null
-                $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
-                Write-Warning "$Name policy setting unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
-            }
-            "NoneStretch" {
-                Add-VsanCapabilityInstanceLocal -Id 'hostFailuresToTolerate' -Value 0 -ProfileSpecRef $profilespec | Out-Null
-                Add-VsanCapabilityInstanceLocal -Id 'locality' -Value 'None' -ProfileSpecRef $profilespec | Out-Null
-                $Description = $Description + " - Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
-                Write-Warning "$Name policy setting unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
-            }
-            Default {}
+        #Check for existing policy names
+        $checkNames = @($Name)
+        if ($hasESA -and $hasOSA) {
+            # When both cluster types exist, check for suffixed policy names
+            $esaName = "$Name-esa"
+            $osaName = "$Name-osa"
+            $checkNames += $esaName, $osaName
         }
+
+        foreach ($policyName in $checkNames) {
+            $ExistingPolicy = Get-AVSStoragePolicy -Name $policyName
+            Write-Information ("Existing Policy: " + $ExistingPolicy.name)
+            if ($ExistingPolicy -and $Overwrite) {
+                Write-Information "Storage Policy $policyName already exists and will be overwritten."
+                Remove-SpbmStoragePolicy -StoragePolicy $policyName -Confirm:$false
+            } elseif ($ExistingPolicy -and !$Overwrite) {
+                Write-Error "Storage Policy $policyName already exists.  Set -Overwrite to `$true to overwrite existing policy."
+                break
+            }
+        }
+
+        $rules = @()
+        # vSAN Storage Type - All Flash
+        Write-Information "Adding VSAN.storageType = Allflash to ProfileSpec"
+        $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.storageType" ) -Value "Allflash"
+
         #vSANFailurestoTolerate / FTT (intra-site when stretch cluster selected)
         Write-Information "vSANFailurestoTolerate value set to: $vSANFailuresToTolerate"
         $isStretch = ($vSANSiteDisasterTolerance -and $vSANSiteDisasterTolerance -ne 'None')
-        $fttId = if ($isStretch) { 'subFailuresToTolerate' } else { 'hostFailuresToTolerate' }
-        Switch ($vSANFailuresToTolerate) {
+        $fttId = if ($isStretch) { 'VSAN.subFailuresToTolerate' } else { 'VSAN.hostFailuresToTolerate' }
+        switch ($vSANFailuresToTolerate) {
             'None' {
-                Add-VsanCapabilityInstanceLocal -Id $fttId -Value 0 -ProfileSpecRef $profilespec | Out-Null
+                # Add-VsanCapabilityInstanceLocal -Id $fttId -Value 0 -ProfileSpecRef $profilespec | Out-Null
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name $fttId ) -Value 0
                 $Description = $Description + " - FTT 0 based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur."
                 Write-Warning "$Name policy setting $vSANFailurestoTolerate based policy objects are unprotected by Microsoft SLA and data loss/corruption may occur."
             }
             'R1FTT1' {
-                Add-VsanCapabilityInstanceLocal -Id $fttId -Value 1 -ProfileSpecRef $profilespec | Out-Null
-                Add-VsanCapabilityInstanceLocal -Id 'replicaPreference' -Value 'RAID-1 (Mirroring) - Performance' -ProfileSpecRef $profilespec | Out-Null
+                Write-Information "Adding VSAN.replicaPreference = RAID-1 (Mirroring) - Performance to ProfileSpec"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" ) -Value "RAID-1 (Mirroring) - Performance"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name $fttId ) -Value 1 # $vSANFailuresToTolerate
             }
             'R5FTT1' {
-                Add-VsanCapabilityInstanceLocal -Id $fttId -Value 1 -ProfileSpecRef $profilespec | Out-Null
-                Add-VsanCapabilityInstanceLocal -Id 'replicaPreference' -Value 'RAID-5/6 (Erasure Coding) - Capacity' -ProfileSpecRef $profilespec | Out-Null
-                Add-VsanCapabilityInstanceLocal -Id 'storageType' -Value 'Allflash' -ProfileSpecRef $profilespec | Out-Null
+                Write-Information "Adding VSAN.replicaPreference = RAID-5/6 (Erasure Coding) - Capacity to ProfileSpec"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" ) -Value "RAID-5/6 (Erasure Coding) - Capacity"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name $fttId ) -Value 1 # $vSANFailuresToTolerate
                 Write-Information "All Flash added to ProfileSpec as required for $vSANFailuresToTolerate"
             }
             'R1FTT2' {
-                Add-VsanCapabilityInstanceLocal -Id $fttId -Value 2 -ProfileSpecRef $profilespec | Out-Null
-                Add-VsanCapabilityInstanceLocal -Id 'replicaPreference' -Value 'RAID-1 (Mirroring) - Performance' -ProfileSpecRef $profilespec | Out-Null
+                Write-Information "Adding VSAN.replicaPreference = RAID-1 (Mirroring) - Performance to ProfileSpec"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" ) -Value "RAID-1 (Mirroring) - Performance"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name $fttId ) -Value 2 # $vSANFailuresToTolerate
             }
             'R6FTT2' {
-                Add-VsanCapabilityInstanceLocal -Id $fttId -Value 2 -ProfileSpecRef $profilespec | Out-Null
-                Add-VsanCapabilityInstanceLocal -Id 'replicaPreference' -Value 'RAID-5/6 (Erasure Coding) - Capacity' -ProfileSpecRef $profilespec | Out-Null
-                Add-VsanCapabilityInstanceLocal -Id 'storageType' -Value 'Allflash' -ProfileSpecRef $profilespec | Out-Null
+                Write-Information "Adding VSAN.replicaPreference = RAID-5/6 (Erasure Coding) - Capacity to ProfileSpec"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" ) -Value "RAID-5/6 (Erasure Coding) - Capacity"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name $fttId ) -Value 2 # $vSANFailuresToTolerate
                 Write-Information "All Flash added to ProfileSpec as required for $vSANFailuresToTolerate"
             }
             'R1FTT3' {
-                Add-VsanCapabilityInstanceLocal -Id $fttId -Value 3 -ProfileSpecRef $profilespec | Out-Null
-                Add-VsanCapabilityInstanceLocal -Id 'replicaPreference' -Value 'RAID-1 (Mirroring) - Performance' -ProfileSpecRef $profilespec | Out-Null
+                Write-Information "Adding VSAN.replicaPreference = RAID-1 (Mirroring) - Performance to ProfileSpec"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.replicaPreference" ) -Value "RAID-1 (Mirroring) - Performance"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name $fttId ) -Value 3 # $vSANFailuresToTolerate
             }
-            Default {}
+            default {}
         }
+
+        # vSAN Site Disaster Tolerance
+        Write-Information "Configuring vSAN Site Disaster Tolerance and Failures to Tolerate settings"
+        switch ($vSANSiteDisasterTolerance) {
+            "Preferred" {
+                Write-Information "Writing to Preferred Fault Domain only"
+                Write-Information "Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
+                $locality = "Preferred Fault Domain"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.locality" ) -Value $locality
+            }
+            "Secondary" {
+                Write-Information "Writing to Secondary Fault Domain only"
+                Write-Information "Unreplicated objects in a stretch cluster are unprotected by Microsoft SLA and data loss/corruption may occur."
+                $locality = "Secondary Fault Domain"
+                $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.locality" ) -Value $locality
+            }
+            default { $fttId = 'VSAN.hostFailuresToTolerate' }
+        }
+
         #vSANChecksumDisabled
         Write-Information "vSANChecksumDisabled value is: $vSANChecksumDisabled"
-        Switch ($vSANChecksumDisabled) {
-            $true {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "checksumDisabled"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = $true
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-                $Description = $Description + " - Disabling vSAN Checksum may invalidate Microsoft SLA terms and data loss/corruption may occur."
-                Write-Warning "Disabling vSAN Checksum may invalidate Microsoft SLA terms and data loss/corruption may occur."
-            }
-            # Empty profile spec defaults to setting to false in overwrite case
-            $false {}
+        if ($vSANChecksumDisabled) {
+            $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.checksumDisabled" ) -Value $true
         }
-        #vSANForceProvisioning
-        Write-Information "vSANForceProvisioning Value is: $vSANForceProvisioning"
-        Switch ($vSANForceProvisioning) {
-            $true {
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "VSAN"
-                $Subprofile.Id.Id = "forceProvisioning"
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = $true
-                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                    Write-Information "Added VSAN Subprofile to ProfileSpec"
-                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-                }
-                Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
-                $Description = $Description + " - Force Provisioned objects are unprotected by Microsoft SLA and data loss/corruption may occur."
-                Write-Warning "$Name policy setting Force Provisioned objects are unprotected by Microsoft SLA and data loss/corruption may occur."
-            }
-            # Empty profile spec defaults to setting to false in overwrite case
-            $false {}
+
+        # vSANForceProvisioning
+        Write-Information "vSANForceProvisioning value is: $vSANForceProvisioning"
+        if ($vSANForceProvisioning) {
+            $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.forceProvisioning" ) -Value $true
         }
 
         #vSANDiskStripesPerObject
         Write-Information "vSANDiskStripesPerObject value is: $vSANDiskStripesPerObject"
-        If ($vSANDiskStripesPerObject -gt 0) {
-            Write-Information "Creating vSAN Disk Stripes Subprofile"
-            $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-            $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-            $Subprofile.Id.Namespace = "VSAN"
-            $Subprofile.Id.Id = "stripeWidth"
-            $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-            $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-            $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-            $Subprofile.Constraint[0].PropertyInstance[0].value = $vSANDiskStripesPerObject
-            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                Write-Information "Added VSAN Subprofile to ProfileSpec"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-            }
-            Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+        if ($vSANDiskStripesPerObject -gt 1) {
+            $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.stripeWidth" ) -Value $vSANDiskStripesPerObject
         }
 
         #VSANIOLimit
         Write-Information "vSANIOLimit set to: $vSANIOLimit"
-        If ($vSANIOLimit -gt 0) {
-            Write-Information "Building vSAN IOLimit Subprofile"
-            $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-            $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-            $Subprofile.Id.Namespace = "VSAN"
-            $Subprofile.Id.Id = "iopsLimit"
-            $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-            $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-            $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-            $Subprofile.Constraint[0].PropertyInstance[0].value = $vSANIOLimit
-            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                Write-Information "Added VSAN Subprofile to ProfileSpec"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-            }
-            Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+        if ($vSANIOLimit -gt 0) {
+            $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.iopsLimit" ) -Value $vSANIOLimit
         }
 
-        #VSANCacheReservation
+        # VSANCacheReservation
         Write-Information "vSANCacheReservation set to: $vSANCacheReservation"
-        If ($vSANCacheReservation -gt 0) {
-            Write-Information "Creating vSANCacheReservation Subprofile"
-            $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-            $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-            $Subprofile.Id.Namespace = "VSAN"
-            $Subprofile.Id.Id = "cacheReservation"
-            $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-            $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-            $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-            $Subprofile.Constraint[0].PropertyInstance[0].value = ([int]$vSANCacheReservation * 10000)
-            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                Write-Information "Added VSAN Subprofile to ProfileSpec"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-            }
-            Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+        if ($vSANCacheReservation -gt 0) {
+            $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.cacheReservation" ) -Value $vSANCacheReservation
         }
 
-        #VSANObjectReservation
-        Write-Information "vSANObjectReservation set to: $vSANObjectSpaceReservation"
-        If ($vSANObjectSpaceReservation -gt 0) {
-            Write-Information "Creating vSANObjectReservation Subprofile"
-            $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-            $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-            $Subprofile.Id.Namespace = "VSAN"
-            $Subprofile.Id.Id = "proportionalCapacity"
-            $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-            $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-            $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-            $Subprofile.Constraint[0].PropertyInstance[0].value = $vSANObjectSpaceReservation
-            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).count -eq 0) {
-                $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "VSAN" }
-                Write-Information "Added VSAN Subprofile to ProfileSpec"
-                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile
-            }
-            Else { ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "VSAN" }).Capability += $subprofile }
+        # vSANObjectSpaceReservation
+        Write-Information "vSANObjectSpaceReservation set to: $vSANObjectSpaceReservation"
+        if ($vSANObjectSpaceReservation -gt 0) {
+            $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.proportionalCapacity" ) -Value $vSANObjectSpaceReservation
         }
 
-        # Tag Support for Storage Policies
-        Write-Information ("Tags recorded as: " + $Tags)
-        $TagData = $SPBMCapabilities | Where-Object { $_.subcategory -eq "Tag" }
-        If (![string]::IsNullOrEmpty($Tags)) {
-            # Needed as run command does not support string array types, cannot simply overwrite existing variable for some reason.
-            $Array = Convert-StringToArray -String $Tags
-            Foreach ($Tag in $Array) {
-                Write-Information ("Tag: " + $Tag)
-                $Tag = Limit-WildcardsandCodeInjectionCharacters -String $Tag
-                $ObjectTag = Get-Tag -Name $Tag
-                If (![string]::IsNullOrEmpty($ObjectTag)) {
-                    If ($ObjectTag.count -gt 1) {
-                        Write-Information "Multiple Tags found with the name $Tag. Filtering by Datastore category."
-                        Foreach ($Entry in $ObjectTag) {
-                            Write-Information ("Tag Name: " + $Entry.Name)
-                            If ($Entry.Category.EntityType -eq "Datastore") {
-                                $CatData = $TagData.CapabilityMetadata | Where-Object { $_.summary.Label -eq $Entry.Category.Name }
-                                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                                $Subprofile.Id = $Catdata.Id
-                                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                                $Subprofile.Constraint[0].PropertyInstance[0].id = $Catdata.propertymetadata.id
-                                $Subprofile.Constraint[0].PropertyInstance[0].Operator = ""
-                                $Subprofile.Constraint[0].PropertyInstance[0].value = New-object VMware.Spbm.Views.PbmCapabilityDiscreteSet
-                                $Subprofile.Constraint[0].PropertyInstance[0].value.values = $Entry.Name
-                                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).count -eq 0) {
-                                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "Tag based placement" }
-                                    Write-Information "Added Tag based placement subprofile to ProfileSpec"
-                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
-                                    Write-Information "Added $Tag to profilespec"
-                                }
-                                Else {
-                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
-                                }
+        # Tags Based Placement
+        $tagCategoryName = "AVS"
+        if ($Tags -or $NotTags) {
+            $tagCategory = Get-TagCategory -Name $tagCategoryName -ErrorAction SilentlyContinue
+            if (-not $tagCategory) {
+                Write-Information "Creating Tag Category '$tagCategoryName' for Storage Policy Tag based placement"
+                $tagCategory = New-TagCategory -Name $tagCategoryName -Cardinality Single -EntityType Datastore
+            }
 
-                            }
-                            If ($Entry.Category.EntityType -ne "Datastore") {
-                                Write-Information "Tag $($Entry.Name) of category $($Entry.Category.Name) is not a Datastore Tag. Skipping."
-                            }
-                        }
-                    }
-                    If ($ObjectTag.count -eq 1) {
-                        If ($ObjectTag.Category.EntityType -ne "Datastore") {
-                            Write-Warning "Tag $Tag is not a Datastore Tag. Skipping."
-                        }
-                        Else {
-                            $Entry = $ObjectTag
-                            $CatData = $TagData.CapabilityMetadata | Where-Object { $_.summary.Label -eq $Entry.Category.Name }
-                            $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                            $Subprofile.Id = $Catdata.Id
-                            $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                            $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                            $Subprofile.Constraint[0].PropertyInstance[0].id = $Catdata.propertymetadata.id
-                            $Subprofile.Constraint[0].PropertyInstance[0].Operator = ""
-                            $Subprofile.Constraint[0].PropertyInstance[0].value = New-object VMware.Spbm.Views.PbmCapabilityDiscreteSet
-                            $Subprofile.Constraint[0].PropertyInstance[0].value.values = $Entry.Name
-                            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).count -eq 0) {
-                                $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "Tag based placement" }
-                                Write-Information "Added Tag based placement subprofile to ProfileSpec"
-                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
-                                Write-Information "Added $Tag to profilespec"
-                            }
-                            Else {
-                                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
-                            }
-                        }
+            Write-Debug $Tags
+            $withTagNames = @()
+            $notTagNames = @()
+            $tagNames = @()
+            # Split strings into arrays
+            if ($Tags) {
+                $withTagNames = Convert-StringToArray -String $Tags | ForEach-Object { Limit-WildcardsandCodeInjectionCharacters $_ }
+                $TagNames += $withTagNames
+            }
+            if ($NotTags) {
+                $notTagNames = Convert-StringToArray -String $NotTags | ForEach-Object { Limit-WildcardsandCodeInjectionCharacters $_ }
+                $TagNames += $notTagNames
+            }
 
+            foreach ($TagName in $TagNames) {
+                New-AVSTag -Name $TagName
+            }
 
-                    }
-
-
+            if ($Tags) {
+                $withTagRules = $withTagNames | ForEach-Object {
+                    $t = Get-Tag -Name $_ -Category $tagCategory
+                    New-SpbmRule -AnyOfTags $t
                 }
-                Else { Write-Error "Tag $Tag not found. Skipping. Tags are case-sensitive, please verify." }
+                # Now pass the rules
+                $withTagRuleSet = New-SpbmRuleSet -AllOfRules $withTagRules
             }
 
-
-        }
-
-        # Not Tag Support for Storage Policies
-        Write-Information ("NotTags recorded as: " + $NotTags)
-        If (![string]::IsNullOrEmpty($NotTags)) {
-            # Needed as run command does not support string array types, cannot simply overwrite existing variable for some reason.
-            $Array = Convert-StringToArray -String $NotTags
-            Foreach ($Tag in $Array) {
-                Write-Information ("Tag: " + $Tag)
-                $Tag = Limit-WildcardsandCodeInjectionCharacters -String $Tag
-                $ObjectTag = Get-Tag -Name $Tag
-                If (![string]::IsNullOrEmpty($ObjectTag)) {
-                    If ($ObjectTag.count -gt 1) {
-                        Write-Information "Multiple Tags found with the name $Tag. Filtering by Datastore category."
-                        Foreach ($Entry in $ObjectTag) {
-                            Write-Information ("Tag Name: " + $Entry.Name)
-                            If ($Entry.Category.EntityType -eq "Datastore") {
-                                $CatData = $TagData.CapabilityMetadata | Where-Object { $_.summary.Label -eq $Entry.Category.Name }
-                                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                                $Subprofile.Id = $Catdata.Id
-                                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                                $Subprofile.Constraint[0].PropertyInstance[0].id = $Catdata.propertymetadata.id
-                                $Subprofile.Constraint[0].PropertyInstance[0].Operator = "NOT"
-                                $Subprofile.Constraint[0].PropertyInstance[0].value = New-object VMware.Spbm.Views.PbmCapabilityDiscreteSet
-                                $Subprofile.Constraint[0].PropertyInstance[0].value.values = $Entry.Name
-                                If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).count -eq 0) {
-                                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "Tag based placement" }
-                                    Write-Information "Added Tag based placement subprofile to ProfileSpec"
-                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
-                                    Write-Information "Added $Tag to profilespec"
-                                }
-                                Else {
-                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
-                                }
-
-                            }
-                            If ($Entry.Category.EntityType -ne "Datastore") {
-                                Write-Information "Tag $($Entry.Name) of category $($Entry.Category.Name) is not a Datastore Tag. Skipping."
-                            }
-                        }
-                    }
-                    If ($ObjectTag.count -eq 1) {
-                        if ($ObjectTag.Category.EntityType -ne "Datastore") {
-                            Write-Information "Tag $Tag is not a Datastore Tag. Skipping."
-                        }
-                        Else {
-                            $Entry = $ObjectTag
-                            $CatData = $TagData.CapabilityMetadata | Where-Object { $_.summary.Label -eq $Entry.Category.Name }
-                            $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                            $Subprofile.Id = $Catdata.Id
-                            $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                            $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                            $Subprofile.Constraint[0].PropertyInstance[0].id = $Catdata.propertymetadata.id
-                            $Subprofile.Constraint[0].PropertyInstance[0].Operator = "NOT"
-                            $Subprofile.Constraint[0].PropertyInstance[0].value = New-object VMware.Spbm.Views.PbmCapabilityDiscreteSet
-                            $Subprofile.Constraint[0].PropertyInstance[0].value.values = $Entry.Name
-                            If (($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).count -eq 0) {
-                                $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = "Tag based placement" }
-                                Write-Information "Added Tag based placement subprofile to ProfileSpec"
-                                ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
-                                Write-Information "Added $Tag to profilespec"
-                            }
-                            Else {
-                                    ($profilespec.Constraints.SubProfiles | Where-Object { $_.Name -eq "Tag based placement" }).Capability += $Subprofile
-                            }
-                        }
-
-
-                    }
-
-
+            if ($NotTags) {
+                # Create SpbmRule objects from each tag
+                $notTagRules = $notTagNames | ForEach-Object {
+                    $tag = Get-Tag -Name $_ -Category $tagCategory
+                    New-SpbmRule -AnyOfTags $tag -SpbmOperatorType 1
                 }
-                Else { Write-Error "Tag $Tag not found. Skipping. Tags are case-sensitive, please verify." }
+                # Now pass the rules
+                $notTagRuleSet = New-SpbmRuleSet -AllOfRules $notTagRules
             }
-
-
         }
-        #IMPORTANT - Any additional functionality should be added before the VMEncryption Parameter.  The reason is that this subprofile must be added as a capability to all subprofile types for API to accept.
+
+        # Space Efficiency (Compression) - ESA only
+        if ( $hasESA) {
+            if ( $NoCompression) {
+                # No space efficiency
+                # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.datastoreSpaceEfficiency" ) -Value "NoSpaceEfficiency"
+                $esaRules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.datastoreSpaceEfficiency" ) -Value "NoSpaceEfficiency"
+            } else {
+                # Compression only
+                $esaRules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.datastoreSpaceEfficiency" ) -Value "CompressionOnly"
+            }
+        }
+
+        # IMPORTANT - Any additional functionality should be added before the VMEncryption Parameter.
+        # The reason is that this subprofile must be added as a capability to all subprofile types for API to accept.
         Write-Information "VMEncryption set to: $VMEncryption"
-        Switch ($VMEncryption) {
-            "None" {}
+        switch ($VMEncryption) {
             "PreIO" {
-                #Check for AVS VM Encryption Policies, create if not present.
+                Write-Information "Adding VM Encryption with Pre-IO filter capability to ProfileSpec"
+                # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.dataAtRestEncryption" ) -Value $true
                 $IOPolicy = Get-AVSStoragePolicy -Name "AVS PRE IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
-                If (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS PRE IO Encryption" -Description "Encrypts VM before VAIO Filter" -PostIOEncryption $false }
-                Write-Information ("VMEncryption uniqueID: " + $IOPolicy.ProfileId.UniqueId)
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "com.vmware.storageprofile.dataservice"
-                $Subprofile.Id.Id = $IOPolicy.ProfileId.UniqueId
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = $Subprofile.Id.Id
-                If ($profilespec.Constraints.SubProfiles.count -eq 0) {
-                    $SubprofileName = "Host based services"
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = $SubprofileName }
-                    Write-Information "Added $SubprofileName to ProfileSpec"
-                    Foreach ($service in $profilespec.Constraints.SubProfiles) {
-                        $service.Capability += $subprofile
-                    }
-                }
-                ElseIf ($profilespec.Constraints.SubProfiles.count -ge 1) {
-                    Foreach ($service in $profilespec.Constraints.SubProfiles) {
-                        $service.Capability += $subprofile
-                    }
-                }
-                Write-Information "Added $($IOPolicy.Name) to profilespec"
-
+                if (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS PRE IO Encryption" -Description "Encrypts VM before VAIO Filter" -PostIOEncryption $false }
+                $IOPolicy = Get-AVSStoragePolicy -Name "AVS PRE IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
             }
             "PostIO" {
+                Write-Information "Adding VM Encryption with Post-IO filter capability to ProfileSpec"
+                # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.dataAtRestEncryption" ) -Value $true
                 $IOPolicy = Get-AVSStoragePolicy -Name "AVS POST IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
-                If (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS POST IO Encryption" -Description "Encrypts VM after VAIO Filter" -PostIOEncryption $true }
-                Write-Information ("VMEncryption uniqueID: " + $IOPolicy.ProfileId.UniqueId)
-                $Subprofile = new-object VMware.Spbm.Views.PbmCapabilityInstance
-                $Subprofile.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-                $Subprofile.Id.Namespace = "com.vmware.storageprofile.dataservice"
-                $Subprofile.Id.Id = $IOPolicy.profileid.UniqueId
-                $Subprofile.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-                $Subprofile.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-                $Subprofile.Constraint[0].PropertyInstance[0].id = $Subprofile.Id.Id
-                $Subprofile.Constraint[0].PropertyInstance[0].value = $Subprofile.Id.Id
-                If ($profilespec.Constraints.SubProfiles.count -eq 0) {
-                    $SubprofileName = "Host based services"
-                    $profilespec.Constraints.SubProfiles += new-object VMware.Spbm.Views.PbmCapabilitySubProfile -Property @{"Name" = $SubprofileName }
-                    Write-Information "Added $SubprofileName to ProfileSpec"
-                    Write-Information $profilespec.Constraints.SubProfiles[0].Name
-                    Foreach ($service in $profilespec.Constraints.SubProfiles) {
-                        $service.Capability += $subprofile
-                    }
-                }
-                ElseIf ($profilespec.Constraints.SubProfiles.count -ge 1) {
-                    Foreach ($service in $profilespec.Constraints.SubProfiles) {
-                        $service.Capability += $subprofile
-                    }
-                }
-                Write-Information "Added $($IOPolicy.Name) to profilespec"
-
+                if (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS POST IO Encryption" -Description "Encrypts VM after VAIO Filter" -PostIOEncryption $true }
+                $IOPolicy = Get-AVSStoragePolicy -Name "AVS POST IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
             }
-            Default {}
+            default {
+                Write-Information "No VM Encryption capability added to ProfileSpec"
+            }
         }
-
     }
+
     process {
-        #Protected Policy Object Name Validation Check
-        If (Test-AVSProtectedObjectName -Name $Name) {
-            Write-Error "$Name is a protected policy name.  Please choose a different policy name."
-            return
-        }
-        $profilespec.Description = $Description
-        #return $profilespec #Uncomment to capture and debug profile spec.
-        If ($profilespec.Constraints.SubProfiles.count -eq 0) {
-            Write-Error "At least one parameter must be defined to create a storage policy."
-            Return
-        }
-        $serviceInstanceView = Get-SpbmView -Id "PbmServiceInstance-ServiceInstance"
-        $spbmServiceContent = $serviceInstanceView.PbmRetrieveServiceContent()
-        $spbmProfMgr = Get-SpbmView -Id $spbmServiceContent.ProfileManager
-        If ($Overwrite) {
-            $spbmProfMgr.PbmUpdate($ExistingPolicy.ProfileId, $profilespec)
-            if ($?) { return "$($ExistingPolicy.Name) Updated" }
-            else { return "$($ExistingPolicy.Name) Update Failed" }
+        Write-Debug "=== PROCESS BLOCK START ==="
+        Write-Debug "hasESA: $hasESA"
+        Write-Debug "hasOSA: $hasOSA"
+        Write-Debug "Name: $Name"
+        Write-Debug "rules count: $($rules.Count)"
+        Write-Debug "esaRules count: $($esaRules.Count)"
+        Write-Debug "withTagRuleSet: $($withTagRuleSet -ne $null)"
+        Write-Debug "notTagRuleSet: $($notTagRuleSet -ne $null)"
 
-        }
-        Else {
-            $profileuniqueID = $spbmProfMgr.PbmCreate($profilespec)
-            $existingpolicies = Get-AVSStoragePolicy
-            $createdpolicy = $existingpolicies | where-object { $_.profileid.uniqueid -eq $profileuniqueID.UniqueId }
-            Write-Information "Created $($createdpolicy.Name)"
-            return ("Created " + $createdpolicy.Name + " " + $profileuniqueID.UniqueId)
+        # if ($Description -eq "") {
+        #     $Description = "AVS Common Storage Policy created via PowerCLI"
+        # }
+
+        $createdPolicyNames = @()
+
+        if ($hasESA -and $hasOSA) {
+            Write-Debug "=== CREATING BOTH ESA AND OSA POLICIES ==="
+            # Create ESA policy with -esa suffix
+            $esaRules = $rules
+            if ($hasESA -and $NoCompression) {
+                Write-Debug "Creating ESA policy with No Compression with name: $esaName"
+            } else {
+                Write-Debug "Creating ESA policy with Compression Only with name: $esaName"
+                $esaRules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.datastoreSpaceEfficiency" ) -Value "CompressionOnly"
+            }
+            $esaRuleSet = New-SpbmRuleSet -AllOfRules $esaRules
+            # $esaName = "$Name-esa"
+
+            if (($withTagRuleSet) -and (-not $notTagRuleSet)) {
+                $esaPolicy = New-SpbmStoragePolicy -Name $esaName -Description $Description -AnyOfRuleSets $esaRuleSet, $withTagRuleSet -Confirm:$false
+            } elseif ((-not $withTagRuleSet) -and ($notTagRuleSet)) {
+                $esaPolicy = New-SpbmStoragePolicy -Name $esaName -Description $Description -AnyOfRuleSets $esaRuleSet, $notTagRuleSet -Confirm:$false
+            } elseif (($withTagRuleSet) -and ($notTagRuleSet)) {
+                $esaPolicy = New-SpbmStoragePolicy -Name $esaName -Description $Description -AnyOfRuleSets $esaRuleSet, $withTagRuleSet, $notTagRuleSet -Confirm:$false
+            } else {
+                $esaPolicy = New-SpbmStoragePolicy -Name $esaName -Description $Description -AnyOfRuleSets $esaRuleSet -Confirm:$false
+            }
+            Write-Debug "Created ESA policy: $esaName"
+            $createdPolicyNames += $esaName
+
+            # Create OSA policy with -osa suffix
+            Write-Debug "Creating OSA policy with name: $osaName"
+            $osaRuleSet = New-SpbmRuleSet -AllOfRules $rules
+            # $osaName = "$Name-osa"
+
+            if (($withTagRuleSet) -and (-not $notTagRuleSet)) {
+                $osaPolicy = New-SpbmStoragePolicy -Name $osaName -Description $Description -AnyOfRuleSets $osaRuleSet, $withTagRuleSet -Confirm:$false
+            } elseif ((-not $withTagRuleSet) -and ($notTagRuleSet)) {
+                $osaPolicy = New-SpbmStoragePolicy -Name $osaName -Description $Description -AnyOfRuleSets $osaRuleSet, $notTagRuleSet -Confirm:$false
+            } elseif (($withTagRuleSet) -and ($notTagRuleSet)) {
+                $osaPolicy = New-SpbmStoragePolicy -Name $osaName -Description $Description -AnyOfRuleSets $osaRuleSet, $withTagRuleSet, $notTagRuleSet -Confirm:$false
+            } else {
+                $osaPolicy = New-SpbmStoragePolicy -Name $osaName -Description $Description -AnyOfRuleSets $osaRuleSet -Confirm:$false
+            }
+            Write-Debug "Created OSA policy: $osaName"
+            $createdPolicyNames += $osaName
+        } elseif ($hasESA) {
+            Write-Debug "=== CREATING ESA-ONLY POLICY ==="
+            # ESA only - include esaRules
+            $esaRules = $Rules
+            $esaRules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.datastoreSpaceEfficiency" ) -Value "CompressionOnly"
+            $ruleSet = New-SpbmRuleSet -AllOfRules $esaRules # $esaRules, $rules
+            Write-Debug "=== CREATING ESA-ONLY ruleset ==="
+
+            if (($withTagRuleSet) -and (-not $notTagRuleSet)) {
+                $policy = New-SpbmStoragePolicy -Name $Name -Description $Description -AnyOfRuleSets $ruleSet, $withTagRuleSet -Confirm:$false
+            } elseif ((-not $withTagRuleSet) -and ($notTagRuleSet)) {
+                $policy = New-SpbmStoragePolicy -Name $Name -Description $Description -AnyOfRuleSets $ruleSet, $notTagRuleSet -Confirm:$false
+            } elseif (($withTagRuleSet) -and ($notTagRuleSet)) {
+                $policy = New-SpbmStoragePolicy -Name $Name -Description $Description -AnyOfRuleSets $ruleSet, $withTagRuleSet, $notTagRuleSet -Confirm:$false
+            } else {
+                $policy = New-SpbmStoragePolicy -Name $Name -Description $Description -AnyOfRuleSets $ruleSet -Confirm:$false
+            }
+            Write-Debug "Created ESA-only policy: $Name"
+            $createdPolicyNames += $Name
+        } else {
+            Write-Debug "=== CREATING OSA-ONLY POLICY ==="
+            # OSA only - no esaRules
+            $ruleSet = New-SpbmRuleSet -AllOfRules $rules
+
+            if (($withTagRuleSet) -and (-not $notTagRuleSet)) {
+                $policy = New-SpbmStoragePolicy -Name $Name -Description $Description -AnyOfRuleSets $ruleSet, $withTagRuleSet -Confirm:$false
+            } elseif ((-not $withTagRuleSet) -and ($notTagRuleSet)) {
+                $policy = New-SpbmStoragePolicy -Name $Name -Description $Description -AnyOfRuleSets $ruleSet, $notTagRuleSet -Confirm:$false
+            } elseif (($withTagRuleSet) -and ($notTagRuleSet)) {
+                $policy = New-SpbmStoragePolicy -Name $Name -Description $Description -AnyOfRuleSets $ruleSet, $withTagRuleSet, $notTagRuleSet -Confirm:$false
+            } else {
+                $policy = New-SpbmStoragePolicy -Name $Name -Description $Description -AnyOfRuleSets $ruleSet -Confirm:$false
+            }
+            Write-Debug "Created OSA-only policy: $Name"
+            $createdPolicyNames += $Name
         }
 
+        if ($vmencryption -ne "None") {
+            # switch ($VMEncryption) {
+            #     "PreIO" {
+            #         Write-Information "Adding VM Encryption with Pre-IO filter capability to ProfileSpec"
+            #         # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.dataAtRestEncryption" ) -Value $true
+            #         $IOPolicy = Get-AVSStoragePolicy -Name "AVS PRE IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
+            #         if (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS PRE IO Encryption" -Description "Encrypts VM before VAIO Filter" -PostIOEncryption $false }
+            #         $IOPolicy = Get-AVSStoragePolicy -Name "AVS PRE IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
+            #     }
+            #     "PostIO" {
+            #         Write-Information "Adding VM Encryption with Post-IO filter capability to ProfileSpec"
+            #         # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.dataAtRestEncryption" ) -Value $true
+            #         $IOPolicy = Get-AVSStoragePolicy -Name "AVS POST IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
+            #         if (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS POST IO Encryption" -Description "Encrypts VM after VAIO Filter" -PostIOEncryption $true }
+            #         $IOPolicy = Get-AVSStoragePolicy -Name "AVS POST IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
+            #     }
+            #     default {
+            #         Write-Information "No VM Encryption capability added to ProfileSpec"
+            #     }
+            # }
+            # Get the PBM profile manager
+            $serviceInstanceView = Get-SpbmView -Id "PbmServiceInstance-ServiceInstance"
+            $spbmServiceContent = $serviceInstanceView.PbmRetrieveServiceContent()
+            $spbmProfMgr = Get-SpbmView -Id $spbmServiceContent.ProfileManager
+
+            # Build the encryption capability instance (NOT a SubProfile)
+            $encCapability = New-Object VMware.Spbm.Views.PbmCapabilityInstance
+            $encCapability.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
+            $encCapability.Id.Namespace = "com.vmware.storageprofile.dataservice"
+            $encCapability.Id.Id = $IOPolicy.ProfileId.UniqueId
+            $encCapability.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
+            $encCapability.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
+            $encCapability.Constraint[0].PropertyInstance[0].Id = $IOPolicy.ProfileId.UniqueId
+            $encCapability.Constraint[0].PropertyInstance[0].Value = $IOPolicy.ProfileId.UniqueId
+
+            # Retrieve the full profile we just created
+            $pbmProfileResourceType = New-Object VMware.Spbm.Views.PbmProfileResourceType
+            $pbmProfileResourceType.ResourceType = "STORAGE"
+            $allProfiles = $spbmProfMgr.PbmQueryProfile($pbmProfileResourceType, "REQUIREMENT")
+            $fullProfiles = $spbmProfMgr.PbmRetrieveContent($allProfiles)
+            $targetProfile = $fullProfiles | Where-Object { $_.Name -eq $Name }
+
+            # Add to EVERY existing sub-profile (VAIO rules must be identical across all rulesets)
+            $existingConstraints = $targetProfile.Constraints
+            foreach ($subProfile in $existingConstraints.SubProfiles) {
+                $subProfile.Capability += $encCapability
+            }
+
+            $updateSpec = New-Object VMware.Spbm.Views.PbmCapabilityProfileUpdateSpec
+            $updateSpec.Name = $targetProfile.Name
+            $updateSpec.Description = $targetProfile.Description
+            $updateSpec.Constraints = $existingConstraints
+
+            # Update
+            $spbmProfMgr.PbmUpdate($targetProfile.ProfileId, $updateSpec)
+        }
+
+        Write-Debug "=== PROCESS BLOCK END ==="
+        Write-Debug "Returning policy names: $($createdPolicyNames -join ', ')"
+        return $createdPolicyNames
     }
 }
 
