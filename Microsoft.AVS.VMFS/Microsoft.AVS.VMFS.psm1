@@ -594,6 +594,68 @@ function Resize-VmfsVolume {
 
 <#
     .DESCRIPTION
+     Expand existing iSCSI Datastore to new size.
+
+    .PARAMETER ClusterName
+     Cluster name
+
+    .PARAMETER DatastoreName
+     Datastore name
+
+    .EXAMPLE
+     Resize-iSCSIDatastore -ClusterName "myCluster" -DatastoreName "myDatastore"
+    
+    .INPUTS
+     vCenter cluster name and datastore name.
+
+    .OUTPUTS
+     None.
+#>
+function Resize-iSCSIDatastore {
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    Param (
+        [Parameter(
+            Mandatory=$true,
+            HelpMessage = 'Cluster name in vCenter')]
+        [ValidateNotNull()]
+        [String]
+        $ClusterName,
+
+        [Parameter(
+            Mandatory=$true,
+            HelpMessage = 'Name of iSCSI datastore to be expanded in vCenter')]
+        [ValidateNotNull()]
+        [String]
+        $DatastoreName
+    )
+
+    $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+    if (-not $Cluster) {
+        throw "Cluster $ClusterName does not exist."
+    }
+
+    $Datastore = Get-Datastore -Name $DatastoreName -ErrorAction Ignore
+    if (-not $Datastore) {
+        throw "Datastore $DatastoreName does not exist."
+    }
+
+    if ($Datastore.Type -ne "VMFS") {
+        throw "Datastore $DatastoreName is of type $($Datastore.Type). This cmdlet can only process iSCSI datastores."
+    }
+
+    $NaaID = [string]$Datastore.ExtensionData.Info.Vmfs.Extent.DiskName
+    if (-not $NaaID) {
+        throw "Failed to get NAA ID for datastore $DatastoreName."
+        
+    }
+
+    Write-Host "Resizing iSCSI datastore $DatastoreName..."
+    Resize-VmfsVolume -ClusterName $ClusterName -DeviceNaaId $NaaID
+}
+
+<#
+    .DESCRIPTION
      Re-signature existing VMFS volume to recover to previous version.
 
     .PARAMETER ClusterName
