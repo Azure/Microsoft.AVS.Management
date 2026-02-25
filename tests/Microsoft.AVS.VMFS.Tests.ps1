@@ -755,8 +755,6 @@ Describe "Remove-VmfsDatastore" {
     }
 }
 
-#region Behavioral Tests - iSCSI Target Removal Functions
-
 Describe "Remove-VMHostStaticIScsiTargets - Behavioral Tests" -Tag "Behavioral" {
     BeforeAll {
         # Create mock objects
@@ -954,4 +952,1772 @@ Describe "Remove-VMHostDynamicIScsiTargets - Behavioral Tests" -Tag "Behavioral"
     }
 }
 
-#endregion
+Describe "ValidateNotNullOrEmpty Parameter Attribute" {
+    $testCases = @(
+        @{ Function = 'Set-VmfsIscsi'; Parameter = 'ClusterName' }
+        @{ Function = 'Set-VmfsIscsi'; Parameter = 'ScsiIpAddress' }
+        @{ Function = 'Set-VmfsStaticIscsi'; Parameter = 'ClusterName' }
+        @{ Function = 'Set-VmfsStaticIscsi'; Parameter = 'ScsiIpAddress' }
+        @{ Function = 'Set-VmfsStaticIscsi'; Parameter = 'ScsiName' }
+        @{ Function = 'New-VmfsDatastore'; Parameter = 'ClusterName' }
+        @{ Function = 'New-VmfsDatastore'; Parameter = 'DatastoreName' }
+        @{ Function = 'New-VmfsDatastore'; Parameter = 'DeviceNaaId' }
+        @{ Function = 'New-VmfsDatastore'; Parameter = 'Size' }
+        @{ Function = 'Dismount-VmfsDatastore'; Parameter = 'ClusterName' }
+        @{ Function = 'Dismount-VmfsDatastore'; Parameter = 'DatastoreName' }
+        @{ Function = 'Resize-VmfsVolume'; Parameter = 'ClusterName' }
+        @{ Function = 'Restore-VmfsVolume'; Parameter = 'ClusterName' }
+        @{ Function = 'Restore-VmfsVolume'; Parameter = 'DeviceNaaId' }
+        @{ Function = 'Sync-VMHostStorage'; Parameter = 'VMHostName' }
+        @{ Function = 'Sync-ClusterVMHostStorage'; Parameter = 'ClusterName' }
+        @{ Function = 'Mount-VmfsDatastore'; Parameter = 'ClusterName' }
+        @{ Function = 'Mount-VmfsDatastore'; Parameter = 'DatastoreName' }
+        @{ Function = 'Remove-VMHostStaticIScsiTargets'; Parameter = 'ClusterName' }
+        @{ Function = 'Remove-VMHostStaticIScsiTargets'; Parameter = 'iSCSIAddress' }
+        @{ Function = 'Remove-VMHostDynamicIScsiTargets'; Parameter = 'ClusterName' }
+        @{ Function = 'Remove-VMHostDynamicIScsiTargets'; Parameter = 'iSCSIAddress' }
+    )
+
+    It "<Function> should have ValidateNotNullOrEmpty on <Parameter>" -TestCases $testCases {
+        param($Function, $Parameter)
+        $command = Get-Command $Function
+        $command.Parameters[$Parameter].Attributes |
+            Where-Object { $_ -is [System.Management.Automation.ValidateNotNullOrEmptyAttribute] } |
+            Should -Not -BeNullOrEmpty
+    }
+}
+
+Describe "Set-VmfsIscsi - Null Check Edge Cases" {
+    Context "No hosts found in cluster" {
+        BeforeAll {
+            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VMHost { @() } -ModuleName Microsoft.AVS.VMFS
+        }
+
+        It "Should throw when cluster has no hosts" {
+            { Set-VmfsIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.1.1" } |
+                Should -Throw "*No hosts found in cluster*"
+        }
+    }
+}
+
+Describe "Set-VmfsStaticIscsi - Null Check Edge Cases" {
+    Context "No hosts found in cluster" {
+        BeforeAll {
+            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VMHost { @() } -ModuleName Microsoft.AVS.VMFS
+        }
+
+        It "Should throw when cluster has no hosts" {
+            { Set-VmfsStaticIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.1.1" -ScsiName "iqn.test" } |
+                Should -Throw "*No hosts found in cluster*"
+        }
+    }
+}
+
+Describe "Dismount-VmfsDatastore - Null Check Edge Cases" {
+    Context "No hosts found in cluster" {
+        BeforeAll {
+            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-Datastore { [PSCustomObject]@{ Name = "TestDS"; Type = "VMFS" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VMHost { @() } -ModuleName Microsoft.AVS.VMFS
+        }
+
+        It "Should throw when cluster has no hosts" {
+            { Dismount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                Should -Throw "*No hosts found in cluster*"
+        }
+    }
+}
+
+Describe "New-VmfsDatastore - Null Check Edge Cases" {
+    Context "No connected hosts in cluster" {
+        BeforeAll {
+            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-Datastore { $null } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VMHost { [PSCustomObject]@{ Name = "host1"; ConnectionState = "Disconnected" } } -ModuleName Microsoft.AVS.VMFS
+        }
+
+        It "Should throw when no connected hosts found" {
+            { New-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" -DeviceNaaId "naa.60003ff123" -Size "1073741824" } |
+                Should -Throw "*No connected hosts found*"
+        }
+    }
+}
+
+Describe "Sync-VMHostStorage - Null Check Edge Cases" {
+    Context "VMHost does not exist" {
+        BeforeAll {
+            Mock Get-VMHost { $null } -ModuleName Microsoft.AVS.VMFS
+        }
+
+        It "Should throw when VMHost does not exist" {
+            { Sync-VMHostStorage -VMHostName "NonExistentHost" } |
+                Should -Throw "*does not exist*"
+        }
+    }
+}
+
+Describe "Remove-VmfsDatastore - Null Check Edge Cases" {
+    Context "No connected hosts with datastore" {
+        BeforeAll {
+            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-Datastore { [PSCustomObject]@{ Name = "TestDS"; State = "Available" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VM { $null } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VMHost { $null } -ModuleName Microsoft.AVS.VMFS
+        }
+
+        It "Should throw when no connected hosts found with datastore" {
+            { Remove-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                Should -Throw "*No connected hosts found*"
+        }
+    }
+}
+
+Describe "Resize-VmfsVolume - Error Message Fix" {
+    Context "Non-VMFS Datastore Type Error" {
+        BeforeAll {
+            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-Datastore { [PSCustomObject]@{ Name = "NFSDatastore"; Type = "NFS" } } -ModuleName Microsoft.AVS.VMFS
+        }
+
+        It "Should reference 'VMFS datastores' in error message" {
+            { Resize-VmfsVolume -ClusterName "TestCluster" -DatastoreName "NFSDatastore" } |
+                Should -Throw "*VMFS datastores*"
+        }
+
+        It "Should not reference 'iSCSI datastores' in error message" {
+            try {
+                Resize-VmfsVolume -ClusterName "TestCluster" -DatastoreName "NFSDatastore"
+            } catch {
+                $_.Exception.Message | Should -Not -BeLike "*iSCSI datastores*"
+            }
+        }
+    }
+}
+
+Describe "Set-VmfsIscsi - IP Address Exact Match" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+        $script:mockVMHost = [PSCustomObject]@{ Name = "esxi-host-1" }
+    }
+
+    # With -cmatch, regex dots match any character and partial matching occurs (e.g., "192.168.0.10" -cmatch "192.168.0.1" is $true).
+    # With -eq, only exact matches are considered.
+    Context "Uses -eq instead of -cmatch for IP comparison" {
+        It "Should add new target when existing target has similar but non-exact IP" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster, $script:mockVMHost) -ScriptBlock {
+                param($mockCluster, $mockVMHost)
+
+                $existingTarget = [PSCustomObject]@{ Address = "192.168.0.10" }
+                $mockIscsiAdapter = [PSCustomObject]@{ Model = "iSCSI Software Adapter"; Device = "vmhba65" }
+                $mockIscsiStorage = [PSCustomObject]@{ SoftwareIScsiEnabled = $true }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostNetworkAdapter { param($VMHost, [switch]$VMKernel) @([PSCustomObject]@{ Name = "vmk5" }, [PSCustomObject]@{ Name = "vmk6" }) }
+                function script:Get-VMHostStorage { $mockIscsiStorage }
+                function script:Get-VMHostHba { param($Type) $mockIscsiAdapter }
+                function script:Get-IScsiHbaTarget { param($IScsiHba, $Type, $ErrorAction) @($existingTarget) }
+                function script:New-IScsiHbaTarget { param($IScsiHba, $Address, $ErrorAction) $script:newTargetCalled = $true }
+                function script:Get-EsxCli { throw "EsxCli mock stop" }
+
+                $script:newTargetCalled = $false
+
+                try {
+                    Set-VmfsIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1"
+                } catch { }
+
+                # With -eq, "192.168.0.10" != "192.168.0.1", so New-IScsiHbaTarget should be called
+                $script:newTargetCalled | Should -Be $true
+            }
+        }
+
+        It "Should not add target when existing target has exact same IP" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster, $script:mockVMHost) -ScriptBlock {
+                param($mockCluster, $mockVMHost)
+
+                $existingTarget = [PSCustomObject]@{ Address = "192.168.0.1" }
+                $mockIscsiAdapter = [PSCustomObject]@{ Model = "iSCSI Software Adapter"; Device = "vmhba65" }
+                $mockIscsiStorage = [PSCustomObject]@{ SoftwareIScsiEnabled = $true }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostNetworkAdapter { param($VMHost, [switch]$VMKernel) @([PSCustomObject]@{ Name = "vmk5" }, [PSCustomObject]@{ Name = "vmk6" }) }
+                function script:Get-VMHostStorage { $mockIscsiStorage }
+                function script:Get-VMHostHba { param($Type) $mockIscsiAdapter }
+                function script:Get-IScsiHbaTarget { param($IScsiHba, $Type, $ErrorAction) @($existingTarget) }
+                function script:New-IScsiHbaTarget { param($IScsiHba, $Address, $ErrorAction) $script:newTargetCalled = $true }
+                function script:Get-EsxCli { throw "EsxCli mock stop" }
+
+                $script:newTargetCalled = $false
+
+                try {
+                    Set-VmfsIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1"
+                } catch { }
+
+                # Exact match means target already exists, so New-IScsiHbaTarget should not be called
+                $script:newTargetCalled | Should -Be $false
+            }
+        }
+    }
+}
+
+Describe "Set-VmfsStaticIscsi - IP Address Exact Match" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+        $script:mockVMHost = [PSCustomObject]@{ Name = "esxi-host-1" }
+    }
+
+    Context "Uses -eq instead of -cmatch for IP comparison" {
+        It "Should add new static target when existing has similar but non-exact IP" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster, $script:mockVMHost) -ScriptBlock {
+                param($mockCluster, $mockVMHost)
+
+                $existingTarget = [PSCustomObject]@{ Address = "192.168.0.10" }
+                $mockIscsiAdapter = [PSCustomObject]@{ Model = "iSCSI Software Adapter"; Device = "vmhba65" }
+                $mockIscsiStorage = [PSCustomObject]@{ SoftwareIScsiEnabled = $true }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostNetworkAdapter { param($VMHost, [switch]$VMKernel) @([PSCustomObject]@{ Name = "vmk5" }, [PSCustomObject]@{ Name = "vmk6" }) }
+                function script:Get-VMHostStorage { $mockIscsiStorage }
+                function script:Set-VMHostStorage { param([switch]$SoftwareIScsiEnabled) }
+                function script:Get-VMHostHba { param($Type) $mockIscsiAdapter }
+                function script:Get-IScsiHbaTarget { param($IScsiHba, $Type, $ErrorAction) @($existingTarget) }
+                function script:New-IScsiHbaTarget { param($IScsiHba, $Type, $Address, $IScsiName, $ErrorAction) $script:newTargetCalled = $true }
+                function script:Get-EsxCli { throw "EsxCli mock stop" }
+
+                $script:newTargetCalled = $false
+
+                try {
+                    Set-VmfsStaticIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" -ScsiName "iqn.test"
+                } catch { }
+
+                $script:newTargetCalled | Should -Be $true
+            }
+        }
+    }
+}
+
+Describe "Set-VmfsIscsi - iSCSI Adapter Null Check" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+        $script:mockVMHost = [PSCustomObject]@{ Name = "esxi-host-1" }
+    }
+
+    Context "Host without iSCSI adapter" {
+        It "Should throw when host has no iSCSI adapter" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster, $script:mockVMHost) -ScriptBlock {
+                param($mockCluster, $mockVMHost)
+
+                $mockIscsiStorage = [PSCustomObject]@{ SoftwareIScsiEnabled = $true }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostNetworkAdapter { param($VMHost, [switch]$VMKernel) @([PSCustomObject]@{ Name = "vmk5" }, [PSCustomObject]@{ Name = "vmk6" }) }
+                function script:Get-VMHostStorage { $mockIscsiStorage }
+                function script:Get-VMHostHba { param($Type) $null }
+
+                { Set-VmfsIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" } |
+                    Should -Throw "*No iSCSI Software Adapter found on host*"
+            }
+        }
+    }
+}
+
+Describe "Set-VmfsStaticIscsi - iSCSI Adapter Null Check" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+        $script:mockVMHost = [PSCustomObject]@{ Name = "esxi-host-1" }
+    }
+
+    Context "Host without iSCSI adapter" {
+        It "Should throw when host has no iSCSI adapter" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster, $script:mockVMHost) -ScriptBlock {
+                param($mockCluster, $mockVMHost)
+
+                $mockIscsiStorage = [PSCustomObject]@{ SoftwareIScsiEnabled = $true }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostNetworkAdapter { param($VMHost, [switch]$VMKernel) @([PSCustomObject]@{ Name = "vmk5" }, [PSCustomObject]@{ Name = "vmk6" }) }
+                function script:Get-VMHostStorage { $mockIscsiStorage }
+                function script:Set-VMHostStorage { param([switch]$SoftwareIScsiEnabled) }
+                function script:Get-VMHostHba { param($Type) $null }
+
+                { Set-VmfsStaticIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" -ScsiName "iqn.test" } |
+                    Should -Throw "*No iSCSI Software Adapter found on host*"
+            }
+        }
+    }
+}
+
+Describe "New-VmfsDatastore - Device and Options Null Checks" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+        $script:mockHost = [PSCustomObject]@{ Name = "host-1"; ConnectionState = "Connected" }
+    }
+
+    Context "Device not found" {
+        It "Should throw when device with NAA ID not found on any host" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster, $script:mockHost) -ScriptBlock {
+                param($mockCluster, $mockHost)
+
+                $mockDsSystem = New-Object PSObject
+                $mockDsSystem | Add-Member -MemberType ScriptMethod -Name 'QueryAvailableDisksForVmfs' -Value {
+                    param($p) @()
+                }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore { $null }
+                function script:Get-VMHost { @($mockHost) }
+                function script:Get-View {
+                    param($ViewType, $Filter, $Id)
+                    if ($ViewType) {
+                        return [PSCustomObject]@{
+                            ConfigManager = [PSCustomObject]@{ DatastoreSystem = "ds-system-1" }
+                        }
+                    }
+                    return $mockDsSystem
+                }
+
+                { New-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" -DeviceNaaId "naa.60003ff123" -Size "1073741824" } |
+                    Should -Throw "*Device with NAA ID*not found*"
+            }
+        }
+    }
+
+    Context "No datastore create options" {
+        It "Should throw when no create options available for device" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster, $script:mockHost) -ScriptBlock {
+                param($mockCluster, $mockHost)
+
+                $mockDsSystem = New-Object PSObject
+                $mockDsSystem | Add-Member -MemberType ScriptMethod -Name 'QueryAvailableDisksForVmfs' -Value {
+                    param($p)
+                    @([PSCustomObject]@{
+                        CanonicalName = "naa.60003ff123"
+                        Uuid = "device-uuid-123"
+                        DevicePath = "/vmfs/devices/disks/naa.60003ff123"
+                    })
+                }
+                $mockDsSystem | Add-Member -MemberType ScriptMethod -Name 'QueryVmfsDatastoreCreateOptions' -Value {
+                    param($p1, $p2) @()
+                }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore { $null }
+                function script:Get-VMHost { @($mockHost) }
+                function script:Get-View {
+                    param($ViewType, $Filter, $Id)
+                    if ($ViewType) {
+                        return [PSCustomObject]@{
+                            ConfigManager = [PSCustomObject]@{ DatastoreSystem = "ds-system-1" }
+                        }
+                    }
+                    return $mockDsSystem
+                }
+
+                { New-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" -DeviceNaaId "naa.60003ff123" -Size "1073741824" } |
+                    Should -Throw "*No VMFS datastore create options*"
+            }
+        }
+    }
+}
+
+Describe "Dismount-VmfsDatastore - Rollback on Failure" -Tag "Behavioral" {
+    Context "When unmount fails on the only host" {
+        It "Should throw with rollback message and no rollback needed" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost = [PSCustomObject]@{
+                    Name = "host-1"
+                    Extensiondata = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{
+                            StorageSystem = "StorageSystem-host-1"
+                        }
+                    }
+                }
+
+                $mockExtData = [PSCustomObject]@{
+                    info = [PSCustomObject]@{
+                        Vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-123"
+                            extent = @([PSCustomObject]@{ Diskname = "naa.60003ff123" })
+                        }
+                    }
+                }
+                $mockDatastore = [PSCustomObject]@{
+                    Name = "TestDS"
+                    Type = "VMFS"
+                    ExtensionData = $mockExtData
+                }
+
+                $failingStorageSystem = New-Object PSObject
+                $failingStorageSystem | Add-Member -MemberType ScriptMethod -Name 'UnmountVmfsVolume' -Value {
+                    param($uuid) throw "Unmount failed"
+                }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost) }
+                function script:Get-Datastore { param($Name, $VMHost, $ErrorAction) $mockDatastore }
+                function script:Get-VM { $null }
+                function script:Get-ScsiLun {
+                    [PSCustomObject]@{ ExtensionData = [PSCustomObject]@{ uuid = "scsi-uuid-123" } }
+                }
+                function script:Get-View { param($Id) $failingStorageSystem }
+                function script:Get-VMHostStorage { param([switch]$RescanAllHba, [switch]$RescanVmfs) }
+
+                { Dismount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Throw "*Failed to dismount datastore*rolled back*"
+            }
+        }
+    }
+
+    Context "When unmount fails on the second host" {
+        It "Should roll back the first host (re-attach + re-mount) and throw" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost1 = [PSCustomObject]@{
+                    Name = "host-1"
+                    Extensiondata = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{
+                            StorageSystem = "StorageSystem-host-1"
+                        }
+                    }
+                }
+                $mockHost2 = [PSCustomObject]@{
+                    Name = "host-2"
+                    Extensiondata = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{
+                            StorageSystem = "StorageSystem-host-2"
+                        }
+                    }
+                }
+
+                $mockExtData = [PSCustomObject]@{
+                    info = [PSCustomObject]@{
+                        Vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-123"
+                            extent = @([PSCustomObject]@{ Diskname = "naa.60003ff123" })
+                        }
+                    }
+                }
+                $mockDatastore = [PSCustomObject]@{
+                    Name = "TestDS"
+                    Type = "VMFS"
+                    ExtensionData = $mockExtData
+                }
+
+                $script:unmountCallCount = 0
+                $script:attachScsiCalled = $false
+                $script:mountVmfsCalled = $false
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost1, $mockHost2) }
+                function script:Get-Datastore { param($Name, $VMHost, $ErrorAction) $mockDatastore }
+                function script:Get-VM { $null }
+                function script:Get-ScsiLun {
+                    [PSCustomObject]@{ ExtensionData = [PSCustomObject]@{ uuid = "scsi-uuid-123" } }
+                }
+                function script:Get-VMHostStorage { param([switch]$RescanAllHba, [switch]$RescanVmfs) }
+
+                function script:Get-View {
+                    param($Id)
+                    $storageSystem = New-Object PSObject
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'UnmountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:unmountCallCount++
+                        if ($script:unmountCallCount -ge 2) {
+                            throw "Unmount failed on second host"
+                        }
+                    }
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'DetachScsiLun' -Value {
+                        param($uuid)
+                    }
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'AttachScsiLun' -Value {
+                        param($uuid)
+                        $script:attachScsiCalled = $true
+                    }
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'MountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:mountVmfsCalled = $true
+                    }
+                    return $storageSystem
+                }
+
+                { Dismount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Throw "*Failed to dismount datastore*host-2*rolled back*"
+
+                $script:attachScsiCalled | Should -Be $true
+                $script:mountVmfsCalled | Should -Be $true
+            }
+        }
+    }
+
+    Context "When SCSI detach fails on the second host" {
+        It "Should roll back only the first host (already detached) and throw" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost1 = [PSCustomObject]@{
+                    Name = "host-1"
+                    Extensiondata = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{
+                            StorageSystem = "StorageSystem-host-1"
+                        }
+                    }
+                }
+                $mockHost2 = [PSCustomObject]@{
+                    Name = "host-2"
+                    Extensiondata = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{
+                            StorageSystem = "StorageSystem-host-2"
+                        }
+                    }
+                }
+
+                $mockExtData = [PSCustomObject]@{
+                    info = [PSCustomObject]@{
+                        Vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-123"
+                            extent = @([PSCustomObject]@{ Diskname = "naa.60003ff123" })
+                        }
+                    }
+                }
+                $mockDatastore = [PSCustomObject]@{
+                    Name = "TestDS"
+                    Type = "VMFS"
+                    ExtensionData = $mockExtData
+                }
+
+                $script:detachCallCount = 0
+                $script:attachScsiCalled = $false
+                $script:mountVmfsCalled = $false
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost1, $mockHost2) }
+                function script:Get-Datastore { param($Name, $VMHost, $ErrorAction) $mockDatastore }
+                function script:Get-VM { $null }
+                function script:Get-ScsiLun {
+                    [PSCustomObject]@{ ExtensionData = [PSCustomObject]@{ uuid = "scsi-uuid-123" } }
+                }
+                function script:Get-VMHostStorage { param([switch]$RescanAllHba, [switch]$RescanVmfs) }
+
+                function script:Get-View {
+                    param($Id)
+                    $storageSystem = New-Object PSObject
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'UnmountVmfsVolume' -Value {
+                        param($uuid)
+                    }
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'DetachScsiLun' -Value {
+                        param($uuid)
+                        $script:detachCallCount++
+                        if ($script:detachCallCount -ge 2) {
+                            throw "Detach SCSI failed on second host"
+                        }
+                    }
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'AttachScsiLun' -Value {
+                        param($uuid)
+                        $script:attachScsiCalled = $true
+                    }
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'MountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:mountVmfsCalled = $true
+                    }
+                    return $storageSystem
+                }
+
+                { Dismount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Throw "*Failed to dismount datastore*host-2*rolled back*"
+
+                $script:attachScsiCalled | Should -Be $true
+                $script:mountVmfsCalled | Should -Be $true
+            }
+        }
+    }
+
+    Context "NVMe/TCP volume (eui. disk name)" {
+        It "Should not detach SCSI LUN and rollback should only re-mount" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost1 = [PSCustomObject]@{
+                    Name = "host-1"
+                    Extensiondata = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{
+                            StorageSystem = "StorageSystem-host-1"
+                        }
+                    }
+                }
+                $mockHost2 = [PSCustomObject]@{
+                    Name = "host-2"
+                    Extensiondata = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{
+                            StorageSystem = "StorageSystem-host-2"
+                        }
+                    }
+                }
+
+                $mockExtData = [PSCustomObject]@{
+                    info = [PSCustomObject]@{
+                        Vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-123"
+                            extent = @([PSCustomObject]@{ Diskname = "eui.abc123" })
+                        }
+                    }
+                }
+                $mockDatastore = [PSCustomObject]@{
+                    Name = "TestDS"
+                    Type = "VMFS"
+                    ExtensionData = $mockExtData
+                }
+
+                $script:unmountCallCount = 0
+                $script:detachScsiCalled = $false
+                $script:attachScsiCalled = $false
+                $script:mountVmfsCalled = $false
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost1, $mockHost2) }
+                function script:Get-Datastore { param($Name, $VMHost, $ErrorAction) $mockDatastore }
+                function script:Get-VM { $null }
+                function script:Get-ScsiLun {
+                    [PSCustomObject]@{ ExtensionData = [PSCustomObject]@{ uuid = "scsi-uuid-123" } }
+                }
+                function script:Get-VMHostStorage { param([switch]$RescanAllHba, [switch]$RescanVmfs) }
+
+                function script:Get-View {
+                    param($Id)
+                    $storageSystem = New-Object PSObject
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'UnmountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:unmountCallCount++
+                        if ($script:unmountCallCount -ge 2) {
+                            throw "Unmount failed on second host"
+                        }
+                    }
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'DetachScsiLun' -Value {
+                        param($uuid)
+                        $script:detachScsiCalled = $true
+                    }
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'AttachScsiLun' -Value {
+                        param($uuid)
+                        $script:attachScsiCalled = $true
+                    }
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'MountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:mountVmfsCalled = $true
+                    }
+                    return $storageSystem
+                }
+
+                { Dismount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Throw "*Failed to dismount datastore*rolled back*"
+
+                # SCSI detach should never have been called (NVMe/TCP path)
+                $script:detachScsiCalled | Should -Be $false
+                # Rollback should re-mount but not re-attach
+                $script:attachScsiCalled | Should -Be $false
+                $script:mountVmfsCalled | Should -Be $true
+            }
+        }
+    }
+
+    Context "VM pre-validation" {
+        It "Should throw before any unmount when VMs are on the datastore" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost = [PSCustomObject]@{
+                    Name = "host-1"
+                    Extensiondata = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{
+                            StorageSystem = "StorageSystem-host-1"
+                        }
+                    }
+                }
+
+                $mockExtData = [PSCustomObject]@{
+                    info = [PSCustomObject]@{
+                        Vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-123"
+                            extent = @([PSCustomObject]@{ Diskname = "naa.60003ff123" })
+                        }
+                    }
+                }
+                $mockDatastore = [PSCustomObject]@{
+                    Name = "TestDS"
+                    Type = "VMFS"
+                    ExtensionData = $mockExtData
+                }
+
+                $script:unmountCalled = $false
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost) }
+                function script:Get-Datastore { param($Name, $VMHost, $ErrorAction) $mockDatastore }
+                function script:Get-VM { @([PSCustomObject]@{ Name = "VM1" }) }
+                function script:Get-View {
+                    param($Id)
+                    $storageSystem = New-Object PSObject
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'UnmountVmfsVolume' -Value {
+                        param($uuid) $script:unmountCalled = $true
+                    }
+                    return $storageSystem
+                }
+
+                { Dismount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Throw "*Cannot unmount datastore*already in use*"
+
+                $script:unmountCalled | Should -Be $false
+            }
+        }
+    }
+
+    Context "Datastore not connected to any host" {
+        It "Should return without attempting unmount" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost = [PSCustomObject]@{
+                    Name = "host-1"
+                    Extensiondata = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{
+                            StorageSystem = "StorageSystem-host-1"
+                        }
+                    }
+                }
+
+                $mockExtData = [PSCustomObject]@{
+                    info = [PSCustomObject]@{
+                        Vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-123"
+                            extent = @([PSCustomObject]@{ Diskname = "naa.60003ff123" })
+                        }
+                    }
+                }
+                $mockDatastoreGlobal = [PSCustomObject]@{
+                    Name = "TestDS"
+                    Type = "VMFS"
+                    ExtensionData = $mockExtData
+                }
+
+                $script:unmountCalled = $false
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost) }
+                function script:Get-Datastore {
+                    param($Name, $VMHost, $ErrorAction)
+                    # When called with -VMHost, return different datastore
+                    if ($VMHost) {
+                        return @([PSCustomObject]@{ Name = "OtherDS"; Type = "VMFS" })
+                    }
+                    return $mockDatastoreGlobal
+                }
+                function script:Get-VM { $null }
+                function script:Get-ScsiLun {
+                    [PSCustomObject]@{ ExtensionData = [PSCustomObject]@{ uuid = "scsi-uuid-123" } }
+                }
+                function script:Get-View {
+                    param($Id)
+                    $storageSystem = New-Object PSObject
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'UnmountVmfsVolume' -Value {
+                        param($uuid) $script:unmountCalled = $true
+                    }
+                    return $storageSystem
+                }
+
+                { Dismount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Not -Throw
+
+                $script:unmountCalled | Should -Be $false
+            }
+        }
+    }
+}
+
+Describe "Mount-VmfsDatastore - Rollback on Failure" -Tag "Behavioral" {
+    Context "When mount fails on the second host" {
+        It "Should roll back by unmounting the first host and throw" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost1 = [PSCustomObject]@{
+                    Name = "host-1"
+                    ExtensionData = [PSCustomObject]@{
+                        config = [PSCustomObject]@{
+                            StorageDevice = [PSCustomObject]@{
+                                ScsiLun = @([PSCustomObject]@{ DevicePath = "/vmfs/devices/disks/naa.60003ff123" })
+                            }
+                        }
+                    }
+                }
+                $mockHost2 = [PSCustomObject]@{
+                    Name = "host-2"
+                    ExtensionData = [PSCustomObject]@{
+                        config = [PSCustomObject]@{
+                            StorageDevice = [PSCustomObject]@{
+                                ScsiLun = @([PSCustomObject]@{ DevicePath = "/vmfs/devices/disks/naa.60003ff123" })
+                            }
+                        }
+                    }
+                }
+
+                $mockExtData = [PSCustomObject]@{
+                    Info = [PSCustomObject]@{
+                        vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-123"
+                            extent = @([PSCustomObject]@{ Diskname = "naa.60003ff123" })
+                        }
+                    }
+                }
+                $mockDatastore = [PSCustomObject]@{
+                    Name = "TestDS"
+                    Type = "VMFS"
+                    ExtensionData = $mockExtData
+                }
+
+                $script:mountCallCount = 0
+                $script:unmountCalled = $false
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost1, $mockHost2) }
+                function script:Get-Datastore { param($Name, $ErrorAction) $mockDatastore }
+                function script:Get-VMHostStorage { param([switch]$RescanAllHba, [switch]$RescanVmfs) }
+
+                function script:Get-View {
+                    param($Id)
+                    $mockView = New-Object PSObject
+                    $mockView | Add-Member -MemberType NoteProperty -Name 'ConfigManager' -Value ([PSCustomObject]@{
+                        StorageSystem = "StorageSystem-mock"
+                    })
+                    $mockView | Add-Member -MemberType ScriptMethod -Name 'MountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:mountCallCount++
+                        if ($script:mountCallCount -ge 2) {
+                            throw "Mount failed on second host"
+                        }
+                    }
+                    $mockView | Add-Member -MemberType ScriptMethod -Name 'UnmountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:unmountCalled = $true
+                    }
+                    return $mockView
+                }
+
+                { Mount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Throw "*Failed to mount datastore*host-2*rolled back*"
+
+                $script:unmountCalled | Should -Be $true
+            }
+        }
+    }
+
+    Context "When mount succeeds on all hosts" {
+        It "Should not trigger rollback" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost1 = [PSCustomObject]@{
+                    Name = "host-1"
+                    ExtensionData = [PSCustomObject]@{
+                        config = [PSCustomObject]@{
+                            StorageDevice = [PSCustomObject]@{
+                                ScsiLun = @([PSCustomObject]@{ DevicePath = "/vmfs/devices/disks/naa.60003ff123" })
+                            }
+                        }
+                    }
+                }
+
+                $mockExtData = [PSCustomObject]@{
+                    Info = [PSCustomObject]@{
+                        vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-123"
+                            extent = @([PSCustomObject]@{ Diskname = "naa.60003ff123" })
+                        }
+                    }
+                }
+                $mockDatastore = [PSCustomObject]@{
+                    Name = "TestDS"
+                    Type = "VMFS"
+                    ExtensionData = $mockExtData
+                }
+
+                $script:unmountCalled = $false
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost1) }
+                function script:Get-Datastore { param($Name, $ErrorAction) $mockDatastore }
+                function script:Get-VMHostStorage { param([switch]$RescanAllHba, [switch]$RescanVmfs) }
+
+                function script:Get-View {
+                    param($Id)
+                    $mockView = New-Object PSObject
+                    $mockView | Add-Member -MemberType NoteProperty -Name 'ConfigManager' -Value ([PSCustomObject]@{
+                        StorageSystem = "StorageSystem-mock"
+                    })
+                    $mockView | Add-Member -MemberType ScriptMethod -Name 'MountVmfsVolume' -Value {
+                        param($uuid)
+                    }
+                    $mockView | Add-Member -MemberType ScriptMethod -Name 'UnmountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:unmountCalled = $true
+                    }
+                    return $mockView
+                }
+
+                { Mount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Not -Throw
+
+                $script:unmountCalled | Should -Be $false
+            }
+        }
+    }
+
+    Context "When host has no device for the datastore" {
+        It "Should skip that host without error" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost1 = [PSCustomObject]@{
+                    Name = "host-no-device"
+                    ExtensionData = [PSCustomObject]@{
+                        config = [PSCustomObject]@{
+                            StorageDevice = [PSCustomObject]@{
+                                ScsiLun = @([PSCustomObject]@{ DevicePath = "/vmfs/devices/disks/naa.OTHER" })
+                            }
+                        }
+                    }
+                }
+
+                $mockExtData = [PSCustomObject]@{
+                    Info = [PSCustomObject]@{
+                        vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-123"
+                            extent = @([PSCustomObject]@{ Diskname = "naa.60003ff123" })
+                        }
+                    }
+                }
+                $mockDatastore = [PSCustomObject]@{
+                    Name = "TestDS"
+                    Type = "VMFS"
+                    ExtensionData = $mockExtData
+                }
+
+                $script:mountCalled = $false
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost1) }
+                function script:Get-Datastore { param($Name, $ErrorAction) $mockDatastore }
+
+                function script:Get-View {
+                    param($Id)
+                    $mockView = New-Object PSObject
+                    $mockView | Add-Member -MemberType NoteProperty -Name 'ConfigManager' -Value ([PSCustomObject]@{
+                        StorageSystem = "StorageSystem-mock"
+                    })
+                    $mockView | Add-Member -MemberType ScriptMethod -Name 'MountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:mountCalled = $true
+                    }
+                    return $mockView
+                }
+
+                { Mount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Not -Throw
+
+                $script:mountCalled | Should -Be $false
+            }
+        }
+    }
+}
+
+Describe "Remove-VmfsDatastore - Shared Datastore Rollback" -Tag "Behavioral" {
+    Context "When unmount fails on the second host in shared mode" {
+        It "Should roll back by re-mounting the first host and throw" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost1 = [PSCustomObject]@{
+                    Name = "host-1"
+                    Extensiondata = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{
+                            StorageSystem = "StorageSystem-host-1"
+                        }
+                    }
+                }
+                $mockHost2 = [PSCustomObject]@{
+                    Name = "host-2"
+                    Extensiondata = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{
+                            StorageSystem = "StorageSystem-host-2"
+                        }
+                    }
+                }
+
+                # Related host belongs to a different cluster to trigger shared mode
+                $mockRelatedHost = [PSCustomObject]@{
+                    Name = "host-other-cluster"
+                    State = "Connected"
+                    Parent = [PSCustomObject]@{ Name = "OtherCluster" }
+                }
+
+                $mockExtData = [PSCustomObject]@{
+                    info = [PSCustomObject]@{
+                        Vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-shared"
+                        }
+                    }
+                }
+                $mockDatastore = [PSCustomObject]@{
+                    Name = "SharedDS"
+                    Type = "VMFS"
+                    State = "Available"
+                    ExtensionData = $mockExtData
+                }
+
+                $script:unmountCallCount = 0
+                $script:mountCalled = $false
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                # Get-VMHost cases: -State returns related hosts, -Datastore returns related, default returns cluster hosts
+                function script:Get-VMHost {
+                    param($Name, $Datastore, [string]$State)
+                    if ($Datastore) { return @($mockRelatedHost) }
+                    if ($State) { return @($mockHost1, $mockHost2) }
+                    return @($mockHost1, $mockHost2)
+                }
+                function script:Get-Datastore { param($Name, $ErrorAction) $mockDatastore }
+                function script:Get-VM { param($Datastore, $ErrorAction) $null }
+                function script:Get-VMHostStorage { param($VMHost, [switch]$RescanAllHba, [switch]$RescanVmfs) }
+
+                function script:Get-View {
+                    param($Id)
+                    $storageSystem = New-Object PSObject
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'UnmountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:unmountCallCount++
+                        if ($script:unmountCallCount -ge 2) {
+                            throw "Unmount failed on second host"
+                        }
+                    }
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'MountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:mountCalled = $true
+                    }
+                    return $storageSystem
+                }
+
+                { Remove-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "SharedDS" } |
+                    Should -Throw "*Failed to unmount shared datastore*host-2*rolled back*"
+
+                $script:mountCalled | Should -Be $true
+            }
+        }
+    }
+
+    Context "When all hosts unmount successfully in shared mode" {
+        It "Should not trigger rollback" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost1 = [PSCustomObject]@{
+                    Name = "host-1"
+                    Extensiondata = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{
+                            StorageSystem = "StorageSystem-host-1"
+                        }
+                    }
+                }
+
+                $mockRelatedHost = [PSCustomObject]@{
+                    Name = "host-other-cluster"
+                    State = "Connected"
+                    Parent = [PSCustomObject]@{ Name = "OtherCluster" }
+                }
+
+                $mockExtData = [PSCustomObject]@{
+                    info = [PSCustomObject]@{
+                        Vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-shared"
+                        }
+                    }
+                }
+                $mockDatastore = [PSCustomObject]@{
+                    Name = "SharedDS"
+                    Type = "VMFS"
+                    State = "Available"
+                    ExtensionData = $mockExtData
+                }
+
+                $script:mountCalled = $false
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost {
+                    param($Name, $Datastore, [string]$State)
+                    if ($Datastore) { return @($mockRelatedHost) }
+                    return @($mockHost1)
+                }
+                function script:Get-Datastore { param($Name, $ErrorAction) $mockDatastore }
+                function script:Get-VM { param($Datastore, $ErrorAction) $null }
+                function script:Get-VMHostStorage { param($VMHost, [switch]$RescanAllHba, [switch]$RescanVmfs) }
+
+                function script:Get-View {
+                    param($Id)
+                    $storageSystem = New-Object PSObject
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'UnmountVmfsVolume' -Value {
+                        param($uuid)
+                    }
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'MountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:mountCalled = $true
+                    }
+                    return $storageSystem
+                }
+
+                { Remove-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "SharedDS" } |
+                    Should -Not -Throw
+
+                $script:mountCalled | Should -Be $false
+            }
+        }
+    }
+}
+
+Describe "Set-VmfsIscsi - Rollback on Failure" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+    }
+
+    Context "When iSCSI configuration fails on the second host" {
+        It "Should roll back targets added on previously configured hosts" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockHost1 = [PSCustomObject]@{ Name = "host-1" }
+                $mockHost2 = [PSCustomObject]@{ Name = "host-2" }
+                $mockAdapter = [PSCustomObject]@{ Model = "iSCSI Software Adapter"; Device = "vmhba65" }
+                $mockStorage = [PSCustomObject]@{ SoftwareIScsiEnabled = $true }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost1, $mockHost2) }
+                function script:Get-VMHostNetworkAdapter { param($VMHost, [switch]$VMKernel) @([PSCustomObject]@{ Name = "vmk5" }, [PSCustomObject]@{ Name = "vmk6" }) }
+                function script:Get-VMHostStorage { $mockStorage }
+                function script:Get-VMHostHba { param($Type) $mockAdapter }
+
+                $script:hostCallCount = 0
+                $script:removeTargetCalled = $false
+
+                function script:Get-IScsiHbaTarget {
+                    param($IScsiHba, $Type, $ErrorAction)
+                    @()
+                }
+
+                function script:New-IScsiHbaTarget {
+                    param($IScsiHba, $Address, $ErrorAction)
+                    $script:hostCallCount++
+                    # Fail on the second host
+                    if ($script:hostCallCount -ge 2) {
+                        throw "Simulated target creation failure on host-2"
+                    }
+                }
+
+                function script:Get-EsxCli {
+                    # Create a mock esxcli object that supports the adapter config calls
+                    $getArgs = { @{ adapter = ''; address = '' } }
+                    $getInvoke = { @() }
+                    $setArgs = { @{ adapter = ''; address = ''; value = ''; key = '' } }
+                    $setInvoke = { }
+                    $paramGet = [PSCustomObject]@{}
+                    $paramGet | Add-Member -MemberType ScriptMethod -Name 'CreateArgs' -Value $getArgs
+                    $paramGet | Add-Member -MemberType ScriptMethod -Name 'invoke' -Value $getInvoke
+                    $paramSet = [PSCustomObject]@{}
+                    $paramSet | Add-Member -MemberType ScriptMethod -Name 'CreateArgs' -Value $setArgs
+                    $paramSet | Add-Member -MemberType ScriptMethod -Name 'invoke' -Value $setInvoke
+                    $sendtargetParam = [PSCustomObject]@{ get = $paramGet; set = $paramSet }
+                    $sendtarget = [PSCustomObject]@{ param = $sendtargetParam }
+                    $discovery = [PSCustomObject]@{ sendtarget = $sendtarget }
+                    $adapter = [PSCustomObject]@{ discovery = $discovery }
+                    $iscsi = [PSCustomObject]@{ adapter = $adapter }
+                    return [PSCustomObject]@{ iscsi = $iscsi }
+                }
+
+                function script:Remove-IScsiHbaTarget {
+                    param($Target, [switch]$Confirm, $ErrorAction)
+                    $script:removeTargetCalled = $true
+                }
+
+                { Set-VmfsIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" } |
+                    Should -Throw "*Failed to configure iSCSI*rolled back*"
+
+                # The target added on host-1 should have been rolled back
+                $script:removeTargetCalled | Should -Be $true
+            }
+        }
+    }
+
+    Context "When target already existed on a host before this run" {
+        It "Should not remove pre-existing targets during rollback" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockHost1 = [PSCustomObject]@{ Name = "host-1" }
+                $mockHost2 = [PSCustomObject]@{ Name = "host-2" }
+                $mockAdapter = [PSCustomObject]@{ Model = "iSCSI Software Adapter"; Device = "vmhba65" }
+                $mockStorage = [PSCustomObject]@{ SoftwareIScsiEnabled = $true }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost1, $mockHost2) }
+                function script:Get-VMHostNetworkAdapter { param($VMHost, [switch]$VMKernel) @([PSCustomObject]@{ Name = "vmk5" }, [PSCustomObject]@{ Name = "vmk6" }) }
+                function script:Get-VMHostStorage { $mockStorage }
+                function script:Get-VMHostHba { param($Type) $mockAdapter }
+
+                $script:removeTargetCalled = $false
+
+                # Host-1 already has the target
+                $existingTarget = [PSCustomObject]@{ Address = "192.168.0.1" }
+                $script:getTargetCallCount = 0
+                function script:Get-IScsiHbaTarget {
+                    param($IScsiHba, $Type, $ErrorAction)
+                    $script:getTargetCallCount++
+                    if ($script:getTargetCallCount -le 2) {
+                        @($existingTarget)
+                    } else {
+                        @()
+                    }
+                }
+
+                function script:New-IScsiHbaTarget {
+                    param($IScsiHba, $Address, $ErrorAction)
+                    # Host-2 fails during target creation
+                    throw "Simulated failure on host-2"
+                }
+
+                function script:Get-EsxCli {
+                    $getArgs = { @{ adapter = ''; address = '' } }
+                    $getInvoke = { @() }
+                    $setArgs = { @{ adapter = ''; address = ''; value = ''; key = '' } }
+                    $setInvoke = { }
+                    $paramGet = [PSCustomObject]@{}
+                    $paramGet | Add-Member -MemberType ScriptMethod -Name 'CreateArgs' -Value $getArgs
+                    $paramGet | Add-Member -MemberType ScriptMethod -Name 'invoke' -Value $getInvoke
+                    $paramSet = [PSCustomObject]@{}
+                    $paramSet | Add-Member -MemberType ScriptMethod -Name 'CreateArgs' -Value $setArgs
+                    $paramSet | Add-Member -MemberType ScriptMethod -Name 'invoke' -Value $setInvoke
+                    $sendtargetParam = [PSCustomObject]@{ get = $paramGet; set = $paramSet }
+                    $sendtarget = [PSCustomObject]@{ param = $sendtargetParam }
+                    $discovery = [PSCustomObject]@{ sendtarget = $sendtarget }
+                    $adapter = [PSCustomObject]@{ discovery = $discovery }
+                    $iscsi = [PSCustomObject]@{ adapter = $adapter }
+                    return [PSCustomObject]@{ iscsi = $iscsi }
+                }
+
+                function script:Remove-IScsiHbaTarget {
+                    param($Target, [switch]$Confirm, $ErrorAction)
+                    $script:removeTargetCalled = $true
+                }
+
+                { Set-VmfsIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" } |
+                    Should -Throw "*Failed to configure iSCSI*"
+
+                # Host-1 target was pre-existing, so rollback should not remove it
+                $script:removeTargetCalled | Should -Be $false
+            }
+        }
+    }
+
+    Context "When all hosts succeed" {
+        It "Should not trigger any rollback" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockHost1 = [PSCustomObject]@{ Name = "host-1" }
+                $mockHost2 = [PSCustomObject]@{ Name = "host-2" }
+                $mockAdapter = [PSCustomObject]@{ Model = "iSCSI Software Adapter"; Device = "vmhba65" }
+                $mockStorage = [PSCustomObject]@{ SoftwareIScsiEnabled = $true }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost1, $mockHost2) }
+                function script:Get-VMHostNetworkAdapter { param($VMHost, [switch]$VMKernel) @([PSCustomObject]@{ Name = "vmk5" }, [PSCustomObject]@{ Name = "vmk6" }) }
+                function script:Get-VMHostStorage { $mockStorage }
+                function script:Get-VMHostHba { param($Type) $mockAdapter }
+                function script:Get-IScsiHbaTarget { param($IScsiHba, $Type, $ErrorAction) @() }
+                function script:New-IScsiHbaTarget { param($IScsiHba, $Address, $ErrorAction) }
+
+                $script:removeTargetCalled = $false
+
+                function script:Get-EsxCli {
+                    $getArgs = { @{ adapter = ''; address = '' } }
+                    $getInvoke = { @() }
+                    $setArgs = { @{ adapter = ''; address = ''; value = ''; key = '' } }
+                    $setInvoke = { }
+                    $paramGet = [PSCustomObject]@{}
+                    $paramGet | Add-Member -MemberType ScriptMethod -Name 'CreateArgs' -Value $getArgs
+                    $paramGet | Add-Member -MemberType ScriptMethod -Name 'invoke' -Value $getInvoke
+                    $paramSet = [PSCustomObject]@{}
+                    $paramSet | Add-Member -MemberType ScriptMethod -Name 'CreateArgs' -Value $setArgs
+                    $paramSet | Add-Member -MemberType ScriptMethod -Name 'invoke' -Value $setInvoke
+                    $sendtargetParam = [PSCustomObject]@{ get = $paramGet; set = $paramSet }
+                    $sendtarget = [PSCustomObject]@{ param = $sendtargetParam }
+                    $discovery = [PSCustomObject]@{ sendtarget = $sendtarget }
+                    $adapter = [PSCustomObject]@{ discovery = $discovery }
+                    $iscsi = [PSCustomObject]@{ adapter = $adapter }
+                    return [PSCustomObject]@{ iscsi = $iscsi }
+                }
+
+                function script:Remove-IScsiHbaTarget {
+                    param($Target, [switch]$Confirm, $ErrorAction)
+                    $script:removeTargetCalled = $true
+                }
+
+                { Set-VmfsIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" } |
+                    Should -Not -Throw
+
+                $script:removeTargetCalled | Should -Be $false
+            }
+        }
+    }
+
+    Context "When a host has no iSCSI adapter" {
+        It "Should throw before any targets are added" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockHost1 = [PSCustomObject]@{ Name = "host-1" }
+                $mockHost2 = [PSCustomObject]@{ Name = "host-2" }
+                $mockAdapter = [PSCustomObject]@{ Model = "iSCSI Software Adapter"; Device = "vmhba65" }
+                $mockStorage = [PSCustomObject]@{ SoftwareIScsiEnabled = $true }
+
+                $script:getHbaCallCount = 0
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost1, $mockHost2) }
+                function script:Get-VMHostNetworkAdapter { param($VMHost, [switch]$VMKernel) @([PSCustomObject]@{ Name = "vmk5" }, [PSCustomObject]@{ Name = "vmk6" }) }
+                function script:Get-VMHostStorage { $mockStorage }
+                function script:Get-VMHostHba {
+                    param($Type)
+                    $script:getHbaCallCount++
+                    # host-1 has adapter, host-2 does not
+                    if ($script:getHbaCallCount -eq 1) { $mockAdapter } else { $null }
+                }
+
+                $script:newTargetCalled = $false
+                function script:New-IScsiHbaTarget {
+                    param($IScsiHba, $Address, $ErrorAction)
+                    $script:newTargetCalled = $true
+                }
+
+                { Set-VmfsIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" } |
+                    Should -Throw "*No iSCSI Software Adapter found on host*"
+
+                # No targets should be added
+                $script:newTargetCalled | Should -Be $false
+            }
+        }
+    }
+}
+
+Describe "Set-VmfsStaticIscsi - Rollback on Failure" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+    }
+
+    Context "When static iSCSI configuration fails on the second host" {
+        It "Should roll back targets added on previously configured hosts" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockHost1 = [PSCustomObject]@{ Name = "host-1" }
+                $mockHost2 = [PSCustomObject]@{ Name = "host-2" }
+                $mockAdapter = [PSCustomObject]@{ Model = "iSCSI Software Adapter"; Device = "vmhba65" }
+                $mockStorage = [PSCustomObject]@{ SoftwareIScsiEnabled = $true }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost1, $mockHost2) }
+                function script:Get-VMHostNetworkAdapter { param($VMHost, [switch]$VMKernel) @([PSCustomObject]@{ Name = "vmk5" }, [PSCustomObject]@{ Name = "vmk6" }) }
+                function script:Get-VMHostStorage { $mockStorage }
+                function script:Get-VMHostHba { param($Type) $mockAdapter }
+
+                $script:hostCallCount = 0
+                $script:removeTargetCalled = $false
+
+                function script:Get-IScsiHbaTarget {
+                    param($IScsiHba, $Type, $ErrorAction)
+                    @()
+                }
+
+                function script:New-IScsiHbaTarget {
+                    param($IScsiHba, $Type, $Address, $IScsiName, $ErrorAction)
+                    $script:hostCallCount++
+                    if ($script:hostCallCount -ge 2) {
+                        throw "Simulated static target creation failure on host-2"
+                    }
+                }
+
+                function script:Get-EsxCli {
+                    $getArgs = { @{ adapter = ''; address = ''; name = '' } }
+                    $getInvoke = { @() }
+                    $setArgs = { @{ adapter = ''; address = ''; name = ''; inherit = ''; value = ''; key = '' } }
+                    $setInvoke = { }
+                    $paramGet = [PSCustomObject]@{}
+                    $paramGet | Add-Member -MemberType ScriptMethod -Name 'CreateArgs' -Value $getArgs
+                    $paramGet | Add-Member -MemberType ScriptMethod -Name 'invoke' -Value $getInvoke
+                    $paramSet = [PSCustomObject]@{}
+                    $paramSet | Add-Member -MemberType ScriptMethod -Name 'CreateArgs' -Value $setArgs
+                    $paramSet | Add-Member -MemberType ScriptMethod -Name 'invoke' -Value $setInvoke
+                    $portalParam = [PSCustomObject]@{ get = $paramGet; set = $paramSet }
+                    $portal = [PSCustomObject]@{ param = $portalParam }
+                    $target = [PSCustomObject]@{ portal = $portal }
+                    $adapter = [PSCustomObject]@{ target = $target }
+                    $iscsi = [PSCustomObject]@{ adapter = $adapter }
+                    return [PSCustomObject]@{ iscsi = $iscsi }
+                }
+
+                function script:Remove-IScsiHbaTarget {
+                    param($Target, [switch]$Confirm, $ErrorAction)
+                    $script:removeTargetCalled = $true
+                }
+
+                { Set-VmfsStaticIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" -ScsiName "iqn.test" } |
+                    Should -Throw "*Failed to configure iSCSI*rolled back*"
+
+                $script:removeTargetCalled | Should -Be $true
+            }
+        }
+    }
+
+    Context "When target already existed on a host before this run" {
+        It "Should not remove pre-existing static targets during rollback" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockHost1 = [PSCustomObject]@{ Name = "host-1" }
+                $mockHost2 = [PSCustomObject]@{ Name = "host-2" }
+                $mockAdapter = [PSCustomObject]@{ Model = "iSCSI Software Adapter"; Device = "vmhba65" }
+                $mockStorage = [PSCustomObject]@{ SoftwareIScsiEnabled = $true }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost1, $mockHost2) }
+                function script:Get-VMHostNetworkAdapter { param($VMHost, [switch]$VMKernel) @([PSCustomObject]@{ Name = "vmk5" }, [PSCustomObject]@{ Name = "vmk6" }) }
+                function script:Get-VMHostStorage { $mockStorage }
+                function script:Get-VMHostHba { param($Type) $mockAdapter }
+
+                $script:removeTargetCalled = $false
+
+                $existingTarget = [PSCustomObject]@{ Address = "192.168.0.1" }
+                $script:getTargetCallCount = 0
+                function script:Get-IScsiHbaTarget {
+                    param($IScsiHba, $Type, $ErrorAction)
+                    $script:getTargetCallCount++
+                    if ($script:getTargetCallCount -le 2) {
+                        @($existingTarget)
+                    } else {
+                        @()
+                    }
+                }
+
+                function script:New-IScsiHbaTarget {
+                    param($IScsiHba, $Type, $Address, $IScsiName, $ErrorAction)
+                    throw "Simulated failure on host-2"
+                }
+
+                function script:Get-EsxCli {
+                    $getArgs = { @{ adapter = ''; address = ''; name = '' } }
+                    $getInvoke = { @() }
+                    $setArgs = { @{ adapter = ''; address = ''; name = ''; inherit = ''; value = ''; key = '' } }
+                    $setInvoke = { }
+                    $paramGet = [PSCustomObject]@{}
+                    $paramGet | Add-Member -MemberType ScriptMethod -Name 'CreateArgs' -Value $getArgs
+                    $paramGet | Add-Member -MemberType ScriptMethod -Name 'invoke' -Value $getInvoke
+                    $paramSet = [PSCustomObject]@{}
+                    $paramSet | Add-Member -MemberType ScriptMethod -Name 'CreateArgs' -Value $setArgs
+                    $paramSet | Add-Member -MemberType ScriptMethod -Name 'invoke' -Value $setInvoke
+                    $portalParam = [PSCustomObject]@{ get = $paramGet; set = $paramSet }
+                    $portal = [PSCustomObject]@{ param = $portalParam }
+                    $target = [PSCustomObject]@{ portal = $portal }
+                    $adapter = [PSCustomObject]@{ target = $target }
+                    $iscsi = [PSCustomObject]@{ adapter = $adapter }
+                    return [PSCustomObject]@{ iscsi = $iscsi }
+                }
+
+                function script:Remove-IScsiHbaTarget {
+                    param($Target, [switch]$Confirm, $ErrorAction)
+                    $script:removeTargetCalled = $true
+                }
+
+                { Set-VmfsStaticIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" -ScsiName "iqn.test" } |
+                    Should -Throw "*Failed to configure iSCSI*"
+
+                $script:removeTargetCalled | Should -Be $false
+            }
+        }
+    }
+}
+
+Describe "Set-VmfsIscsi - vmk5/vmk6 Pre-Validation" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+    }
+
+    Context "Host missing vmk5 or vmk6" {
+        It "Should throw when vmk5 is missing on a host" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockVMHost = [PSCustomObject]@{ Name = "esxi-host-1" }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostNetworkAdapter {
+                    param($VMHost, [switch]$VMKernel)
+                    # Only vmk6 present, vmk5 missing
+                    @([PSCustomObject]@{ Name = "vmk0" }, [PSCustomObject]@{ Name = "vmk6" })
+                }
+
+                { Set-VmfsIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" } |
+                    Should -Throw "*Kernel Adapters vmk5 and vmk6 do not exist on host*"
+            }
+        }
+
+        It "Should throw when vmk6 is missing on a host" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockVMHost = [PSCustomObject]@{ Name = "esxi-host-1" }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostNetworkAdapter {
+                    param($VMHost, [switch]$VMKernel)
+                    # Only vmk5 present, vmk6 missing
+                    @([PSCustomObject]@{ Name = "vmk0" }, [PSCustomObject]@{ Name = "vmk5" })
+                }
+
+                { Set-VmfsIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" } |
+                    Should -Throw "*Kernel Adapters vmk5 and vmk6 do not exist on host*"
+            }
+        }
+
+        It "Should throw when Get-VMHostNetworkAdapter fails" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockVMHost = [PSCustomObject]@{ Name = "esxi-host-1" }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostNetworkAdapter {
+                    param($VMHost, [switch]$VMKernel)
+                    throw "Connection error"
+                }
+
+                { Set-VmfsIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" } |
+                    Should -Throw "*Failed to collect VMKernel info on host*"
+            }
+        }
+    }
+
+    Context "Microsoft Corporation vendor hosts" {
+        It "Should skip vmk5/vmk6 check for Microsoft Corporation hosts" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $hwInfo = [PSCustomObject]@{ Vendor = "Microsoft Corporation" }
+                $hwData = [PSCustomObject]@{ SystemInfo = $hwInfo }
+                $extData = [PSCustomObject]@{ Hardware = $hwData }
+                $mockVMHost = [PSCustomObject]@{ Name = "ms-host-1"; ExtensionData = $extData }
+
+                $mockAdapter = [PSCustomObject]@{ Model = "iSCSI Software Adapter"; Device = "vmhba65" }
+                $mockStorage = [PSCustomObject]@{ SoftwareIScsiEnabled = $true }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostStorage { $mockStorage }
+                function script:Get-VMHostHba { param($Type) $mockAdapter }
+                function script:Get-IScsiHbaTarget { param($IScsiHba, $Type, $ErrorAction) @() }
+                function script:New-IScsiHbaTarget { param($IScsiHba, $Address, $ErrorAction) }
+
+                function script:Get-EsxCli {
+                    $getArgs = { @{ adapter = ''; address = '' } }
+                    $getInvoke = { @() }
+                    $setArgs = { @{ adapter = ''; address = ''; value = ''; key = '' } }
+                    $setInvoke = { }
+                    $paramGet = [PSCustomObject]@{}
+                    $paramGet | Add-Member -MemberType ScriptMethod -Name 'CreateArgs' -Value $getArgs
+                    $paramGet | Add-Member -MemberType ScriptMethod -Name 'invoke' -Value $getInvoke
+                    $paramSet = [PSCustomObject]@{}
+                    $paramSet | Add-Member -MemberType ScriptMethod -Name 'CreateArgs' -Value $setArgs
+                    $paramSet | Add-Member -MemberType ScriptMethod -Name 'invoke' -Value $setInvoke
+                    $sendtargetParam = [PSCustomObject]@{ get = $paramGet; set = $paramSet }
+                    $sendtarget = [PSCustomObject]@{ param = $sendtargetParam }
+                    $discovery = [PSCustomObject]@{ sendtarget = $sendtarget }
+                    $adapter = [PSCustomObject]@{ discovery = $discovery }
+                    $iscsi = [PSCustomObject]@{ adapter = $adapter }
+                    return [PSCustomObject]@{ iscsi = $iscsi }
+                }
+
+                { Set-VmfsIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" } |
+                    Should -Not -Throw
+            }
+        }
+    }
+}
+
+Describe "Set-VmfsStaticIscsi - vmk5/vmk6 Pre-Validation" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+    }
+
+    Context "Host missing vmk5 or vmk6" {
+        It "Should throw when vmk5 is missing on a host" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockVMHost = [PSCustomObject]@{ Name = "esxi-host-1" }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostNetworkAdapter {
+                    param($VMHost, [switch]$VMKernel)
+                    @([PSCustomObject]@{ Name = "vmk0" }, [PSCustomObject]@{ Name = "vmk6" })
+                }
+
+                { Set-VmfsStaticIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" -ScsiName "iqn.test" } |
+                    Should -Throw "*Kernel Adapters vmk5 and vmk6 do not exist on host*"
+            }
+        }
+
+        It "Should throw when Get-VMHostNetworkAdapter fails" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockVMHost = [PSCustomObject]@{ Name = "esxi-host-1" }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostNetworkAdapter {
+                    param($VMHost, [switch]$VMKernel)
+                    throw "Connection error"
+                }
+
+                { Set-VmfsStaticIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" -ScsiName "iqn.test" } |
+                    Should -Throw "*Failed to collect VMKernel info on host*"
+            }
+        }
+    }
+
+    Context "Microsoft Corporation vendor hosts" {
+        It "Should skip vmk5/vmk6 check for Microsoft Corporation hosts" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $hwInfo = [PSCustomObject]@{ Vendor = "Microsoft Corporation" }
+                $hwData = [PSCustomObject]@{ SystemInfo = $hwInfo }
+                $extData = [PSCustomObject]@{ Hardware = $hwData }
+                $mockVMHost = [PSCustomObject]@{ Name = "ms-host-1"; ExtensionData = $extData }
+
+                $mockAdapter = [PSCustomObject]@{ Model = "iSCSI Software Adapter"; Device = "vmhba65" }
+                $mockStorage = [PSCustomObject]@{ SoftwareIScsiEnabled = $true }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostStorage { $mockStorage }
+                function script:Get-VMHostHba { param($Type) $mockAdapter }
+                function script:Get-IScsiHbaTarget { param($IScsiHba, $Type, $ErrorAction) @() }
+                function script:New-IScsiHbaTarget { param($IScsiHba, $Type, $Address, $IScsiName, $ErrorAction) }
+
+                function script:Get-EsxCli {
+                    $getArgs = { @{ adapter = ''; address = ''; name = '' } }
+                    $getInvoke = { @() }
+                    $setArgs = { @{ adapter = ''; address = ''; name = ''; inherit = ''; value = ''; key = '' } }
+                    $setInvoke = { }
+                    $paramGet = [PSCustomObject]@{}
+                    $paramGet | Add-Member -MemberType ScriptMethod -Name 'CreateArgs' -Value $getArgs
+                    $paramGet | Add-Member -MemberType ScriptMethod -Name 'invoke' -Value $getInvoke
+                    $paramSet = [PSCustomObject]@{}
+                    $paramSet | Add-Member -MemberType ScriptMethod -Name 'CreateArgs' -Value $setArgs
+                    $paramSet | Add-Member -MemberType ScriptMethod -Name 'invoke' -Value $setInvoke
+                    $portalParam = [PSCustomObject]@{ get = $paramGet; set = $paramSet }
+                    $portal = [PSCustomObject]@{ param = $portalParam }
+                    $target = [PSCustomObject]@{ portal = $portal }
+                    $adapter = [PSCustomObject]@{ target = $target }
+                    $iscsi = [PSCustomObject]@{ adapter = $adapter }
+                    return [PSCustomObject]@{ iscsi = $iscsi }
+                }
+
+                { Set-VmfsStaticIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" -ScsiName "iqn.test" } |
+                    Should -Not -Throw
+            }
+        }
+    }
+}
+
+Describe "Test-VMKernelConnectivity - vmk5/vmk6 Pre-Validation" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+    }
+
+    Context "Host missing vmk5 or vmk6" {
+        It "Should throw when vmk5 is missing on a host" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockVMHost = [PSCustomObject]@{ Name = "esxi-host-1" }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostNetworkAdapter {
+                    param($VMHost, [switch]$VMKernel)
+                    @([PSCustomObject]@{ Name = "vmk0" }, [PSCustomObject]@{ Name = "vmk6" })
+                }
+
+                { Test-VMKernelConnectivity -ClusterName "TestCluster" } |
+                    Should -Throw "*Kernel Adapters vmk5 and vmk6 do not exist on host*"
+            }
+        }
+
+        It "Should throw when Get-VMHostNetworkAdapter fails" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockVMHost = [PSCustomObject]@{ Name = "esxi-host-1" }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostNetworkAdapter {
+                    param($VMHost, [switch]$VMKernel)
+                    throw "Connection error"
+                }
+
+                { Test-VMKernelConnectivity -ClusterName "TestCluster" } |
+                    Should -Throw "*Failed to collect VMKernel info on host*"
+            }
+        }
+    }
+
+    Context "Microsoft Corporation vendor hosts" {
+        It "Should skip vmk5/vmk6 check for Microsoft Corporation hosts" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $hwInfo = [PSCustomObject]@{ Vendor = "Microsoft Corporation" }
+                $hwData = [PSCustomObject]@{ SystemInfo = $hwInfo }
+                $extData = [PSCustomObject]@{ Hardware = $hwData }
+                $mockVMHost = [PSCustomObject]@{ Name = "ms-host-1"; ExtensionData = $extData }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostNetworkAdapter {
+                    param($VMHost)
+                    @([PSCustomObject]@{ Name = "vmk0"; IP = "10.0.0.1" })
+                }
+                function script:Get-EsxCli {
+                    param($VMHost, $V2)
+                    $createArgs = { @{ host = '' } }
+                    $invoke = { [PSCustomObject]@{ Summary = [PSCustomObject]@{ Received = 1 } } }
+                    $ping = [PSCustomObject]@{}
+                    $ping | Add-Member -MemberType ScriptMethod -Name 'CreateArgs' -Value $createArgs
+                    $ping | Add-Member -MemberType ScriptMethod -Name 'Invoke' -Value $invoke
+                    $diag = [PSCustomObject]@{ ping = $ping }
+                    $network = [PSCustomObject]@{ diag = $diag }
+                    return [PSCustomObject]@{ network = $network }
+                }
+
+                { Test-VMKernelConnectivity -ClusterName "TestCluster" } |
+                    Should -Not -Throw
+            }
+        }
+    }
+}
