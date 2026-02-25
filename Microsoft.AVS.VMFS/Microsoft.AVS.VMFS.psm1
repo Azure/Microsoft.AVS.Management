@@ -1807,6 +1807,7 @@ function Get-VmfsHosts {
      $NamedOutputs[$VmHost.Name] = "
      {
       Name : $($VmHost.Name),
+      Id : $($VmHost.Id),
       Version : $($VmHost.Version),
       ConnectionState : $($VmHost.ConnectionState),
       PowerState : $($VmHost.PowerState),

@@ -9,9 +9,30 @@ BeforeAll {
             AVSAttribute([int]$timeoutMinutes) { $this.Timeout = New-TimeSpan -Minutes $timeoutMinutes }
         }
     }
-    
-    # Import the VMFS module
-    $modulePath = Join-Path $PSScriptRoot ".." "Microsoft.AVS.VMFS" "Microsoft.AVS.VMFS.psd1"
+
+    # Define stub functions for VMware cmdlets so Pester can mock them
+    # These are only created when the real cmdlets are not available (e.g. no PowerCLI installed)
+    $vmwareCmdlets = @(
+        'Get-Cluster', 'Get-VMHost', 'Get-Datastore', 'Get-VMHostHba',
+        'Get-VMHostStorage', 'Get-VMHostNetworkAdapter', 'Get-EsxCli',
+        'Get-VM', 'Get-View', 'Remove-Datastore', 'New-Datastore',
+        'Set-VMHostStorage'
+    )
+    foreach ($cmdlet in $vmwareCmdlets) {
+        if (-not (Get-Command $cmdlet -ErrorAction SilentlyContinue)) {
+            Set-Item -Path "function:global:$cmdlet" -Value { param() $null }
+        }
+    }
+    # Always override Get-VMHost with a stub that accepts common parameters,
+    # preventing the real VMware cmdlet from causing credential binding errors
+    function global:Get-VMHost {
+        param($Name, $Datastore, $State, $Id,
+              [Parameter(ValueFromPipeline=$true)]$InputObject)
+        process { $null }
+    }
+
+    # Import the VMFS module (use .psm1 directly to avoid RequiredModules dependency on VMware modules)
+    $modulePath = Join-Path $PSScriptRoot ".." "Microsoft.AVS.VMFS" "Microsoft.AVS.VMFS.psm1"
     Import-Module $modulePath -Force
 }
 
@@ -513,6 +534,75 @@ Describe "Get-VmfsDatastore" {
                 Should -Throw -ExpectedMessage "*does not exist*"
         }
     }
+
+    Context "No hosts in cluster" {
+        BeforeAll {
+            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VMHost { $null } -ModuleName Microsoft.AVS.VMFS
+        }
+
+        It "Should throw when no hosts found" {
+            { Get-VmfsDatastore -ClusterName "TestCluster" } |
+                Should -Throw -ExpectedMessage "*No ESXi host found*"
+        }
+    }
+
+    Context "No VMFS datastores found" {
+        It "Should return without error when no datastores found" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                function script:Get-Cluster { param($Name, $ErrorAction) [PSCustomObject]@{ Name = "TestCluster" } }
+                function script:Get-VMHost { param($Name, $Datastore, $ErrorAction) [PSCustomObject]@{ Name = "host-01" } }
+                function script:Get-Datastore { param($Name, $ErrorAction) $null }
+                function script:Get-Unique { $null }
+
+                { Get-VmfsDatastore -ClusterName "TestCluster" } |
+                    Should -Not -Throw
+            }
+        }
+    }
+
+    Context "Output contains all expected datastore fields" {
+        It "Should populate NamedOutputs with all fields" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockDS = [PSCustomObject]@{
+                    Name = "vmfs-ds-01"
+                    CapacityGB = 500
+                    FreeSpaceGB = 250
+                    Type = "VMFS"
+                    State = "Available"
+                    ExtensionData = [PSCustomObject]@{
+                        Info = [PSCustomObject]@{
+                            Vmfs = [PSCustomObject]@{
+                                uuid = "vmfs-uuid-001"
+                                extent = @([PSCustomObject]@{ Diskname = "naa.60003ff44dc75adc" })
+                            }
+                        }
+                    }
+                }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) [PSCustomObject]@{ Name = "TestCluster" } }
+                function script:Get-VMHost {
+                    param($Name, $Datastore, $ErrorAction)
+                    [PSCustomObject]@{ Name = "host-01" }
+                }
+                function script:Get-Datastore { $mockDS }
+                function script:Get-Unique { $mockDS }
+
+                Get-VmfsDatastore -ClusterName "TestCluster"
+
+                $Global:NamedOutputs | Should -Not -BeNullOrEmpty
+                $Global:NamedOutputs.ContainsKey("vmfs-ds-01") | Should -BeTrue
+                $Global:NamedOutputs["vmfs-ds-01"] | Should -Match "Name\s*:\s*vmfs-ds-01"
+                $Global:NamedOutputs["vmfs-ds-01"] | Should -Match "Capacity\s*:\s*500"
+                $Global:NamedOutputs["vmfs-ds-01"] | Should -Match "FreeSpace\s*:\s*250"
+                $Global:NamedOutputs["vmfs-ds-01"] | Should -Match "Type\s*:\s*VMFS"
+                $Global:NamedOutputs["vmfs-ds-01"] | Should -Match "UUID\s*:\s*vmfs-uuid-001"
+                $Global:NamedOutputs["vmfs-ds-01"] | Should -Match "Device\s*:\s*naa.60003ff44dc75adc"
+                $Global:NamedOutputs["vmfs-ds-01"] | Should -Match "State\s*:\s*Available"
+                $Global:NamedOutputs["vmfs-ds-01"] | Should -Match "Hosts\s*:\s*host-01"
+            }
+        }
+    }
 }
 
 Describe "Get-VmfsHosts" {
@@ -532,6 +622,250 @@ Describe "Get-VmfsHosts" {
         It "Should throw when cluster does not exist" {
             { Get-VmfsHosts -ClusterName "NonExistentCluster" } | 
                 Should -Throw -ExpectedMessage "*does not exist*"
+        }
+    }
+
+    Context "Single host output contains all expected fields" {
+        BeforeAll {
+            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VMHost {
+                [PSCustomObject]@{
+                    Name = "esxi-host-01"
+                    Id = "HostSystem-host-42"
+                    Version = "7.0.3"
+                    ConnectionState = "Connected"
+                    PowerState = "PoweredOn"
+                    State = "Connected"
+                    ExtensionData = [PSCustomObject]@{
+                        Hardware = [PSCustomObject]@{
+                            SystemInfo = [PSCustomObject]@{
+                                QualifiedName = [PSCustomObject]@{ Value = "nqn.2014-08.org.nvmexpress:uuid:test-uuid" }
+                                Uuid = "test-system-uuid-001"
+                            }
+                        }
+                        config = [PSCustomObject]@{
+                            StorageDevice = [PSCustomObject]@{
+                                NvmeTopology = $null
+                            }
+                        }
+                    }
+                }
+            } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-Datastore { @([PSCustomObject]@{ Name = "vmfs-ds-01"; Type = "VMFS" }) } -ModuleName Microsoft.AVS.VMFS
+
+            Get-VmfsHosts -ClusterName "TestCluster"
+        }
+
+        It "Should return non-empty NamedOutputs" {
+            $Global:NamedOutputs | Should -Not -BeNullOrEmpty
+        }
+
+        It "Should key the output by host name" {
+            $Global:NamedOutputs.ContainsKey("esxi-host-01") | Should -BeTrue
+        }
+
+        It "Should include Name in the output" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "Name\s*:\s*esxi-host-01"
+        }
+
+        It "Should include Id in the output" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "Id\s*:\s*HostSystem-host-42"
+        }
+
+        It "Should include Version in the output" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "Version\s*:\s*7\.0\.3"
+        }
+
+        It "Should include ConnectionState in the output" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "ConnectionState\s*:\s*Connected"
+        }
+
+        It "Should include PowerState in the output" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "PowerState\s*:\s*PoweredOn"
+        }
+
+        It "Should include State in the output" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "State\s*:\s*Connected"
+        }
+
+        It "Should include HostNQN in the output" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "HostNQN\s*:\s*nqn\.2014-08\.org\.nvmexpress:uuid:test-uuid"
+        }
+
+        It "Should include Uuid in the output" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "Uuid\s*:\s*test-system-uuid-001"
+        }
+
+        It "Should include Datastores in the output" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "Datastores\s*:\s*vmfs-ds-01"
+        }
+
+        It "Should include Extension in the output" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "Extension\s*:"
+        }
+    }
+
+    Context "Multiple hosts output contains all expected fields per host" {
+        BeforeAll {
+            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VMHost {
+                @(
+                    [PSCustomObject]@{
+                        Name = "esxi-host-01"
+                        Id = "HostSystem-host-42"
+                        Version = "7.0.3"
+                        ConnectionState = "Connected"
+                        PowerState = "PoweredOn"
+                        State = "Connected"
+                        ExtensionData = [PSCustomObject]@{
+                            Hardware = [PSCustomObject]@{
+                                SystemInfo = [PSCustomObject]@{
+                                    QualifiedName = [PSCustomObject]@{ Value = "nqn.host1" }
+                                    Uuid = "uuid-host-01"
+                                }
+                            }
+                            config = [PSCustomObject]@{
+                                StorageDevice = [PSCustomObject]@{ NvmeTopology = $null }
+                            }
+                        }
+                    },
+                    [PSCustomObject]@{
+                        Name = "esxi-host-02"
+                        Id = "HostSystem-host-99"
+                        Version = "8.0.1"
+                        ConnectionState = "Maintenance"
+                        PowerState = "PoweredOn"
+                        State = "Maintenance"
+                        ExtensionData = [PSCustomObject]@{
+                            Hardware = [PSCustomObject]@{
+                                SystemInfo = [PSCustomObject]@{
+                                    QualifiedName = [PSCustomObject]@{ Value = "nqn.host2" }
+                                    Uuid = "uuid-host-02"
+                                }
+                            }
+                            config = [PSCustomObject]@{
+                                StorageDevice = [PSCustomObject]@{ NvmeTopology = $null }
+                            }
+                        }
+                    }
+                )
+            } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-Datastore { $null } -ModuleName Microsoft.AVS.VMFS
+
+            Get-VmfsHosts -ClusterName "TestCluster"
+        }
+
+        It "Should have entries for both hosts" {
+            $Global:NamedOutputs.Count | Should -Be 2
+        }
+
+        It "Should include Name for the first host" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "Name\s*:\s*esxi-host-01"
+        }
+
+        It "Should include Id for the first host" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "Id\s*:\s*HostSystem-host-42"
+        }
+
+        It "Should include Version for the first host" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "Version\s*:\s*7\.0\.3"
+        }
+
+        It "Should include ConnectionState for the first host" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "ConnectionState\s*:\s*Connected"
+        }
+
+        It "Should include PowerState for the first host" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "PowerState\s*:\s*PoweredOn"
+        }
+
+        It "Should include State for the first host" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "State\s*:\s*Connected"
+        }
+
+        It "Should include HostNQN for the first host" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "HostNQN\s*:\s*nqn\.host1"
+        }
+
+        It "Should include Uuid for the first host" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "Uuid\s*:\s*uuid-host-01"
+        }
+
+        It "Should include Name for the second host" {
+            $Global:NamedOutputs["esxi-host-02"] | Should -Match "Name\s*:\s*esxi-host-02"
+        }
+
+        It "Should include Id for the second host" {
+            $Global:NamedOutputs["esxi-host-02"] | Should -Match "Id\s*:\s*HostSystem-host-99"
+        }
+
+        It "Should include Version for the second host" {
+            $Global:NamedOutputs["esxi-host-02"] | Should -Match "Version\s*:\s*8\.0\.1"
+        }
+
+        It "Should include ConnectionState for the second host" {
+            $Global:NamedOutputs["esxi-host-02"] | Should -Match "ConnectionState\s*:\s*Maintenance"
+        }
+
+        It "Should include PowerState for the second host" {
+            $Global:NamedOutputs["esxi-host-02"] | Should -Match "PowerState\s*:\s*PoweredOn"
+        }
+
+        It "Should include State for the second host" {
+            $Global:NamedOutputs["esxi-host-02"] | Should -Match "State\s*:\s*Maintenance"
+        }
+
+        It "Should include HostNQN for the second host" {
+            $Global:NamedOutputs["esxi-host-02"] | Should -Match "HostNQN\s*:\s*nqn\.host2"
+        }
+
+        It "Should include Uuid for the second host" {
+            $Global:NamedOutputs["esxi-host-02"] | Should -Match "Uuid\s*:\s*uuid-host-02"
+        }
+    }
+
+    Context "Datastores output only includes VMFS type" {
+        BeforeAll {
+            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VMHost {
+                [PSCustomObject]@{
+                    Name = "esxi-host-01"
+                    Id = "HostSystem-host-50"
+                    Version = "7.0.3"
+                    ConnectionState = "Connected"
+                    PowerState = "PoweredOn"
+                    State = "Connected"
+                    ExtensionData = [PSCustomObject]@{
+                        Hardware = [PSCustomObject]@{
+                            SystemInfo = [PSCustomObject]@{
+                                QualifiedName = [PSCustomObject]@{ Value = "nqn.test" }
+                                Uuid = "uuid-test"
+                            }
+                        }
+                        config = [PSCustomObject]@{
+                            StorageDevice = [PSCustomObject]@{ NvmeTopology = $null }
+                        }
+                    }
+                }
+            } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-Datastore {
+                @(
+                    [PSCustomObject]@{ Name = "vmfs-ds-01"; Type = "VMFS" },
+                    [PSCustomObject]@{ Name = "nfs-ds-01"; Type = "NFS" },
+                    [PSCustomObject]@{ Name = "vmfs-ds-02"; Type = "VMFS" }
+                )
+            } -ModuleName Microsoft.AVS.VMFS
+
+            Get-VmfsHosts -ClusterName "TestCluster"
+        }
+
+        It "Should include VMFS datastores in the output" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "vmfs-ds-01"
+            $Global:NamedOutputs["esxi-host-01"] | Should -Match "vmfs-ds-02"
+        }
+
+        It "Should not include NFS datastores in the output" {
+            $Global:NamedOutputs["esxi-host-01"] | Should -Not -Match "nfs-ds-01"
         }
     }
 }
@@ -555,6 +889,66 @@ Describe "Get-StorageAdapters" {
                 Should -Throw -ExpectedMessage "*does not exist*"
         }
     }
+
+    Context "Output contains adapter data per host" {
+        BeforeAll {
+            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VMHost {
+                @(
+                    [PSCustomObject]@{ Name = "host-01" },
+                    [PSCustomObject]@{ Name = "host-02" }
+                )
+            } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VMHostHba {
+                @(
+                    [PSCustomObject]@{ Device = "vmhba0"; Model = "iSCSI Software Adapter"; Status = "online"; VMHost = "host-mock" },
+                    [PSCustomObject]@{ Device = "vmhba1"; Model = "NVMe Adapter"; Status = "online"; VMHost = "host-mock" }
+                )
+            } -ModuleName Microsoft.AVS.VMFS
+
+            Get-StorageAdapters -ClusterName "TestCluster"
+        }
+
+        It "Should return non-empty NamedOutputs" {
+            $Global:NamedOutputs | Should -Not -BeNullOrEmpty
+        }
+
+        It "Should have entries for both hosts" {
+            $Global:NamedOutputs.Count | Should -Be 2
+        }
+
+        It "Should key output by host name" {
+            $Global:NamedOutputs.ContainsKey("host-01") | Should -BeTrue
+            $Global:NamedOutputs.ContainsKey("host-02") | Should -BeTrue
+        }
+
+        It "Should include adapter device names in output" {
+            $Global:NamedOutputs["host-01"] | Should -Match "vmhba0"
+            $Global:NamedOutputs["host-01"] | Should -Match "vmhba1"
+        }
+
+        It "Should include adapter model in output" {
+            $Global:NamedOutputs["host-01"] | Should -Match "iSCSI Software Adapter"
+        }
+
+        It "Should exclude VMHost property from output" {
+            $Global:NamedOutputs["host-01"] | Should -Not -Match '"VMHost"'
+        }
+    }
+
+    Context "Host with no adapters is skipped" {
+        BeforeAll {
+            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VMHost { [PSCustomObject]@{ Name = "host-01" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VMHostHba { $null } -ModuleName Microsoft.AVS.VMFS
+
+            Get-StorageAdapters -ClusterName "TestCluster"
+        }
+
+        It "Should return empty NamedOutputs" {
+            $Global:NamedOutputs.Count | Should -Be 0
+        }
+    }
 }
 
 Describe "Get-VmKernelAdapters" {
@@ -574,6 +968,67 @@ Describe "Get-VmKernelAdapters" {
         It "Should throw when cluster does not exist" {
             { Get-VmKernelAdapters -ClusterName "NonExistentCluster" } | 
                 Should -Throw -ExpectedMessage "*does not exist*"
+        }
+    }
+
+    Context "Output contains kernel adapter data per host" {
+        BeforeAll {
+            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VMHost {
+                @(
+                    [PSCustomObject]@{ Name = "host-01" },
+                    [PSCustomObject]@{ Name = "host-02" }
+                )
+            } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VMHostNetworkAdapter {
+                @(
+                    [PSCustomObject]@{ Name = "vmk0"; IP = "10.0.0.1"; SubnetMask = "255.255.255.0"; VMHost = "host-mock" },
+                    [PSCustomObject]@{ Name = "vmk5"; IP = "10.0.1.1"; SubnetMask = "255.255.255.0"; VMHost = "host-mock" }
+                )
+            } -ModuleName Microsoft.AVS.VMFS
+
+            Get-VmKernelAdapters -ClusterName "TestCluster"
+        }
+
+        It "Should return non-empty NamedOutputs" {
+            $Global:NamedOutputs | Should -Not -BeNullOrEmpty
+        }
+
+        It "Should have entries for both hosts" {
+            $Global:NamedOutputs.Count | Should -Be 2
+        }
+
+        It "Should key output by host name" {
+            $Global:NamedOutputs.ContainsKey("host-01") | Should -BeTrue
+            $Global:NamedOutputs.ContainsKey("host-02") | Should -BeTrue
+        }
+
+        It "Should include kernel adapter names in output" {
+            $Global:NamedOutputs["host-01"] | Should -Match "vmk0"
+            $Global:NamedOutputs["host-01"] | Should -Match "vmk5"
+        }
+
+        It "Should include IP addresses in output" {
+            $Global:NamedOutputs["host-01"] | Should -Match "10\.0\.0\.1"
+            $Global:NamedOutputs["host-01"] | Should -Match "10\.0\.1\.1"
+        }
+
+        It "Should exclude VMHost property from output" {
+            $Global:NamedOutputs["host-01"] | Should -Not -Match '"VMHost"'
+        }
+    }
+
+    Context "Host with no kernel adapters is skipped" {
+        BeforeAll {
+            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VMHost { [PSCustomObject]@{ Name = "host-01" } } -ModuleName Microsoft.AVS.VMFS
+            Mock Get-VMHostNetworkAdapter { $null } -ModuleName Microsoft.AVS.VMFS
+
+            Get-VmKernelAdapters -ClusterName "TestCluster"
+        }
+
+        It "Should return empty NamedOutputs" {
+            $Global:NamedOutputs.Count | Should -Be 0
         }
     }
 }
@@ -1060,16 +1515,20 @@ Describe "Sync-VMHostStorage - Null Check Edge Cases" {
 
 Describe "Remove-VmfsDatastore - Null Check Edge Cases" {
     Context "No connected hosts with datastore" {
-        BeforeAll {
-            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
-            Mock Get-Datastore { [PSCustomObject]@{ Name = "TestDS"; State = "Available" } } -ModuleName Microsoft.AVS.VMFS
-            Mock Get-VM { $null } -ModuleName Microsoft.AVS.VMFS
-            Mock Get-VMHost { $null } -ModuleName Microsoft.AVS.VMFS
-        }
-
         It "Should throw when no connected hosts found with datastore" {
-            { Remove-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
-                Should -Throw "*No connected hosts found*"
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                function script:Get-Cluster { param($Name, $ErrorAction) [PSCustomObject]@{ Name = "TestCluster" } }
+                function script:Get-Datastore { param($Name, $ErrorAction) [PSCustomObject]@{ Name = "TestDS"; State = "Available" } }
+                function script:Get-VM { param($Datastore, $ErrorAction) $null }
+                function script:Get-VMHost {
+                    param($Datastore, $State)
+                    if ($Datastore) { return $null }
+                    return [PSCustomObject]@{ Name = "host-01" }
+                }
+
+                { Remove-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Throw "*No connected hosts found*"
+            }
         }
     }
 }
@@ -2100,10 +2559,17 @@ Describe "Set-VmfsIscsi - Rollback on Failure" -Tag "Behavioral" {
 
                 $script:hostCallCount = 0
                 $script:removeTargetCalled = $false
+                $script:getTargetCallCount = 0
 
                 function script:Get-IScsiHbaTarget {
                     param($IScsiHba, $Type, $ErrorAction)
-                    @()
+                    $script:getTargetCallCount++
+                    # The first 2 calls are during config, any subsequent calls are during rollback
+                    if ($script:getTargetCallCount -le 2) {
+                        @()
+                    } else {
+                        @([PSCustomObject]@{ Address = "192.168.0.1" })
+                    }
                 }
 
                 function script:New-IScsiHbaTarget {
@@ -2173,7 +2639,8 @@ Describe "Set-VmfsIscsi - Rollback on Failure" -Tag "Behavioral" {
                 function script:Get-IScsiHbaTarget {
                     param($IScsiHba, $Type, $ErrorAction)
                     $script:getTargetCallCount++
-                    if ($script:getTargetCallCount -le 2) {
+                    # The first call is for host-1 check, any subsequent calls are for host-2 check and rollback
+                    if ($script:getTargetCallCount -le 1) {
                         @($existingTarget)
                     } else {
                         @()
@@ -2332,10 +2799,17 @@ Describe "Set-VmfsStaticIscsi - Rollback on Failure" -Tag "Behavioral" {
 
                 $script:hostCallCount = 0
                 $script:removeTargetCalled = $false
+                $script:getTargetCallCount = 0
 
                 function script:Get-IScsiHbaTarget {
                     param($IScsiHba, $Type, $ErrorAction)
-                    @()
+                    $script:getTargetCallCount++
+                    # The first 2 calls are during config, any subsequent calls are during rollback
+                    if ($script:getTargetCallCount -le 2) {
+                        @()
+                    } else {
+                        @([PSCustomObject]@{ Address = "192.168.0.1" })
+                    }
                 }
 
                 function script:New-IScsiHbaTarget {
@@ -2401,7 +2875,8 @@ Describe "Set-VmfsStaticIscsi - Rollback on Failure" -Tag "Behavioral" {
                 function script:Get-IScsiHbaTarget {
                     param($IScsiHba, $Type, $ErrorAction)
                     $script:getTargetCallCount++
-                    if ($script:getTargetCallCount -le 2) {
+                    # The first call is for host-1 check, any subsequent calls are for host-2 check and rollback
+                    if ($script:getTargetCallCount -le 1) {
                         @($existingTarget)
                     } else {
                         @()
@@ -2704,7 +3179,7 @@ Describe "Test-VMKernelConnectivity - vmk5/vmk6 Pre-Validation" -Tag "Behavioral
                     @([PSCustomObject]@{ Name = "vmk0"; IP = "10.0.0.1" })
                 }
                 function script:Get-EsxCli {
-                    param($VMHost, $V2)
+                    param($VMHost, [switch]$V2)
                     $createArgs = { @{ host = '' } }
                     $invoke = { [PSCustomObject]@{ Summary = [PSCustomObject]@{ Received = 1 } } }
                     $ping = [PSCustomObject]@{}
@@ -2717,6 +3192,1046 @@ Describe "Test-VMKernelConnectivity - vmk5/vmk6 Pre-Validation" -Tag "Behavioral
 
                 { Test-VMKernelConnectivity -ClusterName "TestCluster" } |
                     Should -Not -Throw
+            }
+        }
+    }
+}
+
+# ============================================================================
+# Additional Behavioral Tests for Functions with Coverage Gaps
+# ============================================================================
+
+Describe "Resize-VmfsVolume - Behavioral Tests" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+    }
+
+    Context "Datastore not found by NAA ID" {
+        It "Should throw when no datastore matches DeviceNaaId" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockVMHost = [PSCustomObject]@{
+                    Name = "esxi-host-1"
+                    ConnectionState = "Connected"
+                }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostStorage { param([switch]$RescanAllHba) }
+                function script:Get-Datastore {
+                    param($Name, $ErrorAction)
+                    [PSCustomObject]@{
+                        ExtensionData = [PSCustomObject]@{
+                            Info = [PSCustomObject]@{
+                                Vmfs = [PSCustomObject]@{
+                                    Extent = [PSCustomObject]@{ DiskName = "naa.60003ff000000001" }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                { Resize-VmfsVolume -ClusterName "TestCluster" -DeviceNaaId "naa.60003ff999999999" } |
+                    Should -Throw "*datastore not found*"
+            }
+        }
+    }
+
+    Context "Datastore found by DatastoreName" {
+        It "Should throw when named datastore does not exist" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore { param($Name, $ErrorAction) $null }
+
+                { Resize-VmfsVolume -ClusterName "TestCluster" -DatastoreName "NonExistentDS" } |
+                    Should -Throw "*does not exist*"
+            }
+        }
+
+        It "Should throw when named datastore is not VMFS type" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore {
+                    param($Name, $ErrorAction)
+                    [PSCustomObject]@{ Name = "NfsDS"; Type = "NFS" }
+                }
+
+                { Resize-VmfsVolume -ClusterName "TestCluster" -DatastoreName "NfsDS" } |
+                    Should -Throw "*can only process VMFS datastores*"
+            }
+        }
+    }
+
+    Context "NAA prefix validation" {
+        It "Should throw for unsupported NAA prefix" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $ds = [PSCustomObject]@{
+                    Name = "TestDS"
+                    Type = "VMFS"
+                    ExtensionData = [PSCustomObject]@{
+                        Info = [PSCustomObject]@{
+                            Vmfs = [PSCustomObject]@{
+                                Extent = [PSCustomObject]@{ DiskName = "naa.500000000000001" }
+                            }
+                        }
+                    }
+                }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore { param($Name, $ErrorAction) $ds }
+
+                { Resize-VmfsVolume -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Throw "*is not supported for VMFS volume re-size*"
+            }
+        }
+    }
+
+    Context "No expand options available" {
+        It "Should throw when no expand options exist" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $hostKey = [PSCustomObject]@{ value = "host-1" }
+                $ds = [PSCustomObject]@{
+                    Name = "TestDS"
+                    Type = "VMFS"
+                    ExtensionData = [PSCustomObject]@{
+                        Host = @([PSCustomObject]@{ Key = $hostKey })
+                        MoRef = "ds-moref-1"
+                        Info = [PSCustomObject]@{
+                            Vmfs = [PSCustomObject]@{
+                                Extent = [PSCustomObject]@{ DiskName = "naa.60003ff000000001" }
+                                Capacity = 536870912000
+                            }
+                        }
+                    }
+                }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore { param($Name, $ErrorAction) $ds }
+                function script:Get-VMHost { param($Id) [PSCustomObject]@{ Name = "host-1" } }
+                function script:Get-VMHostStorage { param([switch]$RescanAllHba, [switch]$RescanVmfs, $ErrorAction, $WarningAction) }
+                function script:Get-View {
+                    param($Id)
+                    $dsSys = [PSCustomObject]@{}
+                    $dsSys | Add-Member -MemberType ScriptMethod -Name 'QueryVmfsDatastoreExpandOptions' -Value { param($moref) @() }
+                    $configMgr = [PSCustomObject]@{ DatastoreSystem = "dsSys-1" }
+                    if ($Id -eq "dsSys-1") { return $dsSys }
+                    return [PSCustomObject]@{ ConfigManager = $configMgr }
+                }
+
+                { Resize-VmfsVolume -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Throw "*No expand options available*"
+            }
+        }
+    }
+}
+
+Describe "Restore-VmfsVolume - Behavioral Tests" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+    }
+
+    Context "DatastoreName collision" {
+        It "Should throw when target DatastoreName already exists" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore {
+                    param($Name, $ErrorAction)
+                    [PSCustomObject]@{ Name = $Name }
+                }
+
+                { Restore-VmfsVolume -ClusterName "TestCluster" -DeviceNaaId "naa.624a9370123456" -DatastoreName "ExistingDS" } |
+                    Should -Throw "*already exists*"
+            }
+        }
+    }
+
+    Context "No unresolved volume found" {
+        It "Should throw when no unresolved volumes match DeviceNaaId" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockVMHost = [PSCustomObject]@{
+                    Name = "esxi-host-1"
+                    ConnectionState = "Connected"
+                    ExtensionData = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{
+                            StorageSystem = "storageSys-1"
+                        }
+                    }
+                }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore { param($Name, $ErrorAction) $null }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostStorage { param([switch]$RescanAllHba) }
+                function script:Get-View {
+                    param($ID)
+                    $storageSys = [PSCustomObject]@{}
+                    $storageSys | Add-Member -MemberType ScriptMethod -Name 'QueryUnresolvedVmfsVolume' -Value { @() }
+                    return $storageSys
+                }
+
+                { Restore-VmfsVolume -ClusterName "TestCluster" -DeviceNaaId "naa.624a9370123456" -ErrorAction SilentlyContinue } |
+                    Should -Throw "*Failed to re-signature VMFS volume*"
+            }
+        }
+    }
+
+    Context "Multiple copies error" {
+        It "Should throw when volume has multiple unresolved copies" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockVMHost = [PSCustomObject]@{
+                    Name = "esxi-host-1"
+                    ConnectionState = "Connected"
+                    ExtensionData = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{
+                            StorageSystem = "storageSys-1"
+                        }
+                    }
+                }
+
+                $unresolvedVol = [PSCustomObject]@{
+                    VmfsLabel = "snap-vol-01"
+                    ResolveStatus = [PSCustomObject]@{ Resolvable = $false; MultipleCopies = $true }
+                    Extent = @(
+                        [PSCustomObject]@{
+                            Device = [PSCustomObject]@{ DiskName = "naa.624a9370123456" }
+                        },
+                        [PSCustomObject]@{
+                            Device = [PSCustomObject]@{ DiskName = "naa.624a9370789012" }
+                        }
+                    )
+                }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore { param($Name, $ErrorAction) $null }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostStorage { param([switch]$RescanAllHba) }
+                function script:Get-View {
+                    param($ID)
+                    $storageSys = [PSCustomObject]@{}
+                    $storageSys | Add-Member -MemberType ScriptMethod -Name 'QueryUnresolvedVmfsVolume' -Value { @($unresolvedVol) }
+                    return $storageSys
+                }
+
+                { Restore-VmfsVolume -ClusterName "TestCluster" -DeviceNaaId "naa.624a9370123456" -ErrorAction SilentlyContinue } |
+                    Should -Throw "*Failed to re-signature VMFS volume*"
+            }
+        }
+    }
+}
+
+Describe "Sync-VMHostStorage - Behavioral Tests" -Tag "Behavioral" {
+    Context "VMHost not found" {
+        It "Should throw when VMHost does not exist" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                function script:Get-VMHost { param($Name, $ErrorAction) $null }
+
+                { Sync-VMHostStorage -VMHostName "nonexistent-host" } |
+                    Should -Throw "*does not exist*"
+            }
+        }
+    }
+
+    Context "Happy path" {
+        It "Should rescan storage on the VMHost" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockVMHost = [PSCustomObject]@{ Name = "esxi-host-1" }
+
+                function script:Get-VMHost { param($Name, $ErrorAction) $mockVMHost }
+                function script:Get-VMHostStorage {
+                    param([switch]$RescanAllHba, [switch]$RescanVMFS)
+                    $script:rescanCalled = $true
+                }
+
+                $script:rescanCalled = $false
+                Sync-VMHostStorage -VMHostName "esxi-host-1"
+                $script:rescanCalled | Should -BeTrue
+            }
+        }
+    }
+}
+
+Describe "Sync-ClusterVMHostStorage - Behavioral Tests" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+    }
+
+    Context "Happy path" {
+        It "Should rescan storage on all hosts in cluster" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost {
+                    @(
+                        [PSCustomObject]@{ Name = "host-01" },
+                        [PSCustomObject]@{ Name = "host-02" }
+                    )
+                }
+                function script:Get-VMHostStorage {
+                    param([switch]$RescanAllHba, [switch]$RescanVMFS)
+                    $script:rescanCount++
+                }
+
+                $script:rescanCount = 0
+                Sync-ClusterVMHostStorage -ClusterName "TestCluster"
+                $script:rescanCount | Should -BeGreaterOrEqual 1
+            }
+        }
+    }
+}
+
+Describe "Remove-VmfsDatastore - Behavioral Tests" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+    }
+
+    Context "Datastore does not exist or is unavailable" {
+        It "Should throw when datastore does not exist" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore { param($Name, $ErrorAction) $null }
+
+                { Remove-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "NonExistentDS" } |
+                    Should -Throw "*does not exist or datastore is in Unavailable state*"
+            }
+        }
+
+        It "Should throw when datastore is in Unavailable state" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore {
+                    param($Name, $ErrorAction)
+                    [PSCustomObject]@{ Name = $Name; State = "Unavailable" }
+                }
+
+                { Remove-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "UnavailableDS" } |
+                    Should -Throw "*does not exist or datastore is in Unavailable state*"
+            }
+        }
+    }
+
+    Context "VMs blocking deletion" {
+        It "Should throw when VMs are on the datastore" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore {
+                    param($Name, $ErrorAction)
+                    [PSCustomObject]@{ Name = $Name; State = "Available" }
+                }
+                function script:Get-VM {
+                    param($Datastore, $ErrorAction)
+                    @([PSCustomObject]@{ Name = "VM-01" })
+                }
+
+                { Remove-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Throw "*hosting worker virtual machines*"
+            }
+        }
+    }
+
+    Context "No connected hosts with the datastore" {
+        It "Should throw when no connected hosts have the datastore" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore {
+                    param($Name, $ErrorAction)
+                    [PSCustomObject]@{ Name = $Name; State = "Available" }
+                }
+                function script:Get-VM { param($Datastore, $ErrorAction) $null }
+                function script:Get-VMHost {
+                    param($Datastore, $State)
+                    if ($Datastore) { return $null }
+                    return [PSCustomObject]@{ Name = "host-01" }
+                }
+
+                { Remove-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Throw "*No connected hosts found*"
+            }
+        }
+    }
+
+    Context "Happy path - non-shared datastore removal" {
+        It "Should remove datastore directly when not shared across clusters" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockHost = [PSCustomObject]@{
+                    Name = "host-01"
+                    Parent = [PSCustomObject]@{ Name = "TestCluster" }
+                }
+                $script:removeCalled = $false
+                $script:getCallCount = 0
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore {
+                    param($Name, $ErrorAction)
+                    $script:getCallCount++
+                    # First call returns the datastore, second call (after removal) returns null
+                    if ($script:getCallCount -le 2) {
+                        return [PSCustomObject]@{ Name = $Name; State = "Available" }
+                    }
+                    return $null
+                }
+                function script:Get-VM { param($Datastore, $ErrorAction) $null }
+                function script:Get-VMHost {
+                    param($Datastore, $State)
+                    return $mockHost
+                }
+                function script:Remove-Datastore {
+                    param($VMHost, $Datastore, $Confirm)
+                    $script:removeCalled = $true
+                }
+                function script:Get-VMHostStorage { param($VMHost, [switch]$RescanAllHba) }
+
+                Remove-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS"
+                $script:removeCalled | Should -BeTrue
+            }
+        }
+    }
+}
+
+Describe "Dismount-VmfsDatastore - Behavioral Tests" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+    }
+
+    Context "VMs blocking unmount" {
+        It "Should throw when VMs exist on the datastore" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockDS = [PSCustomObject]@{ Name = "TestDS"; Type = "VMFS" }
+                $mockVM = [PSCustomObject]@{ Name = "VM-01" }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore { param($Name, $ErrorAction) $mockDS }
+                function script:Get-VMHost { @([PSCustomObject]@{ Name = "host-01" }) }
+                function script:Get-VM { @($mockVM) }
+
+                { Dismount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Throw "*Cannot unmount datastore*"
+            }
+        }
+    }
+
+    Context "No hosts connected to datastore" {
+        It "Should return without error when no hosts have the datastore" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockDS = [PSCustomObject]@{ Name = "TestDS"; Type = "VMFS" }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore {
+                    param($Name, $VMHost, $ErrorAction)
+                    if ($VMHost) { return $null }
+                    return $mockDS
+                }
+                function script:Get-VMHost { @([PSCustomObject]@{ Name = "host-01" }) }
+                function script:Get-VM { $null }
+
+                { Dismount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Not -Throw
+            }
+        }
+    }
+
+    Context "Successful unmount and detach" {
+        It "Should unmount and detach on each host" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockExtData = [PSCustomObject]@{
+                    Info = [PSCustomObject]@{
+                        Vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-001"
+                            extent = @([PSCustomObject]@{ Diskname = "naa.60003ff44dc75adc" })
+                        }
+                    }
+                    Host = @(
+                        [PSCustomObject]@{ Key = [PSCustomObject]@{ value = "host-1" } }
+                    )
+                }
+                $scsiLunExt = [PSCustomObject]@{ uuid = "scsiLun-uuid-001" }
+                $mockScsiLun = [PSCustomObject]@{ ExtensionData = $scsiLunExt }
+                $mockDS = [PSCustomObject]@{ Name = "TestDS"; Type = "VMFS"; ExtensionData = $mockExtData }
+
+                $mockStorageSystem = [PSCustomObject]@{}
+                $mockStorageSystem | Add-Member -MemberType ScriptMethod -Name 'UnmountVmfsVolume' -Value {
+                    param($uuid) $script:unmountCalled = $true
+                }
+                $mockStorageSystem | Add-Member -MemberType ScriptMethod -Name 'DetachScsiLun' -Value {
+                    param($uuid) $script:detachCalled = $true
+                }
+
+                $mockVMHost = [PSCustomObject]@{
+                    Name = "host-01"
+                    Extensiondata = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{ StorageSystem = "storageSys-1" }
+                    }
+                }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore {
+                    param($Name, $VMHost, $ErrorAction)
+                    if ($VMHost) {
+                        if ($VMHost.Name -eq "host-01" -or $VMHost -eq "host-01") { return $mockDS }
+                        return $null
+                    }
+                    return $mockDS
+                }
+                function script:Get-VMHost { @($mockVMHost) }
+                function script:Get-VM { $null }
+                function script:Get-ScsiLun { $mockScsiLun }
+                function script:Get-View { param($Id) $mockStorageSystem }
+                function script:Get-VMHostStorage { param([switch]$RescanAllHba, [switch]$RescanVmfs) }
+
+                $script:unmountCalled = $false
+                $script:detachCalled = $false
+
+                Dismount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS"
+
+                $script:unmountCalled | Should -BeTrue
+                $script:detachCalled | Should -BeTrue
+            }
+        }
+    }
+
+    Context "NVMe/TCP datastore skip detach" {
+        It "Should not detach for NVMe/TCP (eui.) devices" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockExtData = [PSCustomObject]@{
+                    Info = [PSCustomObject]@{
+                        Vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-002"
+                            extent = @([PSCustomObject]@{ Diskname = "eui.0025385a71b0dc3e" })
+                        }
+                    }
+                    Host = @(
+                        [PSCustomObject]@{ Key = [PSCustomObject]@{ value = "host-1" } }
+                    )
+                }
+                $scsiLunExt = [PSCustomObject]@{ uuid = "scsiLun-uuid-002" }
+                $mockScsiLun = [PSCustomObject]@{ ExtensionData = $scsiLunExt }
+                $mockDS = [PSCustomObject]@{ Name = "NvmeDS"; Type = "VMFS"; ExtensionData = $mockExtData }
+
+                $mockStorageSystem = [PSCustomObject]@{}
+                $mockStorageSystem | Add-Member -MemberType ScriptMethod -Name 'UnmountVmfsVolume' -Value {
+                    param($uuid) $script:unmountCalled = $true
+                }
+                $mockStorageSystem | Add-Member -MemberType ScriptMethod -Name 'DetachScsiLun' -Value {
+                    param($uuid) $script:detachCalled = $true
+                }
+
+                $mockVMHost = [PSCustomObject]@{
+                    Name = "host-01"
+                    Extensiondata = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{ StorageSystem = "storageSys-1" }
+                    }
+                }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore {
+                    param($Name, $VMHost, $ErrorAction)
+                    if ($VMHost) {
+                        if ($VMHost.Name -eq "host-01" -or $VMHost -eq "host-01") { return $mockDS }
+                        return $null
+                    }
+                    return $mockDS
+                }
+                function script:Get-VMHost { @($mockVMHost) }
+                function script:Get-VM { $null }
+                function script:Get-ScsiLun { $mockScsiLun }
+                function script:Get-View { param($Id) $mockStorageSystem }
+                function script:Get-VMHostStorage { param([switch]$RescanAllHba, [switch]$RescanVmfs) }
+
+                $script:unmountCalled = $false
+                $script:detachCalled = $false
+
+                Dismount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "NvmeDS"
+
+                $script:unmountCalled | Should -BeTrue
+                $script:detachCalled | Should -BeFalse
+            }
+        }
+    }
+}
+
+Describe "Repair-HAConfiguration - Behavioral Tests" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+    }
+
+    Context "Happy path" {
+        It "Should call ReconfigureHostForDAS on all hosts" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockHost1 = [PSCustomObject]@{ Name = "host-01" }
+                $mockHost1 | Add-Member -NotePropertyName ExtensionData -NotePropertyValue ([PSCustomObject]@{})
+                $mockHost1.ExtensionData | Add-Member -MemberType ScriptMethod -Name 'ReconfigureHostForDAS' -Value { $script:dasCount++ }
+
+                $mockHost2 = [PSCustomObject]@{ Name = "host-02" }
+                $mockHost2 | Add-Member -NotePropertyName ExtensionData -NotePropertyValue ([PSCustomObject]@{})
+                $mockHost2.ExtensionData | Add-Member -MemberType ScriptMethod -Name 'ReconfigureHostForDAS' -Value { $script:dasCount++ }
+
+                function script:Get-Cluster {
+                    param($Name, $ErrorAction)
+                    if (-not $ErrorAction) { return $mockCluster }
+                    return $mockCluster
+                }
+                function script:Get-VMHost { @($mockHost1, $mockHost2) }
+
+                $script:dasCount = 0
+                Repair-HAConfiguration -ClusterName "TestCluster"
+                $script:dasCount | Should -Be 2
+            }
+        }
+    }
+
+    Context "Partial failure" {
+        It "Should throw when ReconfigureHostForDAS fails on one host" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockHost1 = [PSCustomObject]@{ Name = "host-01" }
+                $mockHost1 | Add-Member -NotePropertyName ExtensionData -NotePropertyValue ([PSCustomObject]@{})
+                $mockHost1.ExtensionData | Add-Member -MemberType ScriptMethod -Name 'ReconfigureHostForDAS' -Value { $script:dasCount++ }
+
+                $mockHost2 = [PSCustomObject]@{ Name = "host-02" }
+                $mockHost2 | Add-Member -NotePropertyName ExtensionData -NotePropertyValue ([PSCustomObject]@{})
+                $mockHost2.ExtensionData | Add-Member -MemberType ScriptMethod -Name 'ReconfigureHostForDAS' -Value { throw "DAS error" }
+
+                function script:Get-Cluster {
+                    param($Name, $ErrorAction)
+                    if (-not $ErrorAction) { return $mockCluster }
+                    return $mockCluster
+                }
+                function script:Get-VMHost { @($mockHost1, $mockHost2) }
+
+                $script:dasCount = 0
+                { Repair-HAConfiguration -ClusterName "TestCluster" -ErrorAction SilentlyContinue } |
+                    Should -Throw "*Failed to repair HA configuration on one or more hosts*"
+            }
+        }
+    }
+
+    Context "Get-VMHost failure" {
+        It "Should throw when Get-VMHost fails" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                function script:Get-Cluster {
+                    param($Name, $ErrorAction)
+                    if (-not $ErrorAction) { return $mockCluster }
+                    return $mockCluster
+                }
+                function script:Get-VMHost { throw "Connection refused" }
+
+                { Repair-HAConfiguration -ClusterName "TestCluster" } |
+                    Should -Throw "*Failed to collect cluster hosts*"
+            }
+        }
+    }
+}
+
+Describe "Clear-DisconnectedIscsiTargets - Behavioral Tests" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+    }
+
+    Context "No hosts found" {
+        It "Should throw when no hosts found in cluster" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $null }
+
+                { Clear-DisconnectedIscsiTargets -ClusterName "TestCluster" } |
+                    Should -Throw "*No matching hosts found*"
+            }
+        }
+    }
+
+    Context "VMHostName targeting" {
+        It "Should only target specified VMHost when VMHostName is provided" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockVMHost = [PSCustomObject]@{ Name = "esxi-host-1" }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { param($Name) $mockVMHost }
+                function script:Get-EsxCli {
+                    param($VMHost, [switch]$V2)
+                    $listInvoke = { @() }
+                    $connList = [PSCustomObject]@{}
+                    $connList | Add-Member -MemberType ScriptMethod -Name 'Invoke' -Value $listInvoke
+                    $connection = [PSCustomObject]@{ list = $connList }
+                    $session = [PSCustomObject]@{ connection = $connection }
+                    $iscsi = [PSCustomObject]@{ session = $session }
+                    return [PSCustomObject]@{ iscsi = $iscsi }
+                }
+
+                { Clear-DisconnectedIscsiTargets -ClusterName "TestCluster" -VMHostName "esxi-host-1" } |
+                    Should -Not -Throw
+            }
+        }
+    }
+
+    Context "Disconnected sessions found and cleared" {
+        It "Should remove disconnected targets and rescan" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockVMHost = [PSCustomObject]@{ Name = "esxi-host-1" }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-EsxCli {
+                    param($VMHost, [switch]$V2)
+                    $listInvoke = {
+                        @(
+                            [PSCustomObject]@{ State = "dead    "; ConnectionAddress = "192.168.1.10" },
+                            [PSCustomObject]@{ State = "logged_in"; ConnectionAddress = "192.168.1.11" }
+                        )
+                    }
+                    $connList = [PSCustomObject]@{}
+                    $connList | Add-Member -MemberType ScriptMethod -Name 'Invoke' -Value $listInvoke
+                    $connection = [PSCustomObject]@{ list = $connList }
+                    $session = [PSCustomObject]@{ connection = $connection }
+                    $iscsi = [PSCustomObject]@{ session = $session }
+                    return [PSCustomObject]@{ iscsi = $iscsi }
+                }
+                function script:Get-IScsiHbaTarget {
+                    @([PSCustomObject]@{ Address = "192.168.1.10"; Type = "Send" })
+                }
+                function script:Remove-IScsiHbaTarget { param($Confirm) $script:removeCount++ }
+                function script:Get-VMHostStorage {
+                    param([switch]$RescanAllHba, [switch]$RescanVmfs)
+                    $script:rescanCalled = $true
+                }
+
+                $script:removeCount = 0
+                $script:rescanCalled = $false
+
+                Clear-DisconnectedIscsiTargets -ClusterName "TestCluster"
+
+                $script:removeCount | Should -Be 1
+                $script:rescanCalled | Should -BeTrue
+            }
+        }
+    }
+
+    Context "No disconnected sessions" {
+        It "Should not rescan when no disconnected targets exist" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockVMHost = [PSCustomObject]@{ Name = "esxi-host-1" }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-EsxCli {
+                    param($VMHost, [switch]$V2)
+                    $listInvoke = {
+                        @([PSCustomObject]@{ State = "logged_in"; ConnectionAddress = "192.168.1.10" })
+                    }
+                    $connList = [PSCustomObject]@{}
+                    $connList | Add-Member -MemberType ScriptMethod -Name 'Invoke' -Value $listInvoke
+                    $connection = [PSCustomObject]@{ list = $connList }
+                    $session = [PSCustomObject]@{ connection = $connection }
+                    $iscsi = [PSCustomObject]@{ session = $session }
+                    return [PSCustomObject]@{ iscsi = $iscsi }
+                }
+                function script:Get-VMHostStorage {
+                    param([switch]$RescanAllHba, [switch]$RescanVmfs)
+                    $script:rescanCalled = $true
+                }
+
+                $script:rescanCalled = $false
+                Clear-DisconnectedIscsiTargets -ClusterName "TestCluster"
+                $script:rescanCalled | Should -BeFalse
+            }
+        }
+    }
+}
+
+Describe "New-VmfsVmSnapshot - Behavioral Tests" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+    }
+
+    Context "Datastore not found" {
+        It "Should throw when datastore does not exist" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore { param($Name, $RelatedObject, $ErrorAction) $null }
+
+                { New-VmfsVmSnapshot -ClusterName "TestCluster" -datastoreName "NonExistentDS" } |
+                    Should -Throw "*does not exist*"
+            }
+        }
+    }
+
+    Context "No VMs on datastore" {
+        It "Should succeed without creating any snapshots" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockDS = [PSCustomObject]@{ Name = "TestDS" }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore { param($Name, $RelatedObject, $ErrorAction) $mockDS }
+                function script:Get-VM { param($Datastore) @() }
+
+                { New-VmfsVmSnapshot -ClusterName "TestCluster" -datastoreName "TestDS" } |
+                    Should -Not -Throw
+            }
+        }
+    }
+
+    Context "VM skip conditions" {
+        It "Should skip VMs without ExtensionData" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockDS = [PSCustomObject]@{ Name = "TestDS" }
+                $mockVM = [PSCustomObject]@{ Name = "VM-NoExt"; ExtensionData = $null }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore { param($Name, $RelatedObject, $ErrorAction) $mockDS }
+                function script:Get-VM { param($Datastore) @($mockVM) }
+                function script:New-Snapshot {
+                    param($VM, [switch]$Quiesce, $Name, $ErrorAction)
+                    $script:snapshotCount++
+                }
+
+                $script:snapshotCount = 0
+                New-VmfsVmSnapshot -ClusterName "TestCluster" -datastoreName "TestDS"
+                $script:snapshotCount | Should -Be 0
+            }
+        }
+
+        It "Should skip VMs with unhealthy OverallStatus" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockDS = [PSCustomObject]@{ Name = "TestDS" }
+                $mockVM = [PSCustomObject]@{
+                    Name = "VM-Unhealthy"
+                    ExtensionData = [PSCustomObject]@{
+                        OverallStatus = "red"
+                        guestHeartbeatStatus = "green"
+                    }
+                }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore { param($Name, $RelatedObject, $ErrorAction) $mockDS }
+                function script:Get-VM { param($Datastore) @($mockVM) }
+                function script:New-Snapshot {
+                    param($VM, [switch]$Quiesce, $Name, $ErrorAction)
+                    $script:snapshotCount++
+                }
+
+                $script:snapshotCount = 0
+                New-VmfsVmSnapshot -ClusterName "TestCluster" -datastoreName "TestDS"
+                $script:snapshotCount | Should -Be 0
+            }
+        }
+
+        It "Should skip VMs with unhealthy guestHeartbeatStatus" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockDS = [PSCustomObject]@{ Name = "TestDS" }
+                $mockVM = [PSCustomObject]@{
+                    Name = "VM-HeartbeatBad"
+                    ExtensionData = [PSCustomObject]@{
+                        OverallStatus = "green"
+                        guestHeartbeatStatus = "gray"
+                    }
+                }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore { param($Name, $RelatedObject, $ErrorAction) $mockDS }
+                function script:Get-VM { param($Datastore) @($mockVM) }
+                function script:New-Snapshot {
+                    param($VM, [switch]$Quiesce, $Name, $ErrorAction)
+                    $script:snapshotCount++
+                }
+
+                $script:snapshotCount = 0
+                New-VmfsVmSnapshot -ClusterName "TestCluster" -datastoreName "TestDS"
+                $script:snapshotCount | Should -Be 0
+            }
+        }
+    }
+
+    Context "Happy path - healthy VMs" {
+        It "Should create snapshots for healthy VMs" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockDS = [PSCustomObject]@{ Name = "TestDS" }
+                $mockVM = [PSCustomObject]@{
+                    Name = "VM-Healthy"
+                    ExtensionData = [PSCustomObject]@{
+                        OverallStatus = "green"
+                        guestHeartbeatStatus = "green"
+                    }
+                }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore { param($Name, $RelatedObject, $ErrorAction) $mockDS }
+                function script:Get-VM { param($Datastore) @($mockVM) }
+                function script:New-Snapshot {
+                    param($VM, [switch]$Quiesce, $Name, $ErrorAction)
+                    $script:snapshotCount++
+                    return [PSCustomObject]@{ Name = $Name }
+                }
+
+                $script:snapshotCount = 0
+                New-VmfsVmSnapshot -ClusterName "TestCluster" -datastoreName "TestDS"
+                $script:snapshotCount | Should -Be 1
+            }
+        }
+    }
+
+    Context "Snapshot failure" {
+        It "Should throw when New-Snapshot fails" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $mockDS = [PSCustomObject]@{ Name = "TestDS" }
+                $mockVM = [PSCustomObject]@{
+                    Name = "VM-FailSnap"
+                    ExtensionData = [PSCustomObject]@{
+                        OverallStatus = "green"
+                        guestHeartbeatStatus = "green"
+                    }
+                }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-Datastore { param($Name, $RelatedObject, $ErrorAction) $mockDS }
+                function script:Get-VM { param($Datastore) @($mockVM) }
+                function script:New-Snapshot {
+                    param($VM, [switch]$Quiesce, $Name, $ErrorAction)
+                    throw "Snapshot creation error"
+                }
+
+                { New-VmfsVmSnapshot -ClusterName "TestCluster" -datastoreName "TestDS" } |
+                    Should -Throw "*Failed to create snapshot*"
+            }
+        }
+    }
+}
+
+Describe "Test-VMKernelConnectivity - Behavioral Tests" -Tag "Behavioral" {
+    BeforeAll {
+        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+    }
+
+    Context "Successful ping" {
+        It "Should succeed when all pings are received" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $hwInfo = [PSCustomObject]@{ Vendor = "Microsoft Corporation" }
+                $hwData = [PSCustomObject]@{ SystemInfo = $hwInfo }
+                $extData = [PSCustomObject]@{ Hardware = $hwData }
+                $mockVMHost = [PSCustomObject]@{ Name = "ms-host-1"; ExtensionData = $extData }
+
+                function script:Get-Cluster {
+                    param($Name, $ErrorAction)
+                    if (-not $ErrorAction) { return $mockCluster }
+                    return $mockCluster
+                }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostNetworkAdapter {
+                    param($VMHost)
+                    @([PSCustomObject]@{ Name = "vmk0"; IP = "10.0.0.1" })
+                }
+                function script:Get-EsxCli {
+                    param($VMHost, [switch]$V2)
+                    $createArgs = { @{ host = '' } }
+                    $invoke = { [PSCustomObject]@{ Summary = [PSCustomObject]@{ Received = 3 } } }
+                    $ping = [PSCustomObject]@{}
+                    $ping | Add-Member -MemberType ScriptMethod -Name 'CreateArgs' -Value $createArgs
+                    $ping | Add-Member -MemberType ScriptMethod -Name 'Invoke' -Value $invoke
+                    $diag = [PSCustomObject]@{ ping = $ping }
+                    $network = [PSCustomObject]@{ diag = $diag }
+                    return [PSCustomObject]@{ network = $network }
+                }
+
+                { Test-VMKernelConnectivity -ClusterName "TestCluster" } |
+                    Should -Not -Throw
+            }
+        }
+    }
+
+    Context "Ping failure" {
+        It "Should throw when ping fails on a host" {
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
+                param($mockCluster)
+
+                $hwInfo = [PSCustomObject]@{ Vendor = "Microsoft Corporation" }
+                $hwData = [PSCustomObject]@{ SystemInfo = $hwInfo }
+                $extData = [PSCustomObject]@{ Hardware = $hwData }
+                $mockVMHost = [PSCustomObject]@{ Name = "ms-host-1"; ExtensionData = $extData }
+
+                function script:Get-Cluster {
+                    param($Name, $ErrorAction)
+                    if (-not $ErrorAction) { return $mockCluster }
+                    return $mockCluster
+                }
+                function script:Get-VMHost { $mockVMHost }
+                function script:Get-VMHostNetworkAdapter {
+                    param($VMHost)
+                    @([PSCustomObject]@{ Name = "vmk0"; IP = "10.0.0.1" })
+                }
+                function script:Get-EsxCli {
+                    param($VMHost, [switch]$V2)
+                    $createArgs = { @{ host = '' } }
+                    $invoke = { [PSCustomObject]@{ Summary = [PSCustomObject]@{ Received = 0 } } }
+                    $ping = [PSCustomObject]@{}
+                    $ping | Add-Member -MemberType ScriptMethod -Name 'CreateArgs' -Value $createArgs
+                    $ping | Add-Member -MemberType ScriptMethod -Name 'Invoke' -Value $invoke
+                    $diag = [PSCustomObject]@{ ping = $ping }
+                    $network = [PSCustomObject]@{ diag = $diag }
+                    return [PSCustomObject]@{ network = $network }
+                }
+
+                { Test-VMKernelConnectivity -ClusterName "TestCluster" -ErrorAction SilentlyContinue } |
+                    Should -Throw "*Ping to vmkernel interface failed on one or more hosts*"
             }
         }
     }
