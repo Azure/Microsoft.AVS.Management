@@ -892,21 +892,24 @@ Describe "Get-StorageAdapters" {
 
     Context "Output contains adapter data per host" {
         BeforeAll {
-            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
-            Mock Get-VMHost {
-                @(
-                    [PSCustomObject]@{ Name = "host-01" },
-                    [PSCustomObject]@{ Name = "host-02" }
-                )
-            } -ModuleName Microsoft.AVS.VMFS
-            Mock Get-VMHostHba {
-                @(
-                    [PSCustomObject]@{ Device = "vmhba0"; Model = "iSCSI Software Adapter"; Status = "online"; VMHost = "host-mock" },
-                    [PSCustomObject]@{ Device = "vmhba1"; Model = "NVMe Adapter"; Status = "online"; VMHost = "host-mock" }
-                )
-            } -ModuleName Microsoft.AVS.VMFS
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                function script:Get-Cluster { param($Name, $ErrorAction) [PSCustomObject]@{ Name = "TestCluster" } }
+                function script:Get-VMHost {
+                    @(
+                        [PSCustomObject]@{ Name = "host-01" },
+                        [PSCustomObject]@{ Name = "host-02" }
+                    )
+                }
+                function script:Get-VMHostHba {
+                    param($VMHost, $ErrorAction)
+                    @(
+                        [PSCustomObject]@{ Device = "vmhba0"; Model = "iSCSI Software Adapter"; Status = "online"; VMHost = "host-mock" },
+                        [PSCustomObject]@{ Device = "vmhba1"; Model = "NVMe Adapter"; Status = "online"; VMHost = "host-mock" }
+                    )
+                }
 
-            Get-StorageAdapters -ClusterName "TestCluster" -ErrorAction SilentlyContinue
+                Get-StorageAdapters -ClusterName "TestCluster"
+            }
         }
 
         It "Should return non-empty NamedOutputs" {
@@ -938,11 +941,13 @@ Describe "Get-StorageAdapters" {
 
     Context "Host with no adapters is skipped" {
         BeforeAll {
-            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
-            Mock Get-VMHost { [PSCustomObject]@{ Name = "host-01" } } -ModuleName Microsoft.AVS.VMFS
-            Mock Get-VMHostHba { $null } -ModuleName Microsoft.AVS.VMFS
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                function script:Get-Cluster { param($Name, $ErrorAction) [PSCustomObject]@{ Name = "TestCluster" } }
+                function script:Get-VMHost { [PSCustomObject]@{ Name = "host-01" } }
+                function script:Get-VMHostHba { param($VMHost, $ErrorAction) $null }
 
-            Get-StorageAdapters -ClusterName "TestCluster" -ErrorAction SilentlyContinue
+                Get-StorageAdapters -ClusterName "TestCluster"
+            }
         }
 
         It "Should return empty NamedOutputs" {
@@ -973,21 +978,24 @@ Describe "Get-VmKernelAdapters" {
 
     Context "Output contains kernel adapter data per host" {
         BeforeAll {
-            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
-            Mock Get-VMHost {
-                @(
-                    [PSCustomObject]@{ Name = "host-01" },
-                    [PSCustomObject]@{ Name = "host-02" }
-                )
-            } -ModuleName Microsoft.AVS.VMFS
-            Mock Get-VMHostNetworkAdapter {
-                @(
-                    [PSCustomObject]@{ Name = "vmk0"; IP = "10.0.0.1"; SubnetMask = "255.255.255.0"; VMHost = "host-mock" },
-                    [PSCustomObject]@{ Name = "vmk5"; IP = "10.0.1.1"; SubnetMask = "255.255.255.0"; VMHost = "host-mock" }
-                )
-            } -ModuleName Microsoft.AVS.VMFS
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                function script:Get-Cluster { param($Name, $ErrorAction) [PSCustomObject]@{ Name = "TestCluster" } }
+                function script:Get-VMHost {
+                    @(
+                        [PSCustomObject]@{ Name = "host-01" },
+                        [PSCustomObject]@{ Name = "host-02" }
+                    )
+                }
+                function script:Get-VMHostNetworkAdapter {
+                    param($VMHost, [switch]$VMKernel)
+                    @(
+                        [PSCustomObject]@{ Name = "vmk0"; IP = "10.0.0.1"; SubnetMask = "255.255.255.0"; VMHost = "host-mock" },
+                        [PSCustomObject]@{ Name = "vmk5"; IP = "10.0.1.1"; SubnetMask = "255.255.255.0"; VMHost = "host-mock" }
+                    )
+                }
 
-            Get-VmKernelAdapters -ClusterName "TestCluster" -ErrorAction SilentlyContinue
+                Get-VmKernelAdapters -ClusterName "TestCluster"
+            }
         }
 
         It "Should return non-empty NamedOutputs" {
@@ -1020,11 +1028,13 @@ Describe "Get-VmKernelAdapters" {
 
     Context "Host with no kernel adapters is skipped" {
         BeforeAll {
-            Mock Get-Cluster { [PSCustomObject]@{ Name = "TestCluster" } } -ModuleName Microsoft.AVS.VMFS
-            Mock Get-VMHost { [PSCustomObject]@{ Name = "host-01" } } -ModuleName Microsoft.AVS.VMFS
-            Mock Get-VMHostNetworkAdapter { $null } -ModuleName Microsoft.AVS.VMFS
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                function script:Get-Cluster { param($Name, $ErrorAction) [PSCustomObject]@{ Name = "TestCluster" } }
+                function script:Get-VMHost { [PSCustomObject]@{ Name = "host-01" } }
+                function script:Get-VMHostNetworkAdapter { param($VMHost, [switch]$VMKernel) $null }
 
-            Get-VmKernelAdapters -ClusterName "TestCluster" -ErrorAction SilentlyContinue
+                Get-VmKernelAdapters -ClusterName "TestCluster"
+            }
         }
 
         It "Should return empty NamedOutputs" {
