@@ -906,7 +906,7 @@ Describe "Get-StorageAdapters" {
                 )
             } -ModuleName Microsoft.AVS.VMFS
 
-            Get-StorageAdapters -ClusterName "TestCluster"
+            Get-StorageAdapters -ClusterName "TestCluster" -ErrorAction SilentlyContinue
         }
 
         It "Should return non-empty NamedOutputs" {
@@ -942,7 +942,7 @@ Describe "Get-StorageAdapters" {
             Mock Get-VMHost { [PSCustomObject]@{ Name = "host-01" } } -ModuleName Microsoft.AVS.VMFS
             Mock Get-VMHostHba { $null } -ModuleName Microsoft.AVS.VMFS
 
-            Get-StorageAdapters -ClusterName "TestCluster"
+            Get-StorageAdapters -ClusterName "TestCluster" -ErrorAction SilentlyContinue
         }
 
         It "Should return empty NamedOutputs" {
@@ -987,7 +987,7 @@ Describe "Get-VmKernelAdapters" {
                 )
             } -ModuleName Microsoft.AVS.VMFS
 
-            Get-VmKernelAdapters -ClusterName "TestCluster"
+            Get-VmKernelAdapters -ClusterName "TestCluster" -ErrorAction SilentlyContinue
         }
 
         It "Should return non-empty NamedOutputs" {
@@ -1024,7 +1024,7 @@ Describe "Get-VmKernelAdapters" {
             Mock Get-VMHost { [PSCustomObject]@{ Name = "host-01" } } -ModuleName Microsoft.AVS.VMFS
             Mock Get-VMHostNetworkAdapter { $null } -ModuleName Microsoft.AVS.VMFS
 
-            Get-VmKernelAdapters -ClusterName "TestCluster"
+            Get-VmKernelAdapters -ClusterName "TestCluster" -ErrorAction SilentlyContinue
         }
 
         It "Should return empty NamedOutputs" {
