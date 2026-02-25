@@ -157,7 +157,7 @@ function Set-VmfsIscsi {
             $FailedHost = $VMHost.Name
             $FailureMessage = $_.Exception.Message
 
-            # Perform a rollback by removing iSCSI targets that were added during this run, but do not remove targets that existed before this operation.
+            # Perform a rollback by removing iSCSI targets that were previously added during this run, but do not remove targets that existed before this operation.
             foreach ($Entry in $ConfiguredHosts) {
                 if ($Entry.TargetAdded) {
                     try {
@@ -351,7 +351,7 @@ function Set-VmfsStaticIscsi {
             $FailedHost = $VMHost.Name
             $FailureMessage = $_.Exception.Message
 
-            # Perform a rollback by removing static iSCSI targets that were added during this run.
+            # Perform a rollback by removing static iSCSI targets that were previously added during this run.
             foreach ($Entry in $ConfiguredHosts) {
                 if ($Entry.TargetAdded) {
                     try {
@@ -1531,15 +1531,33 @@ function Remove-VmfsDatastore {
 
      Write-Host "Datastore is shared, Unmounting datastore from each host under the cluster $($ClusterName)"
      $VmfsUuid = $AvailableDatastore.ExtensionData.info.Vmfs.uuid
-     foreach ($VmHost in $VMHosts) {
 
+     # Unmount from each host with rollback on failure.
+     $UnmountedHosts = @()
+     foreach ($VmHost in $VMHosts) {
         try {
             $HostStorageSystem = Get-View $VmHost.Extensiondata.ConfigManager.StorageSystem
             $HostStorageSystem.UnmountVmfsVolume($VmfsUuid) | Out-Null
-
+            $UnmountedHosts += $VmHost
+            Write-Host "Datastore unmounted from host $($VmHost.Name)."
         }
         catch {
-          Write-Host "Failed to unmount datastore from host "$VmHost.Name
+            $FailedHost = $VmHost.Name
+            $FailureMessage = $_.Exception.Message
+
+            # Perform a rollback by re-mounting the datastore on all hosts that were previously unmounted in this run.
+            foreach ($UmHost in $UnmountedHosts) {
+                try {
+                    $RollbackStorageSystem = Get-View $UmHost.Extensiondata.ConfigManager.StorageSystem
+                    $RollbackStorageSystem.MountVmfsVolume($VmfsUuid)
+                    Write-Warning "Rolled back unmount of datastore $DatastoreName on host $($UmHost.Name)."
+                    $UmHost | Get-VMHostStorage -RescanAllHba -RescanVmfs | Out-Null
+                } catch {
+                    Write-Error "Failed to roll back unmount on host $($UmHost.Name): $($_.Exception.Message)"
+                }
+            }
+
+            throw "Failed to unmount shared datastore $DatastoreName on host $FailedHost. Changes on previously unmounted hosts have been rolled back. Error: $FailureMessage"
         }
      }
   }
@@ -1614,9 +1632,12 @@ function Mount-VmfsDatastore {
          throw "Couldn't find backing device for the datastore $($DatastoreName)"
     }
 
+    $VmfsUuid = $Datastore.ExtensionData.Info.vmfs.uuid
     $VmHosts = $Cluster | Get-VMHost
 
-    foreach ($VmHost in $VmHosts){
+    # Mount on each host, with rollback on failure.
+    $MountedHosts = @()
+    foreach ($VmHost in $VmHosts) {
 
       $Devices = $VmHost.ExtensionData.config.StorageDevice.ScsiLun | Where-Object { $_.DevicePath -like "*$($HostViewDiskName)*" }
       if ($null -eq $Devices){
@@ -1624,20 +1645,34 @@ function Mount-VmfsDatastore {
          continue
       }
 
-      $HostView = Get-View $VmHost
-      $StorageSys = Get-View $HostView.ConfigManager.StorageSystem
-      Write-Host "Mounting VMFS Datastore $($Datastore.Name) on host $($HostView.Name)"
-      try{
-          $StorageSys.MountVmfsVolume($Datastore.ExtensionData.Info.vmfs.uuid);
-      }
-      catch{
-           Write-Error "Failed to mount VMFS Datastore $($Datastore.Name) on host $($HostView.Name)"
-      }
+      try {
+          $StorageSys = Get-View (Get-View $VmHost).ConfigManager.StorageSystem
+          Write-Host "Mounting VMFS Datastore $($Datastore.Name) on host $($VmHost.Name)"
+          $StorageSys.MountVmfsVolume($VmfsUuid)
+          $MountedHosts += $VmHost
+          Write-Host "Datastore $($Datastore.Name) mounted successfully on host $($VmHost.Name), rescanning now.."
+          $VmHost | Get-VMHostStorage -RescanAllHba -RescanVmfs | Out-Null
+      } catch {
+          $FailedHost = $VmHost.Name
+          $FailureMessage = $_.Exception.Message
 
-      Write-Host "Datastore $($Datastore.Name) mounted successfully on host, rescanning now.. $($hostview.Name)."
-      $VmHost | Get-VMHostStorage -RescanAllHba -RescanVmfs | Out-Null
+          # Perform rollback by unmounting from all hosts that were previously mounted in this run.
+          foreach ($MountedHost in $MountedHosts) {
+              try {
+                  $RollbackStorageSys = Get-View (Get-View $MountedHost).ConfigManager.StorageSystem
+                  $RollbackStorageSys.UnmountVmfsVolume($VmfsUuid)
+                  Write-Warning "Rolled back mount of datastore $DatastoreName on host $($MountedHost.Name)."
+                  $MountedHost | Get-VMHostStorage -RescanAllHba -RescanVmfs | Out-Null
+              } catch {
+                  Write-Error "Failed to roll back mount on host $($MountedHost.Name): $($_.Exception.Message)"
+              }
+          }
+
+          throw "Failed to mount datastore $DatastoreName on host $FailedHost. Changes on previously mounted hosts have been rolled back. Error: $FailureMessage"
+      }
     }
 
+    Write-Host "Successfully mounted datastore $DatastoreName on all hosts in cluster $ClusterName."
   }
 
 

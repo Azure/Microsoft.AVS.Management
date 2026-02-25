@@ -1734,6 +1734,349 @@ Describe "Dismount-VmfsDatastore - Rollback on Failure" -Tag "Behavioral" {
     }
 }
 
+Describe "Mount-VmfsDatastore - Rollback on Failure" -Tag "Behavioral" {
+    Context "When mount fails on the second host" {
+        It "Should roll back by unmounting the first host and throw" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost1 = [PSCustomObject]@{
+                    Name = "host-1"
+                    ExtensionData = [PSCustomObject]@{
+                        config = [PSCustomObject]@{
+                            StorageDevice = [PSCustomObject]@{
+                                ScsiLun = @([PSCustomObject]@{ DevicePath = "/vmfs/devices/disks/naa.60003ff123" })
+                            }
+                        }
+                    }
+                }
+                $mockHost2 = [PSCustomObject]@{
+                    Name = "host-2"
+                    ExtensionData = [PSCustomObject]@{
+                        config = [PSCustomObject]@{
+                            StorageDevice = [PSCustomObject]@{
+                                ScsiLun = @([PSCustomObject]@{ DevicePath = "/vmfs/devices/disks/naa.60003ff123" })
+                            }
+                        }
+                    }
+                }
+
+                $mockExtData = [PSCustomObject]@{
+                    Info = [PSCustomObject]@{
+                        vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-123"
+                            extent = @([PSCustomObject]@{ Diskname = "naa.60003ff123" })
+                        }
+                    }
+                }
+                $mockDatastore = [PSCustomObject]@{
+                    Name = "TestDS"
+                    Type = "VMFS"
+                    ExtensionData = $mockExtData
+                }
+
+                $script:mountCallCount = 0
+                $script:unmountCalled = $false
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost1, $mockHost2) }
+                function script:Get-Datastore { param($Name, $ErrorAction) $mockDatastore }
+                function script:Get-VMHostStorage { param([switch]$RescanAllHba, [switch]$RescanVmfs) }
+
+                function script:Get-View {
+                    param($Id)
+                    $mockView = New-Object PSObject
+                    $mockView | Add-Member -MemberType NoteProperty -Name 'ConfigManager' -Value ([PSCustomObject]@{
+                        StorageSystem = "StorageSystem-mock"
+                    })
+                    $mockView | Add-Member -MemberType ScriptMethod -Name 'MountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:mountCallCount++
+                        if ($script:mountCallCount -ge 2) {
+                            throw "Mount failed on second host"
+                        }
+                    }
+                    $mockView | Add-Member -MemberType ScriptMethod -Name 'UnmountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:unmountCalled = $true
+                    }
+                    return $mockView
+                }
+
+                { Mount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Throw "*Failed to mount datastore*host-2*rolled back*"
+
+                $script:unmountCalled | Should -Be $true
+            }
+        }
+    }
+
+    Context "When mount succeeds on all hosts" {
+        It "Should not trigger rollback" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost1 = [PSCustomObject]@{
+                    Name = "host-1"
+                    ExtensionData = [PSCustomObject]@{
+                        config = [PSCustomObject]@{
+                            StorageDevice = [PSCustomObject]@{
+                                ScsiLun = @([PSCustomObject]@{ DevicePath = "/vmfs/devices/disks/naa.60003ff123" })
+                            }
+                        }
+                    }
+                }
+
+                $mockExtData = [PSCustomObject]@{
+                    Info = [PSCustomObject]@{
+                        vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-123"
+                            extent = @([PSCustomObject]@{ Diskname = "naa.60003ff123" })
+                        }
+                    }
+                }
+                $mockDatastore = [PSCustomObject]@{
+                    Name = "TestDS"
+                    Type = "VMFS"
+                    ExtensionData = $mockExtData
+                }
+
+                $script:unmountCalled = $false
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost1) }
+                function script:Get-Datastore { param($Name, $ErrorAction) $mockDatastore }
+                function script:Get-VMHostStorage { param([switch]$RescanAllHba, [switch]$RescanVmfs) }
+
+                function script:Get-View {
+                    param($Id)
+                    $mockView = New-Object PSObject
+                    $mockView | Add-Member -MemberType NoteProperty -Name 'ConfigManager' -Value ([PSCustomObject]@{
+                        StorageSystem = "StorageSystem-mock"
+                    })
+                    $mockView | Add-Member -MemberType ScriptMethod -Name 'MountVmfsVolume' -Value {
+                        param($uuid)
+                    }
+                    $mockView | Add-Member -MemberType ScriptMethod -Name 'UnmountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:unmountCalled = $true
+                    }
+                    return $mockView
+                }
+
+                { Mount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Not -Throw
+
+                $script:unmountCalled | Should -Be $false
+            }
+        }
+    }
+
+    Context "When host has no device for the datastore" {
+        It "Should skip that host without error" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost1 = [PSCustomObject]@{
+                    Name = "host-no-device"
+                    ExtensionData = [PSCustomObject]@{
+                        config = [PSCustomObject]@{
+                            StorageDevice = [PSCustomObject]@{
+                                ScsiLun = @([PSCustomObject]@{ DevicePath = "/vmfs/devices/disks/naa.OTHER" })
+                            }
+                        }
+                    }
+                }
+
+                $mockExtData = [PSCustomObject]@{
+                    Info = [PSCustomObject]@{
+                        vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-123"
+                            extent = @([PSCustomObject]@{ Diskname = "naa.60003ff123" })
+                        }
+                    }
+                }
+                $mockDatastore = [PSCustomObject]@{
+                    Name = "TestDS"
+                    Type = "VMFS"
+                    ExtensionData = $mockExtData
+                }
+
+                $script:mountCalled = $false
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost1) }
+                function script:Get-Datastore { param($Name, $ErrorAction) $mockDatastore }
+
+                function script:Get-View {
+                    param($Id)
+                    $mockView = New-Object PSObject
+                    $mockView | Add-Member -MemberType NoteProperty -Name 'ConfigManager' -Value ([PSCustomObject]@{
+                        StorageSystem = "StorageSystem-mock"
+                    })
+                    $mockView | Add-Member -MemberType ScriptMethod -Name 'MountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:mountCalled = $true
+                    }
+                    return $mockView
+                }
+
+                { Mount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
+                    Should -Not -Throw
+
+                $script:mountCalled | Should -Be $false
+            }
+        }
+    }
+}
+
+Describe "Remove-VmfsDatastore - Shared Datastore Rollback" -Tag "Behavioral" {
+    Context "When unmount fails on the second host in shared mode" {
+        It "Should roll back by re-mounting the first host and throw" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost1 = [PSCustomObject]@{
+                    Name = "host-1"
+                    Extensiondata = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{
+                            StorageSystem = "StorageSystem-host-1"
+                        }
+                    }
+                }
+                $mockHost2 = [PSCustomObject]@{
+                    Name = "host-2"
+                    Extensiondata = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{
+                            StorageSystem = "StorageSystem-host-2"
+                        }
+                    }
+                }
+
+                # Related host belongs to a different cluster to trigger shared mode
+                $mockRelatedHost = [PSCustomObject]@{
+                    Name = "host-other-cluster"
+                    State = "Connected"
+                    Parent = [PSCustomObject]@{ Name = "OtherCluster" }
+                }
+
+                $mockExtData = [PSCustomObject]@{
+                    info = [PSCustomObject]@{
+                        Vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-shared"
+                        }
+                    }
+                }
+                $mockDatastore = [PSCustomObject]@{
+                    Name = "SharedDS"
+                    Type = "VMFS"
+                    State = "Available"
+                    ExtensionData = $mockExtData
+                }
+
+                $script:unmountCallCount = 0
+                $script:mountCalled = $false
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                # Get-VMHost cases: -State returns related hosts, -Datastore returns related, default returns cluster hosts
+                function script:Get-VMHost {
+                    param($Name, $Datastore, [string]$State)
+                    if ($Datastore) { return @($mockRelatedHost) }
+                    if ($State) { return @($mockHost1, $mockHost2) }
+                    return @($mockHost1, $mockHost2)
+                }
+                function script:Get-Datastore { param($Name, $ErrorAction) $mockDatastore }
+                function script:Get-VM { param($Datastore, $ErrorAction) $null }
+                function script:Get-VMHostStorage { param($VMHost, [switch]$RescanAllHba, [switch]$RescanVmfs) }
+
+                function script:Get-View {
+                    param($Id)
+                    $storageSystem = New-Object PSObject
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'UnmountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:unmountCallCount++
+                        if ($script:unmountCallCount -ge 2) {
+                            throw "Unmount failed on second host"
+                        }
+                    }
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'MountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:mountCalled = $true
+                    }
+                    return $storageSystem
+                }
+
+                { Remove-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "SharedDS" } |
+                    Should -Throw "*Failed to unmount shared datastore*host-2*rolled back*"
+
+                $script:mountCalled | Should -Be $true
+            }
+        }
+    }
+
+    Context "When all hosts unmount successfully in shared mode" {
+        It "Should not trigger rollback" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost1 = [PSCustomObject]@{
+                    Name = "host-1"
+                    Extensiondata = [PSCustomObject]@{
+                        ConfigManager = [PSCustomObject]@{
+                            StorageSystem = "StorageSystem-host-1"
+                        }
+                    }
+                }
+
+                $mockRelatedHost = [PSCustomObject]@{
+                    Name = "host-other-cluster"
+                    State = "Connected"
+                    Parent = [PSCustomObject]@{ Name = "OtherCluster" }
+                }
+
+                $mockExtData = [PSCustomObject]@{
+                    info = [PSCustomObject]@{
+                        Vmfs = [PSCustomObject]@{
+                            uuid = "vmfs-uuid-shared"
+                        }
+                    }
+                }
+                $mockDatastore = [PSCustomObject]@{
+                    Name = "SharedDS"
+                    Type = "VMFS"
+                    State = "Available"
+                    ExtensionData = $mockExtData
+                }
+
+                $script:mountCalled = $false
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost {
+                    param($Name, $Datastore, [string]$State)
+                    if ($Datastore) { return @($mockRelatedHost) }
+                    return @($mockHost1)
+                }
+                function script:Get-Datastore { param($Name, $ErrorAction) $mockDatastore }
+                function script:Get-VM { param($Datastore, $ErrorAction) $null }
+                function script:Get-VMHostStorage { param($VMHost, [switch]$RescanAllHba, [switch]$RescanVmfs) }
+
+                function script:Get-View {
+                    param($Id)
+                    $storageSystem = New-Object PSObject
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'UnmountVmfsVolume' -Value {
+                        param($uuid)
+                    }
+                    $storageSystem | Add-Member -MemberType ScriptMethod -Name 'MountVmfsVolume' -Value {
+                        param($uuid)
+                        $script:mountCalled = $true
+                    }
+                    return $storageSystem
+                }
+
+                { Remove-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "SharedDS" } |
+                    Should -Not -Throw
+
+                $script:mountCalled | Should -Be $false
+            }
+        }
+    }
+}
+
 Describe "Set-VmfsIscsi - Rollback on Failure" -Tag "Behavioral" {
     BeforeAll {
         $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
