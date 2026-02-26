@@ -1441,6 +1441,13 @@ Describe "ValidateNotNullOrEmpty Parameter Attribute" {
         @{ Function = 'Remove-VMHostStaticIScsiTargets'; Parameter = 'iSCSIAddress' }
         @{ Function = 'Remove-VMHostDynamicIScsiTargets'; Parameter = 'ClusterName' }
         @{ Function = 'Remove-VMHostDynamicIScsiTargets'; Parameter = 'iSCSIAddress' }
+        @{ Function = 'Remove-VmfsDatastore'; Parameter = 'ClusterName' }
+        @{ Function = 'Remove-VmfsDatastore'; Parameter = 'DatastoreName' }
+        @{ Function = 'Repair-HAConfiguration'; Parameter = 'ClusterName' }
+        @{ Function = 'Clear-DisconnectedIscsiTargets'; Parameter = 'ClusterName' }
+        @{ Function = 'Test-VMKernelConnectivity'; Parameter = 'ClusterName' }
+        @{ Function = 'New-VmfsVmSnapshot'; Parameter = 'ClusterName' }
+        @{ Function = 'New-VmfsVmSnapshot'; Parameter = 'datastoreName' }
     )
 
     It "<Function> should have ValidateNotNullOrEmpty on <Parameter>" -TestCases $testCases {
@@ -3207,10 +3214,6 @@ Describe "Test-VMKernelConnectivity - vmk5/vmk6 Pre-Validation" -Tag "Behavioral
     }
 }
 
-# ============================================================================
-# Additional Behavioral Tests for Functions with Coverage Gaps
-# ============================================================================
-
 Describe "Resize-VmfsVolume - Behavioral Tests" -Tag "Behavioral" {
     BeforeAll {
         $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
@@ -3392,7 +3395,7 @@ Describe "Restore-VmfsVolume - Behavioral Tests" -Tag "Behavioral" {
                     return $storageSys
                 }
 
-                { Restore-VmfsVolume -ClusterName "TestCluster" -DeviceNaaId "naa.624a9370123456" -ErrorAction SilentlyContinue } |
+                { Restore-VmfsVolume -ClusterName "TestCluster" -DeviceNaaId "naa.624a9370123456" } |
                     Should -Throw "*Failed to re-signature VMFS volume*"
             }
         }
@@ -3437,7 +3440,7 @@ Describe "Restore-VmfsVolume - Behavioral Tests" -Tag "Behavioral" {
                     return $storageSys
                 }
 
-                { Restore-VmfsVolume -ClusterName "TestCluster" -DeviceNaaId "naa.624a9370123456" -ErrorAction SilentlyContinue } |
+                { Restore-VmfsVolume -ClusterName "TestCluster" -DeviceNaaId "naa.624a9370123456" } |
                     Should -Throw "*Failed to re-signature VMFS volume*"
             }
         }
@@ -3845,7 +3848,7 @@ Describe "Repair-HAConfiguration - Behavioral Tests" -Tag "Behavioral" {
                 function script:Get-VMHost { @($mockHost1, $mockHost2) }
 
                 $script:dasCount = 0
-                { Repair-HAConfiguration -ClusterName "TestCluster" -ErrorAction SilentlyContinue } |
+                { Repair-HAConfiguration -ClusterName "TestCluster" } |
                     Should -Throw "*Failed to repair HA configuration on one or more hosts*"
             }
         }
@@ -4240,8 +4243,392 @@ Describe "Test-VMKernelConnectivity - Behavioral Tests" -Tag "Behavioral" {
                     return [PSCustomObject]@{ network = $network }
                 }
 
-                { Test-VMKernelConnectivity -ClusterName "TestCluster" -ErrorAction SilentlyContinue } |
+                { Test-VMKernelConnectivity -ClusterName "TestCluster" } |
                     Should -Throw "*Ping to vmkernel interface failed on one or more hosts*"
+            }
+        }
+    }
+}
+
+Describe "Connect-NVMeTCPTarget" {
+    Context "Parameter Validation" {
+        It "Should have ClusterName as mandatory parameter" {
+            $command = Get-Command Connect-NVMeTCPTarget
+            $command.Parameters['ClusterName'].Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have NodeAddress as mandatory parameter" {
+            $command = Get-Command Connect-NVMeTCPTarget
+            $command.Parameters['NodeAddress'].Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have StorageSystemNQN as mandatory parameter" {
+            $command = Get-Command Connect-NVMeTCPTarget
+            $command.Parameters['StorageSystemNQN'].Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have ValidateNotNullOrEmpty on ClusterName" {
+            $command = Get-Command Connect-NVMeTCPTarget
+            $command.Parameters['ClusterName'].Attributes |
+                Where-Object { $_ -is [System.Management.Automation.ValidateNotNullOrEmptyAttribute] } |
+                Should -Not -BeNullOrEmpty
+        }
+
+        It "Should have ValidateNotNullOrEmpty on NodeAddress" {
+            $command = Get-Command Connect-NVMeTCPTarget
+            $command.Parameters['NodeAddress'].Attributes |
+                Where-Object { $_ -is [System.Management.Automation.ValidateNotNullOrEmptyAttribute] } |
+                Should -Not -BeNullOrEmpty
+        }
+
+        It "Should have ValidateNotNullOrEmpty on StorageSystemNQN" {
+            $command = Get-Command Connect-NVMeTCPTarget
+            $command.Parameters['StorageSystemNQN'].Attributes |
+                Where-Object { $_ -is [System.Management.Automation.ValidateNotNullOrEmptyAttribute] } |
+                Should -Not -BeNullOrEmpty
+        }
+
+        It "Should have optional AdminQueueSize with default 32" {
+            $command = Get-Command Connect-NVMeTCPTarget
+            $command.Parameters['AdminQueueSize'] | Should -Not -BeNullOrEmpty
+        }
+
+        It "Should have optional PortNumber with default 4420" {
+            $command = Get-Command Connect-NVMeTCPTarget
+            $command.Parameters['PortNumber'] | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    Context "Cluster Validation" {
+        BeforeAll {
+            Mock Get-Cluster { $null } -ModuleName Microsoft.AVS.VMFS
+        }
+
+        It "Should throw when cluster does not exist" {
+            { Connect-NVMeTCPTarget -ClusterName "NonExistentCluster" -NodeAddress "192.168.0.1" -StorageSystemNQN "nqn.test" } |
+                Should -Throw "*does not exist*"
+        }
+    }
+
+    Context "Happy path - skips disconnected hosts" {
+        It "Should skip hosts not in Connected state" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost = [PSCustomObject]@{
+                    Name = "host-1"
+                    ConnectionState = "Maintenance"
+                }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost) }
+                function script:Get-VMHostHba { @() }
+                function script:Get-EsxCli { throw "Should not be called" }
+                function script:Get-VMHostStorage { param($VMHost, [switch]$RescanAllHba) }
+
+                { Connect-NVMeTCPTarget -ClusterName "TestCluster" -NodeAddress "192.168.0.1" -StorageSystemNQN "nqn.test" } |
+                    Should -Not -Throw
+            }
+        }
+    }
+
+    Context "Connected host with NVMe adapter" {
+        It "Should attempt to connect NVMe/TCP adapter" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost = [PSCustomObject]@{
+                    Name = "host-1"
+                    ConnectionState = "Connected"
+                }
+                $mockAdapter = [PSCustomObject]@{
+                    Name = "vmhba65"
+                    Driver = "nvmetcp"
+                }
+
+                $script:connectCalled = $false
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost) }
+                function script:Get-VMHostHba { @($mockAdapter) }
+                function script:Get-EsxCli {
+                    param($VMHost, [switch]$V2)
+                    $nvmeFabrics = [PSCustomObject]@{}
+                    $nvmeFabrics | Add-Member -MemberType ScriptMethod -Name 'connect' -Value {
+                        param($a,$b,$c,$d,$e,$f,$g,$h,$i,$j,$k,$l)
+                        $script:connectCalled = $true
+                        return $true
+                    }
+                    $nvme = [PSCustomObject]@{ fabrics = $nvmeFabrics }
+                    return [PSCustomObject]@{ nvme = $nvme }
+                }
+                function script:Get-VMHostStorage { param($VMHost, [switch]$RescanAllHba) }
+
+                Connect-NVMeTCPTarget -ClusterName "TestCluster" -NodeAddress "192.168.0.1" -StorageSystemNQN "nqn.test"
+                $script:connectCalled | Should -BeTrue
+            }
+        }
+    }
+}
+
+Describe "Disconnect-NVMeTCPTarget" {
+    Context "Parameter Validation" {
+        It "Should have ClusterName as mandatory parameter" {
+            $command = Get-Command Disconnect-NVMeTCPTarget
+            $command.Parameters['ClusterName'].Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have StorageSystemNQN as mandatory parameter" {
+            $command = Get-Command Disconnect-NVMeTCPTarget
+            $command.Parameters['StorageSystemNQN'].Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have ValidateNotNullOrEmpty on ClusterName" {
+            $command = Get-Command Disconnect-NVMeTCPTarget
+            $command.Parameters['ClusterName'].Attributes |
+                Where-Object { $_ -is [System.Management.Automation.ValidateNotNullOrEmptyAttribute] } |
+                Should -Not -BeNullOrEmpty
+        }
+
+        It "Should have ValidateNotNullOrEmpty on StorageSystemNQN" {
+            $command = Get-Command Disconnect-NVMeTCPTarget
+            $command.Parameters['StorageSystemNQN'].Attributes |
+                Where-Object { $_ -is [System.Management.Automation.ValidateNotNullOrEmptyAttribute] } |
+                Should -Not -BeNullOrEmpty
+        }
+    }
+
+    Context "Cluster Validation" {
+        BeforeAll {
+            Mock Get-Cluster { $null } -ModuleName Microsoft.AVS.VMFS
+        }
+
+        It "Should throw when cluster does not exist" {
+            { Disconnect-NVMeTCPTarget -ClusterName "NonExistentCluster" -StorageSystemNQN "nqn.test" } |
+                Should -Throw "*does not exist*"
+        }
+    }
+
+    Context "Skips hosts with provisioned devices" {
+        It "Should skip host when NVMe devices are in use" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost = [PSCustomObject]@{
+                    Name = "host-1"
+                    ConnectionState = "Connected"
+                }
+
+                $script:disconnectCalled = $false
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost) }
+                function script:Get-Datastore {
+                    param($VMHost)
+                    @([PSCustomObject]@{
+                        ExtensionData = [PSCustomObject]@{
+                            Info = [PSCustomObject]@{
+                                Vmfs = [PSCustomObject]@{
+                                    Extent = [PSCustomObject]@{ DiskName = "eui.abc123" }
+                                }
+                            }
+                        }
+                    })
+                }
+                function script:Get-EsxCli {
+                    $script:disconnectCalled = $true
+                    throw "Should not reach here"
+                }
+
+                Disconnect-NVMeTCPTarget -ClusterName "TestCluster" -StorageSystemNQN "nqn.test"
+                $script:disconnectCalled | Should -BeFalse
+            }
+        }
+    }
+
+    Context "Skips disconnected hosts" {
+        It "Should skip hosts not in Connected state" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+                $mockHost = [PSCustomObject]@{
+                    Name = "host-1"
+                    ConnectionState = "Maintenance"
+                }
+
+                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
+                function script:Get-VMHost { @($mockHost) }
+
+                { Disconnect-NVMeTCPTarget -ClusterName "TestCluster" -StorageSystemNQN "nqn.test" } |
+                    Should -Not -Throw
+            }
+        }
+    }
+}
+
+Describe "Set-NVMeTCP" {
+    Context "Parameter Validation" {
+        It "Should have HostAddress as mandatory parameter" {
+            $command = Get-Command Set-NVMeTCP
+            $command.Parameters['HostAddress'].Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have VmKernel as mandatory parameter" {
+            $command = Get-Command Set-NVMeTCP
+            $command.Parameters['VmKernel'].Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have ValidateNotNullOrEmpty on HostAddress" {
+            $command = Get-Command Set-NVMeTCP
+            $command.Parameters['HostAddress'].Attributes |
+                Where-Object { $_ -is [System.Management.Automation.ValidateNotNullOrEmptyAttribute] } |
+                Should -Not -BeNullOrEmpty
+        }
+
+        It "Should have ValidateNotNullOrEmpty on VmKernel" {
+            $command = Get-Command Set-NVMeTCP
+            $command.Parameters['VmKernel'].Attributes |
+                Where-Object { $_ -is [System.Management.Automation.ValidateNotNullOrEmptyAttribute] } |
+                Should -Not -BeNullOrEmpty
+        }
+    }
+
+    Context "Host Validation" {
+        It "Should throw when host does not exist" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                function script:Get-VMHost { param($Name, $ErrorAction) $null }
+
+                { Set-NVMeTCP -HostAddress "nonexistent" -VmKernel "vmk0" } |
+                    Should -Throw "*does not exist*"
+            }
+        }
+    }
+
+    Context "VMKernel adapter not found" {
+        It "Should throw when VMKernel adapter does not exist" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockHost = [PSCustomObject]@{ Name = "host-1" }
+
+                function script:Get-VMHost { param($Name, $ErrorAction) $mockHost }
+                function script:Get-VMHostNetworkAdapter {
+                    param($VMHost, [switch]$VMKernel, $Name)
+                    $null
+                }
+
+                { Set-NVMeTCP -HostAddress "host-1" -VmKernel "vmk99" } |
+                    Should -Throw "*Didn't find VMKernel adapters on host*"
+            }
+        }
+    }
+
+    Context "Happy path - enables NVMe/TCP" {
+        It "Should enable NVMe/TCP service on VMKernel adapter" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockHost = [PSCustomObject]@{ Name = "host-1" }
+
+                function script:Get-VMHost { param($Name, $ErrorAction) $mockHost }
+                function script:Get-VMHostNetworkAdapter {
+                    param($VMHost, [switch]$VMKernel, $Name)
+                    @([PSCustomObject]@{ Name = "vmk5" })
+                }
+                function script:Get-EsxCli {
+                    param($VMHost, [switch]$V2, $ErrorAction)
+                    $tagAdd = { param($vmk, $tag) return $true }
+                    $tag = [PSCustomObject]@{}
+                    $tag | Add-Member -MemberType ScriptMethod -Name 'add' -Value $tagAdd
+                    $interface = [PSCustomObject]@{ tag = $tag }
+                    $ip = [PSCustomObject]@{ interface = $interface }
+                    $network = [PSCustomObject]@{ ip = $ip }
+                    return [PSCustomObject]@{ network = $network }
+                }
+                function script:Get-VMHostStorage { param($VMHost, [switch]$RescanAllHba) }
+
+                { Set-NVMeTCP -HostAddress "host-1" -VmKernel "vmk5" } |
+                    Should -Not -Throw
+
+                $Global:NamedOutputs | Should -Not -BeNullOrEmpty
+                $Global:NamedOutputs["vmk5"] | Should -Match "enabled successfully"
+            }
+        }
+    }
+}
+
+Describe "New-NVMeTCPAdapter" {
+    Context "Parameter Validation" {
+        It "Should have HostAddress as mandatory parameter" {
+            $command = Get-Command New-NVMeTCPAdapter
+            $command.Parameters['HostAddress'].Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have VmNic as mandatory parameter" {
+            $command = Get-Command New-NVMeTCPAdapter
+            $command.Parameters['VmNic'].Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have ValidateNotNullOrEmpty on HostAddress" {
+            $command = Get-Command New-NVMeTCPAdapter
+            $command.Parameters['HostAddress'].Attributes |
+                Where-Object { $_ -is [System.Management.Automation.ValidateNotNullOrEmptyAttribute] } |
+                Should -Not -BeNullOrEmpty
+        }
+
+        It "Should have ValidateNotNullOrEmpty on VmNic" {
+            $command = Get-Command New-NVMeTCPAdapter
+            $command.Parameters['VmNic'].Attributes |
+                Where-Object { $_ -is [System.Management.Automation.ValidateNotNullOrEmptyAttribute] } |
+                Should -Not -BeNullOrEmpty
+        }
+    }
+
+    Context "Host Validation" {
+        It "Should throw when host does not exist" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                function script:Get-VMHost { param($Name, $ErrorAction) $null }
+
+                { New-NVMeTCPAdapter -HostAddress "nonexistent" -VmNic "vmnic0" } |
+                    Should -Throw "*does not exist*"
+            }
+        }
+    }
+
+    Context "NIC not found" {
+        It "Should throw when physical NIC does not exist" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockHost = [PSCustomObject]@{ Name = "host-1" }
+
+                function script:Get-VMHost { param($Name, $ErrorAction) $mockHost }
+                function script:Get-VMHostNetworkAdapter {
+                    param($VMHost, [switch]$Physical, $Name)
+                    $null
+                }
+
+                { New-NVMeTCPAdapter -HostAddress "host-1" -VmNic "vmnic99" } |
+                    Should -Throw "*Didn't find Nic adapters on host*"
+            }
+        }
+    }
+
+    Context "Happy path - creates adapter" {
+        It "Should create NVMe/TCP adapter successfully" {
+            InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
+                $mockHost = [PSCustomObject]@{ Name = "host-1" }
+
+                function script:Get-VMHost { param($Name, $ErrorAction) $mockHost }
+                function script:Get-VMHostNetworkAdapter {
+                    param($VMHost, [switch]$Physical, $Name)
+                    @([PSCustomObject]@{ Name = "vmnic0" })
+                }
+                function script:Get-EsxCli {
+                    param($VMHost, [switch]$V2, $ErrorAction)
+                    $enable = { param($nic, $proto) return $true }
+                    $fabrics = [PSCustomObject]@{}
+                    $fabrics | Add-Member -MemberType ScriptMethod -Name 'enable' -Value $enable
+                    $nvme = [PSCustomObject]@{ fabrics = $fabrics }
+                    return [PSCustomObject]@{ nvme = $nvme }
+                }
+                function script:Get-VMHostStorage { param($VMHost, [switch]$RescanAllHba) }
+
+                { New-NVMeTCPAdapter -HostAddress "host-1" -VmNic "vmnic0" } |
+                    Should -Not -Throw
+
+                $Global:NamedOutputs | Should -Not -BeNullOrEmpty
+                $Global:NamedOutputs["vmnic0"] | Should -Match "created successfully"
             }
         }
     }

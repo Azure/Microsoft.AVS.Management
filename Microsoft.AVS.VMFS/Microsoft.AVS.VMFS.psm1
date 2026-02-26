@@ -854,8 +854,8 @@ function Restore-VmfsVolume {
                 if ($ResigExtent.Device.DiskName -eq $DeviceNaaId) {
                     if ($ResigVolume.ResolveStatus.Resolvable -eq $false) {
                         if ($ResigVolume.ResolveStatus.MultipleCopies -eq $true) {
-                            Write-Error "The volume cannot be re-signatured as more than one non re-signatured copy is present."
-                            Write-Error "The following volume(s) need to be removed/re-signatured first:"
+                            Write-Warning "The volume cannot be re-signatured as more than one non re-signatured copy is present."
+                            Write-Warning "The following volume(s) need to be removed/re-signatured first:"
                             $ResigVolume.Extent.Device.DiskName | Where-Object {$_ -ne $DeviceNaaId}
                         }
 
@@ -877,7 +877,7 @@ function Restore-VmfsVolume {
     }
 
     if ($null -eq $VolumeToResignature) {
-        Write-Error "No unresolved volume found on the created volume."
+        Write-Warning "No unresolved volume found on the created volume."
         throw "Failed to re-signature VMFS volume."
     }
 
@@ -1206,16 +1206,19 @@ function Connect-NVMeTCPTarget {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
+        [ValidateNotNullOrEmpty()]
         [String] $ClusterName,
 
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Target storage Node datapath address')]
+        [ValidateNotNullOrEmpty()]
         [string] $NodeAddress,
 
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Target storage SystemNQN')]
+        [ValidateNotNullOrEmpty()]
         [string]     $StorageSystemNQN,
 
         [Parameter(
@@ -1272,7 +1275,7 @@ function Connect-NVMeTCPTarget {
         $StorageAdapters = $VmHost | Get-VMHostHba
         $HostEsxcli = $null;
         try {
-            $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name
+            $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name -V2
         }
         catch {
             Write-Error "Failed to execute Get-EsxCli cmdlet on host $($VmHost.Name), continue connecting rest of the host(s) "
@@ -1300,7 +1303,7 @@ function Connect-NVMeTCPTarget {
                             Write-Host "ESXi host $($VmHost.Name) is connected to storage controller via " $Name
                         }
                         else {
-                            Write-Host "Failed to connect ESXi host $($VmHost.Name) to storage controller "
+                            Write-Warning "Failed to connect ESXi host $($VmHost.Name) to storage controller"
                         }
 
                         Write-Host "Connecting Controller status: "$EsxCliResult;
@@ -1351,11 +1354,13 @@ function Disconnect-NVMeTCPTarget {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
+        [ValidateNotNullOrEmpty()]
         [String] $ClusterName,
 
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Target storage SystemNQN')]
+        [ValidateNotNullOrEmpty()]
         [string] $StorageSystemNQN
     )
 
@@ -1392,7 +1397,7 @@ function Disconnect-NVMeTCPTarget {
 
         $HostEsxcli = $null;
         try {
-            $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name
+            $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name -V2
         }
         catch {
             Write-Error "Failed to execute Get-EsxCli cmdlet on host $($VmHost.Name), continue disconnecting rest of the host(s) "
@@ -1411,7 +1416,7 @@ function Disconnect-NVMeTCPTarget {
                         Write-Host "Disconnecting Controller status: "$result;
                     }
                     catch {
-                        Write-Host "Failed to disconnect controller $($_.Exception)"
+                        Write-Warning "Failed to disconnect controller $($_.Exception)"
                     }
 
                 }
@@ -1465,11 +1470,13 @@ function Remove-VmfsDatastore {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
+        [ValidateNotNullOrEmpty()]
         [string] $ClusterName,
 
         [Parameter(
             Mandatory = $true,
             HelpMessage = ' Existing datastore name')]
+        [ValidateNotNullOrEmpty()]
         [string] $DatastoreName
     )
 
@@ -1721,7 +1728,7 @@ function Get-VmfsDatastore {
     }
 
 
-    $Datastores = Get-VMHost -Name $VmHosts | Get-Datastore | Where-Object {$_.Type -match "VMFS"} | Get-Unique
+    $Datastores = Get-VMHost -Name $VmHosts | Get-Datastore | Where-Object {$_.Type -match "VMFS"} | Sort-Object -Property Name -Unique
 
     if ( -not $Datastores) {
         Write-Host "No Datastore found under the given cluster."
@@ -1872,7 +1879,7 @@ function Get-StorageAdapters {
             $Adapters = Get-VMHostHba -VMHost $VmHost.Name -ErrorAction Ignore
         }
         catch {
-            Write-Error "Failed to collect VMKernel Info on host $($VmHost.Name), continue collecting about rest of the host(s)."
+            Write-Error "Failed to collect storage adapter info on host $($VmHost.Name), continue collecting about rest of the host(s)."
             continue
         }
 
@@ -1996,10 +2003,12 @@ function Set-NVMeTCP {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'ESXi host network address')]
+        [ValidateNotNullOrEmpty()]
         [String] $HostAddress,
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Existing VMKernel adapter name')]
+        [ValidateNotNullOrEmpty()]
         [String] $VmKernel
 
     )
@@ -2028,7 +2037,7 @@ function Set-NVMeTCP {
         throw "Didn't find VMKernel adapters on host"
     }
 
-    $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name -ErrorAction stop
+    $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name -V2 -ErrorAction stop
 
     $isEnabled = $HostEsxcli.network.ip.interface.tag.add($VmKernel, 'NVMeTCP')
 
@@ -2079,10 +2088,12 @@ function New-NVMeTCPAdapter {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'ESXi host network address')]
+        [ValidateNotNullOrEmpty()]
         [String] $HostAddress,
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Existing Physical NIC  name')]
+        [ValidateNotNullOrEmpty()]
         [String] $VmNic
 
     )
@@ -2111,7 +2122,7 @@ function New-NVMeTCPAdapter {
         throw "Didn't find Nic adapters on host"
     }
 
-    $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name -ErrorAction stop
+    $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name -V2 -ErrorAction stop
     $IsCreated = $HostEsxcli.nvme.fabrics.enable($VmNic, 'TCP');
     if ($IsCreated) {
         $NamedOutputs.Add($VmNic, "NVMe/TCP adapter created successfully.")
@@ -2160,10 +2171,12 @@ function New-VmfsVmSnapshot {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
+        [ValidateNotNullOrEmpty()]
         [String] $ClusterName,
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'datastore name')]
+        [ValidateNotNullOrEmpty()]
         [String] $datastoreName
 
     )
@@ -2235,6 +2248,7 @@ function Repair-HAConfiguration {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
+        [ValidateNotNullOrEmpty()]
         [String] $ClusterName
     )
 
@@ -2259,7 +2273,7 @@ function Repair-HAConfiguration {
         try {
             $VMHost.ExtensionData.ReconfigureHostForDAS()
         } catch {
-            Write-Error "Failed to repair HA configuration on host $HostAddress"
+            Write-Warning "Failed to repair HA configuration on host ${HostAddress}: $($_.Exception.Message)"
             $Success = $false
         }
     }
@@ -2292,6 +2306,7 @@ function Clear-DisconnectedIscsiTargets {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
+        [ValidateNotNullOrEmpty()]
         [String] $ClusterName,
 
         [Parameter(
@@ -2369,6 +2384,7 @@ function Test-VMKernelConnectivity {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
+        [ValidateNotNullOrEmpty()]
         [String] $ClusterName
     )
 
@@ -2419,7 +2435,7 @@ function Test-VMKernelConnectivity {
                 Write-Host "Ping to vmkernel interface $($Nic.Name) on host $HostAddress is successful"
             }
             else {
-                Write-Error "Ping to vmkernel interface $($Nic.Name) on host $HostAddress failed"
+                Write-Warning "Ping to vmkernel interface $($Nic.Name) on host $HostAddress failed"
                 $Success = $false
             }
         }
