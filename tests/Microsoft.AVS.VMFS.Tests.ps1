@@ -387,7 +387,6 @@ Describe "Remove-VMHostDynamicIScsiTargets" {
             $command = Get-Command Remove-VMHostDynamicIScsiTargets
             $param = $command.Parameters['iSCSIAddress']
             $param.ParameterType.Name | Should -Be 'String'
-            # The function splits on comma internally
         }
     }
 }
@@ -513,7 +512,7 @@ Describe "Sync-ClusterVMHostStorage" {
 }
 
 # Note: Connect-NVMeTCPTarget and Disconnect-NVMeTCPTarget are not exported in the module manifest
-# These functions exist in the module but are not publicly available
+# These functions exist in the module as legacy code but are not publicly available
 
 Describe "Get-VmfsDatastore" {
     Context "Parameter Validation" {
@@ -1113,7 +1112,7 @@ Describe "Test-VMKernelConnectivity" {
 }
 
 # Note: Set-NVMeTCP and New-NVMeTCPAdapter are not exported in the module manifest
-# These functions exist in the module but are not publicly available
+# These functions exist in the module as legacy code but are not publicly available
 
 Describe "New-VmfsVmSnapshot" {
     Context "Parameter Validation" {
@@ -1237,7 +1236,7 @@ Describe "Remove-VMHostStaticIScsiTargets - Behavioral Tests" -Tag "Behavioral" 
                 $sendTarget = [PSCustomObject]@{ Address = "192.168.1.10"; Type = "Send" }
                 $otherStaticTarget = [PSCustomObject]@{ Address = "10.0.0.1"; Type = "Static" }
                 
-                # Override cmdlets with simple functions that don't validate types
+                # Override cmdlets with mock functions that don't validate types
                 function script:Get-Cluster { param($Name) $mockCluster }
                 function script:Get-VMHost { $mockVMHost }
                 function script:Get-Datastore { @() }
@@ -1535,7 +1534,7 @@ Describe "Remove-VmfsDatastore - Null Check Edge Cases" {
         It "Should throw when no connected hosts found with datastore" {
             InModuleScope Microsoft.AVS.VMFS -ScriptBlock {
                 function script:Get-Cluster { param($Name, $ErrorAction) [PSCustomObject]@{ Name = "TestCluster" } }
-                function script:Get-Datastore { param($Name, $ErrorAction) [PSCustomObject]@{ Name = "TestDS"; State = "Available" } }
+                function script:Get-Datastore { param($Name, $ErrorAction) [PSCustomObject]@{ Name = "TestDS"; Type = "VMFS"; State = "Available" } }
                 function script:Get-VM { param($Datastore, $ErrorAction) $null }
                 function script:Get-VMHost {
                     param($Datastore, $State)
@@ -1604,7 +1603,6 @@ Describe "Set-VmfsIscsi - IP Address Exact Match" -Tag "Behavioral" {
                     Set-VmfsIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1"
                 } catch { }
 
-                # With -eq, "192.168.0.10" != "192.168.0.1", so New-IScsiHbaTarget should be called
                 $script:newTargetCalled | Should -Be $true
             }
         }
@@ -1632,7 +1630,6 @@ Describe "Set-VmfsIscsi - IP Address Exact Match" -Tag "Behavioral" {
                     Set-VmfsIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1"
                 } catch { }
 
-                # Exact match means target already exists, so New-IScsiHbaTarget should not be called
                 $script:newTargetCalled | Should -Be $false
             }
         }
@@ -2090,7 +2087,6 @@ Describe "Dismount-VmfsDatastore - Rollback on Failure" -Tag "Behavioral" {
                 { Dismount-VmfsDatastore -ClusterName "TestCluster" -DatastoreName "TestDS" } |
                     Should -Throw "*Failed to dismount datastore*rolled back*"
 
-                # SCSI detach should never have been called (NVMe/TCP path)
                 $script:detachScsiCalled | Should -Be $false
                 # Rollback should re-mount but not re-attach
                 $script:attachScsiCalled | Should -Be $false
@@ -2626,7 +2622,6 @@ Describe "Set-VmfsIscsi - Rollback on Failure" -Tag "Behavioral" {
                 { Set-VmfsIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" } |
                     Should -Throw "*Failed to configure iSCSI*rolled back*"
 
-                # The target added on host-1 should have been rolled back
                 $script:removeTargetCalled | Should -Be $true
             }
         }
@@ -2697,7 +2692,6 @@ Describe "Set-VmfsIscsi - Rollback on Failure" -Tag "Behavioral" {
                 { Set-VmfsIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" } |
                     Should -Throw "*Failed to configure iSCSI*"
 
-                # Host-1 target was pre-existing, so rollback should not remove it
                 $script:removeTargetCalled | Should -Be $false
             }
         }
@@ -2786,7 +2780,6 @@ Describe "Set-VmfsIscsi - Rollback on Failure" -Tag "Behavioral" {
                 { Set-VmfsIscsi -ClusterName "TestCluster" -ScsiIpAddress "192.168.0.1" } |
                     Should -Throw "*No iSCSI Software Adapter found on host*"
 
-                # No targets should be added
                 $script:newTargetCalled | Should -Be $false
             }
         }
@@ -3550,7 +3543,7 @@ Describe "Remove-VmfsDatastore - Behavioral Tests" -Tag "Behavioral" {
                 function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
                 function script:Get-Datastore {
                     param($Name, $ErrorAction)
-                    [PSCustomObject]@{ Name = $Name; State = "Available" }
+                    [PSCustomObject]@{ Name = $Name; Type = "VMFS"; State = "Available" }
                 }
                 function script:Get-VM {
                     param($Datastore, $ErrorAction)
@@ -3571,7 +3564,7 @@ Describe "Remove-VmfsDatastore - Behavioral Tests" -Tag "Behavioral" {
                 function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
                 function script:Get-Datastore {
                     param($Name, $ErrorAction)
-                    [PSCustomObject]@{ Name = $Name; State = "Available" }
+                    [PSCustomObject]@{ Name = $Name; Type = "VMFS"; State = "Available" }
                 }
                 function script:Get-VM { param($Datastore, $ErrorAction) $null }
                 function script:Get-VMHost {
@@ -3604,7 +3597,7 @@ Describe "Remove-VmfsDatastore - Behavioral Tests" -Tag "Behavioral" {
                     $script:getCallCount++
                     # First call returns the datastore, second call (after removal) returns null
                     if ($script:getCallCount -le 2) {
-                        return [PSCustomObject]@{ Name = $Name; State = "Available" }
+                        return [PSCustomObject]@{ Name = $Name; Type = "VMFS"; State = "Available" }
                     }
                     return $null
                 }

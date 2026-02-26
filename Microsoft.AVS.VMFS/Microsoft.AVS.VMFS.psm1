@@ -16,10 +16,10 @@
      Optional. Login timeout in seconds (default 30)
 
     .PARAMETER NoopOutTimeout
-    Optional. NoopOut timeout in seconds (default 30)
+     Optional. NoopOut timeout in seconds (default 30)
 
     .PARAMETER RecoveryTimeout
-    Optional. Recovery timeout in seconds (default 45)
+     Optional. Recovery timeout in seconds (default 45)
 
     .EXAMPLE
      Set-VmfsIscsi -ClusterName "myCluster" -ScsiIpAddress "192.168.0.1"
@@ -53,21 +53,24 @@ function Set-VmfsIscsi {
             HelpMessage = 'Login timeout in seconds'
         )]
         [ValidateRange(1, 60)]
-        [int] $LoginTimeout = 30,
+        [int]
+        $LoginTimeout = 30,
 
         [Parameter (
             Mandatory = $false,
             HelpMessage = 'NoopOut timeout in seconds'
         )]
         [ValidateRange(10, 30)]
-        [int] $NoopOutTimeout = 30,
+        [int]
+        $NoopOutTimeout = 30,
 
         [Parameter (
             Mandatory = $false,
             HelpMessage = 'Recovery timeout in seconds'
         )]
         [ValidateRange(1, 120)]
-        [int] $RecoveryTimeout = 45
+        [int]
+        $RecoveryTimeout = 45
     )
 
     try {
@@ -194,17 +197,17 @@ function Set-VmfsIscsi {
     .PARAMETER ScsiIpAddress
      IP Address to add as static iSCSI target
 
-     .PARAMETER ScsiName
+    .PARAMETER ScsiName
      iSCSI target name
 
-     .PARAMETER LoginTimeout
+    .PARAMETER LoginTimeout
      Optional. Login timeout in seconds (default 30)
 
     .PARAMETER NoopOutTimeout
-    Optional. NoopOut timeout in seconds (default 30)
+     Optional. NoopOut timeout in seconds (default 30)
 
     .PARAMETER RecoveryTimeout
-    Optional. Recovery timeout in seconds (default 45)
+     Optional. Recovery timeout in seconds (default 45)
 
     .EXAMPLE
      Set-VmfsStaticIscsi -ClusterName "myCluster" -ScsiIpAddress "192.168.0.1" -ScsiName "iqn.1998-01.com.vmware:target-1"
@@ -237,28 +240,32 @@ function Set-VmfsStaticIscsi {
             Mandatory = $true,
             HelpMessage = 'iSCSI target name')]
         [ValidateNotNullOrEmpty()]
-        [String] $ScsiName,
+        [String]
+        $ScsiName,
 
         [Parameter (
             Mandatory = $false,
             HelpMessage = 'Login timeout in seconds'
         )]
         [ValidateRange(1, 60)]
-        [int] $LoginTimeout = 30,
+        [int]
+        $LoginTimeout = 30,
 
         [Parameter (
             Mandatory = $false,
             HelpMessage = 'NoopOut timeout in seconds'
         )]
         [ValidateRange(10, 30)]
-        [int] $NoopOutTimeout = 30,
+        [int]
+        $NoopOutTimeout = 30,
 
         [Parameter (
             Mandatory = $false,
             HelpMessage = 'Recovery timeout in seconds'
         )]
         [ValidateRange(1, 120)]
-        [int] $RecoveryTimeout = 45
+        [int]
+        $RecoveryTimeout = 45
     )
     try {
         [ipaddress] $ScsiIpAddress
@@ -916,7 +923,6 @@ function Restore-VmfsVolume {
     .PARAMETER VMHostName
      Name of the VMHost (ESXi server)
 
-
     .EXAMPLE
      Sync-VMHostStorage -VMHostName "vmhost1"
 
@@ -985,17 +991,21 @@ function Sync-ClusterVMHostStorage {
 function Remove-VMHostIScsiTargetsInternal {
     Param (
         [Parameter(Mandatory=$true)]
-        [String] $ClusterName,
+        [String]
+        $ClusterName,
 
         [Parameter(Mandatory=$false)]
-        [String] $VMHostName,
+        [String]
+        $VMHostName,
 
         [Parameter(Mandatory=$true)]
-        [String] $iSCSIAddress,
+        [String]
+        $iSCSIAddress,
 
         [Parameter(Mandatory=$true)]
         [ValidateSet("Static", "Send")]
-        [String] $TargetType
+        [String]
+        $TargetType
     )
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
@@ -1069,7 +1079,7 @@ function Remove-VMHostIScsiTargetsInternal {
      iSCSI target address. Multiple addresses can be separated by ","
 
     .PARAMETER VMHostName
-      Name of the VMHost (ESXi server). If not specified, all hosts in the cluster will be updated.
+     Name of the VMHost (ESXi server). If not specified, all hosts in the cluster will be updated.
 
     .EXAMPLE
      Remove-VMHostStaticIScsiTargets -ClusterName "myCluster" -ISCSIAddress "192.168.1.10,192.168.1.11"
@@ -1093,7 +1103,7 @@ function Remove-VMHostStaticIScsiTargets {
 
         [Parameter(
                 Mandatory=$false,
-                HelpMessage = 'VMHost name')]        
+                HelpMessage = 'VMHost name')]
         [String]
         $VMHostName,
 
@@ -1143,7 +1153,7 @@ function Remove-VMHostDynamicIScsiTargets {
 
         [Parameter(
                 Mandatory=$false,
-                HelpMessage = 'VMHost name')]        
+                HelpMessage = 'VMHost name')]
         [String]
         $VMHostName,
 
@@ -1171,13 +1181,13 @@ function Remove-VMHostDynamicIScsiTargets {
     .PARAMETER StorageSystemNQN
      Storage system NQN
 
-    .PARAMETER  AdminQueueSize
+    .PARAMETER AdminQueueSize
      NVMe/TCP Admin Queue Size, default 32
 
-    .PARAMETER  ControllerId
+    .PARAMETER ControllerId
      NVMe/TCP Controller ID, default 65535
 
-    .PARAMETER  IoQueueNumber
+    .PARAMETER IoQueueNumber
      IO Queue Number, default 8
 
     .PARAMETER IoQueueSize
@@ -1186,11 +1196,11 @@ function Remove-VMHostDynamicIScsiTargets {
     .PARAMETER KeepAliveTimeout
      Keep Alive Timeout, default 256
 
-    .PARAMETER  PortNumber
+    .PARAMETER PortNumber
      Target Port Number, default 4420
 
     .EXAMPLE
-     Connect-NVMeTCPTarget ClusterName "Cluster-001" -NodeAddress "192.168.0.1" -StorageSystemNQN "nqn.2016-01.com.lightbitslabs:uuid:46edb489-ba18-4dd4-a157-1d8eb8c32e21"
+     Connect-NVMeTCPTarget -ClusterName "Cluster-001" -NodeAddress "192.168.0.1" -StorageSystemNQN "nqn.2016-01.com.lightbitslabs:uuid:46edb489-ba18-4dd4-a157-1d8eb8c32e21"
 
     .INPUTS
      vSphere Cluster Name, Storage Node Address, Storage System NQN
@@ -1207,51 +1217,58 @@ function Connect-NVMeTCPTarget {
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
         [ValidateNotNullOrEmpty()]
-        [String] $ClusterName,
+        [String]
+        $ClusterName,
 
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Target storage Node datapath address')]
         [ValidateNotNullOrEmpty()]
-        [string] $NodeAddress,
+        [String]
+        $NodeAddress,
 
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Target storage SystemNQN')]
         [ValidateNotNullOrEmpty()]
-        [string]     $StorageSystemNQN,
+        [String]
+        $StorageSystemNQN,
 
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'NVMe/TCP Admin Queue Size')]
-        [int]     $AdminQueueSize = 32,
+        [int]
+        $AdminQueueSize = 32,
 
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'NVMe/TCP Controller Id')]
-        [int]     $ControllerId = 65535,
+        [int]
+        $ControllerId = 65535,
 
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'NVMe/TCP IO Queue Number')]
-        [int]     $IoQueueNumber = 8,
+        [int]
+        $IoQueueNumber = 8,
 
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'NVMe/TCP IO Queue Size')]
-        [int]     $IoQueueSize = 256,
-
+        [int]
+        $IoQueueSize = 256,
 
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'Keep Alive Timeout')]
-        [int]     $KeepAliveTimeout = 256,
+        [int]
+        $KeepAliveTimeout = 256,
 
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'Port Number')]
-        [int]     $PortNumber = 4420
-
+        [int]
+        $PortNumber = 4420
     )
 
     Write-Host "Connecting to target via Storage Adapter from ESXi host(s) under Cluster " $ClusterName
@@ -1315,7 +1332,7 @@ function Connect-NVMeTCPTarget {
             }
         }
         Write-Host "Rescanning NVMe/TCP storage adapter.."
-        $RescanResult = Get-VMHostStorage -VMHost $VmHost.Name -RescanAllHba
+        Get-VMHostStorage -VMHost $VmHost.Name -RescanAllHba | Out-Null
         Write-Host "Rescanning Completed."
         Write-Host ""
     }
@@ -1327,9 +1344,6 @@ function Connect-NVMeTCPTarget {
     .SYNOPSIS
      This function disconnects all ESXi host(s) from the specified storage cluster node/target.
 
-     1. vSphere Cluster Name
-     2. Storage SystemNQN
-
     .PARAMETER ClusterName
      vSphere Cluster Name
 
@@ -1337,7 +1351,7 @@ function Connect-NVMeTCPTarget {
      Storage system NQN
 
     .EXAMPLE
-     Disconnect-NVMeTCPTarget -ClusterName "Cluster-001"  -StorageSystemNQN "nqn.2016-01.com.lightbitslabs:uuid:46edb489-ba18-4dd4-a157-1d8eb8c32e21"
+     Disconnect-NVMeTCPTarget -ClusterName "Cluster-001" -StorageSystemNQN "nqn.2016-01.com.lightbitslabs:uuid:46edb489-ba18-4dd4-a157-1d8eb8c32e21"
 
     .INPUTS
      vSphere Cluster Name, Storage SystemNQN
@@ -1355,13 +1369,15 @@ function Disconnect-NVMeTCPTarget {
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
         [ValidateNotNullOrEmpty()]
-        [String] $ClusterName,
+        [String]
+        $ClusterName,
 
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Target storage SystemNQN')]
         [ValidateNotNullOrEmpty()]
-        [string] $StorageSystemNQN
+        [String]
+        $StorageSystemNQN
     )
 
     Write-Host "Disconnecting ESXi host(s) from storage target under Cluster " $ClusterName
@@ -1422,7 +1438,7 @@ function Disconnect-NVMeTCPTarget {
                 }
 
                 Write-Host "Rescanning NVMe/TCP storage adapter.."
-                $RescanResult = Get-VMHostStorage -VMHost $VmHost.Name -RescanAllHba
+                Get-VMHostStorage -VMHost $VmHost.Name -RescanAllHba | Out-Null
                 Write-Host "Rescanning Completed."
             }
 
@@ -1440,18 +1456,14 @@ function Disconnect-NVMeTCPTarget {
     .SYNOPSIS
      This function removes VMFS datastore on a given ESXi Cluster.
 
-     1. vSphere Cluster Name
-     2. Datastore Name
-
-    .PARAMETER HostAddress
+    .PARAMETER ClusterName
      vSphere Cluster Name
 
     .PARAMETER DatastoreName
      Datastore Name
 
-
     .EXAMPLE
-     Remove-VmfsDatastore -ClusterName "vSphere-cluster-001"  -DatastoreName "datastore-name-01"
+     Remove-VmfsDatastore -ClusterName "vSphere-cluster-001" -DatastoreName "datastore-name-01"
 
     .INPUTS
      vSphere Cluster Name, Datastore name
@@ -1466,24 +1478,23 @@ function Remove-VmfsDatastore {
 
     Param
     (
-
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
         [ValidateNotNullOrEmpty()]
-        [string] $ClusterName,
+        [String]
+        $ClusterName,
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = ' Existing datastore name')]
+            HelpMessage = 'Existing datastore name')]
         [ValidateNotNullOrEmpty()]
-        [string] $DatastoreName
+        [String]
+        $DatastoreName
     )
 
     Write-Host "Removing datastore $($DatastoreName) accessible to ESXi host(s) in the cluster "  $ClusterName
     $AvailableDatastore = $null
-
-    $ClusterName = $ClusterName.Trim()
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
     if (-not $Cluster) {
@@ -1494,6 +1505,10 @@ function Remove-VmfsDatastore {
     if ( (-not $AvailableDatastore)  -or ($AvailableDatastore.State -eq "Unavailable")) {
         throw "Datastore $DatastoreName does not exist or datastore is in Unavailable state."
 
+    }
+
+    if ($AvailableDatastore.Type -ne "VMFS") {
+        throw "Datastore $DatastoreName is of type $($AvailableDatastore.Type). This cmdlet can only process VMFS datastores."
     }
 
     $VMs = Get-VM -Datastore $DatastoreName -ErrorAction ignore
@@ -1709,13 +1724,13 @@ function Get-VmfsDatastore {
       [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
-      [string] $ClusterName
+      [String]
+      $ClusterName
 
     )
 
     Write-Host "Collecting all available VMFS datastores accessible to ESXi host(s) in the cluster "  $ClusterName
     Write-Host ""
-    $ClusterName = $ClusterName.Trim()
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
     if (-not $Cluster) {
@@ -1771,7 +1786,7 @@ function Get-VmfsDatastore {
     .SYNOPSIS
      This function collects all ESXi host(s) along with detailed inventory under a given vSphere Cluster.
 
-    .PARAMETER -ClusterName
+    .PARAMETER ClusterName
      vSphere Cluster Name
 
     .EXAMPLE
@@ -1793,7 +1808,8 @@ function Get-VmfsHosts {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
-        [String] $ClusterName
+        [String]
+        $ClusterName
 
     )
 
@@ -1837,7 +1853,7 @@ function Get-VmfsHosts {
     .SYNOPSIS
      This function collects Storage Adapter info for ESXi host(s) in a given vSphere Cluster.
 
-    .PARAMETER -ClusterName
+    .PARAMETER ClusterName
      vSphere Cluster Name
 
     .EXAMPLE
@@ -1859,7 +1875,8 @@ function Get-StorageAdapters {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
-        [String] $ClusterName
+        [String]
+        $ClusterName
 
     )
 
@@ -1906,7 +1923,7 @@ function Get-StorageAdapters {
     .SYNOPSIS
      This function collects storage vmkernel adapter for ESXi host(s) in a given vSphere Cluster.
 
-    .PARAMETER -ClusterName
+    .PARAMETER ClusterName
      vSphere Cluster Name
 
     .EXAMPLE
@@ -1928,7 +1945,8 @@ function Get-VmKernelAdapters {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
-        [String] $ClusterName
+        [String]
+        $ClusterName
 
     )
 
@@ -1977,7 +1995,7 @@ function Get-VmKernelAdapters {
     .SYNOPSIS
      This function enables NVMeTCP storage services on given vmkernel adapter for a host.
 
-    .PARAMETER -HostAddress
+    .PARAMETER HostAddress
      ESXi host network address
 
     .PARAMETER VmKernel
@@ -2004,12 +2022,15 @@ function Set-NVMeTCP {
             Mandatory = $true,
             HelpMessage = 'ESXi host network address')]
         [ValidateNotNullOrEmpty()]
-        [String] $HostAddress,
+        [String]
+        $HostAddress,
+
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Existing VMKernel adapter name')]
         [ValidateNotNullOrEmpty()]
-        [String] $VmKernel
+        [String]
+        $VmKernel
 
     )
 
@@ -2062,11 +2083,11 @@ function Set-NVMeTCP {
     .SYNOPSIS
      This function creates new NVMe/TCP storage adapter on given ESXi host.
 
-    .PARAMETER -HostAddress
+    .PARAMETER HostAddress
      ESXi host network address
 
-    .PARAMETER VmKernel
-     Storage Nic name
+    .PARAMETER VmNic
+     Storage NIC name
 
     .EXAMPLE
      New-NVMeTCPAdapter -HostAddress "192.168.10.11" -VmNic "vmnic0"
@@ -2089,12 +2110,15 @@ function New-NVMeTCPAdapter {
             Mandatory = $true,
             HelpMessage = 'ESXi host network address')]
         [ValidateNotNullOrEmpty()]
-        [String] $HostAddress,
+        [String]
+        $HostAddress,
+
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'Existing Physical NIC  name')]
+            HelpMessage = 'Existing Physical NIC name')]
         [ValidateNotNullOrEmpty()]
-        [String] $VmNic
+        [String]
+        $VmNic
 
     )
 
@@ -2114,8 +2138,8 @@ function New-NVMeTCPAdapter {
         $Nics = Get-VMHostNetworkAdapter -VMHost $VmHost.Name -Physical -Name $VmNic
     }
     catch {
-        Write-Host "Failed to collect physical inventory Nic  $($_.Exception)"
-        throw "Failed to collect physical inventory Nic  $($_.Exception)"
+        Write-Host "Failed to collect physical inventory NIC $($_.Exception)"
+        throw "Failed to collect physical inventory NIC $($_.Exception)"
     }
 
     if (-not $Nics -or $Nics.Count -eq 0) {
@@ -2145,12 +2169,11 @@ function New-NVMeTCPAdapter {
     .SYNOPSIS
      This function collects all VMs on the provided datastore and creates snapshot of each virtual machine.
 
-    .PARAMETER -ClusterName
+    .PARAMETER ClusterName
      vSphere Cluster Name
 
-    .PARAMETER -DatastoreName
+    .PARAMETER DatastoreName
      Datastore name
-
 
     .EXAMPLE
      New-VmfsVmSnapshot -ClusterName "vSphere-cluster-001" -DatastoreName "myDatastore"
@@ -2172,12 +2195,15 @@ function New-VmfsVmSnapshot {
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
         [ValidateNotNullOrEmpty()]
-        [String] $ClusterName,
+        [String]
+        $ClusterName,
+
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'datastore name')]
         [ValidateNotNullOrEmpty()]
-        [String] $datastoreName
+        [String]
+        $DatastoreName
 
     )
 
@@ -2249,7 +2275,8 @@ function Repair-HAConfiguration {
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
         [ValidateNotNullOrEmpty()]
-        [String] $ClusterName
+        [String]
+        $ClusterName
     )
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
@@ -2307,12 +2334,14 @@ function Clear-DisconnectedIscsiTargets {
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
         [ValidateNotNullOrEmpty()]
-        [String] $ClusterName,
+        [String]
+        $ClusterName,
 
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'VMHost Name')]
-        [String] $VMHostName
+        [String]
+        $VMHostName
     )
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
@@ -2385,7 +2414,8 @@ function Test-VMKernelConnectivity {
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
         [ValidateNotNullOrEmpty()]
-        [String] $ClusterName
+        [String]
+        $ClusterName
     )
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
