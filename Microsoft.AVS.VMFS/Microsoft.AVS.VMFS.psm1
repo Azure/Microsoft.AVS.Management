@@ -16,10 +16,10 @@
      Optional. Login timeout in seconds (default 30)
 
     .PARAMETER NoopOutTimeout
-    Optional. NoopOut timeout in seconds (default 30)
+     Optional. NoopOut timeout in seconds (default 30)
 
     .PARAMETER RecoveryTimeout
-    Optional. Recovery timeout in seconds (default 45)
+     Optional. Recovery timeout in seconds (default 45)
 
     .EXAMPLE
      Set-VmfsIscsi -ClusterName "myCluster" -ScsiIpAddress "192.168.0.1"
@@ -37,14 +37,14 @@ function Set-VmfsIscsi {
         [Parameter(
             Mandatory=$true,
             HelpMessage = 'Cluster name in vCenter')]
-        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
         [String]
         $ClusterName,
 
         [Parameter(
             Mandatory=$true,
             HelpMessage = 'Primary IP Address to add as dynamic iSCSI target')]
-        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
         [String]
         $ScsiIpAddress,
 
@@ -53,21 +53,24 @@ function Set-VmfsIscsi {
             HelpMessage = 'Login timeout in seconds'
         )]
         [ValidateRange(1, 60)]
-        [int] $LoginTimeout = 30,
+        [int]
+        $LoginTimeout = 30,
 
         [Parameter (
             Mandatory = $false,
             HelpMessage = 'NoopOut timeout in seconds'
         )]
         [ValidateRange(10, 30)]
-        [int] $NoopOutTimeout = 30,
+        [int]
+        $NoopOutTimeout = 30,
 
         [Parameter (
             Mandatory = $false,
             HelpMessage = 'Recovery timeout in seconds'
         )]
         [ValidateRange(1, 120)]
-        [int] $RecoveryTimeout = 45
+        [int]
+        $RecoveryTimeout = 45
     )
 
     try {
@@ -83,38 +86,98 @@ function Set-VmfsIscsi {
     }
 
     $VMHosts = $Cluster | Get-VMHost
+    if (-not $VMHosts) {
+        throw "No hosts found in cluster $ClusterName."
+    }
+
+    # Verify that all hosts can obtain an iSCSI Software Adapter and have vmk5/vmk6 before making changes.
     foreach ($VMHost in $VMHosts) {
+        # vmk5 and vmk6 are not provisioned for Microsoft hosts
+        if ($VMHost.ExtensionData.Hardware.SystemInfo.Vendor -inotlike "Microsoft*") {
+            try {
+                $KernelAdapters = Get-VMHostNetworkAdapter -VMHost $VMHost.Name -VMKernel
+            }
+            catch {
+                throw "Failed to collect VMKernel info on host $($VMHost.Name), unable to verify whether vmk5 and vmk6 exist."
+            }
+
+            $vmk5 = $KernelAdapters | Where-Object { $_.Name -eq "vmk5" }
+            $vmk6 = $KernelAdapters | Where-Object { $_.Name -eq "vmk6" }
+            if ((-not $vmk5) -or (-not $vmk6)) {
+                throw "Kernel Adapters vmk5 and vmk6 do not exist on host $($VMHost.Name)."
+            }
+        }
+
         $Iscsi = $VMHost | Get-VMHostStorage
         if ($Iscsi.SoftwareIScsiEnabled -ne $true) {
             $VMHost | Get-VMHostStorage | Set-VMHostStorage -SoftwareIScsiEnabled $True | Out-Null
         }
 
         $IscsiAdapter = $VMHost | Get-VMHostHba -Type iScsi | Where-Object {$_.Model -eq "iSCSI Software Adapter"}
-        if (!(Get-IScsiHbaTarget -IScsiHba $IscsiAdapter -Type Send -ErrorAction stop | Where-Object {$_.Address -cmatch $ScsiIpAddress})) {
-            New-IScsiHbaTarget -IScsiHba $IscsiAdapter -Address $ScsiIpAddress -ErrorAction stop
+        if (-not $IscsiAdapter) {
+            throw "No iSCSI Software Adapter found on host $($VMHost.Name). All hosts in the cluster must have an iSCSI Software Adapter to ensure consistent datastore access."
         }
+    }
 
-        $EsxCli = $VMHost | Get-EsxCli -v2
-        $IscsiArgs = $EsxCli.iscsi.adapter.discovery.sendtarget.param.get.CreateArgs()
-        $IscsiArgs.adapter = $IscsiAdapter.Device
-        $IscsiArgs.address = $ScsiIpAddress
+    # Apply iSCSI target and configuration to each host, with rollback on failure.
+    # Track which hosts had targets added during this run so that they can be removed on failure.
+    $ConfiguredHosts = @()
+    foreach ($VMHost in $VMHosts) {
+        try {
+            $IscsiAdapter = $VMHost | Get-VMHostHba -Type iScsi | Where-Object {$_.Model -eq "iSCSI Software Adapter"}
+            $TargetAlreadyExists = Get-IScsiHbaTarget -IScsiHba $IscsiAdapter -Type Send -ErrorAction Stop | Where-Object {$_.Address -eq $ScsiIpAddress}
+            $TargetAddedInThisRun = $false
 
-        function Set-IscsiConfig($Name, $Value) {
-            $CurrentValue = $EsxCli.iscsi.adapter.discovery.sendtarget.param.get.invoke($IscsiArgs) | Where-Object {$_.name -eq $Name}
-            if ($CurrentValue.Current -ne $Value) {
-                $IscsiArgs = $EsxCli.iscsi.adapter.discovery.sendtarget.param.set.CreateArgs()
-                $IscsiArgs.adapter = $IscsiAdapter.Device
-                $IscsiArgs.address = $ScsiIpAddress
-                $IscsiArgs.value = $Value
-                $IscsiArgs.key = $Name
-                $EsxCli.iscsi.adapter.discovery.sendtarget.param.set.invoke($IscsiArgs) | Out-Null
+            if (-not $TargetAlreadyExists) {
+                New-IScsiHbaTarget -IScsiHba $IscsiAdapter -Address $ScsiIpAddress -ErrorAction Stop
+                $TargetAddedInThisRun = $true
             }
-        }
 
-        Set-IscsiConfig -Name "DelayedAck" -Value "false"
-        Set-IscsiConfig -Name "LoginTimeout" -Value $LoginTimeout
-        Set-IscsiConfig -Name "NoopOutTimeout" -Value $NoopOutTimeout
-        Set-IscsiConfig -Name "RecoveryTimeout" -Value $RecoveryTimeout
+            $EsxCli = $VMHost | Get-EsxCli -v2
+            $IscsiArgs = $EsxCli.iscsi.adapter.discovery.sendtarget.param.get.CreateArgs()
+            $IscsiArgs.adapter = $IscsiAdapter.Device
+            $IscsiArgs.address = $ScsiIpAddress
+
+            function Set-IscsiConfig($Name, $Value) {
+                $CurrentValue = $EsxCli.iscsi.adapter.discovery.sendtarget.param.get.invoke($IscsiArgs) | Where-Object {$_.name -eq $Name}
+                if ($CurrentValue.Current -ne $Value) {
+                    $IscsiArgs = $EsxCli.iscsi.adapter.discovery.sendtarget.param.set.CreateArgs()
+                    $IscsiArgs.adapter = $IscsiAdapter.Device
+                    $IscsiArgs.address = $ScsiIpAddress
+                    $IscsiArgs.value = $Value
+                    $IscsiArgs.key = $Name
+                    $EsxCli.iscsi.adapter.discovery.sendtarget.param.set.invoke($IscsiArgs) | Out-Null
+                }
+            }
+
+            Set-IscsiConfig -Name "DelayedAck" -Value "false"
+            Set-IscsiConfig -Name "LoginTimeout" -Value $LoginTimeout
+            Set-IscsiConfig -Name "NoopOutTimeout" -Value $NoopOutTimeout
+            Set-IscsiConfig -Name "RecoveryTimeout" -Value $RecoveryTimeout
+
+            $ConfiguredHosts += @{ VMHost = $VMHost; TargetAdded = $TargetAddedInThisRun }
+        } catch {
+            $FailedHost = $VMHost.Name
+            $FailureMessage = $_.Exception.Message
+
+            # Perform a rollback by removing iSCSI targets that were previously added during this run, but do not remove targets that existed before this operation.
+            foreach ($Entry in $ConfiguredHosts) {
+                if ($Entry.TargetAdded) {
+                    try {
+                        $RollbackAdapter = $Entry.VMHost | Get-VMHostHba -Type iScsi | Where-Object {$_.Model -eq "iSCSI Software Adapter"}
+                        $TargetToRemove = Get-IScsiHbaTarget -IScsiHba $RollbackAdapter -Type Send -ErrorAction Stop | Where-Object {$_.Address -eq $ScsiIpAddress}
+                        if ($TargetToRemove) {
+                            Remove-IScsiHbaTarget -Target $TargetToRemove -Confirm:$false -ErrorAction Stop
+                            Write-Warning "Rolled back iSCSI target $ScsiIpAddress from host $($Entry.VMHost.Name)."
+                        }
+                    } catch {
+                        Write-Error "Failed to roll back iSCSI target on host $($Entry.VMHost.Name): $($_.Exception.Message)"
+                    }
+                }
+            }
+
+            throw "Failed to configure iSCSI on host $FailedHost. Changes on previously configured hosts have been rolled back. Error: $FailureMessage"
+        }
     }
 
     Write-Host "Successfully configured VMFS iSCSI for cluster $ClusterName."
@@ -134,20 +197,20 @@ function Set-VmfsIscsi {
     .PARAMETER ScsiIpAddress
      IP Address to add as static iSCSI target
 
-     .PARAMETER ScsiName
+    .PARAMETER ScsiName
      iSCSI target name
 
-     .PARAMETER LoginTimeout
+    .PARAMETER LoginTimeout
      Optional. Login timeout in seconds (default 30)
 
     .PARAMETER NoopOutTimeout
-    Optional. NoopOut timeout in seconds (default 30)
+     Optional. NoopOut timeout in seconds (default 30)
 
     .PARAMETER RecoveryTimeout
-    Optional. Recovery timeout in seconds (default 45)
+     Optional. Recovery timeout in seconds (default 45)
 
     .EXAMPLE
-     Set-VmfsIscsi -ClusterName "myCluster" -ScsiIpAddress "192.168.0.1" -IscsitName "iqn.1998-01.com.vmware:target-1"
+     Set-VmfsStaticIscsi -ClusterName "myCluster" -ScsiIpAddress "192.168.0.1" -ScsiName "iqn.1998-01.com.vmware:target-1"
 
     .INPUTS
      vCenter cluster name, Primary SCSI IP Addresses. iSCSI target name
@@ -162,42 +225,47 @@ function Set-VmfsStaticIscsi {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Cluster name in vCenter')]
-        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
         [String]
         $ClusterName,
 
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Primary IP Address to add as static iSCSI target')]
-        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
         [String]
         $ScsiIpAddress,
 
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'iSCSI target name')]
-        [String] $ScsiName,
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $ScsiName,
 
         [Parameter (
             Mandatory = $false,
             HelpMessage = 'Login timeout in seconds'
         )]
         [ValidateRange(1, 60)]
-        [int] $LoginTimeout = 30,
+        [int]
+        $LoginTimeout = 30,
 
         [Parameter (
             Mandatory = $false,
             HelpMessage = 'NoopOut timeout in seconds'
         )]
         [ValidateRange(10, 30)]
-        [int] $NoopOutTimeout = 30,
+        [int]
+        $NoopOutTimeout = 30,
 
         [Parameter (
             Mandatory = $false,
             HelpMessage = 'Recovery timeout in seconds'
         )]
         [ValidateRange(1, 120)]
-        [int] $RecoveryTimeout = 45
+        [int]
+        $RecoveryTimeout = 45
     )
     try {
         [ipaddress] $ScsiIpAddress
@@ -212,43 +280,102 @@ function Set-VmfsStaticIscsi {
     }
 
     $VMHosts = $Cluster | Get-VMHost
+    if (-not $VMHosts) {
+        throw "No hosts found in cluster $ClusterName."
+    }
+
+    # Verify all hosts can obtain an iSCSI Software Adapter and have vmk5/vmk6 before making changes.
     foreach ($VMHost in $VMHosts) {
+        # vmk5 and vmk6 are not provisioned for Microsoft hosts
+        if ($VMHost.ExtensionData.Hardware.SystemInfo.Vendor -inotlike "Microsoft*") {
+            try {
+                $KernelAdapters = Get-VMHostNetworkAdapter -VMHost $VMHost.Name -VMKernel
+            }
+            catch {
+                throw "Failed to collect VMKernel info on host $($VMHost.Name), unable to verify whether vmk5 and vmk6 exist."
+            }
+
+            $vmk5 = $KernelAdapters | Where-Object { $_.Name -eq "vmk5" }
+            $vmk6 = $KernelAdapters | Where-Object { $_.Name -eq "vmk6" }
+            if ((-not $vmk5) -or (-not $vmk6)) {
+                throw "Kernel Adapters vmk5 and vmk6 do not exist on host $($VMHost.Name)."
+            }
+        }
+
         $Iscsi = $VMHost | Get-VMHostStorage
         if ($Iscsi.SoftwareIScsiEnabled -ne $true) {
             $VMHost | Get-VMHostStorage | Set-VMHostStorage -SoftwareIScsiEnabled $True | Out-Null
         }
 
         $IscsiAdapter = $VMHost | Get-VMHostHba -Type iScsi | Where-Object { $_.Model -eq "iSCSI Software Adapter" }
-        if (!(Get-IScsiHbaTarget -IScsiHba $IscsiAdapter -Type "Static" -ErrorAction stop | Where-Object { $_.Address -cmatch $ScsiIpAddress })) {
-            New-IScsiHbaTarget -IScsiHba $IscsiAdapter -Type "Static" -Address $ScsiIpAddress -IScsiName $ScsiName -ErrorAction stop
-            Write-Verbose "Added static iSCSI target $ScsiName with address $ScsiIpAddress to $VMHost"
+        if (-not $IscsiAdapter) {
+            throw "No iSCSI Software Adapter found on host $($VMHost.Name). All hosts in the cluster must have an iSCSI Software Adapter to ensure consistent datastore access."
         }
+    }
 
-        $EsxCli = $VMHost | Get-EsxCli -v2
+    # Apply static iSCSI target and configuration to each host, with rollback on failure.
+    $ConfiguredHosts = @()
+    foreach ($VMHost in $VMHosts) {
+        try {
+            $IscsiAdapter = $VMHost | Get-VMHostHba -Type iScsi | Where-Object { $_.Model -eq "iSCSI Software Adapter" }
+            $TargetAlreadyExists = Get-IScsiHbaTarget -IScsiHba $IscsiAdapter -Type "Static" -ErrorAction Stop | Where-Object { $_.Address -eq $ScsiIpAddress }
+            $TargetAddedInThisRun = $false
 
-        function Set-StaticIscsiConfig($Name, $Value) {
-            $IscsiArgs = $EsxCli.iscsi.adapter.target.portal.param.get.CreateArgs()
-            $IscsiArgs.adapter = $IscsiAdapter.Device
-            $IscsiArgs.address = $ScsiIpAddress
-            $IscsiArgs.name = $ScsiName
-            $CurrentValue = $EsxCli.iscsi.adapter.target.portal.param.get.invoke($IscsiArgs) | Where-Object { $_.name -eq $Name }
-            if ($CurrentValue.Current -ne $Value) {
-                $IscsiArgs = $EsxCli.iscsi.adapter.target.portal.param.set.CreateArgs()
+            if (-not $TargetAlreadyExists) {
+                New-IScsiHbaTarget -IScsiHba $IscsiAdapter -Type "Static" -Address $ScsiIpAddress -IScsiName $ScsiName -ErrorAction Stop
+                Write-Verbose "Added static iSCSI target $ScsiName with address $ScsiIpAddress to $VMHost"
+                $TargetAddedInThisRun = $true
+            }
+
+            $EsxCli = $VMHost | Get-EsxCli -v2
+
+            function Set-StaticIscsiConfig($Name, $Value) {
+                $IscsiArgs = $EsxCli.iscsi.adapter.target.portal.param.get.CreateArgs()
                 $IscsiArgs.adapter = $IscsiAdapter.Device
                 $IscsiArgs.address = $ScsiIpAddress
                 $IscsiArgs.name = $ScsiName
-                $IscsiArgs.inherit = $false
-                $IscsiArgs.value = $Value
-                $IscsiArgs.key = $Name
-                $EsxCli.iscsi.adapter.target.portal.param.set.invoke($IscsiArgs) | Out-Null
-                Write-verbose "Set $Name to $Value for $ScsiName"
+                $CurrentValue = $EsxCli.iscsi.adapter.target.portal.param.get.invoke($IscsiArgs) | Where-Object { $_.name -eq $Name }
+                if ($CurrentValue.Current -ne $Value) {
+                    $IscsiArgs = $EsxCli.iscsi.adapter.target.portal.param.set.CreateArgs()
+                    $IscsiArgs.adapter = $IscsiAdapter.Device
+                    $IscsiArgs.address = $ScsiIpAddress
+                    $IscsiArgs.name = $ScsiName
+                    $IscsiArgs.inherit = $false
+                    $IscsiArgs.value = $Value
+                    $IscsiArgs.key = $Name
+                    $EsxCli.iscsi.adapter.target.portal.param.set.invoke($IscsiArgs) | Out-Null
+                    Write-Verbose "Set $Name to $Value for $ScsiName"
+                }
             }
-        }
 
-        Set-StaticIscsiConfig -Name "DelayedAck" -Value "false"
-        Set-StaticIscsiConfig -Name "LoginTimeout" -Value $LoginTimeout
-        Set-StaticIscsiConfig -Name "NoopOutTimeout" -Value $NoopOutTimeout
-        Set-StaticIscsiConfig -Name "RecoveryTimeout" -Value $RecoveryTimeout
+            Set-StaticIscsiConfig -Name "DelayedAck" -Value "false"
+            Set-StaticIscsiConfig -Name "LoginTimeout" -Value $LoginTimeout
+            Set-StaticIscsiConfig -Name "NoopOutTimeout" -Value $NoopOutTimeout
+            Set-StaticIscsiConfig -Name "RecoveryTimeout" -Value $RecoveryTimeout
+
+            $ConfiguredHosts += @{ VMHost = $VMHost; TargetAdded = $TargetAddedInThisRun }
+        } catch {
+            $FailedHost = $VMHost.Name
+            $FailureMessage = $_.Exception.Message
+
+            # Perform a rollback by removing static iSCSI targets that were previously added during this run.
+            foreach ($Entry in $ConfiguredHosts) {
+                if ($Entry.TargetAdded) {
+                    try {
+                        $RollbackAdapter = $Entry.VMHost | Get-VMHostHba -Type iScsi | Where-Object { $_.Model -eq "iSCSI Software Adapter" }
+                        $TargetToRemove = Get-IScsiHbaTarget -IScsiHba $RollbackAdapter -Type "Static" -ErrorAction Stop | Where-Object { $_.Address -eq $ScsiIpAddress }
+                        if ($TargetToRemove) {
+                            Remove-IScsiHbaTarget -Target $TargetToRemove -Confirm:$false -ErrorAction Stop
+                            Write-Warning "Rolled back static iSCSI target $ScsiIpAddress from host $($Entry.VMHost.Name)."
+                        }
+                    } catch {
+                        Write-Error "Failed to roll back iSCSI target on host $($Entry.VMHost.Name): $($_.Exception.Message)"
+                    }
+                }
+            }
+
+            throw "Failed to configure iSCSI on host $FailedHost. Changes on previously configured hosts have been rolled back. Error: $FailureMessage"
+        }
     }
 
     Write-Host "Successfully configured VMFS iSCSI for cluster $ClusterName."
@@ -286,28 +413,28 @@ function New-VmfsDatastore {
         [Parameter(
             Mandatory=$true,
             HelpMessage = 'Cluster name in vCenter')]
-        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
         [String]
         $ClusterName,
 
         [Parameter(
             Mandatory=$true,
             HelpMessage = 'Name of VMFS datastore to be created in vCenter')]
-        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
         [String]
         $DatastoreName,
 
         [Parameter(
             Mandatory=$true,
             HelpMessage = 'NAA ID of device used to create a new VMFS datastore')]
-        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
         [String]
         $DeviceNaaId,
 
         [Parameter(
             Mandatory=$true,
             HelpMessage = 'Capacity of new datastore in bytes')]
-        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
         [String]
         $Size
     )
@@ -345,10 +472,21 @@ function New-VmfsDatastore {
 
         $TotalSectors = $SizeInBytes / 512
         $Esxi = $Cluster | Get-VMHost | Where-Object { ($_.ConnectionState -eq 'Connected') } | Select-Object -last 1
+        if (-not $Esxi) {
+            throw "No connected hosts found in cluster $ClusterName."
+        }
+
         $EsxiView = Get-View -ViewType HostSystem -Filter @{"Name" = $Esxi.name}
         $DatastoreSystem = Get-View -Id $EsxiView.ConfigManager.DatastoreSystem
         $Device = $DatastoreSystem.QueryAvailableDisksForVmfs($null) | Where-Object { ($_.CanonicalName -eq $DeviceNaaId) }
+        if (-not $Device) {
+            throw "Device with NAA ID $DeviceNaaId not found on any connected host in cluster $ClusterName."
+        }
+
         $DatastoreCreateOptions = $DatastoreSystem.QueryVmfsDatastoreCreateOptions($Device.DevicePath, $null)
+        if (-not $DatastoreCreateOptions -or $DatastoreCreateOptions.Count -eq 0) {
+            throw "No VMFS datastore create options available for device $DeviceNaaId."
+        }
 
         $VmfsDatastoreCreateSpec = New-Object VMware.Vim.VmfsDatastoreCreateSpec
         $VmfsDatastoreCreateSpec.DiskUuid = $Device.Uuid
@@ -367,7 +505,7 @@ function New-VmfsDatastore {
 
         $DatastoreSystem.CreateVmfsDatastore($VmfsDatastoreCreateSpec)
     } catch {
-        Write-Error $Global:Error[0]
+        throw "Failed to create VMFS datastore '$DatastoreName': $($_.Exception.Message)"
     }
 
     $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVmfs | Out-Null
@@ -403,14 +541,14 @@ function Dismount-VmfsDatastore {
         [Parameter(
             Mandatory=$true,
             HelpMessage = 'Cluster name in vCenter')]
-        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
         [String]
         $ClusterName,
 
         [Parameter(
             Mandatory=$true,
             HelpMessage = 'Name of VMFS datastore to be unmounted in vCenter')]
-        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
         [String]
         $DatastoreName
     )
@@ -428,36 +566,86 @@ function Dismount-VmfsDatastore {
         throw "Datastore $DatastoreName is of type $($Datastore.Type). This cmdlet can only process VMFS datastores."
     }
 
-    Write-Host "Unmounting datastore $DatastoreName from all hosts, detaching SCSI devices, NVMe/TCP devices are not detached."
     $VMHosts = $Cluster | Get-VMHost
+    if (-not $VMHosts) {
+        throw "No hosts found in cluster $ClusterName."
+    }
+
+    # Check for VMs on the datastore before making any changes.
+    $VMs = $Datastore | Get-VM
+    if ($VMs -and $VMs.Count -gt 0) {
+        $vmNames = $VMs | Join-String -SingleQuote -Property {$_.Name} -Separator ", "
+        throw "Cannot unmount datastore $DatastoreName. It is already in use by $vmNames."
+    }
+
+    # Identify which hosts have the datastore connected.
+    $HostsWithDatastore = @()
     foreach ($VMHost in $VMHosts) {
         $IsDatastoreConnectedToHost = Get-Datastore -VMHost $VMHost | Where-Object {$_.name -eq $DatastoreName}
         if ($null -ne $IsDatastoreConnectedToHost) {
-            $VMs = $Datastore | Get-VM
-            if ($VMs -and $VMs.Count -gt 0) {
-                $vmNames = $VMs | Join-String -SingleQuote -Property {$_.Name}  -Separator ", "
-                throw "Cannot unmount datastore $DatastoreName. It is already in use by $vmNames."
-            }
+            $HostsWithDatastore += $VMHost
+        }
+    }
 
-            $Datastore = Get-Datastore -Name $DatastoreName
-            $VmfsUuid = $Datastore.ExtensionData.info.Vmfs.uuid
-            $ScsiLunUuid = ($Datastore | Get-ScsiLun).ExtensionData.uuid | Select-Object -last 1
+    if ($HostsWithDatastore.Count -eq 0) {
+        Write-Host "Datastore $DatastoreName is not connected to any hosts in cluster $ClusterName."
+        return
+    }
+
+    $VmfsUuid = $Datastore.ExtensionData.info.Vmfs.uuid
+    $ScsiLunUuid = ($Datastore | Get-ScsiLun).ExtensionData.uuid | Select-Object -last 1
+    $HostViewDiskName = $Datastore.ExtensionData.Info.vmfs.extent[0].Diskname
+    $IsNvmeTcp = ($null -ne $HostViewDiskName) -and ($HostViewDiskName.StartsWith("eui."))
+
+    Write-Host "Unmounting datastore $DatastoreName from all hosts, detaching SCSI devices, NVMe/TCP devices are not detached."
+
+    # Unmount and detach on each host, with rollback on failure.
+    # Track which hosts were successfully processed so they can be reversed if a later host fails.
+    $ProcessedHosts = @()
+    foreach ($VMHost in $HostsWithDatastore) {
+        try {
             $HostStorageSystem = Get-View $VMHost.Extensiondata.ConfigManager.StorageSystem
 
             $HostStorageSystem.UnmountVmfsVolume($VmfsUuid) | Out-Null
-            Write-Host "Datastore unmounted."
+            Write-Host "Datastore unmounted from host $($VMHost.Name)."
 
-            $HostViewDiskName = $Datastore.ExtensionData.Info.vmfs.extent[0].Diskname;
-            if(($null -ne $HostViewDiskName) -and ($HostViewDiskName.StartsWith("eui."))){
-               Write-Host "Device UUID $($VmfsUuid) is an NVMe/TCP volume, not required to be detached, and can be mounted back to host as needed."
+            $Detached = $false
+            if ($IsNvmeTcp) {
+                Write-Host "Device UUID $($VmfsUuid) is an NVMe/TCP volume, not required to be detached, and can be mounted back to host as needed."
+            } else {
+                $HostStorageSystem.DetachScsiLun($ScsiLunUuid) | Out-Null
+                $Detached = $true
             }
-            else {
-                  $HostStorageSystem.DetachScsiLun($ScsiLunUuid) | Out-Null
-            }
+
+            $ProcessedHosts += @{ VMHost = $VMHost; Detached = $Detached }
+
             Write-Host "Rescanning now.."
             $VMHost | Get-VMHostStorage -RescanAllHba -RescanVmfs | Out-Null
+        } catch {
+            $FailedHost = $VMHost.Name
+            $FailureMessage = $_.Exception.Message
+
+            # Perform a rollback by re-attaching the SCSI LUN (if detached) and re-mount on all previously processed hosts.
+            foreach ($Entry in $ProcessedHosts) {
+                try {
+                    $RollbackStorageSystem = Get-View $Entry.VMHost.Extensiondata.ConfigManager.StorageSystem
+                    if ($Entry.Detached) {
+                        $RollbackStorageSystem.AttachScsiLun($ScsiLunUuid)
+                        Write-Warning "Re-attached SCSI LUN on host $($Entry.VMHost.Name)."
+                    }
+                    $RollbackStorageSystem.MountVmfsVolume($VmfsUuid)
+                    Write-Warning "Re-mounted datastore $DatastoreName on host $($Entry.VMHost.Name)."
+                    $Entry.VMHost | Get-VMHostStorage -RescanAllHba -RescanVmfs | Out-Null
+                } catch {
+                    Write-Error "Failed to roll back on host $($Entry.VMHost.Name): $($_.Exception.Message)"
+                }
+            }
+
+            throw "Failed to dismount datastore $DatastoreName on host $FailedHost. Changes on previously processed hosts have been rolled back. Error: $FailureMessage"
         }
     }
+
+    Write-Host "Successfully dismounted datastore $DatastoreName from all hosts in cluster $ClusterName."
 }
 
 <#
@@ -489,7 +677,7 @@ function Resize-VmfsVolume {
         [Parameter(
             Mandatory=$true,
             HelpMessage = 'Cluster name in vCenter')]
-        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
         [String]
         $ClusterName,
 
@@ -526,7 +714,7 @@ function Resize-VmfsVolume {
         }
 
         if ($Datastore.Type -ne "VMFS") {
-            throw "Datastore $DatastoreName is of type $($Datastore.Type). This cmdlet can only process iSCSI datastores."
+            throw "Datastore $DatastoreName is of type $($Datastore.Type). This cmdlet can only process VMFS datastores."
         }
 
         $DatastoreToResize = $Datastore
@@ -568,6 +756,9 @@ function Resize-VmfsVolume {
     $Esxi = Get-View -Id ($DatastoreToResize.ExtensionData.Host | Select-Object -last 1 | Select-Object -ExpandProperty Key)
     $DatastoreSystem = Get-View -Id $Esxi.ConfigManager.DatastoreSystem
     $ExpandOptions = $DatastoreSystem.QueryVmfsDatastoreExpandOptions($DatastoreToResize.ExtensionData.MoRef)
+    if (-not $ExpandOptions -or $ExpandOptions.Count -eq 0) {
+        throw "No expand options available for datastore $($DatastoreToResize.Name). The LUN may not have been expanded."
+    }
 
     $LunSizeGB = ($DatastoreToResize | Get-ScsiLun).CapacityGB | Select-Object -last 1
     $CurrentDatastoreSizeGB = $([math]::Ceiling($DatastoreToResize.ExtensionData.Info.Vmfs.Capacity / 1GB))
@@ -621,14 +812,14 @@ function Restore-VmfsVolume {
         [Parameter(
             Mandatory=$true,
             HelpMessage = 'Cluster name in vCenter')]
-        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
         [String]
         $ClusterName,
 
         [Parameter(
             Mandatory=$true,
             HelpMessage = 'NAA ID of device associated with the existing VMFS volume')]
-        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
         [String]
         $DeviceNaaId,
 
@@ -670,8 +861,8 @@ function Restore-VmfsVolume {
                 if ($ResigExtent.Device.DiskName -eq $DeviceNaaId) {
                     if ($ResigVolume.ResolveStatus.Resolvable -eq $false) {
                         if ($ResigVolume.ResolveStatus.MultipleCopies -eq $true) {
-                            Write-Error "The volume cannot be re-signatured as more than one non re-signatured copy is present."
-                            Write-Error "The following volume(s) need to be removed/re-signatured first:"
+                            Write-Warning "The volume cannot be re-signatured as more than one non re-signatured copy is present."
+                            Write-Warning "The following volume(s) need to be removed/re-signatured first:"
                             $ResigVolume.Extent.Device.DiskName | Where-Object {$_ -ne $DeviceNaaId}
                         }
 
@@ -693,7 +884,7 @@ function Restore-VmfsVolume {
     }
 
     if ($null -eq $VolumeToResignature) {
-        Write-Error "No unresolved volume found on the created volume."
+        Write-Warning "No unresolved volume found on the created volume."
         throw "Failed to re-signature VMFS volume."
     }
 
@@ -709,10 +900,15 @@ function Restore-VmfsVolume {
     if (-not [string]::IsNullOrEmpty($DatastoreName)) {
         $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
         $ds = $Esxi | Get-Datastore -ErrorAction stop | Where-Object { $_.ExtensionData.Info.Vmfs.Extent.DiskName -eq $DeviceNaaId }
-        # Snapshot datastore will always start with "snap*""
-        if (-not $ds.Name -like "snap*") {
+        if (-not $ds) {
+            throw "Failed to find re-signatured datastore for device $DeviceNaaId."
+        }
+
+        # Snapshot datastore will always start with "snap*"
+        if ($ds.Name -notlike "snap*") {
             throw "Can't rename datastore $($ds.Name), the datastore is not restored from snapshot..."
         }
+
         Write-Host "Renaming $($ds.Name) to $DatastoreName...."
         $ds | Set-Datastore -Name $DatastoreName -ErrorAction stop | Out-Null
     }
@@ -726,7 +922,6 @@ function Restore-VmfsVolume {
 
     .PARAMETER VMHostName
      Name of the VMHost (ESXi server)
-
 
     .EXAMPLE
      Sync-VMHostStorage -VMHostName "vmhost1"
@@ -744,12 +939,16 @@ function Sync-VMHostStorage {
         [Parameter(
                 Mandatory=$true,
                 HelpMessage = 'VMHost name')]
-        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
         [String]
         $VMHostName
     )
 
-    Get-VMHost $VMHostName | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
+    $VMHost = Get-VMHost -Name $VMHostName -ErrorAction Ignore
+    if (-not $VMHost) {
+        throw "VMHost $VMHostName does not exist."
+    }
+    $VMHost | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
 }
 
 <#
@@ -775,7 +974,7 @@ function Sync-ClusterVMHostStorage {
         [Parameter(
                 Mandatory=$true,
                 HelpMessage = 'Cluster name in vCenter')]
-        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
         [String]
         $ClusterName
     )
@@ -792,17 +991,21 @@ function Sync-ClusterVMHostStorage {
 function Remove-VMHostIScsiTargetsInternal {
     Param (
         [Parameter(Mandatory=$true)]
-        [String] $ClusterName,
+        [String]
+        $ClusterName,
 
         [Parameter(Mandatory=$false)]
-        [String] $VMHostName,
+        [String]
+        $VMHostName,
 
         [Parameter(Mandatory=$true)]
-        [String] $iSCSIAddress,
+        [String]
+        $iSCSIAddress,
 
         [Parameter(Mandatory=$true)]
         [ValidateSet("Static", "Send")]
-        [String] $TargetType
+        [String]
+        $TargetType
     )
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
@@ -873,10 +1076,10 @@ function Remove-VMHostIScsiTargetsInternal {
      Cluster name
 
     .PARAMETER iSCSIAddress
-     iSCSI target address. Multiple addresses can be seperated by ","
+     iSCSI target address. Multiple addresses can be separated by ","
 
     .PARAMETER VMHostName
-      Name of the VMHost (ESXi server). If not specified, all hosts in the cluster will be updated.
+     Name of the VMHost (ESXi server). If not specified, all hosts in the cluster will be updated.
 
     .EXAMPLE
      Remove-VMHostStaticIScsiTargets -ClusterName "myCluster" -ISCSIAddress "192.168.1.10,192.168.1.11"
@@ -894,20 +1097,20 @@ function Remove-VMHostStaticIScsiTargets {
         [Parameter(
                 Mandatory=$true,
                 HelpMessage = 'Cluster name in vCenter')]
-        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
         [String]
         $ClusterName,
 
         [Parameter(
                 Mandatory=$false,
-                HelpMessage = 'VMHost name')]        
+                HelpMessage = 'VMHost name')]
         [String]
         $VMHostName,
 
         [Parameter(
                 Mandatory=$true,
-                HelpMessage = 'IP Address of static iSCSI target to remove. Multiple addresses can be seperated by ","')]
-        [ValidateNotNull()]
+                HelpMessage = 'IP Address of static iSCSI target to remove. Multiple addresses can be separated by ","')]
+        [ValidateNotNullOrEmpty()]
         [String]
         $iSCSIAddress
     )
@@ -923,7 +1126,7 @@ function Remove-VMHostStaticIScsiTargets {
      Cluster name
 
     .PARAMETER iSCSIAddress
-     iSCSI target address. Multiple addresses can be seperated by ","
+     iSCSI target address. Multiple addresses can be separated by ","
 
     .PARAMETER VMHostName
       Name of the VMHost (ESXi server). If not specified, all hosts in the cluster will be updated.
@@ -944,20 +1147,20 @@ function Remove-VMHostDynamicIScsiTargets {
         [Parameter(
                 Mandatory=$true,
                 HelpMessage = 'Cluster name in vCenter')]
-        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
         [String]
         $ClusterName,
 
         [Parameter(
                 Mandatory=$false,
-                HelpMessage = 'VMHost name')]        
+                HelpMessage = 'VMHost name')]
         [String]
         $VMHostName,
 
         [Parameter(
                 Mandatory=$true,
-                HelpMessage = 'IP Address of dynamic iSCSI target to remove. Multiple addresses can be seperated by ","')]
-        [ValidateNotNull()]
+                HelpMessage = 'IP Address of dynamic iSCSI target to remove. Multiple addresses can be separated by ","')]
+        [ValidateNotNullOrEmpty()]
         [String]
         $iSCSIAddress
     )
@@ -978,13 +1181,13 @@ function Remove-VMHostDynamicIScsiTargets {
     .PARAMETER StorageSystemNQN
      Storage system NQN
 
-    .PARAMETER  AdminQueueSize
+    .PARAMETER AdminQueueSize
      NVMe/TCP Admin Queue Size, default 32
 
-    .PARAMETER  ControllerId
+    .PARAMETER ControllerId
      NVMe/TCP Controller ID, default 65535
 
-    .PARAMETER  IoQueueNumber
+    .PARAMETER IoQueueNumber
      IO Queue Number, default 8
 
     .PARAMETER IoQueueSize
@@ -993,11 +1196,11 @@ function Remove-VMHostDynamicIScsiTargets {
     .PARAMETER KeepAliveTimeout
      Keep Alive Timeout, default 256
 
-    .PARAMETER  PortNumber
+    .PARAMETER PortNumber
      Target Port Number, default 4420
 
     .EXAMPLE
-     Connect-NVMeTCPTarget ClusterName "Cluster-001" -NodeAddress "192.168.0.1" -StorageSystemNQN "nqn.2016-01.com.lightbitslabs:uuid:46edb489-ba18-4dd4-a157-1d8eb8c32e21"
+     Connect-NVMeTCPTarget -ClusterName "Cluster-001" -NodeAddress "192.168.0.1" -StorageSystemNQN "nqn.2016-01.com.lightbitslabs:uuid:46edb489-ba18-4dd4-a157-1d8eb8c32e21"
 
     .INPUTS
      vSphere Cluster Name, Storage Node Address, Storage System NQN
@@ -1013,49 +1216,59 @@ function Connect-NVMeTCPTarget {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
-        [String] $ClusterName,
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $ClusterName,
 
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Target storage Node datapath address')]
-        [string] $NodeAddress,
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $NodeAddress,
 
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Target storage SystemNQN')]
-        [string]     $StorageSystemNQN,
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $StorageSystemNQN,
 
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'NVMe/TCP Admin Queue Size')]
-        [int]     $AdminQueueSize = 32,
+        [int]
+        $AdminQueueSize = 32,
 
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'NVMe/TCP Controller Id')]
-        [int]     $ControllerId = 65535,
+        [int]
+        $ControllerId = 65535,
 
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'NVMe/TCP IO Queue Number')]
-        [int]     $IoQueueNumber = 8,
+        [int]
+        $IoQueueNumber = 8,
 
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'NVMe/TCP IO Queue Size')]
-        [int]     $IoQueueSize = 256,
-
+        [int]
+        $IoQueueSize = 256,
 
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'Keep Alive Timeout')]
-        [int]     $KeepAliveTimeout = 256,
+        [int]
+        $KeepAliveTimeout = 256,
 
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'Port Number')]
-        [int]     $PortNumber = 4420
-
+        [int]
+        $PortNumber = 4420
     )
 
     Write-Host "Connecting to target via Storage Adapter from ESXi host(s) under Cluster " $ClusterName
@@ -1079,7 +1292,7 @@ function Connect-NVMeTCPTarget {
         $StorageAdapters = $VmHost | Get-VMHostHba
         $HostEsxcli = $null;
         try {
-            $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name
+            $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name -V2
         }
         catch {
             Write-Error "Failed to execute Get-EsxCli cmdlet on host $($VmHost.Name), continue connecting rest of the host(s) "
@@ -1107,7 +1320,7 @@ function Connect-NVMeTCPTarget {
                             Write-Host "ESXi host $($VmHost.Name) is connected to storage controller via " $Name
                         }
                         else {
-                            Write-Host "Failed to connect ESXi host $($VmHost.Name) to storage controller "
+                            Write-Warning "Failed to connect ESXi host $($VmHost.Name) to storage controller"
                         }
 
                         Write-Host "Connecting Controller status: "$EsxCliResult;
@@ -1119,7 +1332,7 @@ function Connect-NVMeTCPTarget {
             }
         }
         Write-Host "Rescanning NVMe/TCP storage adapter.."
-        $RescanResult = Get-VMHostStorage -VMHost $VmHost.Name -RescanAllHba
+        Get-VMHostStorage -VMHost $VmHost.Name -RescanAllHba | Out-Null
         Write-Host "Rescanning Completed."
         Write-Host ""
     }
@@ -1131,9 +1344,6 @@ function Connect-NVMeTCPTarget {
     .SYNOPSIS
      This function disconnects all ESXi host(s) from the specified storage cluster node/target.
 
-     1. vSphere Cluster Name
-     2. Storage SystemNQN
-
     .PARAMETER ClusterName
      vSphere Cluster Name
 
@@ -1141,7 +1351,7 @@ function Connect-NVMeTCPTarget {
      Storage system NQN
 
     .EXAMPLE
-     Disconnect-NVMeTCPTarget -ClusterName "Cluster-001"  -StorageSystemNQN "nqn.2016-01.com.lightbitslabs:uuid:46edb489-ba18-4dd4-a157-1d8eb8c32e21"
+     Disconnect-NVMeTCPTarget -ClusterName "Cluster-001" -StorageSystemNQN "nqn.2016-01.com.lightbitslabs:uuid:46edb489-ba18-4dd4-a157-1d8eb8c32e21"
 
     .INPUTS
      vSphere Cluster Name, Storage SystemNQN
@@ -1158,12 +1368,16 @@ function Disconnect-NVMeTCPTarget {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
-        [String] $ClusterName,
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $ClusterName,
 
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Target storage SystemNQN')]
-        [string] $StorageSystemNQN
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $StorageSystemNQN
     )
 
     Write-Host "Disconnecting ESXi host(s) from storage target under Cluster " $ClusterName
@@ -1199,10 +1413,10 @@ function Disconnect-NVMeTCPTarget {
 
         $HostEsxcli = $null;
         try {
-            $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name
+            $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name -V2
         }
         catch {
-            Write-Error "Failed to execute Get-EsxCli cmdlet on host $($VmHost.Name), continue diconnecting rest of the host(s) "
+            Write-Error "Failed to execute Get-EsxCli cmdlet on host $($VmHost.Name), continue disconnecting rest of the host(s) "
             continue
         }
 
@@ -1213,18 +1427,18 @@ function Disconnect-NVMeTCPTarget {
                 foreach ($item in $Controllers) {
 
                     try {
-                        Write-Host "Diconnecting "$item.Adapter
+                        Write-Host "Disconnecting "$item.Adapter
                         $result = $HostEsxcli.nvme.fabrics.disconnect($item.Adapter, $item.ControllerNumber, $StorageSystemNQN);
-                        Write-Host "Diconnecting Controller status: "$result;
+                        Write-Host "Disconnecting Controller status: "$result;
                     }
                     catch {
-                        Write-Host "Failed to disconnect controller $($_.Exception)"
+                        Write-Warning "Failed to disconnect controller $($_.Exception)"
                     }
 
                 }
 
                 Write-Host "Rescanning NVMe/TCP storage adapter.."
-                $RescanResult = Get-VMHostStorage -VMHost $VmHost.Name -RescanAllHba
+                Get-VMHostStorage -VMHost $VmHost.Name -RescanAllHba | Out-Null
                 Write-Host "Rescanning Completed."
             }
 
@@ -1242,18 +1456,14 @@ function Disconnect-NVMeTCPTarget {
     .SYNOPSIS
      This function removes VMFS datastore on a given ESXi Cluster.
 
-     1. vSphere Cluster Name
-     2. Datastore Name
-
-    .PARAMETER HostAddress
+    .PARAMETER ClusterName
      vSphere Cluster Name
 
     .PARAMETER DatastoreName
      Datastore Name
 
-
     .EXAMPLE
-     Remove-VmfsDatastore -ClusterName "vSphere-cluster-001"  -DatastoreName "datastore-name-01"
+     Remove-VmfsDatastore -ClusterName "vSphere-cluster-001" -DatastoreName "datastore-name-01"
 
     .INPUTS
      vSphere Cluster Name, Datastore name
@@ -1268,22 +1478,23 @@ function Remove-VmfsDatastore {
 
     Param
     (
-
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
-        [string] $ClusterName,
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $ClusterName,
 
         [Parameter(
             Mandatory = $true,
-            HelpMessage = ' Existing datastore name')]
-        [string] $DatastoreName
+            HelpMessage = 'Existing datastore name')]
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $DatastoreName
     )
 
     Write-Host "Removing datastore $($DatastoreName) accessible to ESXi host(s) in the cluster "  $ClusterName
     $AvailableDatastore = $null
-
-    $ClusterName = $ClusterName.Trim()
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
     if (-not $Cluster) {
@@ -1292,8 +1503,12 @@ function Remove-VmfsDatastore {
 
     $AvailableDatastore = Get-Datastore -Name $DatastoreName -ErrorAction ignore
     if ( (-not $AvailableDatastore)  -or ($AvailableDatastore.State -eq "Unavailable")) {
-        throw "Datastore $DatastoreName does not exist Or datastore is in Unvailable state."
+        throw "Datastore $DatastoreName does not exist or datastore is in Unavailable state."
 
+    }
+
+    if ($AvailableDatastore.Type -ne "VMFS") {
+        throw "Datastore $DatastoreName is of type $($AvailableDatastore.Type). This cmdlet can only process VMFS datastores."
     }
 
     $VMs = Get-VM -Datastore $DatastoreName -ErrorAction ignore
@@ -1304,6 +1519,9 @@ function Remove-VmfsDatastore {
 
     $VmHosts = $Cluster | Get-VMHost -State "Connected"
     $RelatedVmHosts = Get-VMHost -Datastore $DatastoreName -State "Connected"
+    if (-not $RelatedVmHosts) {
+        throw "No connected hosts found with datastore $DatastoreName."
+    }
 
     $DeleteDs = $true
 
@@ -1327,7 +1545,7 @@ function Remove-VmfsDatastore {
         }
     }
     catch {
-        throw "Failed to remove datasore $($DatastoreName)."
+        throw "Failed to remove datastore $($DatastoreName)."
     }
   }
 
@@ -1335,24 +1553,42 @@ function Remove-VmfsDatastore {
 
      Write-Host "Datastore is shared, Unmounting datastore from each host under the cluster $($ClusterName)"
      $VmfsUuid = $AvailableDatastore.ExtensionData.info.Vmfs.uuid
-     foreach ($VmHost in $VMHosts) {
 
+     # Unmount from each host with rollback on failure.
+     $UnmountedHosts = @()
+     foreach ($VmHost in $VMHosts) {
         try {
             $HostStorageSystem = Get-View $VmHost.Extensiondata.ConfigManager.StorageSystem
             $HostStorageSystem.UnmountVmfsVolume($VmfsUuid) | Out-Null
-
+            $UnmountedHosts += $VmHost
+            Write-Host "Datastore unmounted from host $($VmHost.Name)."
         }
         catch {
-          Write-Host "Failed to unmount datastore from host "$VmHost.Name
+            $FailedHost = $VmHost.Name
+            $FailureMessage = $_.Exception.Message
+
+            # Perform a rollback by re-mounting the datastore on all hosts that were previously unmounted in this run.
+            foreach ($UmHost in $UnmountedHosts) {
+                try {
+                    $RollbackStorageSystem = Get-View $UmHost.Extensiondata.ConfigManager.StorageSystem
+                    $RollbackStorageSystem.MountVmfsVolume($VmfsUuid)
+                    Write-Warning "Rolled back unmount of datastore $DatastoreName on host $($UmHost.Name)."
+                    $UmHost | Get-VMHostStorage -RescanAllHba -RescanVmfs | Out-Null
+                } catch {
+                    Write-Error "Failed to roll back unmount on host $($UmHost.Name): $($_.Exception.Message)"
+                }
+            }
+
+            throw "Failed to unmount shared datastore $DatastoreName on host $FailedHost. Changes on previously unmounted hosts have been rolled back. Error: $FailureMessage"
         }
      }
   }
 
   Write-Host "Rescanning datastore "
-  $RescanResult = Get-VMHostStorage -VMHost $RelatedVmHosts[0].Name -RescanAllHba
+  Get-VMHostStorage -VMHost $RelatedVmHosts[0].Name -RescanAllHba | Out-Null
 
   if (-not($IsDatastoreRemoved)){
-        Write-Host "Datastore was found but did't remove, instead unmounted from ESXi hosts under the given cluster."
+        Write-Host "Datastore was found but didn't remove, instead unmounted from ESXi hosts under the given cluster."
    }
 
    Write-Host " " ;
@@ -1386,13 +1622,13 @@ function Mount-VmfsDatastore {
          [ Parameter(
             Mandatory=$true,
             HelpMessage = 'vSphere Cluster name in vCenter')]
-            [ValidateNotNull()]
+            [ValidateNotNullOrEmpty()]
             [String]
             $ClusterName,
             [Parameter(
                 Mandatory=$true,
                 HelpMessage = 'Name of VMFS datastore to be mounted on host(s) in vCenter')]
-            [ValidateNotNull()]
+            [ValidateNotNullOrEmpty()]
             [String]
             $DatastoreName
         )
@@ -1415,33 +1651,50 @@ function Mount-VmfsDatastore {
 
     $HostViewDiskName = $Datastore.ExtensionData.Info.vmfs.extent[0].Diskname
     if ($null -eq $HostViewDiskName){
-         throw "Could't find backing device for the datastore $($DatastoreName)"
+         throw "Couldn't find backing device for the datastore $($DatastoreName)"
     }
 
+    $VmfsUuid = $Datastore.ExtensionData.Info.vmfs.uuid
     $VmHosts = $Cluster | Get-VMHost
 
-    foreach ($VmHost in $VmHosts){
+    # Mount on each host, with rollback on failure.
+    $MountedHosts = @()
+    foreach ($VmHost in $VmHosts) {
 
       $Devices = $VmHost.ExtensionData.config.StorageDevice.ScsiLun | Where-Object { $_.DevicePath -like "*$($HostViewDiskName)*" }
       if ($null -eq $Devices){
-          Write-Host "Could't find device on ESXi host $($VmHost.Name) for device UUID  $($HostViewDiskName), skipping to mount datastore"
+          Write-Host "Couldn't find device on ESXi host $($VmHost.Name) for device UUID $($HostViewDiskName), skipping to mount datastore"
          continue
       }
 
-      $HostView = Get-View $VmHost
-      $StorageSys = Get-View $HostView.ConfigManager.StorageSystem
-      Write-Host "Mounting VMFS Datastore $($Datastore.Name) on host $($HostView.Name)"
-      try{
-          $StorageSys.MountVmfsVolume($Datastore.ExtensionData.Info.vmfs.uuid);
-      }
-      catch{
-           Write-Error "Failed to VMFS Datastore $($Datastore.Name) on host $($HostView.Name)"
-      }
+      try {
+          $StorageSys = Get-View (Get-View $VmHost).ConfigManager.StorageSystem
+          Write-Host "Mounting VMFS Datastore $($Datastore.Name) on host $($VmHost.Name)"
+          $StorageSys.MountVmfsVolume($VmfsUuid)
+          $MountedHosts += $VmHost
+          Write-Host "Datastore $($Datastore.Name) mounted successfully on host $($VmHost.Name), rescanning now.."
+          $VmHost | Get-VMHostStorage -RescanAllHba -RescanVmfs | Out-Null
+      } catch {
+          $FailedHost = $VmHost.Name
+          $FailureMessage = $_.Exception.Message
 
-      Write-Host "Datastore $($Datastore.Name) mounted successfully on host, rescanning now.. $($hostview.Name)."
-      $VmHost | Get-VMHostStorage -RescanAllHba -RescanVmfs | Out-Null
+          # Perform rollback by unmounting from all hosts that were previously mounted in this run.
+          foreach ($MountedHost in $MountedHosts) {
+              try {
+                  $RollbackStorageSys = Get-View (Get-View $MountedHost).ConfigManager.StorageSystem
+                  $RollbackStorageSys.UnmountVmfsVolume($VmfsUuid)
+                  Write-Warning "Rolled back mount of datastore $DatastoreName on host $($MountedHost.Name)."
+                  $MountedHost | Get-VMHostStorage -RescanAllHba -RescanVmfs | Out-Null
+              } catch {
+                  Write-Error "Failed to roll back mount on host $($MountedHost.Name): $($_.Exception.Message)"
+              }
+          }
+
+          throw "Failed to mount datastore $DatastoreName on host $FailedHost. Changes on previously mounted hosts have been rolled back. Error: $FailureMessage"
+      }
     }
 
+    Write-Host "Successfully mounted datastore $DatastoreName on all hosts in cluster $ClusterName."
   }
 
 
@@ -1471,13 +1724,13 @@ function Get-VmfsDatastore {
       [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
-      [string] $ClusterName
+      [String]
+      $ClusterName
 
     )
 
     Write-Host "Collecting all available VMFS datastores accessible to ESXi host(s) in the cluster "  $ClusterName
     Write-Host ""
-    $ClusterName = $ClusterName.Trim()
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
     if (-not $Cluster) {
@@ -1490,7 +1743,7 @@ function Get-VmfsDatastore {
     }
 
 
-    $Datastores = Get-VMHost -Name $VmHosts | Get-Datastore | Where-Object {$_.Type -match "VMFS"} | Get-Unique
+    $Datastores = Get-VMHost -Name $VmHosts | Get-Datastore | Where-Object {$_.Type -match "VMFS"} | Sort-Object -Property Name -Unique
 
     if ( -not $Datastores) {
         Write-Host "No Datastore found under the given cluster."
@@ -1501,7 +1754,7 @@ function Get-VmfsDatastore {
     $NamedOutputs = @{}
 
     foreach ($Datastore in $Datastores){
-      $Hosts = Get-VMHost -Datastore $Datastore.Name | Select-Object select -ExpandProperty Name -ErrorAction Ignore
+      $Hosts = Get-VMHost -Datastore $Datastore.Name | Select-Object -ExpandProperty Name -ErrorAction Ignore
       $VmfsUuid = $Datastore.ExtensionData.info.Vmfs.uuid
       $HostViewDiskName = $Datastore.ExtensionData.Info.vmfs.extent[0].Diskname;
       $NamedOutputs[$Datastore.Name] = "
@@ -1533,7 +1786,7 @@ function Get-VmfsDatastore {
     .SYNOPSIS
      This function collects all ESXi host(s) along with detailed inventory under a given vSphere Cluster.
 
-    .PARAMETER -ClusterName
+    .PARAMETER ClusterName
      vSphere Cluster Name
 
     .EXAMPLE
@@ -1555,7 +1808,8 @@ function Get-VmfsHosts {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
-        [String] $ClusterName
+        [String]
+        $ClusterName
 
     )
 
@@ -1572,10 +1826,11 @@ function Get-VmfsHosts {
     $VmHosts = $Cluster | Get-VMHost
 
     foreach ($VmHost in $VmHosts) {
-     $Datastores = $VmHost | Get-Datastore | Where-Object { $_.Type -match "VMFS" } | Select-Object select -ExpandProperty Name
+     $Datastores = $VmHost | Get-Datastore | Where-Object { $_.Type -match "VMFS" } | Select-Object -ExpandProperty Name
      $NamedOutputs[$VmHost.Name] = "
      {
       Name : $($VmHost.Name),
+      Id : $($VmHost.Id),
       Version : $($VmHost.Version),
       ConnectionState : $($VmHost.ConnectionState),
       PowerState : $($VmHost.PowerState),
@@ -1598,7 +1853,7 @@ function Get-VmfsHosts {
     .SYNOPSIS
      This function collects Storage Adapter info for ESXi host(s) in a given vSphere Cluster.
 
-    .PARAMETER -ClusterName
+    .PARAMETER ClusterName
      vSphere Cluster Name
 
     .EXAMPLE
@@ -1620,7 +1875,8 @@ function Get-StorageAdapters {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
-        [String] $ClusterName
+        [String]
+        $ClusterName
 
     )
 
@@ -1640,7 +1896,7 @@ function Get-StorageAdapters {
             $Adapters = Get-VMHostHba -VMHost $VmHost.Name -ErrorAction Ignore
         }
         catch {
-            Write-Error "Failed to collect VMKernel Info on host $($VmHost.Name), continue collecting about rest of the host(s)."
+            Write-Error "Failed to collect storage adapter info on host $($VmHost.Name), continue collecting about rest of the host(s)."
             continue
         }
 
@@ -1667,7 +1923,7 @@ function Get-StorageAdapters {
     .SYNOPSIS
      This function collects storage vmkernel adapter for ESXi host(s) in a given vSphere Cluster.
 
-    .PARAMETER -ClusterName
+    .PARAMETER ClusterName
      vSphere Cluster Name
 
     .EXAMPLE
@@ -1689,7 +1945,8 @@ function Get-VmKernelAdapters {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
-        [String] $ClusterName
+        [String]
+        $ClusterName
 
     )
 
@@ -1738,7 +1995,7 @@ function Get-VmKernelAdapters {
     .SYNOPSIS
      This function enables NVMeTCP storage services on given vmkernel adapter for a host.
 
-    .PARAMETER -HostAddress
+    .PARAMETER HostAddress
      ESXi host network address
 
     .PARAMETER VmKernel
@@ -1764,15 +2021,20 @@ function Set-NVMeTCP {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'ESXi host network address')]
-        [String] $HostAddress,
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $HostAddress,
+
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'Existing VMKernel adapter name')]
-        [String] $VmKernel
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $VmKernel
 
     )
 
-    Write-Host "Enabling NVMeTCP services on given VMKernal adapter for host $($HostAddress)"
+    Write-Host "Enabling NVMeTCP services on given VMKernel adapter for host $($HostAddress)"
     Write-Host " " ;
 
     $VmHost = Get-VMHost -Name $HostAddress -ErrorAction Ignore
@@ -1796,7 +2058,7 @@ function Set-NVMeTCP {
         throw "Didn't find VMKernel adapters on host"
     }
 
-    $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name -ErrorAction stop
+    $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name -V2 -ErrorAction stop
 
     $isEnabled = $HostEsxcli.network.ip.interface.tag.add($VmKernel, 'NVMeTCP')
 
@@ -1821,11 +2083,11 @@ function Set-NVMeTCP {
     .SYNOPSIS
      This function creates new NVMe/TCP storage adapter on given ESXi host.
 
-    .PARAMETER -HostAddress
+    .PARAMETER HostAddress
      ESXi host network address
 
-    .PARAMETER VmKernel
-     Storage Nic name
+    .PARAMETER VmNic
+     Storage NIC name
 
     .EXAMPLE
      New-NVMeTCPAdapter -HostAddress "192.168.10.11" -VmNic "vmnic0"
@@ -1847,11 +2109,16 @@ function New-NVMeTCPAdapter {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'ESXi host network address')]
-        [String] $HostAddress,
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $HostAddress,
+
         [Parameter(
             Mandatory = $true,
-            HelpMessage = 'Existing Physical NIC  name')]
-        [String] $VmNic
+            HelpMessage = 'Existing Physical NIC name')]
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $VmNic
 
     )
 
@@ -1871,15 +2138,15 @@ function New-NVMeTCPAdapter {
         $Nics = Get-VMHostNetworkAdapter -VMHost $VmHost.Name -Physical -Name $VmNic
     }
     catch {
-        Write-Host "Failed to collect physical inventory Nic  $($_.Exception)"
-        throw "Failed to collect physical inventory Nic  $($_.Exception)"
+        Write-Host "Failed to collect physical inventory NIC $($_.Exception)"
+        throw "Failed to collect physical inventory NIC $($_.Exception)"
     }
 
     if (-not $Nics -or $Nics.Count -eq 0) {
         throw "Didn't find Nic adapters on host"
     }
 
-    $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name -ErrorAction stop
+    $HostEsxcli = Get-EsxCli -VMHost $VmHost.Name -V2 -ErrorAction stop
     $IsCreated = $HostEsxcli.nvme.fabrics.enable($VmNic, 'TCP');
     if ($IsCreated) {
         $NamedOutputs.Add($VmNic, "NVMe/TCP adapter created successfully.")
@@ -1902,12 +2169,11 @@ function New-NVMeTCPAdapter {
     .SYNOPSIS
      This function collects all VMs on the provided datastore and creates snapshot of each virtual machine.
 
-    .PARAMETER -ClusterName
+    .PARAMETER ClusterName
      vSphere Cluster Name
 
-    .PARAMETER -DatastoreName
+    .PARAMETER DatastoreName
      Datastore name
-
 
     .EXAMPLE
      New-VmfsVmSnapshot -ClusterName "vSphere-cluster-001" -DatastoreName "myDatastore"
@@ -1928,11 +2194,16 @@ function New-VmfsVmSnapshot {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
-        [String] $ClusterName,
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $ClusterName,
+
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'datastore name')]
-        [String] $datastoreName
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $DatastoreName
 
     )
 
@@ -1958,12 +2229,12 @@ function New-VmfsVmSnapshot {
         $SnapshotName = $Vm.Name + "-" + $timeStamp
 
         if (!$Vm.ExtensionData) {
-            Write-Host "Skipping to create snapshot of virtual machine $($Vm.Name), becuase of unavailable configuration."
+            Write-Host "Skipping to create snapshot of virtual machine $($Vm.Name), because of unavailable configuration."
             continue
         }
 
         if (($Vm.ExtensionData.OverallStatus -ne "green") -or ($Vm.ExtensionData.guestHeartbeatStatus -ne "green")) {
-            Write-Host "Skipping to create snapshot of virtual machine $($Vm.Name) becuase health status is not OK."
+            Write-Host "Skipping to create snapshot of virtual machine $($Vm.Name) because health status is not OK."
             continue
         }
 
@@ -1972,8 +2243,8 @@ function New-VmfsVmSnapshot {
             Write-Host "Snapshot $($Snapshot.Name) created."
         }
         catch {
-            Write-Host "Failed to creat snapshot for $($Vm.Name) $($_.Exception)"
-            throw "Failed to creat snapshot for $($Vm.Name) $($_.Exception)"
+            Write-Host "Failed to create snapshot for $($Vm.Name) $($_.Exception)"
+            throw "Failed to create snapshot for $($Vm.Name) $($_.Exception)"
         }
     }
 
@@ -2003,7 +2274,9 @@ function Repair-HAConfiguration {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
-        [String] $ClusterName
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $ClusterName
     )
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
@@ -2027,7 +2300,7 @@ function Repair-HAConfiguration {
         try {
             $VMHost.ExtensionData.ReconfigureHostForDAS()
         } catch {
-            Write-Error "Failed to repair HA configuration on host $HostAddress"
+            Write-Warning "Failed to repair HA configuration on host ${HostAddress}: $($_.Exception.Message)"
             $Success = $false
         }
     }
@@ -2060,12 +2333,15 @@ function Clear-DisconnectedIscsiTargets {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
-        [String] $ClusterName,
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $ClusterName,
 
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'VMHost Name')]
-        [String] $VMHostName
+        [String]
+        $VMHostName
     )
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
@@ -2137,7 +2413,9 @@ function Test-VMKernelConnectivity {
         [Parameter(
             Mandatory = $true,
             HelpMessage = 'vSphere Cluster Name')]
-        [String] $ClusterName
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $ClusterName
     )
 
     $Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
@@ -2154,6 +2432,25 @@ function Test-VMKernelConnectivity {
         throw "Failed to collect cluster hosts $($_.Exception)"
     }
 
+    # Verify vmk5 and vmk6 exist on all non-Microsoft hosts before testing connectivity.
+    foreach ($VMHost in $VMHosts) {
+        # vmk5 and vmk6 are not provisioned for Microsoft hosts
+        if ($VMHost.ExtensionData.Hardware.SystemInfo.Vendor -inotlike "Microsoft*") {
+            try {
+                $KernelAdapters = Get-VMHostNetworkAdapter -VMHost $VMHost.Name -VMKernel
+            }
+            catch {
+                throw "Failed to collect VMKernel info on host $($VMHost.Name), unable to verify whether vmk5 and vmk6 exist."
+            }
+
+            $vmk5 = $KernelAdapters | Where-Object { $_.Name -eq "vmk5" }
+            $vmk6 = $KernelAdapters | Where-Object { $_.Name -eq "vmk6" }
+            if ((-not $vmk5) -or (-not $vmk6)) {
+                throw "Kernel Adapters vmk5 and vmk6 do not exist on host $($VMHost.Name)."
+            }
+        }
+    }
+
     $Success = $true
     foreach ($VMHost in $VMHosts) {
         $HostAddress = $VMHost.Name
@@ -2165,10 +2462,10 @@ function Test-VMKernelConnectivity {
             $params.host = $Nic.IP
             $result = $esxcli.network.diag.ping.Invoke($params)
             if ($result.Summary.Received -gt 0) {
-                Write-Host "Ping to vmkernel interface $($VmKernel) on host $HostAddress is successful"
+                Write-Host "Ping to vmkernel interface $($Nic.Name) on host $HostAddress is successful"
             }
             else {
-                Write-Error "Ping to vmkernel interface $($VmKernel) on host $HostAddress failed"
+                Write-Warning "Ping to vmkernel interface $($Nic.Name) on host $HostAddress failed"
                 $Success = $false
             }
         }
