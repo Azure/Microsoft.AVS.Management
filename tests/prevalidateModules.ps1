@@ -1,6 +1,7 @@
 #!/usr/bin/pwsh
 param (
-    [Parameter(Mandatory=$true)][string]$modulesFolderPath
+    [Parameter(Mandatory=$true)][string]$modulesFolderPath,
+    [Parameter(Mandatory=$true)][string]$accessToken
 )
 
 Import-Module Pester -MinimumVersion 5.0 -ErrorAction Stop
@@ -74,6 +75,7 @@ if (Test-Path $pesterTestFile) {
     
     $env:SKIP_INTEGRATION_TESTS = 'false'
     $Global:FeedSettings = @{ 
+        Credential = [PSCredential]::new("ado", ($accessToken | ConvertTo-SecureString -AsPlainText -Force))
         Repository = "ConsumptionV3"
     }
     

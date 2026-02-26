@@ -1,5 +1,6 @@
 #!/usr/bin/pwsh
 param (
+    [string]$accessToken,
     [Parameter(Mandatory=$true)][string]$absolutePathToManifest,
     [Parameter(Mandatory=$true)][string]$buildNumber,
     [Parameter(Mandatory=$true)][string]$previewFeed,
@@ -26,8 +27,8 @@ function update-moduleversion {
     Get-Content $absolutePathToManifest
 }
 
-function replicate-package ([string]$name, [string]$version, [string]$packagePath) {
-    $existing = Find-PSResource -Repository PreviewV3 -Name $name -Version $version -Prerelease -ErrorAction SilentlyContinue
+function replicate-package ([string]$name, [string]$version, [string]$packagePath, [PSCredential]$credential) {
+    $existing = Find-PSResource -Repository PreviewV3 -Name $name -Version $version -Prerelease -ErrorAction SilentlyContinue -Credential $credential
     
     if ($null -ne $existing) {
         Write-Output "$name@$version already in the feed, skipping"
@@ -35,14 +36,14 @@ function replicate-package ([string]$name, [string]$version, [string]$packagePat
     }
     
     Write-Output "Saving $name@$version..."
-    Save-PSResource -Name $name -Version $version -Path $packagePath -Repository ConsumptionV3 -TrustRepository -SkipDependencyCheck -AsNupkg
+    Save-PSResource -Name $name -Version $version -Path $packagePath -Repository ConsumptionV3 -Credential $credential -TrustRepository -SkipDependencyCheck -AsNupkg
     
     $expectedFileName = "$name.$version.nupkg"
     $pkg = Get-ChildItem -Path $packagePath -Filter $expectedFileName | Select-Object -First 1
     
     if ($pkg) {
         Write-Output "Publishing $($pkg.Name) to preview feed..."
-        Publish-PSResource -NupkgPath $pkg.FullName -Repository PreviewV3 -ApiKey "key"
+        Publish-PSResource -NupkgPath $pkg.FullName -Repository PreviewV3 -ApiKey "key"  -Credential $credential
     }
 }
 
@@ -53,22 +54,24 @@ Write-Output "Uploading dependencies to $previewFeed"
 $manifest = Import-PowerShellDataFile "$absolutePathToManifest"
 $moduleName = [System.IO.Path]::GetFileNameWithoutExtension($absolutePathToManifest)
 
+$c = [PSCredential]::new("ONEBRANCH_TOKEN", ($accessToken | ConvertTo-SecureString -AsPlainText -Force))
+
 # Create a temporary directory for packages
 $packagePath = Join-Path ([System.IO.Path]::GetTempPath()) "$moduleName-$(Get-Date -Format 'yyyyMMddHHmmss')"
 New-Item -ItemType Directory -Path $packagePath -Force | Out-Null
 
 try {
     # Use CDR to find and resolve all required modules with conservative dependency resolution
-    $allPackages = Find-PSResourceDependencies -ManifestPath $absolutePathToManifest -Repository ConsumptionV3
+    $allPackages = Find-PSResourceDependencies -ManifestPath $absolutePathToManifest -Repository ConsumptionV3 -Credential $c
     
     Write-Output "Found $($allPackages.Count) total packages (including transitive dependencies)"
     
     foreach ($pkg in $allPackages) {
-        replicate-package -name $pkg.Name -version $pkg.Version -packagePath $packagePath
+        replicate-package -name $pkg.Name -version $pkg.Version -packagePath $packagePath -credential $c
     }
     
     # Publish the main module
-    Publish-PSResource -Path $moduleName -Repository PreviewV3 -ApiKey "key"
+    Publish-PSResource -Path $moduleName -Repository PreviewV3 -ApiKey "key"  -Credential $c
     
     $version = if ([String]::IsNullOrWhiteSpace($manifest.PrivateData.PSData.Prerelease)) {
         $manifest.ModuleVersion.ToString()
@@ -79,7 +82,7 @@ try {
     $isRemoteFeed = $previewFeed -match '^https?://'
     if ($isRemoteFeed) {
         Write-Output "Verifying installation of $moduleName@$version..."
-        Install-PSResourcePinned -Name $moduleName -RequiredVersion $version -Prerelease -Repository PreviewV3
+        Install-PSResourcePinned -Name $moduleName -RequiredVersion $version -Prerelease -Repository PreviewV3 -Credential $c
     } else {
         Write-Output "Verifying installation of $moduleName@$version (local folder, skipping dependencies)..."
         Install-PSResource -Name $moduleName -Version $version -Repository PreviewV3 -SkipDependencyCheck -TrustRepository
