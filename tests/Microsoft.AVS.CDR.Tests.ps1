@@ -4,6 +4,7 @@ BeforeAll {
     Import-Module $modulePath -Force
 
     if($Global:FeedSettings) {
+        $script:credential = $Global:FeedSettings.Credential
         $script:repository = $Global:FeedSettings.Repository
     }
 
@@ -67,7 +68,7 @@ Describe "Install-PSResourcePinned" {
 
         It "Should install a module with exact version" {
             try {
-                Install-PSResourcePinned -Name $script:PSAnalyser.Name -RequiredVersion $script:PSAnalyser.Version -Repository $script:repository -Scope $testScope
+                Install-PSResourcePinned -Name $script:PSAnalyser.Name -RequiredVersion $script:PSAnalyser.Version -Repository $script:repository -Credential $script:credential -Scope $testScope
                 $installed = Get-PSResource -Name $script:PSAnalyser.Name | Where-Object { $_.Version.ToString() -eq $script:PSAnalyser.Version }
                 $installed | Should -Not -BeNullOrEmpty
             }
@@ -77,7 +78,7 @@ Describe "Install-PSResourcePinned" {
         } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
 
         It "Should handle non-existent module gracefully" {
-            { Install-PSResourcePinned -Name "NonExistentModule12345" -RequiredVersion "1.0.0" -Repository $script:repository } | 
+            { Install-PSResourcePinned -Name "NonExistentModule12345" -RequiredVersion "1.0.0" -Repository $script:repository -Credential $script:credential } | 
                 Should -Throw -ExpectedMessage "*not found*"
         } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
     }
@@ -93,7 +94,7 @@ Describe "Install-PSResourcePinned" {
             { 
                 Install-PSResourcePinned -Name $script:PSAnalyser.Name -RequiredVersion $script:PSAnalyser.Version `
                     -RedirectMapPath $script:nonExistentMapPath -Repository $script:repository `
-                    -ErrorAction Stop
+                    -Credential $script:credential -ErrorAction Stop
             } | Should -Throw -ExpectedMessage "*not found*"
         }
 
@@ -109,7 +110,7 @@ Describe "Install-PSResourcePinned" {
             # Capture verbose output to verify redirect was loaded
             $verboseOutput = Install-PSResourcePinned -Name $script:PSAnalyser.Name `
                 -RequiredVersion $script:PSAnalyser.Version -RedirectMapPath $redirectMapForInstall `
-                -Repository $script:repository -Verbose 4>&1
+                -Repository $script:repository -Credential $script:credential -Verbose 4>&1
             
             # Should see message about loading redirect map
             $verboseOutput | Should -Match "Loading redirect map"
@@ -129,7 +130,8 @@ Describe "Install-PSResourcePinned" {
             
             if (-not $installed) {
                 Install-PSResourcePinned -Name $script:MSAVSManagement.Name `
-                    -RequiredVersion $script:MSAVSManagement.Version -Repository $script:repository
+                    -RequiredVersion $script:MSAVSManagement.Version -Repository $script:repository `
+                    -Credential $script:credential
             }
             
             # Capture verbose output to verify redirect was loaded
@@ -151,7 +153,7 @@ Describe "Install-PSResourcePinned" {
 
     Context "Verbose Output" -Tag 'Integration' {
         It "Should produce verbose output when requested" {
-            $verboseOutput = Install-PSResourcePinned -Name $script:MSAVSManagement.Name -RequiredVersion $script:MSAVSManagement.Version -Repository $script:repository -Verbose 4>&1
+            $verboseOutput = Install-PSResourcePinned -Name $script:MSAVSManagement.Name -RequiredVersion $script:MSAVSManagement.Version -Repository $script:repository -Credential $script:credential -Verbose 4>&1
             # At minimum, should see searching message
             $verboseOutput | Should -Not -BeNullOrEmpty
         } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
@@ -562,7 +564,7 @@ Describe "Import-ModulePinned" {
                 Where-Object { $_.Version.ToString() -eq $testModuleVersion }
                 
                 if (-not $installed) {
-                    Install-PSResourcePinned -Name $testModuleName -RequiredVersion $testModuleVersion -Repository $script:repository
+                    Install-PSResourcePinned -Name $testModuleName -RequiredVersion $testModuleVersion -Repository $script:repository -Credential $script:credential
                 }
             }
         }
@@ -2029,7 +2031,7 @@ Describe "Save-PSResourcePinned" {
         It "Should save a module with exact version as nupkg" {
             try {
                 Save-PSResourcePinned -Name $script:PSAnalyser.Name -RequiredVersion $script:PSAnalyser.Version `
-                    -Path $script:testSavePath -Repository $script:repository
+                    -Path $script:testSavePath -Repository $script:repository -Credential $script:credential
                 
                 $expectedFile = Join-Path $script:testSavePath "$($script:PSAnalyser.Name).$($script:PSAnalyser.Version).nupkg"
                 Test-Path $expectedFile | Should -BeTrue
@@ -2270,7 +2272,7 @@ Describe "Install-PSResourceDependencies" {
             
             try {
                 Install-PSResourceDependencies -ManifestPath $script:testManifestPath `
-                    -Repository $script:repository
+                    -Repository $script:repository -Credential $script:credential
                 
                 $installed = Get-PSResource -Name $script:PSAnalyser.Name | 
                     Where-Object { $_.Version.ToString() -eq $script:PSAnalyser.Version }
