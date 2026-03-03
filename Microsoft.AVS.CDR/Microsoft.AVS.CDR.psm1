@@ -1147,22 +1147,20 @@ function Find-PSResourceDependencies {
         elseif ($requiredModule -is [hashtable]) {
             $moduleName = $requiredModule.ModuleName
             # Check for RequiredVersion first (exact version), then ModuleVersion (minimum version)
-            if ($requiredModule.RequiredVersion) {
+            if ($requiredModule.ContainsKey('RequiredVersion')) {
                 $moduleVersion = $requiredModule.RequiredVersion.ToString()
             }
-            elseif ($requiredModule.ModuleVersion) {
+            elseif ($requiredModule.ContainsKey('ModuleVersion')) {
                 # ModuleVersion in manifest means minimum version, treat as open-ended range
                 $moduleVersion = "[$($requiredModule.ModuleVersion), )"
             }
         }
         else {
-            Write-Warning "Skipping unrecognized RequiredModule format: $requiredModule"
-            continue
+            throw "Unrecognized RequiredModule format in manifest: $requiredModule. Expected string or hashtable."
         }
         
         if (-not $moduleName) {
-            Write-Warning "Skipping RequiredModule with no module name"
-            continue
+            throw "RequiredModule entry has no module name: $($requiredModule | ConvertTo-Json -Compress)"
         }
         
         # Apply redirect to resolve version
