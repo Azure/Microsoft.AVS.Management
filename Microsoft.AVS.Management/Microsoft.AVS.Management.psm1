@@ -1,3 +1,6 @@
+# Load Classes first (must be loaded before other files that use them)
+. $PSScriptRoot\Classes.ps1
+
 <# Private Function Import #>
 . $PSScriptRoot\AVSGenericUtils.ps1
 . $PSScriptRoot\AVSvSANUtils.ps1
@@ -621,11 +624,13 @@ function Set-ToolsRepo {
             throw "Failed to create temporary directory: $_"
         }
 
-        $tools_file = Join-Path -Path $tmp_dir -ChildPath "tools.zip"
+        $tools_file = Join-Path -Path $tmp_dir.FullName -ChildPath "tools.zip"
 
-        # Download the tools file with progress
+        # Download the tools file with progress (preserve ProgressPreference)
+        $oldProgressPreference = $null
         try {
             Write-Information "Downloading tools..." -InformationAction Continue
+            $oldProgressPreference = $ProgressPreference
             $ProgressPreference = 'Continue'
             Invoke-WebRequest -Uri $ToolsURLPlain -OutFile $tools_file -ErrorAction Stop
 
@@ -642,6 +647,8 @@ function Set-ToolsRepo {
             Write-Verbose "Downloaded file size: $($fileSize / 1MB) MB"
         } catch {
             throw "Failed to download tools file: $_"
+        } finally {
+            if ($null -ne $oldProgressPreference) { $ProgressPreference = $oldProgressPreference }
         }
 
         # Extract the archive
@@ -653,7 +660,7 @@ function Set-ToolsRepo {
         }
 
         # Find and validate tools version
-        $tools_path_new = Join-Path -Path $tmp_dir -ChildPath "${archive_path}vmtools-*"
+        $tools_path_new = Join-Path -Path $tmp_dir.FullName -ChildPath "${archive_path}vmtools-*"
         $tools_directories = Get-ChildItem -Path $tools_path_new -Directory -ErrorAction SilentlyContinue
 
         if ($null -eq $tools_directories -or $tools_directories.Count -eq 0) {
@@ -724,39 +731,84 @@ function Set-ToolsRepo {
                     }
                 }
 
-                # Check existing tools versions
-                $do_not_copy = $false
+                # Check existing tools versions to determine highest version
                 $tools_path = "DS:/$new_folder/$archive_path"
+                $highestExistingVersion = $null
+                $shouldUpdateTopLevelMetadata = $false
 
                 if (Test-Path -Path $tools_path) {
                     try {
-                        # $existing_dirs = Get-ChildItem -Path $tools_path -Directory -ErrorAction Stop
                         $existing_dirs = Get-ChildItem -Path $tools_path -ErrorAction Stop | Where-Object Name -Match vmtools
 
                         foreach ($existing_dir in $existing_dirs) {
                             $ver = $existing_dir.Name -replace 'vmtools-', ''
-                            if ([version]$ver -ge [version]$tools_short_version) {
-                                $do_not_copy = $true
-                                Write-Information "Found newer or equal version ($ver) on $ds_name" -InformationAction Continue
-                                break
+                            if ($null -eq $highestExistingVersion -or [version]$ver -gt [version]$highestExistingVersion) {
+                                $highestExistingVersion = $ver
                             }
+                        }
+
+                        if ($highestExistingVersion) {
+                            Write-Information "Current highest version on $ds_name is $highestExistingVersion" -InformationAction Continue
                         }
                     } catch {
                         Write-Warning "Failed to check existing versions on $ds_name : $_"
-                        # Continue with copy operation if we can't verify existing versions
                     }
                 }
 
-                # Copy files if needed
-                if (-not $do_not_copy) {
-                    try {
-                        Write-Information "Copying $tools_version to $ds_name..." -InformationAction Continue
-                        # $sourcePath = $tools_directories[0].ResolvedTarget
-                        Copy-DatastoreItem -Item "$tmp_dir/vmware" -Destination "DS:/$new_folder" -Recurse -Force -ErrorAction Stop
-                        Write-Information "Successfully copied tools to $ds_name" -InformationAction Continue
-                    } catch {
-                        throw "Failed to copy tools to $ds_name : $_"
+                # Determine if we should update the top-level metadata.json
+                # Only update if new version is greater than the highest existing version
+                if ($null -eq $highestExistingVersion -or [version]$tools_short_version -gt [version]$highestExistingVersion) {
+                    $shouldUpdateTopLevelMetadata = $true
+                    Write-Information "New version ($tools_short_version) is greater than existing ($highestExistingVersion). Top-level metadata.json will be updated." -InformationAction Continue
+                } else {
+                    Write-Information "New version ($tools_short_version) is not greater than existing ($highestExistingVersion). Top-level metadata.json will be preserved." -InformationAction Continue
+                }
+
+                # Always copy the new version (older versions are allowed)
+                try {
+                    Write-Information "Copying $tools_version to $ds_name..." -InformationAction Continue
+
+                    # Use the discovered vmtools directory from the extracted archive as the source
+                    $sourceDir = $tools_directories[0].FullName
+
+                    # Destination inside GuestStore should include archive_path so layout matches expected structure
+                    $destPath = "DS:/$new_folder$archive_path"
+
+                    # Ensure destination folder exists on the datastore
+                    if (-not (Test-Path -Path $destPath)) {
+                        New-Item -ItemType Directory -Path $destPath -Force -ErrorAction Stop | Out-Null
                     }
+
+                    # Check if this version already exists on the datastore
+                    $versionDestPath = Join-Path $destPath $tools_version
+                    if (Test-Path -Path $versionDestPath) {
+                        Write-Information "Version $tools_version already exists on $ds_name. Skipping copy." -InformationAction Continue
+                    } else {
+                        # Copy the vmtools-{version} folder itself (preserves folder structure)
+                        Copy-DatastoreItem -Item $sourceDir -Destination $destPath -Recurse -Force -ErrorAction Stop
+
+                        # Verify metadata.json exists in the copied version folder
+                        $versionMeta = Get-ChildItem -Path $versionDestPath -Filter metadata.json -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if (-not $versionMeta) { throw "metadata.json not found in copied version folder on $ds_name" }
+
+                        Write-Information "Successfully copied $tools_version to $ds_name" -InformationAction Continue
+                    }
+
+                    # Update top-level metadata.json only if new version is greater
+                    if ($shouldUpdateTopLevelMetadata) {
+                        $sourceMetadata = Get-ChildItem -Path $sourceDir -Filter metadata.json -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if ($sourceMetadata) {
+                            $topLevelMetadataPath = Join-Path $destPath "metadata.json"
+                            Copy-DatastoreItem -Item $sourceMetadata.FullName -Destination $topLevelMetadataPath -Force -ErrorAction Stop
+                            Write-Information "Updated top-level metadata.json on $ds_name to version $tools_short_version" -InformationAction Continue
+                        } else {
+                            Write-Warning "Source metadata.json not found at root of $tools_version package"
+                        }
+                    } else {
+                        Write-Information "Top-level metadata.json on $ds_name preserved (not overwritten)" -InformationAction Continue
+                    }
+                } catch {
+                    throw "Failed to copy tools to $ds_name : $_"
                 }
 
                 # Configure hosts
@@ -801,7 +853,7 @@ function Set-ToolsRepo {
                 }
 
                 if ($failedHosts.Count -gt 0) {
-                    throw "Failed to configure hosts: $($failedHosts -join ', ')"
+                    Write-Warning "Failed to configure hosts for datastore $ds_name : $($failedHosts -join ', ')"
                 }
 
                 $successfulDatastores += $ds_name
@@ -835,6 +887,11 @@ function Set-ToolsRepo {
         # Ensure PSDrive is removed
         if (Get-PSDrive -Name DS -ErrorAction SilentlyContinue) {
             Remove-PSDrive -Name DS -Force -ErrorAction SilentlyContinue
+        }
+
+        # Remove temporary directory if it exists
+        if ($tmp_dir -and $tmp_dir.FullName -and (Test-Path -Path $tmp_dir.FullName)) {
+            Remove-Item -Path $tmp_dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 }
@@ -1820,14 +1877,14 @@ Function Get-vSANDataInTransitEncryptionStatus {
 
 Function Set-vSANDataInTransitEncryption {
   <#
-    .DESCRIPTION
-        Enable/Disable vSAN Data-In-Transit Encryption for clusters of a SDDC.
-        There may be a performance impact when vSAN Data-In-Transit Encryption is enabled. Refer :  https://blogs.vmware.com/virtualblocks/2021/08/12/storageminute-vsan-data-encryption-performance/
-    .PARAMETER ClusterName
-        Name of the cluster. Leave blank if required to enable for whole SDDC else enter comma separated list of names.
-    .PARAMETER Enable
-        Specify True/False to Enable/Disable the feature.
-    #>
+    .DESCRIPTION
+        Enable/Disable vSAN Data-In-Transit Encryption for clusters of a SDDC.
+        There may be a performance impact when vSAN Data-In-Transit Encryption is enabled. Refer :  https://blogs.vmware.com/virtualblocks/2021/08/12/storageminute-vsan-data-encryption-performance/
+    .PARAMETER ClusterName
+        Name of the cluster. Leave blank if required to enable for whole SDDC else enter comma separated list of names.
+    .PARAMETER Enable
+        Specify True/False to Enable/Disable the feature.
+    #>
     [CmdletBinding()]
     [AVSAttribute(10, UpdatesSDDC = $false)]
     param (
@@ -1844,8 +1901,8 @@ Function Set-vSANDataInTransitEncryption {
             $ClusterNamesArray = Convert-StringToArray -String $ClusterNamesParsed
         }
         Write-Host "Enable value is $Enable"
-        $TagName = "vSAN Data-In-Transit Encryption" 
-            $InfoMessage = "Info - There may be a performance impact when vSAN Data-In-Transit Encryption is enabled. Refer :  https://blogs.vmware.com/virtualblocks/2021/08/12/storageminute-vsan-data-encryption-performance/"
+        $TagName = "vSAN Data-In-Transit Encryption"
+            $InfoMessage = "Info - There may be a performance impact when vSAN Data-In-Transit Encryption is enabled. Refer :  https://blogs.vmware.com/virtualblocks/2021/08/12/storageminute-vsan-data-encryption-performance/"
     }
     process {
         If ([string]::IsNullOrEmpty($ClusterNamesArray)) {
