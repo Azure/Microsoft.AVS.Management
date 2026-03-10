@@ -177,13 +177,9 @@ Describe "Install-PSResourcePinned" {
                     $script:prereleasePassedToGraph = $Prerelease
                     
                     # Add a mock node to the graph
-                    $Graph["$ModuleName@$ModuleVersion"] = @{
-                        Name = $ModuleName
-                        Version = $ModuleVersion
-                        Dependencies = [System.Collections.ArrayList]@()
-                        Repository = "TestRepo"
-                        NotFound = $false
-                    }
+                    $Graph["$ModuleName@$ModuleVersion"] = [DependencyGraphNode]::new(
+                        $ModuleName, $ModuleVersion, @(), $false, "TestRepo", $null
+                    )
                 }
                 
                 Mock Get-PSResource { $null }
@@ -200,13 +196,9 @@ Describe "Install-PSResourcePinned" {
                 # Mock Build-RemoteDependencyGraph to add a prerelease module to the graph
                 Mock Build-RemoteDependencyGraph {
                     param($ModuleName, $ModuleVersion, $Graph)
-                    $Graph["$ModuleName@$ModuleVersion"] = @{
-                        Name = $ModuleName
-                        Version = "1.0.0-dev"  # Full version with prerelease
-                        Dependencies = [System.Collections.ArrayList]@()
-                        Repository = "TestRepo"
-                        NotFound = $false
-                    }
+                    $Graph["$ModuleName@$ModuleVersion"] = [DependencyGraphNode]::new(
+                        $ModuleName, "1.0.0-dev", @(), $false, "TestRepo", $null  # Full version with prerelease
+                    )
                 }
                 
                 # Mock Get-PSResource to return an installed prerelease version
@@ -231,13 +223,9 @@ Describe "Install-PSResourcePinned" {
             InModuleScope Microsoft.AVS.CDR {
                 Mock Build-RemoteDependencyGraph {
                     param($ModuleName, $ModuleVersion, $Graph)
-                    $Graph["$ModuleName@$ModuleVersion"] = @{
-                        Name = $ModuleName
-                        Version = "2.0.0-beta"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        Repository = "TestRepo"
-                        NotFound = $false
-                    }
+                    $Graph["$ModuleName@$ModuleVersion"] = [DependencyGraphNode]::new(
+                        $ModuleName, "2.0.0-beta", @(), $false, "TestRepo", $null
+                    )
                 }
                 
                 # Mock Get-PSResource to return a different version
@@ -262,13 +250,9 @@ Describe "Install-PSResourcePinned" {
             InModuleScope Microsoft.AVS.CDR {
                 Mock Build-RemoteDependencyGraph {
                     param($ModuleName, $ModuleVersion, $Graph)
-                    $Graph["$ModuleName@$ModuleVersion"] = @{
-                        Name = $ModuleName
-                        Version = "1.0.0-alpha"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        Repository = "TestRepo"
-                        NotFound = $false
-                    }
+                    $Graph["$ModuleName@$ModuleVersion"] = [DependencyGraphNode]::new(
+                        $ModuleName, "1.0.0-alpha", @(), $false, "TestRepo", $null
+                    )
                 }
                 
                 Mock Get-PSResource { $null }
@@ -593,7 +577,7 @@ Describe "Import-ModulePinned" {
 
         It "Should throw when module is not installed" {
             { Import-ModulePinned -Name "NonExistentModule12345" -RequiredVersion "1.0.0" } | 
-                Should -Throw -ExpectedMessage "*Module not found: NonExistentModule12345 version 1.0.0*"
+                Should -Throw -ExpectedMessage "*not found*"
         }
 
         AfterEach {
@@ -1062,11 +1046,9 @@ Describe "Topological Dependency Loading" {
         It "Should return single module for graph with no dependencies" {
             InModuleScope Microsoft.AVS.CDR {
                 $graph = @{
-                    "ModuleA@1.0.0" = @{
-                        Name = "ModuleA"
-                        Version = "1.0.0"
-                        Dependencies = @()
-                    }
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleA", "1.0.0", @(), $false, $null, $null
+                    )
                 }
                 
                 $result = @(Get-TopologicalOrder -Graph $graph)
@@ -1080,21 +1062,15 @@ Describe "Topological Dependency Loading" {
                 # A depends on B, B depends on C
                 # C -> B -> A (C should be imported first)
                 $graph = @{
-                    "ModuleA@1.0.0" = @{
-                        Name = "ModuleA"
-                        Version = "1.0.0"
-                        Dependencies = @("ModuleB@1.0.0")
-                    }
-                    "ModuleB@1.0.0" = @{
-                        Name = "ModuleB"
-                        Version = "1.0.0"
-                        Dependencies = @("ModuleC@1.0.0")
-                    }
-                    "ModuleC@1.0.0" = @{
-                        Name = "ModuleC"
-                        Version = "1.0.0"
-                        Dependencies = @()
-                    }
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleA", "1.0.0", @("ModuleB@1.0.0"), $false, $null, $null
+                    )
+                    "ModuleB@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleB", "1.0.0", @("ModuleC@1.0.0"), $false, $null, $null
+                    )
+                    "ModuleC@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleC", "1.0.0", @(), $false, $null, $null
+                    )
                 }
                 
                 $result = Get-TopologicalOrder -Graph $graph
@@ -1119,26 +1095,18 @@ Describe "Topological Dependency Loading" {
                 #      \ /
                 #       D
                 $graph = @{
-                    "ModuleA@1.0.0" = @{
-                        Name = "ModuleA"
-                        Version = "1.0.0"
-                        Dependencies = @("ModuleB@1.0.0", "ModuleC@1.0.0")
-                    }
-                    "ModuleB@1.0.0" = @{
-                        Name = "ModuleB"
-                        Version = "1.0.0"
-                        Dependencies = @("ModuleD@1.0.0")
-                    }
-                    "ModuleC@1.0.0" = @{
-                        Name = "ModuleC"
-                        Version = "1.0.0"
-                        Dependencies = @("ModuleD@1.0.0")
-                    }
-                    "ModuleD@1.0.0" = @{
-                        Name = "ModuleD"
-                        Version = "1.0.0"
-                        Dependencies = @()
-                    }
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleA", "1.0.0", @("ModuleB@1.0.0", "ModuleC@1.0.0"), $false, $null, $null
+                    )
+                    "ModuleB@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleB", "1.0.0", @("ModuleD@1.0.0"), $false, $null, $null
+                    )
+                    "ModuleC@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleC", "1.0.0", @("ModuleD@1.0.0"), $false, $null, $null
+                    )
+                    "ModuleD@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleD", "1.0.0", @(), $false, $null, $null
+                    )
                 }
                 
                 $result = Get-TopologicalOrder -Graph $graph
@@ -1161,21 +1129,15 @@ Describe "Topological Dependency Loading" {
             InModuleScope Microsoft.AVS.CDR {
                 # Circular: A -> B -> C -> A
                 $graph = @{
-                    "ModuleA@1.0.0" = @{
-                        Name = "ModuleA"
-                        Version = "1.0.0"
-                        Dependencies = @("ModuleB@1.0.0")
-                    }
-                    "ModuleB@1.0.0" = @{
-                        Name = "ModuleB"
-                        Version = "1.0.0"
-                        Dependencies = @("ModuleC@1.0.0")
-                    }
-                    "ModuleC@1.0.0" = @{
-                        Name = "ModuleC"
-                        Version = "1.0.0"
-                        Dependencies = @("ModuleA@1.0.0")
-                    }
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleA", "1.0.0", @("ModuleB@1.0.0"), $false, $null, $null
+                    )
+                    "ModuleB@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleB", "1.0.0", @("ModuleC@1.0.0"), $false, $null, $null
+                    )
+                    "ModuleC@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleC", "1.0.0", @("ModuleA@1.0.0"), $false, $null, $null
+                    )
                 }
                 
                 # Should produce warning but not throw
@@ -1189,26 +1151,18 @@ Describe "Topological Dependency Loading" {
             InModuleScope Microsoft.AVS.CDR {
                 # Two independent chains: A->B and C->D
                 $graph = @{
-                    "ModuleA@1.0.0" = @{
-                        Name = "ModuleA"
-                        Version = "1.0.0"
-                        Dependencies = @("ModuleB@1.0.0")
-                    }
-                    "ModuleB@1.0.0" = @{
-                        Name = "ModuleB"
-                        Version = "1.0.0"
-                        Dependencies = @()
-                    }
-                    "ModuleC@1.0.0" = @{
-                        Name = "ModuleC"
-                        Version = "1.0.0"
-                        Dependencies = @("ModuleD@1.0.0")
-                    }
-                    "ModuleD@1.0.0" = @{
-                        Name = "ModuleD"
-                        Version = "1.0.0"
-                        Dependencies = @()
-                    }
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleA", "1.0.0", @("ModuleB@1.0.0"), $false, $null, $null
+                    )
+                    "ModuleB@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleB", "1.0.0", @(), $false, $null, $null
+                    )
+                    "ModuleC@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleC", "1.0.0", @("ModuleD@1.0.0"), $false, $null, $null
+                    )
+                    "ModuleD@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleD", "1.0.0", @(), $false, $null, $null
+                    )
                 }
                 
                 $result = Get-TopologicalOrder -Graph $graph
@@ -1229,26 +1183,18 @@ Describe "Topological Dependency Loading" {
             InModuleScope Microsoft.AVS.CDR {
                 # Diamond pattern where D is referenced by both B and C
                 $graph = @{
-                    "ModuleA@1.0.0" = @{
-                        Name = "ModuleA"
-                        Version = "1.0.0"
-                        Dependencies = @("ModuleB@1.0.0", "ModuleC@1.0.0")
-                    }
-                    "ModuleB@1.0.0" = @{
-                        Name = "ModuleB"
-                        Version = "1.0.0"
-                        Dependencies = @("ModuleD@1.0.0")
-                    }
-                    "ModuleC@1.0.0" = @{
-                        Name = "ModuleC"
-                        Version = "1.0.0"
-                        Dependencies = @("ModuleD@1.0.0")
-                    }
-                    "ModuleD@1.0.0" = @{
-                        Name = "ModuleD"
-                        Version = "1.0.0"
-                        Dependencies = @()
-                    }
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleA", "1.0.0", @("ModuleB@1.0.0", "ModuleC@1.0.0"), $false, $null, $null
+                    )
+                    "ModuleB@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleB", "1.0.0", @("ModuleD@1.0.0"), $false, $null, $null
+                    )
+                    "ModuleC@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleC", "1.0.0", @("ModuleD@1.0.0"), $false, $null, $null
+                    )
+                    "ModuleD@1.0.0" = [DependencyGraphNode]::new(
+                        "ModuleD", "1.0.0", @(), $false, $null, $null
+                    )
                 }
                 
                 $result = @(Get-TopologicalOrder -Graph $graph)
@@ -1342,30 +1288,10 @@ Describe "Topological Dependency Loading" {
             InModuleScope Microsoft.AVS.CDR {
                 # Graph with same module at different versions
                 $graph = @{
-                    "ModuleA@1.0.0" = @{
-                        Name = "ModuleA"
-                        Version = "1.0.0"
-                        Dependencies = @("SharedDep@1.0.0")
-                        NotFound = $false
-                    }
-                    "ModuleB@1.0.0" = @{
-                        Name = "ModuleB"
-                        Version = "1.0.0"
-                        Dependencies = @("SharedDep@2.0.0")
-                        NotFound = $false
-                    }
-                    "SharedDep@1.0.0" = @{
-                        Name = "SharedDep"
-                        Version = "1.0.0"
-                        Dependencies = @()
-                        NotFound = $false
-                    }
-                    "SharedDep@2.0.0" = @{
-                        Name = "SharedDep"
-                        Version = "2.0.0"
-                        Dependencies = @()
-                        NotFound = $false
-                    }
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new("ModuleA", "1.0.0", @("SharedDep@1.0.0"), $false, $null, $null)
+                    "ModuleB@1.0.0" = [DependencyGraphNode]::new("ModuleB", "1.0.0", @("SharedDep@2.0.0"), $false, $null, $null)
+                    "SharedDep@1.0.0" = [DependencyGraphNode]::new("SharedDep", "1.0.0", @(), $false, $null, $null)
+                    "SharedDep@2.0.0" = [DependencyGraphNode]::new("SharedDep", "2.0.0", @(), $false, $null, $null)
                 }
                 
                 Resolve-DiamondDependencies -Graph $graph
@@ -1382,18 +1308,8 @@ Describe "Topological Dependency Loading" {
         It "Should not modify graph with no version conflicts" {
             InModuleScope Microsoft.AVS.CDR {
                 $graph = @{
-                    "ModuleA@1.0.0" = @{
-                        Name = "ModuleA"
-                        Version = "1.0.0"
-                        Dependencies = @("ModuleB@1.0.0")
-                        NotFound = $false
-                    }
-                    "ModuleB@1.0.0" = @{
-                        Name = "ModuleB"
-                        Version = "1.0.0"
-                        Dependencies = @()
-                        NotFound = $false
-                    }
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new("ModuleA", "1.0.0", @("ModuleB@1.0.0"), $false, $null, $null)
+                    "ModuleB@1.0.0" = [DependencyGraphNode]::new("ModuleB", "1.0.0", @(), $false, $null, $null)
                 }
                 
                 $originalCount = $graph.Count
@@ -1408,30 +1324,10 @@ Describe "Topological Dependency Loading" {
             InModuleScope Microsoft.AVS.CDR {
                 # Graph with prerelease versions
                 $graph = @{
-                    "ModuleA@1.0.0" = @{
-                        Name = "ModuleA"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0-alpha")
-                        NotFound = $false
-                    }
-                    "ModuleB@1.0.0" = @{
-                        Name = "ModuleB"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0-beta")
-                        NotFound = $false
-                    }
-                    "SharedDep@1.0.0-alpha" = @{
-                        Name = "SharedDep"
-                        Version = "1.0.0-alpha"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        NotFound = $false
-                    }
-                    "SharedDep@1.0.0-beta" = @{
-                        Name = "SharedDep"
-                        Version = "1.0.0-beta"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        NotFound = $false
-                    }
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new("ModuleA", "1.0.0", @("SharedDep@1.0.0-alpha"), $false, $null, $null)
+                    "ModuleB@1.0.0" = [DependencyGraphNode]::new("ModuleB", "1.0.0", @("SharedDep@1.0.0-beta"), $false, $null, $null)
+                    "SharedDep@1.0.0-alpha" = [DependencyGraphNode]::new("SharedDep", "1.0.0-alpha", @(), $false, $null, $null)
+                    "SharedDep@1.0.0-beta" = [DependencyGraphNode]::new("SharedDep", "1.0.0-beta", @(), $false, $null, $null)
                 }
                 
                 Resolve-DiamondDependencies -Graph $graph
@@ -1449,30 +1345,10 @@ Describe "Topological Dependency Loading" {
             InModuleScope Microsoft.AVS.CDR {
                 # Graph with release vs prerelease
                 $graph = @{
-                    "ModuleA@1.0.0" = @{
-                        Name = "ModuleA"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@("SharedDep@2.0.0-dev")
-                        NotFound = $false
-                    }
-                    "ModuleB@1.0.0" = @{
-                        Name = "ModuleB"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@("SharedDep@2.0.0")
-                        NotFound = $false
-                    }
-                    "SharedDep@2.0.0-dev" = @{
-                        Name = "SharedDep"
-                        Version = "2.0.0-dev"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        NotFound = $false
-                    }
-                    "SharedDep@2.0.0" = @{
-                        Name = "SharedDep"
-                        Version = "2.0.0"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        NotFound = $false
-                    }
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new("ModuleA", "1.0.0", @("SharedDep@2.0.0-dev"), $false, $null, $null)
+                    "ModuleB@1.0.0" = [DependencyGraphNode]::new("ModuleB", "1.0.0", @("SharedDep@2.0.0"), $false, $null, $null)
+                    "SharedDep@2.0.0-dev" = [DependencyGraphNode]::new("SharedDep", "2.0.0-dev", @(), $false, $null, $null)
+                    "SharedDep@2.0.0" = [DependencyGraphNode]::new("SharedDep", "2.0.0", @(), $false, $null, $null)
                 }
                 
                 Resolve-DiamondDependencies -Graph $graph
@@ -1489,30 +1365,10 @@ Describe "Topological Dependency Loading" {
         It "Should handle complex prerelease labels in diamond resolution" {
             InModuleScope Microsoft.AVS.CDR {
                 $graph = @{
-                    "ModuleA@1.0.0" = @{
-                        Name = "ModuleA"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0-alpha.1")
-                        NotFound = $false
-                    }
-                    "ModuleB@1.0.0" = @{
-                        Name = "ModuleB"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0-alpha.2")
-                        NotFound = $false
-                    }
-                    "SharedDep@1.0.0-alpha.1" = @{
-                        Name = "SharedDep"
-                        Version = "1.0.0-alpha.1"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        NotFound = $false
-                    }
-                    "SharedDep@1.0.0-alpha.2" = @{
-                        Name = "SharedDep"
-                        Version = "1.0.0-alpha.2"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        NotFound = $false
-                    }
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new("ModuleA", "1.0.0", @("SharedDep@1.0.0-alpha.1"), $false, $null, $null)
+                    "ModuleB@1.0.0" = [DependencyGraphNode]::new("ModuleB", "1.0.0", @("SharedDep@1.0.0-alpha.2"), $false, $null, $null)
+                    "SharedDep@1.0.0-alpha.1" = [DependencyGraphNode]::new("SharedDep", "1.0.0-alpha.1", @(), $false, $null, $null)
+                    "SharedDep@1.0.0-alpha.2" = [DependencyGraphNode]::new("SharedDep", "1.0.0-alpha.2", @(), $false, $null, $null)
                 }
                 
                 Resolve-DiamondDependencies -Graph $graph
@@ -1527,30 +1383,10 @@ Describe "Topological Dependency Loading" {
             InModuleScope Microsoft.AVS.CDR {
                 # Graph where one version is not found but a higher version exists
                 $graph = @{
-                    "ModuleA@1.0.0" = @{
-                        Name = "ModuleA"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0")
-                        NotFound = $false
-                    }
-                    "ModuleB@1.0.0" = @{
-                        Name = "ModuleB"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@("SharedDep@2.0.0")
-                        NotFound = $false
-                    }
-                    "SharedDep@1.0.0" = @{
-                        Name = "SharedDep"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        NotFound = $true  # This version doesn't exist in feed
-                    }
-                    "SharedDep@2.0.0" = @{
-                        Name = "SharedDep"
-                        Version = "2.0.0"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        NotFound = $false  # This version exists
-                    }
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new("ModuleA", "1.0.0", @("SharedDep@1.0.0"), $false, $null, $null)
+                    "ModuleB@1.0.0" = [DependencyGraphNode]::new("ModuleB", "1.0.0", @("SharedDep@2.0.0"), $false, $null, $null)
+                    "SharedDep@1.0.0" = [DependencyGraphNode]::new("SharedDep", "1.0.0", @(), $true, $null, $null)  # Not found
+                    "SharedDep@2.0.0" = [DependencyGraphNode]::new("SharedDep", "2.0.0", @(), $false, $null, $null)  # Found
                 }
                 
                 # Should not throw - the not-found version should be discarded
@@ -1569,30 +1405,10 @@ Describe "Topological Dependency Loading" {
             InModuleScope Microsoft.AVS.CDR {
                 # Graph where higher version is not found but lower version exists
                 $graph = @{
-                    "ModuleA@1.0.0" = @{
-                        Name = "ModuleA"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0")
-                        NotFound = $false
-                    }
-                    "ModuleB@1.0.0" = @{
-                        Name = "ModuleB"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@("SharedDep@2.0.0")
-                        NotFound = $false
-                    }
-                    "SharedDep@1.0.0" = @{
-                        Name = "SharedDep"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        NotFound = $false  # This version exists
-                    }
-                    "SharedDep@2.0.0" = @{
-                        Name = "SharedDep"
-                        Version = "2.0.0"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        NotFound = $true  # Higher version doesn't exist
-                    }
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new("ModuleA", "1.0.0", @("SharedDep@1.0.0"), $false, $null, $null)
+                    "ModuleB@1.0.0" = [DependencyGraphNode]::new("ModuleB", "1.0.0", @("SharedDep@2.0.0"), $false, $null, $null)
+                    "SharedDep@1.0.0" = [DependencyGraphNode]::new("SharedDep", "1.0.0", @(), $false, $null, $null)  # Found
+                    "SharedDep@2.0.0" = [DependencyGraphNode]::new("SharedDep", "2.0.0", @(), $true, $null, $null)  # Not found
                 }
                 
                 # Should not throw - the not-found higher version should be discarded
@@ -1611,18 +1427,8 @@ Describe "Topological Dependency Loading" {
             InModuleScope Microsoft.AVS.CDR {
                 # Graph where all versions are not found
                 $graph = @{
-                    "ModuleA@1.0.0" = @{
-                        Name = "ModuleA"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0")
-                        NotFound = $false
-                    }
-                    "SharedDep@1.0.0" = @{
-                        Name = "SharedDep"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        NotFound = $true  # Not found and no alternative
-                    }
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new("ModuleA", "1.0.0", @("SharedDep@1.0.0"), $false, $null, $null)
+                    "SharedDep@1.0.0" = [DependencyGraphNode]::new("SharedDep", "1.0.0", @(), $true, $null, $null)  # Not found
                 }
                 
                 # Should throw because there's no found version to use
@@ -1634,30 +1440,10 @@ Describe "Topological Dependency Loading" {
             InModuleScope Microsoft.AVS.CDR {
                 # All versions of SharedDep are not found
                 $graph = @{
-                    "ModuleA@1.0.0" = @{
-                        Name = "ModuleA"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0")
-                        NotFound = $false
-                    }
-                    "ModuleB@1.0.0" = @{
-                        Name = "ModuleB"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@("SharedDep@2.0.0")
-                        NotFound = $false
-                    }
-                    "SharedDep@1.0.0" = @{
-                        Name = "SharedDep"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        NotFound = $true
-                    }
-                    "SharedDep@2.0.0" = @{
-                        Name = "SharedDep"
-                        Version = "2.0.0"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        NotFound = $true
-                    }
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new("ModuleA", "1.0.0", @("SharedDep@1.0.0"), $false, $null, $null)
+                    "ModuleB@1.0.0" = [DependencyGraphNode]::new("ModuleB", "1.0.0", @("SharedDep@2.0.0"), $false, $null, $null)
+                    "SharedDep@1.0.0" = [DependencyGraphNode]::new("SharedDep", "1.0.0", @(), $true, $null, $null)
+                    "SharedDep@2.0.0" = [DependencyGraphNode]::new("SharedDep", "2.0.0", @(), $true, $null, $null)
                 }
                 
                 # Should throw because even though we have diamond, both versions are not found
@@ -1669,48 +1455,13 @@ Describe "Topological Dependency Loading" {
             InModuleScope Microsoft.AVS.CDR {
                 # Complex scenario with multiple diamonds
                 $graph = @{
-                    "Root@1.0.0" = @{
-                        Name = "Root"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@("ModuleA@1.0.0", "ModuleB@1.0.0")
-                        NotFound = $false
-                    }
-                    "ModuleA@1.0.0" = @{
-                        Name = "ModuleA"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@("SharedDep@1.0.0", "OtherDep@1.0.0")
-                        NotFound = $false
-                    }
-                    "ModuleB@1.0.0" = @{
-                        Name = "ModuleB"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@("SharedDep@2.0.0", "OtherDep@2.0.0")
-                        NotFound = $false
-                    }
-                    "SharedDep@1.0.0" = @{
-                        Name = "SharedDep"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        NotFound = $true  # Not found
-                    }
-                    "SharedDep@2.0.0" = @{
-                        Name = "SharedDep"
-                        Version = "2.0.0"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        NotFound = $false  # Found
-                    }
-                    "OtherDep@1.0.0" = @{
-                        Name = "OtherDep"
-                        Version = "1.0.0"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        NotFound = $false  # Found
-                    }
-                    "OtherDep@2.0.0" = @{
-                        Name = "OtherDep"
-                        Version = "2.0.0"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        NotFound = $true  # Not found
-                    }
+                    "Root@1.0.0" = [DependencyGraphNode]::new("Root", "1.0.0", @("ModuleA@1.0.0", "ModuleB@1.0.0"), $false, $null, $null)
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new("ModuleA", "1.0.0", @("SharedDep@1.0.0", "OtherDep@1.0.0"), $false, $null, $null)
+                    "ModuleB@1.0.0" = [DependencyGraphNode]::new("ModuleB", "1.0.0", @("SharedDep@2.0.0", "OtherDep@2.0.0"), $false, $null, $null)
+                    "SharedDep@1.0.0" = [DependencyGraphNode]::new("SharedDep", "1.0.0", @(), $true, $null, $null)  # Not found
+                    "SharedDep@2.0.0" = [DependencyGraphNode]::new("SharedDep", "2.0.0", @(), $false, $null, $null)  # Found
+                    "OtherDep@1.0.0" = [DependencyGraphNode]::new("OtherDep", "1.0.0", @(), $false, $null, $null)  # Found
+                    "OtherDep@2.0.0" = [DependencyGraphNode]::new("OtherDep", "2.0.0", @(), $true, $null, $null)  # Not found
                 }
                 
                 # Should succeed - each diamond has at least one found version
@@ -1740,41 +1491,13 @@ Describe "Topological Dependency Loading" {
                 # VCDA.AVS -> Management -> Core@12.7 -> Cis.Core -> Vim -> Common@12.7
                 #                        -> Hcx@12.7 -> Core@12.7 (same)
                 $graph = @{
-                    "VMware.VCDA.AVS@1.0.3" = @{
-                        Name = "VMware.VCDA.AVS"
-                        Version = "1.0.3"
-                        Dependencies = @("Microsoft.AVS.Management@5.3.99")
-                    }
-                    "Microsoft.AVS.Management@5.3.99" = @{
-                        Name = "Microsoft.AVS.Management"
-                        Version = "5.3.99"
-                        Dependencies = @("VMware.VimAutomation.Core@12.7.0", "VMware.VimAutomation.Hcx@12.7.0")
-                    }
-                    "VMware.VimAutomation.Core@12.7.0" = @{
-                        Name = "VMware.VimAutomation.Core"
-                        Version = "12.7.0"
-                        Dependencies = @("VMware.VimAutomation.Cis.Core@12.7.0")
-                    }
-                    "VMware.VimAutomation.Hcx@12.7.0" = @{
-                        Name = "VMware.VimAutomation.Hcx"
-                        Version = "12.7.0"
-                        Dependencies = @("VMware.VimAutomation.Core@12.7.0")
-                    }
-                    "VMware.VimAutomation.Cis.Core@12.7.0" = @{
-                        Name = "VMware.VimAutomation.Cis.Core"
-                        Version = "12.7.0"
-                        Dependencies = @("VMware.Vim@7.0.3")
-                    }
-                    "VMware.Vim@7.0.3" = @{
-                        Name = "VMware.Vim"
-                        Version = "7.0.3"
-                        Dependencies = @("VMware.VimAutomation.Common@12.7.0")
-                    }
-                    "VMware.VimAutomation.Common@12.7.0" = @{
-                        Name = "VMware.VimAutomation.Common"
-                        Version = "12.7.0"
-                        Dependencies = @()
-                    }
+                    "VMware.VCDA.AVS@1.0.3" = [DependencyGraphNode]::new("VMware.VCDA.AVS", "1.0.3", @("Microsoft.AVS.Management@5.3.99"), $false, $null, $null)
+                    "Microsoft.AVS.Management@5.3.99" = [DependencyGraphNode]::new("Microsoft.AVS.Management", "5.3.99", @("VMware.VimAutomation.Core@12.7.0", "VMware.VimAutomation.Hcx@12.7.0"), $false, $null, $null)
+                    "VMware.VimAutomation.Core@12.7.0" = [DependencyGraphNode]::new("VMware.VimAutomation.Core", "12.7.0", @("VMware.VimAutomation.Cis.Core@12.7.0"), $false, $null, $null)
+                    "VMware.VimAutomation.Hcx@12.7.0" = [DependencyGraphNode]::new("VMware.VimAutomation.Hcx", "12.7.0", @("VMware.VimAutomation.Core@12.7.0"), $false, $null, $null)
+                    "VMware.VimAutomation.Cis.Core@12.7.0" = [DependencyGraphNode]::new("VMware.VimAutomation.Cis.Core", "12.7.0", @("VMware.Vim@7.0.3"), $false, $null, $null)
+                    "VMware.Vim@7.0.3" = [DependencyGraphNode]::new("VMware.Vim", "7.0.3", @("VMware.VimAutomation.Common@12.7.0"), $false, $null, $null)
+                    "VMware.VimAutomation.Common@12.7.0" = [DependencyGraphNode]::new("VMware.VimAutomation.Common", "12.7.0", @(), $false, $null, $null)
                 }
                 
                 $result = Get-TopologicalOrder -Graph $graph
@@ -2069,13 +1792,9 @@ Describe "Save-PSResourcePinned" {
                 Mock Build-RemoteDependencyGraph {
                     param($ModuleName, $ModuleVersion, $Graph, $RedirectMap, $Repository, $Credential, $Prerelease)
                     
-                    $Graph["$ModuleName@$ModuleVersion"] = @{
-                        Name = $ModuleName
-                        Version = "1.0.0-dev"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        Repository = "TestRepo"
-                        NotFound = $false
-                    }
+                    $Graph["$ModuleName@$ModuleVersion"] = [DependencyGraphNode]::new(
+                        $ModuleName, "1.0.0-dev", @(), $false, "TestRepo", $null
+                    )
                 }
                 
                 Mock Save-PSResource { }
@@ -2093,13 +1812,9 @@ Describe "Save-PSResourcePinned" {
                 
                 Mock Build-RemoteDependencyGraph {
                     param($ModuleName, $ModuleVersion, $Graph)
-                    $Graph["$ModuleName@$ModuleVersion"] = @{
-                        Name = $ModuleName
-                        Version = "1.0.0-beta"
-                        Dependencies = [System.Collections.ArrayList]@()
-                        Repository = "TestRepo"
-                        NotFound = $false
-                    }
+                    $Graph["$ModuleName@$ModuleVersion"] = [DependencyGraphNode]::new(
+                        $ModuleName, "1.0.0-beta", @(), $false, "TestRepo", $null
+                    )
                 }
                 
                 Mock Save-PSResource { }
@@ -2749,6 +2464,97 @@ Describe "Build-InstalledDependencyGraph" {
                 $graph.ContainsKey("TopModule@1.0.0") | Should -BeTrue
                 $graph.ContainsKey("MidModule@1.0.0") | Should -BeTrue
                 $graph.ContainsKey("BaseModule@1.0.0") | Should -BeTrue
+            }
+        }
+
+        It "Should mark missing modules as NotFound instead of throwing" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Get-PSResource {
+                    param($Name, $Version)
+                    # Only TopModule is installed; MissingDep is not
+                    if ($Name -eq "TopModule" -and $Version -eq "1.0.0") {
+                        [PSCustomObject]@{
+                            Name = "TopModule"
+                            Version = [version]"1.0.0"
+                            InstalledLocation = "/fake/path/to/modules"
+                            Dependencies = @(
+                                [PSCustomObject]@{ Name = "MissingDep"; VersionRange = "1.0.0" }
+                            )
+                        }
+                    }
+                    # MissingDep returns nothing
+                }
+
+                $graph = @{}
+                $redirectMap = @{}
+                Build-InstalledDependencyGraph -ModuleName "TopModule" -ModuleVersion "1.0.0" -Graph $graph -RedirectMap $redirectMap
+
+                $graph.Count | Should -Be 2
+                $graph["TopModule@1.0.0"].NotFound | Should -BeFalse
+                $graph["MissingDep@1.0.0"].NotFound | Should -BeTrue
+            }
+        }
+
+        It "Should allow diamond resolution to pick installed version over missing one" {
+            InModuleScope Microsoft.AVS.CDR {
+                # Diamond: A -> B, A -> C, B -> D@1.0, C -> D@2.0
+                # Only D@2.0 is installed (D@1.0 is not)
+                Mock Get-PSResource {
+                    param($Name, $Version)
+                    switch ("$Name@$Version") {
+                        "A@1.0.0" {
+                            [PSCustomObject]@{
+                                Name = "A"; Version = [version]"1.0.0"
+                                InstalledLocation = "/fake/modules"
+                                Dependencies = @(
+                                    [PSCustomObject]@{ Name = "B"; VersionRange = "1.0.0" },
+                                    [PSCustomObject]@{ Name = "C"; VersionRange = "1.0.0" }
+                                )
+                            }
+                        }
+                        "B@1.0.0" {
+                            [PSCustomObject]@{
+                                Name = "B"; Version = [version]"1.0.0"
+                                InstalledLocation = "/fake/modules"
+                                Dependencies = @(
+                                    [PSCustomObject]@{ Name = "D"; VersionRange = "1.0.0" }
+                                )
+                            }
+                        }
+                        "C@1.0.0" {
+                            [PSCustomObject]@{
+                                Name = "C"; Version = [version]"1.0.0"
+                                InstalledLocation = "/fake/modules"
+                                Dependencies = @(
+                                    [PSCustomObject]@{ Name = "D"; VersionRange = "2.0.0" }
+                                )
+                            }
+                        }
+                        "D@2.0.0" {
+                            [PSCustomObject]@{
+                                Name = "D"; Version = [version]"2.0.0"
+                                InstalledLocation = "/fake/modules"
+                                Dependencies = @()
+                            }
+                        }
+                        # D@1.0.0 returns nothing (not installed)
+                    }
+                }
+
+                $graph = @{}
+                $redirectMap = @{}
+                Build-InstalledDependencyGraph -ModuleName "A" -ModuleVersion "1.0.0" -Graph $graph -RedirectMap $redirectMap
+
+                # Both D@1.0.0 (NotFound) and D@2.0.0 (found) should be in the graph
+                $graph.ContainsKey("D@1.0.0") | Should -BeTrue
+                $graph.ContainsKey("D@2.0.0") | Should -BeTrue
+                $graph["D@1.0.0"].NotFound | Should -BeTrue
+                $graph["D@2.0.0"].NotFound | Should -BeFalse
+
+                # Diamond resolution should succeed, keeping only D@2.0.0
+                { Resolve-DiamondDependencies -Graph $graph } | Should -Not -Throw
+                $graph.ContainsKey("D@1.0.0") | Should -BeFalse
+                $graph.ContainsKey("D@2.0.0") | Should -BeTrue
             }
         }
     }
