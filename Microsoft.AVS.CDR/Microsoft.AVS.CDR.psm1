@@ -1,6 +1,31 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+class DependencyGraphNode {
+    [string]$Name
+    [string]$Version
+    [System.Collections.ArrayList]$Dependencies
+    [bool]$NotFound
+    [string]$Repository
+    [string]$InstalledLocation
+
+    DependencyGraphNode(
+        [string]$Name,
+        [string]$Version,
+        [System.Collections.IList]$Dependencies,
+        [bool]$NotFound,
+        [string]$Repository,
+        [string]$InstalledLocation
+    ) {
+        $this.Name = $Name
+        $this.Version = $Version
+        $this.Dependencies = [System.Collections.ArrayList]::new($Dependencies)
+        $this.NotFound = $NotFound
+        $this.Repository = $Repository
+        $this.InstalledLocation = $InstalledLocation
+    }
+}
+
 # Default redirect map - keyed on dependency name@version or name only
 # falls back to name-only for missing versions
 $script:defaultRedirectMap = @{
@@ -370,13 +395,14 @@ function Build-RemoteDependencyGraph {
     Write-Verbose "${indent}Building graph for: $ModuleName version $ModuleVersion"
     
     # Initialize graph node
-    $graphNode = @{
-        Name = $ModuleName
-        Version = $ModuleVersion
-        Dependencies = [System.Collections.ArrayList]@()
-        Repository = if ($moduleInfo) { $moduleInfo.Repository } else { $null }
-        NotFound = $notFound
-    }
+    $graphNode = [DependencyGraphNode]::new(
+        $ModuleName,
+        $ModuleVersion,
+        [System.Collections.ArrayList]@(),
+        $notFound,
+        $(if ($moduleInfo) { $moduleInfo.Repository } else { $null }),
+        $null
+    )
     $Graph[$moduleKey] = $graphNode
     
     # If module was not found, we can't get its dependencies - skip
@@ -699,24 +725,34 @@ function Build-InstalledDependencyGraph {
     # Find the installed module
     $installedModule = Get-PSResource -Name $ModuleName -Version $ModuleVersion -ErrorAction SilentlyContinue | Select-Object -First 1
     
+    $notFound = $false
     if (-not $installedModule) {
-        throw "Module not found: $ModuleName version $ModuleVersion. Please install using Install-PSResourcePinned first."
+        # Mark as not found - may be resolved later if a higher version exists (diamond dependency)
+        Write-Verbose "${indent}Module not installed: $ModuleName version $ModuleVersion (will validate after resolution)"
+        $notFound = $true
     }
     
-    $actualVersion = $installedModule.Version.ToString()
+    $actualVersion = if ($installedModule) { $installedModule.Version.ToString() } else { $ModuleVersion }
     Write-Verbose "${indent}Building graph for: $ModuleName version $actualVersion"
     
     # PSResource InstalledLocation is the base modules folder, need to add ModuleName/Version subpath
-    $moduleVersionPath = Join-Path $installedModule.InstalledLocation $ModuleName $actualVersion
+    $moduleVersionPath = if ($installedModule) { Join-Path $installedModule.InstalledLocation $ModuleName $actualVersion } else { $null }
     
     # Initialize graph node
-    $graphNode = @{
-        Name = $ModuleName
-        Version = $actualVersion
-        Dependencies = [System.Collections.ArrayList]@()
-        InstalledLocation = $moduleVersionPath
-    }
+    $graphNode = [DependencyGraphNode]::new(
+        $ModuleName,
+        $actualVersion,
+        [System.Collections.ArrayList]@(),
+        $notFound,
+        $null,
+        $moduleVersionPath
+    )
     $Graph[$moduleKey] = $graphNode
+    
+    # If module was not found, we can't get its dependencies - skip
+    if ($notFound) {
+        return
+    }
     
     # Get dependencies from Get-PSResource
     $deps = $installedModule.Dependencies
