@@ -55,7 +55,7 @@
         @{ModuleName = 'VMware.vSphere.SsoAdmin'; RequiredVersion = '1.4.0' }
         @{ModuleName = 'VMware.VimAutomation.Core'; RequiredVersion = '13.3.0.24145081' }
         @{ModuleName = 'VMware.VimAutomation.Storage'; RequiredVersion = '13.3.0.24145081' }
-        @{ModuleName = 'Posh-SSH'; ModuleVersion = '3.2.7' })
+        @{ModuleName = 'Posh-SSH'; RequiredVersion = '3.2.7' })
     
     # Assemblies that must be loaded prior to importing this module
     # RequiredAssemblies = @()
