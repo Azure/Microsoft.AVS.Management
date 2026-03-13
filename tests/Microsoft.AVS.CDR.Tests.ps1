@@ -752,6 +752,10 @@ Describe "Module Manifest" {
         $manifest.ExportedFunctions.Keys | Should -Contain "Import-ModulePinned"
     }
 
+    It "Should export Import-PSResourceDependencies function" {
+        $manifest.ExportedFunctions.Keys | Should -Contain "Import-PSResourceDependencies"
+    }
+
     It "Should have valid version" {
         $manifest.Version | Should -Not -BeNullOrEmpty
         $manifest.Version.GetType().Name | Should -Be "Version"
@@ -1999,6 +2003,170 @@ Describe "Install-PSResourceDependencies" {
         } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
 
         AfterEach {
+            if (Test-Path $script:testManifestDir) {
+                Remove-Item $script:testManifestDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+}
+
+Describe "Import-PSResourceDependencies" {
+    BeforeAll {
+        $script:testManifestDir = Join-Path $TestDrive "ImportTestModule"
+        $script:testManifestPath = Join-Path $script:testManifestDir "ImportTestModule.psd1"
+    }
+
+    Context "Input Validation" {
+        It "Should throw when manifest file doesn't exist" {
+            $nonExistentManifest = Join-Path $TestDrive "NonExistent.psd1"
+            { Import-PSResourceDependencies -ManifestPath $nonExistentManifest } |
+                Should -Throw -ExpectedMessage "*not found*"
+        }
+
+        It "Should throw when file is not a .psd1 file" {
+            $notPsd1File = Join-Path $TestDrive "test.txt"
+            "test content" | Set-Content $notPsd1File
+
+            { Import-PSResourceDependencies -ManifestPath $notPsd1File } |
+                Should -Throw -ExpectedMessage "*.psd1*"
+        }
+
+        It "Should handle manifest with no RequiredModules gracefully" {
+            New-Item -Path $script:testManifestDir -ItemType Directory -Force | Out-Null
+
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'f1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'ImportTestModule.psm1'
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+
+            { Import-PSResourceDependencies -ManifestPath $script:testManifestPath } | Should -Not -Throw
+        }
+
+        It "Should throw when redirect map file doesn't exist" {
+            New-Item -Path $script:testManifestDir -ItemType Directory -Force | Out-Null
+
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'f1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'ImportTestModule.psm1'
+    RequiredModules = @('SomeModule')
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+            $nonExistentMapPath = Join-Path $TestDrive "non-existent-map.json"
+
+            {
+                Import-PSResourceDependencies -ManifestPath $script:testManifestPath `
+                    -RedirectMapPath $nonExistentMapPath -ErrorAction Stop
+            } | Should -Throw -ExpectedMessage "*not found*"
+        }
+
+        AfterEach {
+            if (Test-Path $script:testManifestDir) {
+                Remove-Item $script:testManifestDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    Context "Module Import" -Tag 'Integration' {
+        BeforeAll {
+            if (-not $env:SKIP_INTEGRATION_TESTS) {
+                $installed = Get-PSResource -Name $script:PSAnalyser.Name |
+                    Where-Object { $_.Version.ToString() -eq $script:PSAnalyser.Version }
+
+                if (-not $installed) {
+                    Install-PSResourcePinned -Name $script:PSAnalyser.Name -RequiredVersion $script:PSAnalyser.Version -Repository $script:repository -Credential $script:credential
+                }
+            }
+        }
+
+        BeforeEach {
+            New-Item -Path $script:testManifestDir -ItemType Directory -Force | Out-Null
+
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'f1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'ImportTestModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = '$($script:PSAnalyser.Name)'; RequiredVersion = '$($script:PSAnalyser.Version)' }
+    )
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+        }
+
+        It "Should import dependencies and load them at exact version" {
+            { Import-PSResourceDependencies -ManifestPath $script:testManifestPath } | Should -Not -Throw
+
+            $loadedModule = Get-Module -Name $script:PSAnalyser.Name
+            $loadedModule | Should -Not -BeNullOrEmpty
+            $loadedModule.Version.ToString() | Should -Be $script:PSAnalyser.Version
+        } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
+
+        It "Should return module info when PassThru is specified" {
+            $result = Import-PSResourceDependencies -ManifestPath $script:testManifestPath -PassThru -Force
+            $result | Should -Not -BeNullOrEmpty
+        } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
+
+        It "Should reimport modules when Force is specified" {
+            Import-PSResourceDependencies -ManifestPath $script:testManifestPath
+            { Import-PSResourceDependencies -ManifestPath $script:testManifestPath -Force } | Should -Not -Throw
+        } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
+
+        AfterEach {
+            Get-Module -Name $script:PSAnalyser.Name -ErrorAction SilentlyContinue | Remove-Module -Force
+            if (Test-Path $script:testManifestDir) {
+                Remove-Item $script:testManifestDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    Context "Transitive Dependency Loading" -Tag 'Integration' {
+        BeforeAll {
+            if (-not $env:SKIP_INTEGRATION_TESTS) {
+                $installed = Get-PSResource -Name $script:MSAVSManagement.Name |
+                    Where-Object { $_.Version.ToString() -eq $script:MSAVSManagement.Version }
+
+                if (-not $installed) {
+                    Install-PSResourcePinned -Name $script:MSAVSManagement.Name -RequiredVersion $script:MSAVSManagement.Version -Repository $script:repository -Credential $script:credential
+                }
+            }
+        }
+
+        It "Should import module and all transitive dependencies at exact versions" {
+            New-Item -Path $script:testManifestDir -ItemType Directory -Force | Out-Null
+
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'f1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'ImportTestModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = '$($script:MSAVSManagement.Name)'; RequiredVersion = '$($script:MSAVSManagement.Version)' }
+    )
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+
+            Import-PSResourceDependencies -ManifestPath $script:testManifestPath -Force
+
+            $loadedModule = Get-Module -Name $script:MSAVSManagement.Name
+            $loadedModule | Should -Not -BeNullOrEmpty
+            $loadedModule.Version.ToString() | Should -Be $script:MSAVSManagement.Version
+        } -Skip:($env:SKIP_INTEGRATION_TESTS -eq 'true')
+
+        AfterEach {
+            Get-Module -Name $script:MSAVSManagement.Name -ErrorAction SilentlyContinue | Remove-Module -Force
             if (Test-Path $script:testManifestDir) {
                 Remove-Item $script:testManifestDir -Recurse -Force -ErrorAction SilentlyContinue
             }

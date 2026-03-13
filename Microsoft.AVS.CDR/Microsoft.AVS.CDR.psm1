@@ -1340,6 +1340,189 @@ function Install-PSResourceDependencies {
     Write-Host "Successfully installed all dependencies from manifest"
 }
 
+function Import-PSResourceDependencies {
+    <#
+    .SYNOPSIS
+        Imports dependencies from a PowerShell module manifest with explicit, recursive dependency loading at required versions.
+    
+    .DESCRIPTION
+        This function reads a .psd1 module manifest file and imports all RequiredModules
+        and their transitive dependencies using the same pinned dependency resolution logic
+        as Import-ModulePinned. It builds the installed dependency graph, resolves diamond
+        dependencies, and pre-loads all modules in topological order with exact versions.
+        
+    .PARAMETER ManifestPath
+        The path to the .psd1 module manifest file.
+        
+    .PARAMETER RedirectMapPath
+        Path to JSON file containing version redirects. If not specified, looks for a redirect map
+        in the maps directory based on the manifest's module name and version.
+        
+    .PARAMETER Force
+        Force reimport of modules even if already loaded.
+        
+    .PARAMETER PassThru
+        Returns the imported module info objects.
+        
+    .EXAMPLE
+        Import-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
+        
+    .EXAMPLE
+        Import-PSResourceDependencies -ManifestPath "./MyModule.psd1" -Force -PassThru
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ManifestPath,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$RedirectMapPath,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$Force,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$PassThru
+    )
+    
+    # Validate manifest path
+    if (-not (Test-Path $ManifestPath)) {
+        throw "Manifest file not found: $ManifestPath"
+    }
+    
+    $resolvedPath = Resolve-Path $ManifestPath
+    if (-not $resolvedPath.Path.EndsWith('.psd1')) {
+        throw "File must be a PowerShell module manifest (.psd1): $ManifestPath"
+    }
+    
+    Write-Verbose "Reading manifest from: $resolvedPath"
+    
+    # Parse the manifest
+    $manifest = Import-PowerShellDataFile -Path $resolvedPath
+    
+    # Check if RequiredModules exists and has content
+    $hasRequiredModules = $manifest.ContainsKey('RequiredModules') -and $manifest.RequiredModules -and $manifest.RequiredModules.Count -gt 0
+    if (-not $hasRequiredModules) {
+        Write-Verbose "No RequiredModules found in manifest"
+        return
+    }
+    
+    # Extract module name and version from manifest for redirect map lookup
+    $manifestModuleName = [System.IO.Path]::GetFileNameWithoutExtension($resolvedPath.Path)
+    $manifestModuleVersion = if ($manifest.ModuleVersion) { $manifest.ModuleVersion.ToString() } else { "" }
+    
+    # Load redirect map from file or use default
+    if ($RedirectMapPath) {
+        if (-not (Test-Path $RedirectMapPath)) {
+            throw "Redirect map file not found: $RedirectMapPath"
+        }
+        Write-Verbose "Loading redirect map from: $RedirectMapPath"
+        $redirectMap = Get-Content $RedirectMapPath -Raw | ConvertFrom-Json -AsHashtable
+    }
+    else {
+        Write-Verbose "Looking for redirect map based on manifest: $manifestModuleName version $manifestModuleVersion"
+        $redirectMap = Get-MergedRedirectMap -OuterMap $script:defaultRedirectMap -Name $manifestModuleName -Version $manifestModuleVersion
+    }
+    
+    Write-Verbose "Found $($manifest.RequiredModules.Count) required module(s) in manifest"
+    
+    # Build complete installed dependency graph for all required modules
+    $dependencyGraph = @{}
+    
+    foreach ($requiredModule in $manifest.RequiredModules) {
+        $moduleName = $null
+        $moduleVersion = $null
+        
+        if ($requiredModule -is [string]) {
+            $moduleName = $requiredModule
+        }
+        elseif ($requiredModule -is [hashtable]) {
+            $moduleName = $requiredModule.ModuleName
+            if ($requiredModule.ContainsKey('RequiredVersion')) {
+                $moduleVersion = $requiredModule.RequiredVersion.ToString()
+            }
+            elseif ($requiredModule.ContainsKey('ModuleVersion')) {
+                $moduleVersion = "[$($requiredModule.ModuleVersion), )"
+            }
+        }
+        else {
+            throw "Unrecognized RequiredModule format in manifest: $requiredModule. Expected string or hashtable."
+        }
+        
+        if (-not $moduleName) {
+            throw "RequiredModule entry has no module name: $($requiredModule | ConvertTo-Json -Compress)"
+        }
+        
+        # Apply redirect to resolve version
+        $mergedRedirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $moduleName -Version ($moduleVersion ?? "")
+        $redirectResult = Find-DependencyRedirect -DependencyName $moduleName -DependencyVersion $moduleVersion `
+            -RedirectMap $mergedRedirectMap -Indent ""
+        
+        # Build installed dependency graph for this required module
+        Build-InstalledDependencyGraph -ModuleName $redirectResult.ResolvedName -ModuleVersion $redirectResult.ResolvedVersion `
+            -Graph $dependencyGraph -RedirectMap $mergedRedirectMap
+    }
+    
+    # Resolve diamond dependencies
+    Resolve-DiamondDependencies -Graph $dependencyGraph
+    
+    # Compute topological order
+    Write-Verbose "Computing topological order"
+    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
+    
+    Write-Verbose "Import order ($($topologicalOrder.Count) modules):"
+    for ($i = 0; $i -lt $topologicalOrder.Count; $i++) {
+        Write-Verbose "  $($i + 1). $($topologicalOrder[$i])"
+    }
+    
+    Write-Verbose "Pre-loading all modules in topological order"
+    
+    $importedModules = @{}
+    
+    foreach ($moduleKey in $topologicalOrder) {
+        $node = $dependencyGraph[$moduleKey]
+        $modName = $node.Name
+        $modVersion = $node.Version
+        
+        # Check if already loaded with exact version
+        $loadedModule = Get-Module -Name $modName | Where-Object { $_.Version.ToString() -eq $modVersion }
+        
+        if ($loadedModule -and -not $Force) {
+            Write-Verbose "Already loaded: $modName version $modVersion"
+            $importedModules[$moduleKey] = $loadedModule
+            continue
+        }
+        
+        # Import with exact version, using -Global to ensure modules persist
+        $importParams = @{
+            Name = $modName
+            RequiredVersion = $modVersion
+            ErrorAction = 'Stop'
+            DisableNameChecking = $true
+            Global = $true
+        }
+        
+        if ($Force) {
+            $importParams['Force'] = $true
+        }
+        
+        try {
+            Write-Verbose "Importing: $modName version $modVersion"
+            $imported = Import-Module @importParams -PassThru
+            $importedModules[$moduleKey] = $imported
+        }
+        catch {
+            throw "Failed to import $modName version $($modVersion): $_"
+        }
+    }
+    
+    Write-Verbose "Successfully imported $($importedModules.Count) module(s) from manifest"
+    
+    if ($PassThru) {
+        return $importedModules.Values
+    }
+}
+
 function Import-ModulePinned {
     <#
     .SYNOPSIS
