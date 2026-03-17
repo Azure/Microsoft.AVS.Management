@@ -26,12 +26,9 @@ class DependencyGraphNode {
     }
 }
 
-# Default redirect map - keyed on dependency name@version or name only
-# falls back to name-only for missing versions
 $script:defaultRedirectMap = @{
 }
 
-# Cache for loaded module-specific redirect maps
 $script:moduleMapCache = @{
 }
 
@@ -39,28 +36,12 @@ $script:moduleMapCache = @{
 .SYNOPSIS
     Finds and validates a redirect for a dependency version.
     
-.PARAMETER DependencyName
-    The name of the dependency module.
-    
-.PARAMETER DependencyVersion
-    The version of the dependency (can be exact version, range, or empty).
-    Handles open-ended ranges like "[1.0, )", null/empty versions, exact versions, and exact ranges.
-    
 .PARAMETER RedirectMap
-    The redirect map to search in. The map can contain:
-    - "ModuleName@Version" -> "NewVersion" : Redirects specific version
-    - "ModuleName" -> "Version" : Redirects all versions of the module
-    - "ModuleName@Version" -> "*" : Retains version but normalizes module name casing
-    - "ModuleName" -> "*" : Retains version but normalizes module name casing
-    
-.PARAMETER Indent
-    Indentation string for verbose messages.
+    Map entries: "Name@Version" -> "NewVersion", "Name" -> "Version",
+    "Name@Version" -> "*" or "Name" -> "*" (retain version, normalize casing).
     
 .OUTPUTS
-    Returns a hashtable with:
-    - ResolvedVersion: The version after applying redirects
-    - ResolvedName: The dependency name (may have corrected casing from redirect map)
-    - IsRedirected: Boolean indicating if a redirect was applied
+    Hashtable with ResolvedVersion, ResolvedName, and IsRedirected.
 #>
 function Find-DependencyRedirect {
     param(
@@ -78,14 +59,11 @@ function Find-DependencyRedirect {
         [string]$Indent = ""
     )
     
-    # Check if version is empty/null - this requires conservative resolution
     if ([string]::IsNullOrWhiteSpace($DependencyVersion)) {
-        # Try to resolve from redirect map (name-only)
         if ($RedirectMap.ContainsKey($DependencyName)) {
             $depVersion = $RedirectMap[$DependencyName]
             Write-Verbose "${Indent}Resolved unversioned dependency: $DependencyName -> $depVersion (from redirect map)"
             
-            # Extract corrected casing from redirect map key
             $resolvedName = $DependencyName
             foreach ($entry in $RedirectMap.GetEnumerator()) {
                 if ($entry.Key -eq $DependencyName) {
@@ -105,42 +83,34 @@ function Find-DependencyRedirect {
         }
     }
     
-    # Check if this is an exact version specification
     $isExactVersion = $true
     $normalizedDepVersion = $DependencyVersion
     
-    # Check for version range:
-    # like "[1.0, 1.0]", "[1.0, )", "(, 2.0]", etc.
+    # Version range like "[1.0, 1.0]", "[1.0, )", "(, 2.0]"
     if ($DependencyVersion -match '^(\[|\()([^,]*),\s*([^\]\)]*)(\]|\))$') {
-        # Extract both versions from the range
         $openBracket = $matches[1]
         $minVer = $matches[2]
         $maxVer = $matches[3]
         $closeBracket = $matches[4]
         
         if ($minVer -and $maxVer -and ($minVer -eq $maxVer) -and ($openBracket -eq '[') -and ($closeBracket -eq ']')) {
-            # Exact version like "[1.0, 1.0]"
-            $normalizedDepVersion = $minVer
+            $normalizedDepVersion = $minVer  # exact: [1.0, 1.0]
         }
         elseif ($maxVer -and (-not $minVer)) {
-            # Open-ended range like "(, 2.0]" - not exact
             $isExactVersion = $false
-            $normalizedDepVersion = $maxVer
+            $normalizedDepVersion = $maxVer  # open-ended: (, 2.0]
         }
         elseif ($minVer -and (-not $maxVer)) {
-            # Open-ended range like "[1.0, )" - not exact
             $isExactVersion = $false
-            $normalizedDepVersion = $minVer
+            $normalizedDepVersion = $minVer  # open-ended: [1.0, )
         }
         else {
-            # Any other range like "[1.0, 2.0]" - not exact
             $isExactVersion = $false
             $normalizedDepVersion = $minVer
         }
     }
     
-    # Apply redirect if exists - check name@version first, then name-only fallback
-    # Single iteration to find both potential matches, prioritize version-specific
+    # Check name@version first, then name-only fallback
     $depKeyPattern = "${DependencyName}@${normalizedDepVersion}"
     $versionSpecificEntry = $null
     $nameOnlyEntry = $null
@@ -148,11 +118,10 @@ function Find-DependencyRedirect {
     foreach ($entry in $RedirectMap.GetEnumerator()) {
         if ($entry.Key -eq $depKeyPattern) {
             $versionSpecificEntry = $entry
-            break  # Version-specific is highest priority, can stop
+            break
         }
         elseif ($null -eq $nameOnlyEntry -and $entry.Key -eq $DependencyName) {
             $nameOnlyEntry = $entry
-            # Continue searching for version-specific
         }
     }
     
@@ -162,7 +131,7 @@ function Find-DependencyRedirect {
     if ($matchedEntry) {
         $resolvedVersion = $matchedEntry.Value
         
-        # Handle special "*" value - retain version but normalize dependency name
+        # "*" retains version but normalizes dependency name casing
         if ($resolvedVersion -eq "*") {
             $resolvedVersion = $normalizedDepVersion
             
@@ -182,7 +151,6 @@ function Find-DependencyRedirect {
             }
         }
         
-        # If this is an exact version specification, verify the redirect points to the same version
         if ($isExactVersion -and $resolvedVersion -ne $normalizedDepVersion) {
             throw "${Indent}Cannot redirect exact version dependency '$DependencyName' from version $normalizedDepVersion to $resolvedVersion. Exact version specifications must redirect to the same version or have no redirect."
         }
@@ -213,16 +181,7 @@ function Find-DependencyRedirect {
 
 <#
 .SYNOPSIS
-    Merges redirect maps with proper precedence.
-    
-.PARAMETER OuterMap
-    The outer/parameter map that takes precedence in case of key collision.
-    
-.PARAMETER Name
-    The name of the module to load module-specific map for.
-    
-.PARAMETER Version
-    The version of the module to load module-specific map for.
+    Merges redirect maps — OuterMap takes precedence. Loads module-specific map files from maps/ dir.
 #>
 function Get-MergedRedirectMap {
     param(
@@ -238,19 +197,15 @@ function Get-MergedRedirectMap {
     
     $redirectMap = $OuterMap
     
-    # Handle empty or null version - only try name-only pattern
     if ([string]::IsNullOrWhiteSpace($Version)) {
         $versionPatterns = @()
     }
     else {
-        # Parse version - handle version ranges like "[1.3.9, 1.3.9]", "[1.3.9, )", etc.
         $baseVersion = $Version
         if ($Version -match '[\[\(]([0-9][0-9a-zA-Z.\-]*)') {
-            # Extract the first version number from a version range
             $baseVersion = $matches[1]
         }
         
-        # Extract major and minor using string splitting (supports prerelease versions like "1.0.0-preview")
         $versionParts = $baseVersion -split '[.\-]'
         $major = $versionParts[0]
         $minor = if ($versionParts.Count -gt 1) { $versionParts[1] } else { "0" }
@@ -261,33 +216,26 @@ function Get-MergedRedirectMap {
         )
     }
     
-    # Try each version pattern
     $moduleMap = $null
     foreach ($versionPattern in $versionPatterns) {
         $cacheKey = "$Name@$versionPattern"
         
-        # Check cache for this pattern
         if ($script:moduleMapCache.ContainsKey($cacheKey)) {
             Write-Verbose "Using cached redirect map for: $cacheKey"
             $moduleMap = $script:moduleMapCache[$cacheKey]
             break
         }
         
-        # Check if file exists for this pattern
         $testPath = Join-Path $PSScriptRoot "maps" "$Name@$versionPattern.json"
         if (Test-Path $testPath) {
             Write-Verbose "Loading module-specific redirect map from: $testPath"
             $moduleMap = Get-Content $testPath -Raw | ConvertFrom-Json -AsHashtable
-            
-            # Cache the loaded map under this pattern
             $script:moduleMapCache[$cacheKey] = $moduleMap
             break
         }
     }
     
-    # Merge maps if module-specific map exists
     if ($moduleMap) {
-        # Merge maps with outer map taking precedence
         $mergedMap = @{}
         foreach ($key in $moduleMap.Keys) {
             $mergedMap[$key] = $moduleMap[$key]
@@ -303,33 +251,7 @@ function Get-MergedRedirectMap {
 
 <#
 .SYNOPSIS
-    Builds a complete dependency graph for a module from a remote repository.
-    
-.DESCRIPTION
-    This function builds a dependency graph by recursively querying the repository
-    for module metadata. Unlike Build-DependencyGraph (for installed modules),
-    this uses Find-PSResource to query remote repositories.
-    
-.PARAMETER ModuleName
-    The name of the module.
-    
-.PARAMETER ModuleVersion
-    The version of the module.
-    
-.PARAMETER Graph
-    The hashtable to build the graph into.
-    
-.PARAMETER RedirectMap
-    The redirect map for version resolution.
-    
-.PARAMETER Repository
-    The repository to search in.
-    
-.PARAMETER Credential
-    Credentials for repository access.
-    
-.PARAMETER Depth
-    Current recursion depth for indentation.
+    Builds a dependency graph by recursively querying a remote repository via Find-PSResource.
 #>
 function Build-RemoteDependencyGraph {
     param(
@@ -367,7 +289,6 @@ function Build-RemoteDependencyGraph {
         return
     }
     
-    # Find the module in the repository
     $findParams = @{
         Name = $ModuleName
         Version = $ModuleVersion
@@ -387,14 +308,12 @@ function Build-RemoteDependencyGraph {
     
     $notFound = $false
     if (-not $moduleInfo) {
-        # Mark as not found - may be resolved later if a higher version exists (diamond dependency)
         Write-Verbose "${indent}Module not found in repository: $ModuleName version $ModuleVersion (will validate after resolution)"
         $notFound = $true
     }
     
     Write-Verbose "${indent}Building graph for: $ModuleName version $ModuleVersion"
     
-    # Initialize graph node
     $graphNode = [DependencyGraphNode]::new(
         $ModuleName,
         $ModuleVersion,
@@ -405,12 +324,10 @@ function Build-RemoteDependencyGraph {
     )
     $Graph[$moduleKey] = $graphNode
     
-    # If module was not found, we can't get its dependencies - skip
     if ($notFound) {
         return
     }
     
-    # Get dependencies
     $deps = $moduleInfo.Dependencies
     if (-not $deps -or $deps.Count -eq 0) {
         Write-Verbose "${indent}No dependencies for $ModuleName"
@@ -423,7 +340,6 @@ function Build-RemoteDependencyGraph {
         $depName = $dep.Name
         $depVersion = $dep.VersionRange
         
-        # Apply redirect to resolve version
         $redirectResult = Find-DependencyRedirect -DependencyName $depName -DependencyVersion $depVersion `
             -RedirectMap $RedirectMap -Indent $indent
         
@@ -433,13 +349,10 @@ function Build-RemoteDependencyGraph {
         $depKey = "${resolvedDepName}@${resolvedDepVersion}"
         Write-Verbose "${indent}  Dependency: $depKey"
         
-        # Add to this node's dependencies
         [void]$graphNode.Dependencies.Add($depKey)
         
-        # Merge redirect map for this dependency
         $depRedirectMap = Get-MergedRedirectMap -OuterMap $RedirectMap -Name $resolvedDepName -Version $resolvedDepVersion
         
-        # Recursively build graph for this dependency
         Build-RemoteDependencyGraph -ModuleName $resolvedDepName -ModuleVersion $resolvedDepVersion `
             -Graph $Graph -RedirectMap $depRedirectMap -Repository $Repository -Credential $Credential -Prerelease:$Prerelease -Depth ($Depth + 1)
     }
@@ -447,18 +360,8 @@ function Build-RemoteDependencyGraph {
 
 <#
 .SYNOPSIS
-    Compares two semantic version strings, including prerelease labels.
-    
-.DESCRIPTION
-    Compares version strings that may include prerelease suffixes (e.g., "1.0.0-dev", "2.0.0-beta.1").
-    Returns -1 if Version1 < Version2, 0 if equal, 1 if Version1 > Version2.
-    Prerelease versions are considered lower than their release counterparts (1.0.0-alpha < 1.0.0).
-    
-.PARAMETER Version1
-    The first version string to compare.
-    
-.PARAMETER Version2
-    The second version string to compare.
+    Compares two semver strings including prerelease labels.
+    Returns -1, 0, or 1. Prerelease < release (1.0.0-alpha < 1.0.0).
 #>
 function Compare-SemVer {
     param(
@@ -469,7 +372,6 @@ function Compare-SemVer {
         [string]$Version2
     )
     
-    # Split version and prerelease parts
     $v1Parts = $Version1 -split '-', 2
     $v2Parts = $Version2 -split '-', 2
     
@@ -478,14 +380,12 @@ function Compare-SemVer {
     $v1Prerelease = if ($v1Parts.Count -gt 1) { $v1Parts[1] } else { $null }
     $v2Prerelease = if ($v2Parts.Count -gt 1) { $v2Parts[1] } else { $null }
     
-    # Compare base versions
     try {
         $v1Ver = [System.Version]$v1Base
         $v2Ver = [System.Version]$v2Base
         $baseCompare = $v1Ver.CompareTo($v2Ver)
     }
     catch {
-        # Fallback to string comparison if version parsing fails
         $baseCompare = [string]::Compare($v1Base, $v2Base, [StringComparison]::OrdinalIgnoreCase)
     }
     
@@ -493,7 +393,6 @@ function Compare-SemVer {
         return $baseCompare
     }
     
-    # Base versions are equal, compare prerelease
     # No prerelease > any prerelease (1.0.0 > 1.0.0-alpha)
     if ($null -eq $v1Prerelease -and $null -eq $v2Prerelease) {
         return 0
@@ -505,21 +404,13 @@ function Compare-SemVer {
         return -1  # v1 is prerelease, v2 is release
     }
     
-    # Both have prerelease, compare lexicographically
-    # This handles cases like alpha < beta < dev < rc
+    # Both have prerelease — lexicographic: alpha < beta < dev < rc
     return [string]::Compare($v1Prerelease, $v2Prerelease, [StringComparison]::OrdinalIgnoreCase)
 }
 
 <#
 .SYNOPSIS
-    Resolves diamond dependencies in a dependency graph by selecting the highest version.
-    
-.DESCRIPTION
-    When multiple versions of the same module exist in the graph (diamond dependency),
-    this function selects the highest version and updates all references.
-    
-.PARAMETER Graph
-    The dependency graph hashtable to resolve.
+    Resolves diamond dependencies — selects the highest found version and updates all graph references.
 #>
 function Resolve-DiamondDependencies {
     param(
@@ -527,7 +418,7 @@ function Resolve-DiamondDependencies {
         [hashtable]$Graph
     )
     
-    # Group nodes by module name (without version)
+    # Group nodes by module name
     $moduleVersions = @{}
     foreach ($nodeKey in $Graph.Keys) {
         $node = $Graph[$nodeKey]
@@ -543,30 +434,25 @@ function Resolve-DiamondDependencies {
         }
     }
     
-    # Find and resolve conflicts - select highest available version
+    # Resolve conflicts — prefer found versions, then highest semver
     foreach ($moduleName in $moduleVersions.Keys) {
         $versions = $moduleVersions[$moduleName]
         if ($versions.Count -gt 1) {
-            # Sort: prefer found versions, then by semver descending
-            # NotFound versions are sorted to the end so they get discarded
             $sorted = $versions | Sort-Object -Property @{
                 Expression = {
-                    # Primary sort: found versions before not-found
                     if ($_.NotFound) { "1" } else { "0" }
                 }
             }, @{
                 Expression = {
-                    # Secondary sort: by version descending
                     $ver = $_.VersionString
                     $parts = $ver -split '-', 2
                     $base = $parts[0]
                     $prerelease = if ($parts.Count -gt 1) { $parts[1] } else { $null }
                     
-                    # Pad version parts for proper numeric sorting
                     $verParts = $base -split '\.'
                     $paddedBase = ($verParts | ForEach-Object { $_.PadLeft(10, '0') }) -join '.'
                     
-                    # Release versions sort after prereleases (z > any prerelease label)
+                    # Release versions sort after prereleases
                     $prereleaseKey = if ($null -eq $prerelease) { 'zzzzzzzzzz' } else { $prerelease }
                     
                     "$paddedBase|$prereleaseKey"
@@ -577,7 +463,6 @@ function Resolve-DiamondDependencies {
             $highest = $sorted[0]
             $conflicts = $sorted | Select-Object -Skip 1
             
-            # Check if any not-found versions are being discarded (informational)
             $discardedNotFound = $conflicts | Where-Object { $_.NotFound }
             if ($discardedNotFound) {
                 Write-Verbose "  Discarding unavailable version(s): $($discardedNotFound.VersionString -join ', ') (higher version available)"
@@ -591,7 +476,7 @@ function Resolve-DiamondDependencies {
                 
                 Write-Verbose "  Redirecting $oldKey -> $newKey"
                 
-                # Update all references from old version to new version
+                # Update all references from old version to new
                 foreach ($nodeKey in $Graph.Keys) {
                     $node = $Graph[$nodeKey]
                     for ($i = 0; $i -lt $node.Dependencies.Count; $i++) {
@@ -601,13 +486,12 @@ function Resolve-DiamondDependencies {
                     }
                 }
                 
-                # Remove the old version node from the graph
                 $Graph.Remove($oldKey)
             }
         }
     }
     
-    # After resolution, validate that all remaining nodes were found
+    # Validate all remaining nodes were found
     foreach ($nodeKey in $Graph.Keys) {
         $node = $Graph[$nodeKey]
         if ($node.NotFound) {
@@ -618,14 +502,7 @@ function Resolve-DiamondDependencies {
 
 <#
 .SYNOPSIS
-    Computes topological order of a dependency graph.
-    
-.DESCRIPTION
-    Returns an array of module keys in dependency order (dependencies first).
-    Detects and warns about circular dependencies.
-    
-.PARAMETER Graph
-    The dependency graph hashtable.
+    Returns module keys in topological order (dependencies first). Warns on cycles.
 #>
 function Get-TopologicalOrder {
     param(
@@ -662,7 +539,6 @@ function Get-TopologicalOrder {
         $visited[$NodeKey] = $true
         [void]$order.Add($NodeKey)
     }
-    
     # Visit all nodes
     foreach ($nodeKey in $Graph.Keys) {
         Visit -NodeKey $nodeKey
@@ -673,27 +549,7 @@ function Get-TopologicalOrder {
 
 <#
 .SYNOPSIS
-    Builds a complete dependency graph for an installed module.
-    
-.DESCRIPTION
-    This function builds a dependency graph by querying installed modules
-    using Get-PSResource. Used by Import-ModulePinned to load modules
-    with correct dependency versions.
-    
-.PARAMETER ModuleName
-    The name of the module.
-    
-.PARAMETER ModuleVersion
-    The version of the module.
-    
-.PARAMETER Graph
-    The hashtable to build the graph into.
-    
-.PARAMETER RedirectMap
-    The redirect map for version resolution.
-    
-.PARAMETER Depth
-    Current recursion depth for indentation.
+    Builds a dependency graph for installed modules via Get-PSResource.
 #>
 function Build-InstalledDependencyGraph {
     param(
@@ -727,7 +583,6 @@ function Build-InstalledDependencyGraph {
     
     $notFound = $false
     if (-not $installedModule) {
-        # Mark as not found - may be resolved later if a higher version exists (diamond dependency)
         Write-Verbose "${indent}Module not installed: $ModuleName version $ModuleVersion (will validate after resolution)"
         $notFound = $true
     }
@@ -735,10 +590,9 @@ function Build-InstalledDependencyGraph {
     $actualVersion = if ($installedModule) { $installedModule.Version.ToString() } else { $ModuleVersion }
     Write-Verbose "${indent}Building graph for: $ModuleName version $actualVersion"
     
-    # PSResource InstalledLocation is the base modules folder, need to add ModuleName/Version subpath
+    # InstalledLocation is the base modules folder; append ModuleName/Version
     $moduleVersionPath = if ($installedModule) { Join-Path $installedModule.InstalledLocation $ModuleName $actualVersion } else { $null }
     
-    # Initialize graph node
     $graphNode = [DependencyGraphNode]::new(
         $ModuleName,
         $actualVersion,
@@ -749,12 +603,10 @@ function Build-InstalledDependencyGraph {
     )
     $Graph[$moduleKey] = $graphNode
     
-    # If module was not found, we can't get its dependencies - skip
     if ($notFound) {
         return
     }
     
-    # Get dependencies from Get-PSResource
     $deps = $installedModule.Dependencies
     if (-not $deps -or $deps.Count -eq 0) {
         Write-Verbose "${indent}No dependencies for $ModuleName"
@@ -767,7 +619,6 @@ function Build-InstalledDependencyGraph {
         $depName = $dep.Name
         $depVersion = $dep.VersionRange
         
-        # Apply redirect to resolve version
         $redirectResult = Find-DependencyRedirect -DependencyName $depName -DependencyVersion $depVersion `
             -RedirectMap $RedirectMap -Indent $indent
         
@@ -777,13 +628,10 @@ function Build-InstalledDependencyGraph {
         $depKey = "${resolvedDepName}@${resolvedDepVersion}"
         Write-Verbose "${indent}  Dependency: $depKey"
         
-        # Add to this node's dependencies
         [void]$graphNode.Dependencies.Add($depKey)
         
-        # Merge redirect map for this dependency
         $depRedirectMap = Get-MergedRedirectMap -OuterMap $RedirectMap -Name $resolvedDepName -Version $resolvedDepVersion
         
-        # Recursively build graph for this dependency
         Build-InstalledDependencyGraph -ModuleName $resolvedDepName -ModuleVersion $resolvedDepVersion `
             -Graph $Graph -RedirectMap $depRedirectMap -Depth ($Depth + 1)
     }
@@ -792,30 +640,8 @@ function Build-InstalledDependencyGraph {
 function Install-PSResourcePinned {
     <#
     .SYNOPSIS
-        Installs a PowerShell module with conservative dependency resolution and specific version redirects.
-    
-    .DESCRIPTION
-        PowerCLI does not follow semver conventions and 13.4 breaks backward-compatibility in some of the dependencies.
-        This function installs a module via PSResourceGet with exact version matching for dependencies,
-        using a redirect map to handle known issues.
-        
-    .PARAMETER Name
-        The name of the module to install.
-        
-    .PARAMETER RequiredVersion
-        The version of the module to install.
-        
-    .PARAMETER RedirectMapPath
-        Path to JSON file containing version redirects. If not specified, uses default map.
-        
-    .PARAMETER Scope
-        Installation scope: CurrentUser or AllUsers. Default is CurrentUser.
-        
-    .PARAMETER Repository
-        The repository to search for and install the module from. If not specified, searches all registered repositories.
-        
-    .PARAMETER Credential
-        Credentials to use when accessing the repository.
+        Installs a module with pinned dependency versions.
+        Works around PowerCLI not following semver (13.4 breaks backward-compat).
         
     .EXAMPLE
         Install-PSResourcePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0"
@@ -845,7 +671,7 @@ function Install-PSResourcePinned {
         [switch]$Prerelease
     )
     
-    # Load redirect map from file or use default
+    # Load redirect map
     if ($RedirectMapPath) {
         if (-not (Test-Path $RedirectMapPath)) {
             throw "Redirect map file not found: $RedirectMapPath"
@@ -858,20 +684,16 @@ function Install-PSResourcePinned {
         $redirectMap = $script:defaultRedirectMap
     }
     
-    # Merge with module-specific redirect map
     $redirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $Name -Version $RequiredVersion
     
-    # Build complete dependency graph
     Write-Verbose "Building dependency graph for $Name version $RequiredVersion"
     $dependencyGraph = @{}
     
     Build-RemoteDependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion `
         -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential -Prerelease:$Prerelease
     
-    # Resolve diamond dependencies
     Resolve-DiamondDependencies -Graph $dependencyGraph
     
-    # Compute topological order (dependencies first)
     Write-Verbose "Computing topological order"
     $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
     
@@ -886,7 +708,6 @@ function Install-PSResourcePinned {
         $modName = $node.Name
         $modVersion = $node.Version
         
-        # Check if already installed with exact version (including prerelease label)
         $installed = Get-PSResource -Name $modName -ErrorAction SilentlyContinue | 
             Where-Object {
                 if (-not $_) { return $false }
@@ -929,39 +750,10 @@ function Install-PSResourcePinned {
 function Save-PSResourcePinned {
     <#
     .SYNOPSIS
-        Downloads a PowerShell module as NuGet packages with conservative dependency resolution.
-    
-    .DESCRIPTION
-        This function downloads a module and all its dependencies as NuGet packages (.nupkg files)
-        to a specified destination path, using the same conservative dependency resolution logic
-        as Install-PSResourcePinned.
-        
-    .PARAMETER Name
-        The name of the module to download.
-        
-    .PARAMETER RequiredVersion
-        The version of the module to download.
-        
-    .PARAMETER Path
-        The destination path where NuGet packages will be saved.
-        
-    .PARAMETER RedirectMapPath
-        Path to JSON file containing version redirects. If not specified, uses default map.
-        
-    .PARAMETER Repository
-        The repository to search for and download the module from. If not specified, searches all registered repositories.
-        
-    .PARAMETER Credential
-        Credentials to use when accessing the repository.
-        
-    .PARAMETER AsNupkg
-        Save the module as a .nupkg file. Default is $true.
+        Downloads a module and dependencies as NuGet packages with pinned versions.
         
     .EXAMPLE
         Save-PSResourcePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0" -Path "./packages"
-        
-    .EXAMPLE
-        Save-PSResourcePinned -Name "Microsoft.AVS.Management" -RequiredVersion "1.0.0" -Path "C:\Packages" -Repository PSGallery
     #>
     [CmdletBinding()]
     param(
@@ -990,7 +782,7 @@ function Save-PSResourcePinned {
         [switch]$Prerelease
     )
     
-    # Validate and create destination path if needed
+    # Validate and create destination path
     if (-not (Test-Path $Path)) {
         Write-Verbose "Creating destination directory: $Path"
         New-Item -ItemType Directory -Path $Path -Force | Out-Null
@@ -999,7 +791,7 @@ function Save-PSResourcePinned {
     $resolvedPath = Resolve-Path $Path
     Write-Verbose "Saving packages to: $resolvedPath"
     
-    # Load redirect map from file or use default
+    # Load redirect map
     if ($RedirectMapPath) {
         if (-not (Test-Path $RedirectMapPath)) {
             throw "Redirect map file not found: $RedirectMapPath"
@@ -1012,20 +804,16 @@ function Save-PSResourcePinned {
         $redirectMap = $script:defaultRedirectMap
     }
     
-    # Merge with module-specific redirect map
     $redirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $Name -Version $RequiredVersion
     
-    # Build complete dependency graph
     Write-Verbose "Building dependency graph for $Name version $RequiredVersion"
     $dependencyGraph = @{}
     
     Build-RemoteDependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion `
         -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential -Prerelease:$Prerelease
     
-    # Resolve diamond dependencies
     Resolve-DiamondDependencies -Graph $dependencyGraph
     
-    # Compute topological order (dependencies first)
     Write-Verbose "Computing topological order"
     $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
     
@@ -1040,7 +828,6 @@ function Save-PSResourcePinned {
         $modName = $node.Name
         $modVersion = $node.Version
         
-        # Check if already saved
         $expectedFileName = "$modName.$modVersion.nupkg"
         $expectedPath = Join-Path $resolvedPath.Path $expectedFileName
         
@@ -1078,27 +865,12 @@ function Save-PSResourcePinned {
 
 <#
 .SYNOPSIS
-    Extracts module dependency entries from a PowerShell module manifest.
-
-.DESCRIPTION
-    Reads both RequiredModules and ModuleList from a parsed manifest hashtable,
-    parses each entry (string or hashtable), and returns a deduplicated array of
-    module dependency descriptors. When the same module appears in both
-    RequiredModules and ModuleList, the RequiredModules entry takes precedence.
-
-    NuGet feeds package ModuleList entries alongside RequiredModules as package
-    dependencies. Reading both fields from local manifests keeps the dependency
-    graph consistent with what Build-RemoteDependencyGraph and
-    Build-InstalledDependencyGraph discover through the feed metadata, preventing
-    incomplete graphs that can cause "assembly already loaded" errors during
-    pre-loading.
-
-.PARAMETER Manifest
-    The manifest hashtable as returned by Import-PowerShellDataFile.
+    Extracts RequiredModules and ModuleList from a manifest, deduped (RequiredModules wins).
+    NuGet feeds package both as dependencies; reading both keeps the local graph consistent
+    with remote graphs and prevents "assembly already loaded" errors during pre-loading.
 
 .OUTPUTS
-    Returns an array of hashtables with Name (string) and Version (string or $null)
-    properties for each module dependency.
+    Array of @{ Name; Version } hashtables.
 #>
 function Get-ManifestModuleDependencies {
     param(
@@ -1113,7 +885,7 @@ function Get-ManifestModuleDependencies {
         return @()
     }
 
-    # Parse a single manifest module entry into a @{ Name; Version } hashtable
+    # Parse a single manifest entry into @{ Name; Version }
     function ParseEntry {
         param([object]$Entry, [string]$Source)
 
@@ -1142,7 +914,7 @@ function Get-ManifestModuleDependencies {
         }
     }
 
-    # RequiredModules entries take precedence — index them first
+    # RequiredModules take precedence
     $seen = @{}
     $results = [System.Collections.ArrayList]@()
 
@@ -1179,37 +951,13 @@ function Get-ManifestModuleDependencies {
 function Find-PSResourceDependencies {
     <#
     .SYNOPSIS
-        Finds and resolves dependencies from a PowerShell module manifest with conservative version resolution.
-    
-    .DESCRIPTION
-        This function reads a .psd1 module manifest file and resolves all RequiredModules
-        and ModuleList entries and their transitive dependencies using graph-based
-        dependency resolution. Both fields are read because NuGet feeds package
-        ModuleList entries as package dependencies alongside RequiredModules.
-        Returns an array of resolved dependencies with their names and versions.
-        
-    .PARAMETER ManifestPath
-        The path to the .psd1 module manifest file.
-        
-    .PARAMETER RedirectMapPath
-        Path to JSON file containing version redirects. If not specified, looks for a redirect map
-        in the maps directory based on the manifest's module name and version.
-        
-    .PARAMETER Repository
-        The repository to search for and resolve module dependencies from.
-        If not specified, searches all registered repositories.
-        
-    .PARAMETER Credential
-        Credentials to use when accessing the repository.
+        Resolves all dependencies (RequiredModules + ModuleList) from a .psd1 manifest via remote repository.
         
     .EXAMPLE
         Find-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
         
-    .EXAMPLE
-        Find-PSResourceDependencies -ManifestPath "./MyModule.psd1" -RedirectMapPath "./redirects.json"
-        
     .OUTPUTS
-        Returns an array of PSCustomObject with Name, Version, and OriginalVersion properties for each resolved dependency.
+        Array of PSCustomObject with Name, Version, Repository, and IsRedirected properties.
     #>
     [CmdletBinding()]
     param(
@@ -1229,7 +977,6 @@ function Find-PSResourceDependencies {
         [switch]$Prerelease
     )
     
-    # Validate manifest path
     if (-not (Test-Path $ManifestPath)) {
         throw "Manifest file not found: $ManifestPath"
     }
@@ -1241,21 +988,17 @@ function Find-PSResourceDependencies {
     
     Write-Verbose "Reading manifest from: $resolvedPath"
     
-    # Parse the manifest
     $manifest = Import-PowerShellDataFile -Path $resolvedPath
     
-    # Extract module dependencies from both RequiredModules and ModuleList
     $moduleDependencies = @(Get-ManifestModuleDependencies -Manifest $manifest)
     if ($moduleDependencies.Count -eq 0) {
         Write-Verbose "No module dependencies found in manifest (RequiredModules or ModuleList)"
         return @()
     }
     
-    # Extract module name and version from manifest for redirect map lookup
     $manifestModuleName = [System.IO.Path]::GetFileNameWithoutExtension($resolvedPath.Path)
     $manifestModuleVersion = if ($manifest.ModuleVersion) { $manifest.ModuleVersion.ToString() } else { "" }
     
-    # Load redirect map from file or use default
     if ($RedirectMapPath) {
         if (-not (Test-Path $RedirectMapPath)) {
             throw "Redirect map file not found: $RedirectMapPath"
@@ -1265,36 +1008,29 @@ function Find-PSResourceDependencies {
     }
     else {
         Write-Verbose "Looking for redirect map based on manifest: $manifestModuleName version $manifestModuleVersion"
-        # Merge default map with module-specific map based on manifest name and version
         $redirectMap = Get-MergedRedirectMap -OuterMap $script:defaultRedirectMap -Name $manifestModuleName -Version $manifestModuleVersion
     }
     
     Write-Verbose "Found $($moduleDependencies.Count) module dependency(ies) in manifest"
     
-    # Build complete dependency graph for all module dependencies
     $dependencyGraph = @{}
     
     foreach ($depEntry in $moduleDependencies) {
         $moduleName = $depEntry.Name
         $moduleVersion = $depEntry.Version
         
-        # Apply redirect to resolve version
         $mergedRedirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $moduleName -Version ($moduleVersion ?? "")
         $redirectResult = Find-DependencyRedirect -DependencyName $moduleName -DependencyVersion $moduleVersion `
             -RedirectMap $mergedRedirectMap -Indent ""
         
-        # Build dependency graph for this module dependency
         Build-RemoteDependencyGraph -ModuleName $redirectResult.ResolvedName -ModuleVersion $redirectResult.ResolvedVersion `
             -Graph $dependencyGraph -RedirectMap $mergedRedirectMap -Repository $Repository -Credential $Credential -Prerelease:$Prerelease
     }
     
-    # Resolve diamond dependencies
     Resolve-DiamondDependencies -Graph $dependencyGraph
     
-    # Compute topological order
     $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
     
-    # Build result array in topological order
     $resolvedDependencies = [System.Collections.ArrayList]@()
     
     foreach ($moduleKey in $topologicalOrder) {
@@ -1316,33 +1052,10 @@ function Find-PSResourceDependencies {
 function Install-PSResourceDependencies {
     <#
     .SYNOPSIS
-        Installs dependencies from a PowerShell module manifest with conservative version resolution.
-    
-    .DESCRIPTION
-        This function reads a .psd1 module manifest file and installs all RequiredModules
-        using the same conservative dependency resolution logic as Install-PSResourcePinned.
-        
-    .PARAMETER ManifestPath
-        The path to the .psd1 module manifest file.
-        
-    .PARAMETER RedirectMapPath
-        Path to JSON file containing version redirects. If not specified, looks for a redirect map
-        in the maps directory based on the manifest's module name and version.
-        
-    .PARAMETER Scope
-        Installation scope: CurrentUser or AllUsers. Default is CurrentUser.
-        
-    .PARAMETER Repository
-        The repository to search for and install modules from. If not specified, searches all registered repositories.
-        
-    .PARAMETER Credential
-        Credentials to use when accessing the repository.
+        Installs all manifest dependencies using Find-PSResourceDependencies.
         
     .EXAMPLE
         Install-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
-        
-    .EXAMPLE
-        Install-PSResourceDependencies -ManifestPath "./MyModule.psd1" -Scope AllUsers -Repository PSGallery
     #>
     [CmdletBinding()]
     param(
@@ -1363,7 +1076,6 @@ function Install-PSResourceDependencies {
         [PSCredential]$Credential
     )
     
-    # Find and resolve all dependencies (already in topological order)
     $findParams = @{
         ManifestPath = $ManifestPath
     }
@@ -1386,9 +1098,7 @@ function Install-PSResourceDependencies {
     
     Write-Verbose "Installing $($resolvedDependencies.Count) resolved dependency(ies)"
     
-    # Dependencies are already in topological order from Find-PSResourceDependencies
     foreach ($dependency in $resolvedDependencies) {
-        # Check if already installed with exact version
         $installed = Get-PSResource -Name $dependency.Name -ErrorAction SilentlyContinue | 
             Where-Object { $_.Version.ToString() -eq $dependency.Version }
         
@@ -1422,36 +1132,11 @@ function Install-PSResourceDependencies {
 function Import-PSResourceDependencies {
     <#
     .SYNOPSIS
-        Imports dependencies from a PowerShell module manifest with explicit, recursive dependency loading at required versions.
-    
-    .DESCRIPTION
-        This function reads a .psd1 module manifest file and imports all RequiredModules
-        and ModuleList entries and their transitive dependencies using the same pinned
-        dependency resolution logic as Import-ModulePinned. Both fields are read because
-        NuGet feeds package ModuleList entries as package dependencies alongside
-        RequiredModules; ignoring them produces an incomplete graph that can cause
-        "assembly already loaded" errors during pre-loading. It builds the installed
-        dependency graph, resolves diamond dependencies, and pre-loads all modules in
-        topological order with exact versions.
-        
-    .PARAMETER ManifestPath
-        The path to the .psd1 module manifest file.
-        
-    .PARAMETER RedirectMapPath
-        Path to JSON file containing version redirects. If not specified, looks for a redirect map
-        in the maps directory based on the manifest's module name and version.
-        
-    .PARAMETER Force
-        Force reimport of modules even if already loaded.
-        
-    .PARAMETER PassThru
-        Returns the imported module info objects.
+        Imports all manifest dependencies (RequiredModules + ModuleList) in topological order
+        with pinned versions. Prevents "assembly already loaded" errors from incomplete graphs.
         
     .EXAMPLE
         Import-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
-        
-    .EXAMPLE
-        Import-PSResourceDependencies -ManifestPath "./MyModule.psd1" -Force -PassThru
     #>
     [CmdletBinding()]
     param(
@@ -1490,11 +1175,9 @@ function Import-PSResourceDependencies {
         return
     }
     
-    # Extract module name and version from manifest for redirect map lookup
     $manifestModuleName = [System.IO.Path]::GetFileNameWithoutExtension($resolvedPath.Path)
     $manifestModuleVersion = if ($manifest.ModuleVersion) { $manifest.ModuleVersion.ToString() } else { "" }
     
-    # Load redirect map from file or use default
     if ($RedirectMapPath) {
         if (-not (Test-Path $RedirectMapPath)) {
             throw "Redirect map file not found: $RedirectMapPath"
@@ -1509,24 +1192,20 @@ function Import-PSResourceDependencies {
     
     Write-Verbose "Found $($moduleDependencies.Count) module dependency(ies) in manifest"
     
-    # Build complete installed dependency graph for all module dependencies
     $dependencyGraph = @{}
     
     foreach ($depEntry in $moduleDependencies) {
         $moduleName = $depEntry.Name
         $moduleVersion = $depEntry.Version
         
-        # Apply redirect to resolve version
         $mergedRedirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $moduleName -Version ($moduleVersion ?? "")
         $redirectResult = Find-DependencyRedirect -DependencyName $moduleName -DependencyVersion $moduleVersion `
             -RedirectMap $mergedRedirectMap -Indent ""
         
-        # Build installed dependency graph for this module dependency
         Build-InstalledDependencyGraph -ModuleName $redirectResult.ResolvedName -ModuleVersion $redirectResult.ResolvedVersion `
             -Graph $dependencyGraph -RedirectMap $mergedRedirectMap
     }
     
-    # Resolve diamond dependencies
     Resolve-DiamondDependencies -Graph $dependencyGraph
     
     # Compute topological order
@@ -1547,7 +1226,6 @@ function Import-PSResourceDependencies {
         $modName = $node.Name
         $modVersion = $node.Version
         
-        # Check if already loaded with exact version
         $loadedModule = Get-Module -Name $modName | Where-Object { $_.Version.ToString() -eq $modVersion }
         
         if ($loadedModule -and -not $Force) {
@@ -1556,7 +1234,7 @@ function Import-PSResourceDependencies {
             continue
         }
         
-        # Import with exact version, using -Global to ensure modules persist
+        # -Global ensures modules persist after this function returns
         $importParams = @{
             Name = $modName
             RequiredVersion = $modVersion
@@ -1589,37 +1267,11 @@ function Import-PSResourceDependencies {
 function Import-ModulePinned {
     <#
     .SYNOPSIS
-        Imports a PowerShell module with explicit, recursive dependency loading at required versions.
-    
-    .DESCRIPTION
-        This function imports a module by first building the complete transitive dependency graph,
-        computing topological order, and pre-loading ALL dependencies with exact versions before
-        importing the main module. This prevents PowerShell's manifest processing from loading
-        wrong versions due to minimum version semantics.
-        
-    .PARAMETER Name
-        The name of the module to import.
-        
-    .PARAMETER RequiredVersion
-        The exact version of the module to import.
-        
-    .PARAMETER RedirectMapPath
-        Path to JSON file containing version redirects. If not specified, uses default map.
-        
-    .PARAMETER Force
-        Force reimport of the module even if already loaded.
-        
-    .PARAMETER Prefix
-        Prefix to add to the nouns of imported commands.
-        
-    .PARAMETER PassThru
-        Returns the module info object after import.
+        Imports a module after pre-loading ALL transitive dependencies at exact versions.
+        Prevents PowerShell from loading wrong versions via minimum-version semantics.
         
     .EXAMPLE
         Import-ModulePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0"
-        
-    .EXAMPLE
-        Import-ModulePinned -Name "Microsoft.AVS.Management" -RequiredVersion "1.0.0" -Force -PassThru
     #>
     [CmdletBinding()]
     param(
@@ -1642,7 +1294,7 @@ function Import-ModulePinned {
         [switch]$PassThru
     )
     
-    # Load redirect map from file or use default
+    # Load redirect map
     if ($RedirectMapPath) {
         if (-not (Test-Path $RedirectMapPath)) {
             throw "Redirect map file not found: $RedirectMapPath"
@@ -1655,17 +1307,14 @@ function Import-ModulePinned {
         $redirectMap = $script:defaultRedirectMap
     }
     
-    # Merge with module-specific redirect map
     $redirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $Name -Version $RequiredVersion
     
-    # Build complete dependency graph using shared function
     Write-Verbose "Building dependency graph for $Name version $RequiredVersion"
     $dependencyGraph = @{}
     
     Build-InstalledDependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion `
         -Graph $dependencyGraph -RedirectMap $redirectMap
     
-    # Resolve diamond dependencies using shared function
     Resolve-DiamondDependencies -Graph $dependencyGraph
     
     Write-Verbose "Dependency graph contains $($dependencyGraph.Count) modules:"
@@ -1685,7 +1334,7 @@ function Import-ModulePinned {
         }
     }
     
-    # Compute topological order using shared function
+    # Compute topological order
     Write-Verbose "Computing topological order"
     $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
     
@@ -1702,7 +1351,6 @@ function Import-ModulePinned {
         $modName = $node.Name
         $modVersion = $node.Version
         
-        # Check if already loaded with exact version
         $loadedModule = Get-Module -Name $modName | Where-Object { $_.Version.ToString() -eq $modVersion }
         
         if ($loadedModule -and -not $Force) {
@@ -1711,8 +1359,7 @@ function Import-ModulePinned {
             continue
         }
         
-        # Import with exact version
-        # Always use -Global to ensure modules persist after this function returns
+        # -Global ensures modules persist after this function returns
         $importParams = @{
             Name = $modName
             RequiredVersion = $modVersion
@@ -1737,12 +1384,10 @@ function Import-ModulePinned {
     
     Write-Verbose "Returning main module"
     
-    # The main module should already be loaded from the topological import
     $mainModuleKey = "${Name}@${RequiredVersion}"
     $mainModule = $importedModules[$mainModuleKey]
     
     if (-not $mainModule) {
-        # Shouldn't happen, but fallback just in case
         $mainModule = Get-Module -Name $Name | Where-Object { $_.Version.ToString() -eq $RequiredVersion }
     }
     
@@ -1756,36 +1401,13 @@ function Import-ModulePinned {
 function Find-PSResourcesPinned {
     <#
     .SYNOPSIS
-        Finds a PowerShell module and all its dependencies with conservative version resolution.
-    
-    .DESCRIPTION
-        This function searches for a module and resolves all its dependencies using
-        graph-based dependency resolution. Returns an array of objects for the main
-        module and all dependencies in topological order.
-        
-    .PARAMETER Name
-        The name of the module to find.
-        
-    .PARAMETER RequiredVersion
-        The version of the module to find.
-        
-    .PARAMETER RedirectMapPath
-        Path to JSON file containing version redirects. If not specified, uses default map.
-        
-    .PARAMETER Repository
-        The repository to search for the module from. If not specified, searches all registered repositories.
-        
-    .PARAMETER Credential
-        Credentials to use when accessing the repository.
+        Resolves a module and all dependencies with pinned versions. Returns results in topological order.
         
     .EXAMPLE
         Find-PSResourcesPinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0"
         
-    .EXAMPLE
-        Find-PSResourcesPinned -Name "Microsoft.AVS.Management" -RequiredVersion "1.0.0" -Repository PSGallery
-        
     .OUTPUTS
-        Returns an array of objects with Name, Version, Repository and Dependencies properties for each resolved module.
+        Array of objects with Name, Version, Repository, and Dependencies properties.
     #>
     [CmdletBinding()]
     param(
@@ -1808,7 +1430,7 @@ function Find-PSResourcesPinned {
         [switch]$Prerelease
     )
     
-    # Load redirect map from file or use default
+    # Load redirect map
     if ($RedirectMapPath) {
         if (-not (Test-Path $RedirectMapPath)) {
             throw "Redirect map file not found: $RedirectMapPath"
@@ -1821,24 +1443,19 @@ function Find-PSResourcesPinned {
         $redirectMap = $script:defaultRedirectMap
     }
     
-    # Merge with module-specific redirect map
     $redirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $Name -Version $RequiredVersion
     
-    # Build complete dependency graph
     Write-Verbose "Building dependency graph for $Name version $RequiredVersion"
     $dependencyGraph = @{}
     
     Build-RemoteDependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion `
         -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential -Prerelease:$Prerelease
     
-    # Resolve diamond dependencies
     Resolve-DiamondDependencies -Graph $dependencyGraph
     
-    # Compute topological order
     Write-Verbose "Computing topological order"
     $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
     
-    # Build result array in topological order
     $resolvedModules = [System.Collections.ArrayList]@()
     
     foreach ($moduleKey in $topologicalOrder) {
