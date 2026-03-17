@@ -1076,6 +1076,106 @@ function Save-PSResourcePinned {
     Write-Host "Successfully saved $Name version $($mainNode.Version) and dependencies to $resolvedPath"
 }
 
+<#
+.SYNOPSIS
+    Extracts module dependency entries from a PowerShell module manifest.
+
+.DESCRIPTION
+    Reads both RequiredModules and ModuleList from a parsed manifest hashtable,
+    parses each entry (string or hashtable), and returns a deduplicated array of
+    module dependency descriptors. When the same module appears in both
+    RequiredModules and ModuleList, the RequiredModules entry takes precedence.
+
+    NuGet feeds package ModuleList entries alongside RequiredModules as package
+    dependencies. Reading both fields from local manifests keeps the dependency
+    graph consistent with what Build-RemoteDependencyGraph and
+    Build-InstalledDependencyGraph discover through the feed metadata, preventing
+    incomplete graphs that can cause "assembly already loaded" errors during
+    pre-loading.
+
+.PARAMETER Manifest
+    The manifest hashtable as returned by Import-PowerShellDataFile.
+
+.OUTPUTS
+    Returns an array of hashtables with Name (string) and Version (string or $null)
+    properties for each module dependency.
+#>
+function Get-ManifestModuleDependencies {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Manifest
+    )
+
+    $hasRequired = $Manifest.ContainsKey('RequiredModules') -and $Manifest.RequiredModules -and $Manifest.RequiredModules.Count -gt 0
+    $hasModuleList = $Manifest.ContainsKey('ModuleList') -and $Manifest.ModuleList -and $Manifest.ModuleList.Count -gt 0
+
+    if (-not $hasRequired -and -not $hasModuleList) {
+        return @()
+    }
+
+    # Parse a single manifest module entry into a @{ Name; Version } hashtable
+    function ParseEntry {
+        param([object]$Entry, [string]$Source)
+
+        if ($Entry -is [string]) {
+            throw "$Source entry '$Entry' has no version. All entries must specify a version (RequiredVersion or ModuleVersion)."
+        }
+        elseif ($Entry -is [hashtable]) {
+            $name = if ($Entry.ContainsKey('ModuleName')) { $Entry.ModuleName } else { $null }
+            if (-not $name) {
+                throw "$Source entry has no module name: $($Entry | ConvertTo-Json -Compress)"
+            }
+            $version = $null
+            if ($Entry.ContainsKey('RequiredVersion')) {
+                $version = $Entry.RequiredVersion.ToString()
+            }
+            elseif ($Entry.ContainsKey('ModuleVersion')) {
+                $version = "[$($Entry.ModuleVersion), )"
+            }
+            if (-not $version) {
+                throw "$Source entry '$name' has no version. All entries must specify a version (RequiredVersion or ModuleVersion)."
+            }
+            return @{ Name = $name; Version = $version }
+        }
+        else {
+            throw "Unrecognized $Source format in manifest: $Entry. Expected string or hashtable."
+        }
+    }
+
+    # RequiredModules entries take precedence — index them first
+    $seen = @{}
+    $results = [System.Collections.ArrayList]@()
+
+    if ($hasRequired) {
+        Write-Verbose "Found $($Manifest.RequiredModules.Count) module(s) in RequiredModules"
+        foreach ($entry in $Manifest.RequiredModules) {
+            $parsed = ParseEntry -Entry $entry -Source 'RequiredModules'
+            $key = $parsed.Name.ToLowerInvariant()
+            if (-not $seen.ContainsKey($key)) {
+                $seen[$key] = $true
+                [void]$results.Add($parsed)
+            }
+        }
+    }
+
+    if ($hasModuleList) {
+        Write-Verbose "Found $($Manifest.ModuleList.Count) module(s) in ModuleList"
+        foreach ($entry in $Manifest.ModuleList) {
+            $parsed = ParseEntry -Entry $entry -Source 'ModuleList'
+            $key = $parsed.Name.ToLowerInvariant()
+            if (-not $seen.ContainsKey($key)) {
+                $seen[$key] = $true
+                [void]$results.Add($parsed)
+            }
+            else {
+                Write-Verbose "Skipping ModuleList entry '$($parsed.Name)' — already declared in RequiredModules"
+            }
+        }
+    }
+
+    return $results.ToArray()
+}
+
 function Find-PSResourceDependencies {
     <#
     .SYNOPSIS
@@ -1083,7 +1183,9 @@ function Find-PSResourceDependencies {
     
     .DESCRIPTION
         This function reads a .psd1 module manifest file and resolves all RequiredModules
-        and their transitive dependencies using graph-based dependency resolution.
+        and ModuleList entries and their transitive dependencies using graph-based
+        dependency resolution. Both fields are read because NuGet feeds package
+        ModuleList entries as package dependencies alongside RequiredModules.
         Returns an array of resolved dependencies with their names and versions.
         
     .PARAMETER ManifestPath
@@ -1142,10 +1244,10 @@ function Find-PSResourceDependencies {
     # Parse the manifest
     $manifest = Import-PowerShellDataFile -Path $resolvedPath
     
-    # Check if RequiredModules exists and has content
-    $hasRequiredModules = $manifest.ContainsKey('RequiredModules') -and $manifest.RequiredModules -and $manifest.RequiredModules.Count -gt 0
-    if (-not $hasRequiredModules) {
-        Write-Verbose "No RequiredModules found in manifest"
+    # Extract module dependencies from both RequiredModules and ModuleList
+    $moduleDependencies = @(Get-ManifestModuleDependencies -Manifest $manifest)
+    if ($moduleDependencies.Count -eq 0) {
+        Write-Verbose "No module dependencies found in manifest (RequiredModules or ModuleList)"
         return @()
     }
     
@@ -1167,44 +1269,21 @@ function Find-PSResourceDependencies {
         $redirectMap = Get-MergedRedirectMap -OuterMap $script:defaultRedirectMap -Name $manifestModuleName -Version $manifestModuleVersion
     }
     
-    Write-Verbose "Found $($manifest.RequiredModules.Count) required module(s) in manifest"
+    Write-Verbose "Found $($moduleDependencies.Count) module dependency(ies) in manifest"
     
-    # Build complete dependency graph for all required modules
+    # Build complete dependency graph for all module dependencies
     $dependencyGraph = @{}
     
-    foreach ($requiredModule in $manifest.RequiredModules) {
-        $moduleName = $null
-        $moduleVersion = $null
-        
-        # RequiredModules can be a string (module name only) or a hashtable with ModuleName and ModuleVersion/RequiredVersion
-        if ($requiredModule -is [string]) {
-            $moduleName = $requiredModule
-        }
-        elseif ($requiredModule -is [hashtable]) {
-            $moduleName = $requiredModule.ModuleName
-            # Check for RequiredVersion first (exact version), then ModuleVersion (minimum version)
-            if ($requiredModule.ContainsKey('RequiredVersion')) {
-                $moduleVersion = $requiredModule.RequiredVersion.ToString()
-            }
-            elseif ($requiredModule.ContainsKey('ModuleVersion')) {
-                # ModuleVersion in manifest means minimum version, treat as open-ended range
-                $moduleVersion = "[$($requiredModule.ModuleVersion), )"
-            }
-        }
-        else {
-            throw "Unrecognized RequiredModule format in manifest: $requiredModule. Expected string or hashtable."
-        }
-        
-        if (-not $moduleName) {
-            throw "RequiredModule entry has no module name: $($requiredModule | ConvertTo-Json -Compress)"
-        }
+    foreach ($depEntry in $moduleDependencies) {
+        $moduleName = $depEntry.Name
+        $moduleVersion = $depEntry.Version
         
         # Apply redirect to resolve version
         $mergedRedirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $moduleName -Version ($moduleVersion ?? "")
         $redirectResult = Find-DependencyRedirect -DependencyName $moduleName -DependencyVersion $moduleVersion `
             -RedirectMap $mergedRedirectMap -Indent ""
         
-        # Build dependency graph for this required module
+        # Build dependency graph for this module dependency
         Build-RemoteDependencyGraph -ModuleName $redirectResult.ResolvedName -ModuleVersion $redirectResult.ResolvedVersion `
             -Graph $dependencyGraph -RedirectMap $mergedRedirectMap -Repository $Repository -Credential $Credential -Prerelease:$Prerelease
     }
@@ -1347,9 +1426,13 @@ function Import-PSResourceDependencies {
     
     .DESCRIPTION
         This function reads a .psd1 module manifest file and imports all RequiredModules
-        and their transitive dependencies using the same pinned dependency resolution logic
-        as Import-ModulePinned. It builds the installed dependency graph, resolves diamond
-        dependencies, and pre-loads all modules in topological order with exact versions.
+        and ModuleList entries and their transitive dependencies using the same pinned
+        dependency resolution logic as Import-ModulePinned. Both fields are read because
+        NuGet feeds package ModuleList entries as package dependencies alongside
+        RequiredModules; ignoring them produces an incomplete graph that can cause
+        "assembly already loaded" errors during pre-loading. It builds the installed
+        dependency graph, resolves diamond dependencies, and pre-loads all modules in
+        topological order with exact versions.
         
     .PARAMETER ManifestPath
         The path to the .psd1 module manifest file.
@@ -1400,10 +1483,10 @@ function Import-PSResourceDependencies {
     # Parse the manifest
     $manifest = Import-PowerShellDataFile -Path $resolvedPath
     
-    # Check if RequiredModules exists and has content
-    $hasRequiredModules = $manifest.ContainsKey('RequiredModules') -and $manifest.RequiredModules -and $manifest.RequiredModules.Count -gt 0
-    if (-not $hasRequiredModules) {
-        Write-Verbose "No RequiredModules found in manifest"
+    # Extract module dependencies from both RequiredModules and ModuleList
+    $moduleDependencies = @(Get-ManifestModuleDependencies -Manifest $manifest)
+    if ($moduleDependencies.Count -eq 0) {
+        Write-Verbose "No module dependencies found in manifest (RequiredModules or ModuleList)"
         return
     }
     
@@ -1424,41 +1507,21 @@ function Import-PSResourceDependencies {
         $redirectMap = Get-MergedRedirectMap -OuterMap $script:defaultRedirectMap -Name $manifestModuleName -Version $manifestModuleVersion
     }
     
-    Write-Verbose "Found $($manifest.RequiredModules.Count) required module(s) in manifest"
+    Write-Verbose "Found $($moduleDependencies.Count) module dependency(ies) in manifest"
     
-    # Build complete installed dependency graph for all required modules
+    # Build complete installed dependency graph for all module dependencies
     $dependencyGraph = @{}
     
-    foreach ($requiredModule in $manifest.RequiredModules) {
-        $moduleName = $null
-        $moduleVersion = $null
-        
-        if ($requiredModule -is [string]) {
-            $moduleName = $requiredModule
-        }
-        elseif ($requiredModule -is [hashtable]) {
-            $moduleName = $requiredModule.ModuleName
-            if ($requiredModule.ContainsKey('RequiredVersion')) {
-                $moduleVersion = $requiredModule.RequiredVersion.ToString()
-            }
-            elseif ($requiredModule.ContainsKey('ModuleVersion')) {
-                $moduleVersion = "[$($requiredModule.ModuleVersion), )"
-            }
-        }
-        else {
-            throw "Unrecognized RequiredModule format in manifest: $requiredModule. Expected string or hashtable."
-        }
-        
-        if (-not $moduleName) {
-            throw "RequiredModule entry has no module name: $($requiredModule | ConvertTo-Json -Compress)"
-        }
+    foreach ($depEntry in $moduleDependencies) {
+        $moduleName = $depEntry.Name
+        $moduleVersion = $depEntry.Version
         
         # Apply redirect to resolve version
         $mergedRedirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $moduleName -Version ($moduleVersion ?? "")
         $redirectResult = Find-DependencyRedirect -DependencyName $moduleName -DependencyVersion $moduleVersion `
             -RedirectMap $mergedRedirectMap -Indent ""
         
-        # Build installed dependency graph for this required module
+        # Build installed dependency graph for this module dependency
         Build-InstalledDependencyGraph -ModuleName $redirectResult.ResolvedName -ModuleVersion $redirectResult.ResolvedVersion `
             -Graph $dependencyGraph -RedirectMap $mergedRedirectMap
     }
