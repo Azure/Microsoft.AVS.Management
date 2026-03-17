@@ -14,6 +14,313 @@
 
 #>
 
+function Write-Log {
+    <#
+    .SYNOPSIS
+        Writes a formatted log message to the console.
+
+    .DESCRIPTION
+        Writes a timestamped message with a severity level and color-codes the output
+        for easier readability.
+    #>
+    param(
+        [string]$Message,
+        [ValidateSet("INFO","WARN","ERR","OK")][string]$Level = "INFO"
+    )
+    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $msg = "[$ts] [$Level] $Message"
+
+    switch ($Level) {
+        "INFO" { Write-Host $msg -ForegroundColor Cyan }
+        "WARN" { Write-Host $msg -ForegroundColor Yellow }
+        "ERR"  { Write-Host $msg -ForegroundColor Red }
+        "OK"   { Write-Host $msg -ForegroundColor Green }
+    }
+}
+
+function Ensure-OutFolder {
+    <#
+    .SYNOPSIS
+        Ensures that an output folder exists and returns its resolved path.
+
+    .DESCRIPTION
+        Creates the folder if it does not already exist, then returns the absolute path.
+    #>
+    param([string]$Path)
+
+    if (-not (Test-Path $Path)) {
+        New-Item -ItemType Directory -Path $Path -Force | Out-Null
+    }
+
+    return (Resolve-Path $Path).Path
+}
+
+function Get-SafeObjectForJson {
+    <#
+    .SYNOPSIS
+        Converts objects into a JSON-safe structure.
+
+    .DESCRIPTION
+        Removes non-serializable or unwanted properties and flattens complex values into
+        simple strings so the result can be safely exported to JSON or CSV.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]$InputObject
+    )
+
+    $safeList = New-Object System.Collections.Generic.List[object]
+
+    foreach ($item in @($InputObject)) {
+        if ($null -eq $item) {
+            $safeList.Add($null) | Out-Null
+            continue
+        }
+
+        $props = [ordered]@{}
+        foreach ($p in $item.PSObject.Properties) {
+            if ($p.Name -in @("LinkedView","ExtensionData","Client","Uid")) {
+                continue
+            }
+
+            $val = $p.Value
+
+            if ($null -eq $val) {
+                $props[$p.Name] = $null
+                continue
+            }
+
+            if (
+                $val -is [string] -or
+                $val -is [int] -or
+                $val -is [long] -or
+                $val -is [double] -or
+                $val -is [decimal] -or
+                $val -is [bool] -or
+                $val -is [datetime]
+            ) {
+                $props[$p.Name] = $val
+            }
+            elseif ($val -is [System.Array]) {
+                try {
+                    $props[$p.Name] = ($val | ForEach-Object { "$_" }) -join "; "
+                }
+                catch {
+                    $props[$p.Name] = "$val"
+                }
+            }
+            else {
+                try {
+                    $props[$p.Name] = "$val"
+                }
+                catch {
+                    $props[$p.Name] = "<unserializable>"
+                }
+            }
+        }
+
+        $safeList.Add([pscustomobject]$props) | Out-Null
+    }
+
+    return $safeList
+}
+
+function Save-JsonSafe {
+    <#
+    .SYNOPSIS
+        Safely exports an object to a JSON file.
+
+    .DESCRIPTION
+        Converts the input object into a JSON-safe structure and writes it to disk.
+        Logs a warning if serialization fails.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]$Object,
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+
+    try {
+        $safe = Get-SafeObjectForJson -InputObject $Object
+        $safe | ConvertTo-Json -Depth 8 | Out-File -FilePath $Path -Encoding utf8
+    }
+    catch {
+        Write-Log "JSON export skipped for $Path. Error: $($_.Exception.Message)" "WARN"
+    }
+}
+
+function Get-SupportedVmLabels {
+    <#
+    .SYNOPSIS
+        Gets supported vSAN performance metric labels for virtual machines.
+
+    .DESCRIPTION
+        Queries the vSAN Performance Manager for supported entity types, finds the
+        virtual-machine entity definition, and returns the supported metric labels.
+    #>
+    $vpm = Get-VsanView -Id "VsanPerformanceManager-vsan-performance-manager"
+    $supported = $vpm.VsanPerfGetSupportedEntityTypes()
+
+    $entity = $supported | Where-Object { $_.name -eq "virtual-machine" } | Select-Object -First 1
+    if (-not $entity) {
+        throw "virtual-machine entity type not found."
+    }
+
+    $allMetrics = @()
+    foreach ($bucket in @($entity.graphs) + @($entity.advancedGraphs) + @($entity.verboseGraphs)) {
+        if ($bucket -and $bucket.metrics) {
+            $allMetrics += $bucket.metrics
+        }
+    }
+
+    $labels = $allMetrics |
+        Where-Object { $_.label } |
+        Select-Object -ExpandProperty label -Unique |
+        Sort-Object
+
+    return [pscustomobject]@{
+        Supported = $supported
+        Labels    = $labels
+    }
+}
+
+function Get-InterestingClusterMetrics {
+    <#
+    .SYNOPSIS
+        Returns the list of cluster metrics to collect.
+
+    .DESCRIPTION
+        Provides the predefined set of vSAN cluster-level metrics used by the raw
+        metrics export workflow.
+    #>
+    return @(
+        "VMConsumption.ReadIops",
+        "VMConsumption.WriteIops",
+        "VMConsumption.ReadThroughput",
+        "VMConsumption.WriteThroughput",
+        "VMConsumption.AverageReadLatency",
+        "VMConsumption.AverageWriteLatency",
+        "VMConsumption.OutstandingIO",
+        "Backend.ReadThroughput",
+        "Backend.WriteThroughput",
+        "Backend.AverageReadLatency",
+        "Backend.AverageWriteLatency",
+        "Backend.OutstandingIO"
+    )
+}
+
+function Export-RawStatsForEntity {
+    <#
+    .SYNOPSIS
+        Exports raw vSAN stats for a given entity and metric set.
+
+    .DESCRIPTION
+        Queries vSAN stats for the supplied entity over the requested time window,
+        flattens important fields for CSV output, writes per-metric and combined
+        exports, and returns summary counts.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]$Entity,
+        [Parameter(Mandatory = $true)][string]$EntityName,
+        [Parameter(Mandatory = $true)][string[]]$MetricNames,
+        [Parameter(Mandatory = $true)][datetime]$StartTime,
+        [Parameter(Mandatory = $true)][datetime]$EndTime,
+        [Parameter(Mandatory = $true)][string]$Folder
+    )
+
+    $allRaw = New-Object System.Collections.Generic.List[object]
+    $flatRows = New-Object System.Collections.Generic.List[object]
+    $errors = New-Object System.Collections.Generic.List[object]
+
+    foreach ($metric in $MetricNames) {
+        try {
+            Write-Log "Querying $EntityName :: $metric" "INFO"
+
+            $stats = Get-VsanStat -Entity $Entity -Name $metric -StartTime $StartTime -EndTime $EndTime -ErrorAction Stop
+
+            if ($stats) {
+                foreach ($row in @($stats)) {
+                    $allRaw.Add($row) | Out-Null
+
+                    $timeVal = $null
+                    $valueVal = $null
+                    $unitVal = $null
+                    $entityVal = $EntityName
+
+                    foreach ($p in $row.PSObject.Properties) {
+                        if ($p.Name -match 'timestamp|time') {
+                            if (-not $timeVal) { $timeVal = $p.Value }
+                        }
+                        elseif ($p.Name -match 'value|values|statvalue') {
+                            if (-not $valueVal) { $valueVal = $p.Value }
+                        }
+                        elseif ($p.Name -match 'unit') {
+                            if (-not $unitVal) { $unitVal = $p.Value }
+                        }
+                        elseif ($p.Name -match 'entity') {
+                            if (-not $entityVal -and $p.Value) { $entityVal = $p.Value }
+                        }
+                    }
+
+                    if ($null -eq $valueVal -and $row.PSObject.Properties["Value"]) {
+                        $valueVal = $row.Value
+                    }
+
+                    $flatRows.Add([pscustomobject]@{
+                        EntityName = $EntityName
+                        Metric     = $metric
+                        Time       = $timeVal
+                        Value      = $valueVal
+                        Unit       = $unitVal
+                        RawType    = $row.GetType().FullName
+                    }) | Out-Null
+                }
+
+                $safeMetric = ($metric -replace '[\\/:*?"<>| ]','_')
+
+                Save-JsonSafe -Object $stats -Path (Join-Path $Folder "$safeMetric.json")
+
+                try {
+                    $safeCsvRows = Get-SafeObjectForJson -InputObject $stats
+                    $safeCsvRows | Export-Csv -NoTypeInformation -Path (Join-Path $Folder "$safeMetric.csv")
+                }
+                catch {
+                    Write-Log "Per-metric CSV export skipped for $EntityName :: $metric. Error: $($_.Exception.Message)" "WARN"
+                }
+            }
+            else {
+                Write-Log "No rows returned for $EntityName :: $metric" "WARN"
+            }
+        }
+        catch {
+            $errors.Add([pscustomobject]@{
+                Entity = $EntityName
+                Metric = $metric
+                Error  = $_.Exception.Message
+            }) | Out-Null
+
+            Write-Log "Metric query failed for $EntityName :: $metric. Error: $($_.Exception.Message)" "WARN"
+        }
+    }
+
+    if ($allRaw.Count -gt 0) {
+        Save-JsonSafe -Object $allRaw -Path (Join-Path $Folder "_all_raw.json")
+    }
+
+    if ($flatRows.Count -gt 0) {
+        $flatRows | Export-Csv -NoTypeInformation -Path (Join-Path $Folder "_all_flat.csv")
+    }
+
+    if ($errors.Count -gt 0) {
+        $errors | Export-Csv -NoTypeInformation -Path (Join-Path $Folder "_errors.csv")
+    }
+
+    return [pscustomobject]@{
+        RawCount    = $allRaw.Count
+        FlatCount   = $flatRows.Count
+        ErrorCount  = $errors.Count
+    }
+}
+
+
 function ConvertTo-CanonicalUuid {
     <#
     .SYNOPSIS
