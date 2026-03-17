@@ -1950,7 +1950,9 @@ Describe "Install-PSResourceDependencies" {
     GUID = 'e1234567-1234-1234-1234-123456789012'
     Author = 'Test'
     RootModule = 'TestModule.psm1'
-    RequiredModules = @('SomeModule')
+    RequiredModules = @(
+        @{ ModuleName = 'SomeModule'; RequiredVersion = '1.0.0' }
+    )
 }
 "@
             $manifestContent | Set-Content $script:testManifestPath
@@ -2056,7 +2058,9 @@ Describe "Import-PSResourceDependencies" {
     GUID = 'f1234567-1234-1234-1234-123456789012'
     Author = 'Test'
     RootModule = 'ImportTestModule.psm1'
-    RequiredModules = @('SomeModule')
+    RequiredModules = @(
+        @{ ModuleName = 'SomeModule'; RequiredVersion = '1.0.0' }
+    )
 }
 "@
             $manifestContent | Set-Content $script:testManifestPath
@@ -3156,6 +3160,729 @@ Describe "Find-PSResourcesPinned" {
                 Find-PSResourcesPinned -Name "TestModule" -RequiredVersion "1.0.0" -Repository "CustomRepo"
                 
                 Should -Invoke Find-PSResource -ParameterFilter { $Repository -eq "CustomRepo" }
+            }
+        }
+    }
+}
+
+Describe "Get-ManifestModuleDependencies" {
+    BeforeAll {
+        $modulePath = Join-Path $PSScriptRoot ".." "Microsoft.AVS.CDR" "Microsoft.AVS.CDR.psd1"
+        Import-Module $modulePath -Force
+    }
+
+    Context "RequiredModules Only" {
+        It "Should return modules from RequiredModules" {
+            InModuleScope Microsoft.AVS.CDR {
+                $manifest = @{
+                    RequiredModules = @(
+                        @{ ModuleName = "ModuleA"; RequiredVersion = "1.0.0" }
+                        @{ ModuleName = "ModuleB"; RequiredVersion = "2.0.0" }
+                    )
+                }
+
+                $result = @(Get-ManifestModuleDependencies -Manifest $manifest)
+
+                $result.Count | Should -Be 2
+                $result[0].Name | Should -Be "ModuleA"
+                $result[0].Version | Should -Be "1.0.0"
+                $result[1].Name | Should -Be "ModuleB"
+                $result[1].Version | Should -Be "2.0.0"
+            }
+        }
+    }
+
+    Context "ModuleList Only" {
+        It "Should return modules from ModuleList" {
+            InModuleScope Microsoft.AVS.CDR {
+                $manifest = @{
+                    ModuleList = @(
+                        @{ ModuleName = "ModuleX"; RequiredVersion = "3.0.0" }
+                    )
+                }
+
+                $result = @(Get-ManifestModuleDependencies -Manifest $manifest)
+
+                $result.Count | Should -Be 1
+                $result[0].Name | Should -Be "ModuleX"
+                $result[0].Version | Should -Be "3.0.0"
+            }
+        }
+    }
+
+    Context "Both RequiredModules and ModuleList" {
+        It "Should return union when no overlap" {
+            InModuleScope Microsoft.AVS.CDR {
+                $manifest = @{
+                    RequiredModules = @(
+                        @{ ModuleName = "ModuleA"; RequiredVersion = "1.0.0" }
+                    )
+                    ModuleList = @(
+                        @{ ModuleName = "ModuleB"; RequiredVersion = "2.0.0" }
+                    )
+                }
+
+                $result = @(Get-ManifestModuleDependencies -Manifest $manifest)
+
+                $result.Count | Should -Be 2
+                ($result | Where-Object { $_.Name -eq "ModuleA" }).Version | Should -Be "1.0.0"
+                ($result | Where-Object { $_.Name -eq "ModuleB" }).Version | Should -Be "2.0.0"
+            }
+        }
+
+        It "Should deduplicate preferring RequiredModules entry" {
+            InModuleScope Microsoft.AVS.CDR {
+                $manifest = @{
+                    RequiredModules = @(
+                        @{ ModuleName = "SharedModule"; RequiredVersion = "1.0.0" }
+                    )
+                    ModuleList = @(
+                        @{ ModuleName = "SharedModule"; RequiredVersion = "2.0.0" }
+                    )
+                }
+
+                $result = @(Get-ManifestModuleDependencies -Manifest $manifest)
+
+                $result.Count | Should -Be 1
+                $result[0].Name | Should -Be "SharedModule"
+                $result[0].Version | Should -Be "1.0.0"
+            }
+        }
+
+        It "Should deduplicate case-insensitively" {
+            InModuleScope Microsoft.AVS.CDR {
+                $manifest = @{
+                    RequiredModules = @(
+                        @{ ModuleName = "MyModule"; RequiredVersion = "1.0.0" }
+                    )
+                    ModuleList = @(
+                        @{ ModuleName = "mymodule"; RequiredVersion = "2.0.0" }
+                    )
+                }
+
+                $result = @(Get-ManifestModuleDependencies -Manifest $manifest)
+
+                $result.Count | Should -Be 1
+                $result[0].Version | Should -Be "1.0.0"
+            }
+        }
+    }
+
+    Context "Neither RequiredModules nor ModuleList" {
+        It "Should return empty array when neither is present" {
+            InModuleScope Microsoft.AVS.CDR {
+                $manifest = @{
+                    ModuleVersion = "1.0.0"
+                }
+
+                $result = @(Get-ManifestModuleDependencies -Manifest $manifest)
+
+                $result.Count | Should -Be 0
+            }
+        }
+
+        It "Should return empty array when both are empty" {
+            InModuleScope Microsoft.AVS.CDR {
+                $manifest = @{
+                    RequiredModules = @()
+                    ModuleList = @()
+                }
+
+                $result = @(Get-ManifestModuleDependencies -Manifest $manifest)
+
+                $result.Count | Should -Be 0
+            }
+        }
+    }
+
+    Context "String Entries" {
+        It "Should throw for string entry in ModuleList (no version)" {
+            InModuleScope Microsoft.AVS.CDR {
+                $manifest = @{
+                    ModuleList = @("StringModule")
+                }
+
+                { Get-ManifestModuleDependencies -Manifest $manifest } | Should -Throw -ExpectedMessage "*has no version*"
+            }
+        }
+
+        It "Should throw for string entry in RequiredModules (no version)" {
+            InModuleScope Microsoft.AVS.CDR {
+                $manifest = @{
+                    RequiredModules = @("StringReqModule")
+                }
+
+                { Get-ManifestModuleDependencies -Manifest $manifest } | Should -Throw -ExpectedMessage "*has no version*"
+            }
+        }
+    }
+
+    Context "Hashtable Entry Formats" {
+        It "Should handle RequiredVersion in ModuleList entries" {
+            InModuleScope Microsoft.AVS.CDR {
+                $manifest = @{
+                    ModuleList = @(
+                        @{ ModuleName = "ExactMod"; RequiredVersion = "5.0.0" }
+                    )
+                }
+
+                $result = @(Get-ManifestModuleDependencies -Manifest $manifest)
+
+                $result[0].Name | Should -Be "ExactMod"
+                $result[0].Version | Should -Be "5.0.0"
+            }
+        }
+
+        It "Should handle ModuleVersion in ModuleList entries as open-ended range" {
+            InModuleScope Microsoft.AVS.CDR {
+                $manifest = @{
+                    ModuleList = @(
+                        @{ ModuleName = "MinVerMod"; ModuleVersion = "3.2.0" }
+                    )
+                }
+
+                $result = @(Get-ManifestModuleDependencies -Manifest $manifest)
+
+                $result[0].Name | Should -Be "MinVerMod"
+                $result[0].Version | Should -Be "[3.2.0, )"
+            }
+        }
+
+        It "Should throw for mixed format entries containing a versionless string" {
+            InModuleScope Microsoft.AVS.CDR {
+                $manifest = @{
+                    ModuleList = @(
+                        "StringMod"
+                        @{ ModuleName = "HashMod"; RequiredVersion = "1.0.0" }
+                    )
+                }
+
+                { Get-ManifestModuleDependencies -Manifest $manifest } | Should -Throw -ExpectedMessage "*has no version*"
+            }
+        }
+
+        It "Should handle mixed RequiredVersion and ModuleVersion hashtable entries" {
+            InModuleScope Microsoft.AVS.CDR {
+                $manifest = @{
+                    ModuleList = @(
+                        @{ ModuleName = "ExactMod"; RequiredVersion = "1.0.0" }
+                        @{ ModuleName = "MinVerMod"; ModuleVersion = "2.0.0" }
+                    )
+                }
+
+                $result = @(Get-ManifestModuleDependencies -Manifest $manifest)
+
+                $result.Count | Should -Be 2
+                ($result | Where-Object { $_.Name -eq "ExactMod" }).Version | Should -Be "1.0.0"
+                ($result | Where-Object { $_.Name -eq "MinVerMod" }).Version | Should -Be "[2.0.0, )"
+            }
+        }
+    }
+
+    Context "Error Handling" {
+        It "Should throw when ModuleList entry has no ModuleName" {
+            InModuleScope Microsoft.AVS.CDR {
+                $manifest = @{
+                    ModuleList = @(
+                        @{ RequiredVersion = "1.0.0" }
+                    )
+                }
+
+                { Get-ManifestModuleDependencies -Manifest $manifest } | Should -Throw -ExpectedMessage "*no module name*"
+            }
+        }
+
+        It "Should throw when hashtable entry has no version" {
+            InModuleScope Microsoft.AVS.CDR {
+                $manifest = @{
+                    RequiredModules = @(
+                        @{ ModuleName = "NoVerMod" }
+                    )
+                }
+
+                { Get-ManifestModuleDependencies -Manifest $manifest } | Should -Throw -ExpectedMessage "*has no version*"
+            }
+        }
+
+        It "Should throw on unrecognized entry type" {
+            InModuleScope Microsoft.AVS.CDR {
+                $manifest = @{
+                    ModuleList = @(42)
+                }
+
+                { Get-ManifestModuleDependencies -Manifest $manifest } | Should -Throw -ExpectedMessage "*Unrecognized*"
+            }
+        }
+    }
+}
+
+Describe "Find-PSResourceDependencies ModuleList" {
+    BeforeAll {
+        $modulePath = Join-Path $PSScriptRoot ".." "Microsoft.AVS.CDR" "Microsoft.AVS.CDR.psd1"
+        Import-Module $modulePath -Force
+    }
+
+    Context "Manifest with ModuleList Only" {
+        It "Should resolve dependencies from ModuleList entries" {
+            InModuleScope Microsoft.AVS.CDR {
+                $testManifestDir = Join-Path $TestDrive "ModListOnlyModule"
+                $testManifestPath = Join-Path $testManifestDir "ModListOnlyModule.psd1"
+                New-Item -Path $testManifestDir -ItemType Directory -Force | Out-Null
+
+                $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'a1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'ModListOnlyModule.psm1'
+    ModuleList = @(
+        @{ ModuleName = 'ListedDep'; RequiredVersion = '1.0.0' }
+    )
+}
+"@
+                $manifestContent | Set-Content $testManifestPath
+
+                Mock Find-PSResource {
+                    param($Name, $Version)
+                    switch ($Name) {
+                        "ListedDep" {
+                            [PSCustomObject]@{
+                                Name = "ListedDep"
+                                Version = [version]"1.0.0"
+                                Repository = "TestRepo"
+                                Dependencies = @()
+                            }
+                        }
+                    }
+                }
+
+                $result = Find-PSResourceDependencies -ManifestPath $testManifestPath
+
+                $result | Should -Not -BeNullOrEmpty
+                @($result).Count | Should -Be 1
+                $result[0].Name | Should -Be "ListedDep"
+                $result[0].Version | Should -Be "1.0.0"
+            }
+        }
+    }
+
+    Context "Manifest with Both RequiredModules and ModuleList" {
+        It "Should resolve all dependencies from both sources" {
+            InModuleScope Microsoft.AVS.CDR {
+                $testManifestDir = Join-Path $TestDrive "BothSourcesModule"
+                $testManifestPath = Join-Path $testManifestDir "BothSourcesModule.psd1"
+                New-Item -Path $testManifestDir -ItemType Directory -Force | Out-Null
+
+                $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'b1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'BothSourcesModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = 'ReqDep'; RequiredVersion = '1.0.0' }
+    )
+    ModuleList = @(
+        @{ ModuleName = 'ListDep'; RequiredVersion = '2.0.0' }
+    )
+}
+"@
+                $manifestContent | Set-Content $testManifestPath
+
+                Mock Find-PSResource {
+                    param($Name, $Version)
+                    switch ($Name) {
+                        "ReqDep" {
+                            [PSCustomObject]@{
+                                Name = "ReqDep"
+                                Version = [version]"1.0.0"
+                                Repository = "TestRepo"
+                                Dependencies = @()
+                            }
+                        }
+                        "ListDep" {
+                            [PSCustomObject]@{
+                                Name = "ListDep"
+                                Version = [version]"2.0.0"
+                                Repository = "TestRepo"
+                                Dependencies = @()
+                            }
+                        }
+                    }
+                }
+
+                $result = Find-PSResourceDependencies -ManifestPath $testManifestPath
+
+                $result | Should -Not -BeNullOrEmpty
+                @($result).Count | Should -Be 2
+                ($result | Where-Object { $_.Name -eq "ReqDep" }) | Should -Not -BeNullOrEmpty
+                ($result | Where-Object { $_.Name -eq "ListDep" }) | Should -Not -BeNullOrEmpty
+            }
+        }
+
+        It "Should not create duplicate graph entries for same module in both lists" {
+            InModuleScope Microsoft.AVS.CDR {
+                $testManifestDir = Join-Path $TestDrive "DedupModule"
+                $testManifestPath = Join-Path $testManifestDir "DedupModule.psd1"
+                New-Item -Path $testManifestDir -ItemType Directory -Force | Out-Null
+
+                $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'c1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'DedupModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = 'SharedDep'; RequiredVersion = '1.0.0' }
+    )
+    ModuleList = @(
+        @{ ModuleName = 'SharedDep'; RequiredVersion = '2.0.0' }
+    )
+}
+"@
+                $manifestContent | Set-Content $testManifestPath
+
+                Mock Find-PSResource {
+                    param($Name, $Version)
+                    [PSCustomObject]@{
+                        Name = "SharedDep"
+                        Version = [version]"1.0.0"
+                        Repository = "TestRepo"
+                        Dependencies = @()
+                    }
+                }
+
+                $result = Find-PSResourceDependencies -ManifestPath $testManifestPath
+
+                @($result).Count | Should -Be 1
+                $result[0].Name | Should -Be "SharedDep"
+                # RequiredModules version wins (1.0.0), not ModuleList (2.0.0)
+                $result[0].Version | Should -Be "1.0.0"
+            }
+        }
+    }
+
+    Context "Diamond Resolution with ModuleList" {
+        It "Should resolve diamond when RequiredModules and ModuleList deps share a transitive dependency" {
+            InModuleScope Microsoft.AVS.CDR {
+                $testManifestDir = Join-Path $TestDrive "DiamondModule"
+                $testManifestPath = Join-Path $testManifestDir "DiamondModule.psd1"
+                New-Item -Path $testManifestDir -ItemType Directory -Force | Out-Null
+
+                # RequiredModules has A (depends on SharedLib@1.0)
+                # ModuleList has B (depends on SharedLib@2.0)
+                # Diamond resolution should pick SharedLib@2.0
+                $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'd1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'DiamondModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = 'DepA'; RequiredVersion = '1.0.0' }
+    )
+    ModuleList = @(
+        @{ ModuleName = 'DepB'; RequiredVersion = '1.0.0' }
+    )
+}
+"@
+                $manifestContent | Set-Content $testManifestPath
+
+                Mock Find-PSResource {
+                    param($Name, $Version)
+                    switch ($Name) {
+                        "DepA" {
+                            [PSCustomObject]@{
+                                Name = "DepA"
+                                Version = [version]"1.0.0"
+                                Repository = "TestRepo"
+                                Dependencies = @(
+                                    [PSCustomObject]@{ Name = "SharedLib"; VersionRange = "1.0.0" }
+                                )
+                            }
+                        }
+                        "DepB" {
+                            [PSCustomObject]@{
+                                Name = "DepB"
+                                Version = [version]"1.0.0"
+                                Repository = "TestRepo"
+                                Dependencies = @(
+                                    [PSCustomObject]@{ Name = "SharedLib"; VersionRange = "2.0.0" }
+                                )
+                            }
+                        }
+                        "SharedLib" {
+                            if ($Version -eq "1.0.0") {
+                                [PSCustomObject]@{
+                                    Name = "SharedLib"
+                                    Version = [version]"1.0.0"
+                                    Repository = "TestRepo"
+                                    Dependencies = @()
+                                }
+                            }
+                            elseif ($Version -eq "2.0.0") {
+                                [PSCustomObject]@{
+                                    Name = "SharedLib"
+                                    Version = [version]"2.0.0"
+                                    Repository = "TestRepo"
+                                    Dependencies = @()
+                                }
+                            }
+                        }
+                    }
+                }
+
+                $result = Find-PSResourceDependencies -ManifestPath $testManifestPath -WarningAction SilentlyContinue
+
+                # Should have: DepA, DepB, SharedLib (diamond resolved to 2.0.0)
+                @($result).Count | Should -Be 3
+                $sharedLib = $result | Where-Object { $_.Name -eq "SharedLib" }
+                $sharedLib | Should -Not -BeNullOrEmpty
+                $sharedLib.Version | Should -Be "2.0.0"
+            }
+        }
+    }
+
+    Context "Empty Manifest" {
+        It "Should return empty when manifest has no RequiredModules or ModuleList" {
+            InModuleScope Microsoft.AVS.CDR {
+                $testManifestDir = Join-Path $TestDrive "EmptyDepsModule"
+                $testManifestPath = Join-Path $testManifestDir "EmptyDepsModule.psd1"
+                New-Item -Path $testManifestDir -ItemType Directory -Force | Out-Null
+
+                $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'EmptyDepsModule.psm1'
+}
+"@
+                $manifestContent | Set-Content $testManifestPath
+
+                $result = Find-PSResourceDependencies -ManifestPath $testManifestPath
+
+                @($result).Count | Should -Be 0
+            }
+        }
+    }
+}
+
+Describe "Import-PSResourceDependencies ModuleList" {
+    BeforeAll {
+        $modulePath = Join-Path $PSScriptRoot ".." "Microsoft.AVS.CDR" "Microsoft.AVS.CDR.psd1"
+        Import-Module $modulePath -Force
+    }
+
+    Context "Manifest with ModuleList Only" {
+        It "Should handle manifest with only ModuleList gracefully" {
+            InModuleScope Microsoft.AVS.CDR {
+                $testManifestDir = Join-Path $TestDrive "ImportModListModule"
+                $testManifestPath = Join-Path $testManifestDir "ImportModListModule.psd1"
+                New-Item -Path $testManifestDir -ItemType Directory -Force | Out-Null
+
+                $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'f2234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'ImportModListModule.psm1'
+    ModuleList = @(
+        @{ ModuleName = 'ListOnlyDep'; RequiredVersion = '1.0.0' }
+    )
+}
+"@
+                $manifestContent | Set-Content $testManifestPath
+
+                Mock Get-PSResource {
+                    param($Name, $Version)
+                    if ($Name -eq "ListOnlyDep") {
+                        [PSCustomObject]@{
+                            Name = "ListOnlyDep"
+                            Version = [version]"1.0.0"
+                            InstalledLocation = "/fake/modules"
+                            Dependencies = @()
+                        }
+                    }
+                }
+
+                Mock Get-Module { @() }
+                Mock Import-Module {
+                    [PSCustomObject]@{
+                        Name = "ListOnlyDep"
+                        Version = [version]"1.0.0"
+                    }
+                }
+
+                { Import-PSResourceDependencies -ManifestPath $testManifestPath } | Should -Not -Throw
+                Should -Invoke Import-Module -Times 1
+            }
+        }
+    }
+
+    Context "Manifest with Both RequiredModules and ModuleList" {
+        It "Should import all dependencies from both sources without duplicates" {
+            InModuleScope Microsoft.AVS.CDR {
+                $testManifestDir = Join-Path $TestDrive "ImportBothModule"
+                $testManifestPath = Join-Path $testManifestDir "ImportBothModule.psd1"
+                New-Item -Path $testManifestDir -ItemType Directory -Force | Out-Null
+
+                $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'f3234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'ImportBothModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = 'ReqMod'; RequiredVersion = '1.0.0' }
+    )
+    ModuleList = @(
+        @{ ModuleName = 'ListMod'; RequiredVersion = '1.0.0' }
+    )
+}
+"@
+                $manifestContent | Set-Content $testManifestPath
+
+                Mock Get-PSResource {
+                    param($Name, $Version)
+                    switch ($Name) {
+                        "ReqMod" {
+                            [PSCustomObject]@{
+                                Name = "ReqMod"
+                                Version = [version]"1.0.0"
+                                InstalledLocation = "/fake/modules"
+                                Dependencies = @()
+                            }
+                        }
+                        "ListMod" {
+                            [PSCustomObject]@{
+                                Name = "ListMod"
+                                Version = [version]"1.0.0"
+                                InstalledLocation = "/fake/modules"
+                                Dependencies = @()
+                            }
+                        }
+                    }
+                }
+
+                Mock Get-Module { @() }
+                Mock Import-Module {
+                    param($Name, $RequiredVersion)
+                    [PSCustomObject]@{
+                        Name = $Name
+                        Version = [version]$RequiredVersion
+                    }
+                }
+
+                { Import-PSResourceDependencies -ManifestPath $testManifestPath } | Should -Not -Throw
+                # Both ReqMod and ListMod should be imported (2 calls)
+                Should -Invoke Import-Module -Times 2
+            }
+        }
+    }
+
+    Context "Diamond Resolution Prevents Assembly Conflict" {
+        It "Should resolve diamond from RequiredModules and ModuleList shared transitive dependency" {
+            InModuleScope Microsoft.AVS.CDR {
+                $testManifestDir = Join-Path $TestDrive "ImportDiamondModule"
+                $testManifestPath = Join-Path $testManifestDir "ImportDiamondModule.psd1"
+                New-Item -Path $testManifestDir -ItemType Directory -Force | Out-Null
+
+                # DepA (RequiredModules) depends on SharedLib@1.0
+                # DepB (ModuleList) depends on SharedLib@2.0
+                # Diamond resolution picks SharedLib@2.0 — prevents assembly conflict
+                $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'f4234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'ImportDiamondModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = 'DepA'; RequiredVersion = '1.0.0' }
+    )
+    ModuleList = @(
+        @{ ModuleName = 'DepB'; RequiredVersion = '1.0.0' }
+    )
+}
+"@
+                $manifestContent | Set-Content $testManifestPath
+
+                Mock Get-PSResource {
+                    param($Name, $Version)
+                    switch ("$Name@$Version") {
+                        "DepA@1.0.0" {
+                            [PSCustomObject]@{
+                                Name = "DepA"; Version = [version]"1.0.0"
+                                InstalledLocation = "/fake/modules"
+                                Dependencies = @(
+                                    [PSCustomObject]@{ Name = "SharedLib"; VersionRange = "1.0.0" }
+                                )
+                            }
+                        }
+                        "DepB@1.0.0" {
+                            [PSCustomObject]@{
+                                Name = "DepB"; Version = [version]"1.0.0"
+                                InstalledLocation = "/fake/modules"
+                                Dependencies = @(
+                                    [PSCustomObject]@{ Name = "SharedLib"; VersionRange = "2.0.0" }
+                                )
+                            }
+                        }
+                        "SharedLib@1.0.0" {
+                            [PSCustomObject]@{
+                                Name = "SharedLib"; Version = [version]"1.0.0"
+                                InstalledLocation = "/fake/modules"
+                                Dependencies = @()
+                            }
+                        }
+                        "SharedLib@2.0.0" {
+                            [PSCustomObject]@{
+                                Name = "SharedLib"; Version = [version]"2.0.0"
+                                InstalledLocation = "/fake/modules"
+                                Dependencies = @()
+                            }
+                        }
+                    }
+                }
+
+                Mock Get-Module { @() }
+
+                Mock Import-Module {
+                    param($Name, $RequiredVersion)
+                    [PSCustomObject]@{
+                        Name = $Name
+                        Version = [version]$RequiredVersion
+                    }
+                }
+
+                Import-PSResourceDependencies -ManifestPath $testManifestPath -WarningAction SilentlyContinue
+
+                # SharedLib should be imported exactly once, at the diamond-resolved version 2.0.0
+                Should -Invoke Import-Module -Times 1 -ParameterFilter { $Name -eq 'SharedLib' -and $RequiredVersion -eq '2.0.0' }
+                # Total modules imported: DepA, DepB, SharedLib = 3
+                Should -Invoke Import-Module -Times 3
+            }
+        }
+    }
+
+    Context "No Dependencies" {
+        It "Should handle manifest with no RequiredModules or ModuleList" {
+            InModuleScope Microsoft.AVS.CDR {
+                $testManifestDir = Join-Path $TestDrive "ImportNoDepsModule"
+                $testManifestPath = Join-Path $testManifestDir "ImportNoDepsModule.psd1"
+                New-Item -Path $testManifestDir -ItemType Directory -Force | Out-Null
+
+                $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'f5234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'ImportNoDepsModule.psm1'
+}
+"@
+                $manifestContent | Set-Content $testManifestPath
+
+                { Import-PSResourceDependencies -ManifestPath $testManifestPath } | Should -Not -Throw
             }
         }
     }
