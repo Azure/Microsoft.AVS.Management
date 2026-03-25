@@ -199,13 +199,15 @@ function Get-EsxtopData {
     Write-Output "=== COUNTER_INFO ==="
     Write-Output $counterInfo
 
-    # FetchStats loop
+    # FetchStats loop - stream to temp CSV file to avoid StringBuilder memory limits
     $durationMin = [math]::Round($Iterations * $IntervalSeconds / 60, 1)
     Write-Information "Collecting $Iterations samples (interval=${IntervalSeconds}s, ~${durationMin} min)..." -InformationAction Continue
 
-    $allOutput = [System.Text.StringBuilder]::new()
-    [void]$allOutput.AppendLine("=== COUNTER_INFO ===")
-    [void]$allOutput.AppendLine($counterInfo)
+    $ts = Get-Date -Format 'yyyyMMdd_HHmmss'
+    $csvFileName = "esxtop_$($vmHost.Name.Split('.')[0])_${ts}.csv"
+    $tempCsv = Join-Path ([System.IO.Path]::GetTempPath()) $csvFileName
+    '"Timestamp","SampleNumber","RawData"' | Out-File -FilePath $tempCsv -Encoding UTF8
+    $totalBytes = 0
 
     for ($i = 1; $i -le $Iterations; $i++) {
         Write-Information "Sample $i/$Iterations - Fetching..." -InformationAction Continue
@@ -213,10 +215,13 @@ function Get-EsxtopData {
         Write-Output "=== SAMPLE $i ==="
         Write-Output $stats
 
-        [void]$allOutput.AppendLine("=== SAMPLE $i ===")
-        [void]$allOutput.AppendLine($stats)
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        $escaped = $stats -replace '"', '""'
+        $csvRow = '"' + $timestamp + '",' + $i + ',"' + $escaped + '"'
+        $csvRow | Out-File -FilePath $tempCsv -Encoding UTF8 -Append
+        $totalBytes += $stats.Length
 
-        $dataKB = [math]::Round($allOutput.Length / 1024, 1)
+        $dataKB = [math]::Round($totalBytes / 1024, 1)
         $remainSec = ($Iterations - $i) * $IntervalSeconds
         Write-Information "Sample $i/$Iterations - Done (${dataKB} KB collected, ${remainSec}s remaining)" -InformationAction Continue
 
@@ -234,15 +239,13 @@ function Get-EsxtopData {
         Write-Warning "FreeStats call failed: $($_.Exception.Message)"
     }
 
-    # Save to vSAN datastore
+    # Upload CSV to vSAN datastore
     try {
         $datastore = Get-Datastore -RelatedObject $cluster -ErrorAction SilentlyContinue |
             Where-Object { $_.Type -eq 'vsan' -or $_.Name -like '*vsan*' } |
             Select-Object -First 1
 
         if ($datastore) {
-            $ts = Get-Date -Format 'yyyyMMdd_HHmmss'
-            $fileName = "esxtop_$($vmHost.Name.Split('.')[0])_${ts}.txt"
             $dsPath = "vmstore:\$($datastore.Datacenter)\$($datastore.Name)"
             $destFolder = "$dsPath\esxtop_output"
 
@@ -250,17 +253,15 @@ function Get-EsxtopData {
                 New-Item -Path $destFolder -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
             }
 
-            $tempFile = [System.IO.Path]::GetTempFileName()
-            $allOutput.ToString() | Out-File -FilePath $tempFile -Encoding UTF8
-
-            Copy-DatastoreItem -Item $tempFile -Destination "$destFolder\$fileName" -Force -ErrorAction Stop
-            Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
-
-            Write-Information "Output saved to datastore: [$($datastore.Name)] esxtop_output/$fileName" -InformationAction Continue
+            Copy-DatastoreItem -Item $tempCsv -Destination "$destFolder\$csvFileName" -Force -ErrorAction Stop
+            Write-Information "CSV saved to datastore: [$($datastore.Name)] esxtop_output/$csvFileName" -InformationAction Continue
         }
     }
     catch {
         Write-Warning "Datastore save failed: $($_.Exception.Message)"
+    }
+    finally {
+        Remove-Item $tempCsv -Force -ErrorAction SilentlyContinue
     }
 
     Write-Information "Esxtop collection complete. $Iterations samples collected from $($vmHost.Name)." -InformationAction Continue
