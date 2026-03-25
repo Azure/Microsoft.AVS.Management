@@ -199,20 +199,13 @@ function Get-EsxtopData {
     Write-Output "=== COUNTER_INFO ==="
     Write-Output $counterInfo
 
-    # FetchStats loop - stream to temp CSV, split at 150MB per file
+    # FetchStats loop - stream to single temp CSV file
     $durationMin = [math]::Round($Iterations * $IntervalSeconds / 60, 1)
     Write-Information "Collecting $Iterations samples (interval=${IntervalSeconds}s, ~${durationMin} min)..." -InformationAction Continue
 
-    $ts = Get-Date -Format 'yyyyMMdd_HHmmss'
-    $csvBaseName = "esxtop_$($vmHost.Name.Split('.')[0])_${ts}"
-    $csvHeader = '"Timestamp","SampleNumber","RawData"'
-    $maxBytes = 150MB
-    $tempDir = [System.IO.Path]::GetTempPath()
-    $fileIndex = 1
-    $tempCsv = Join-Path $tempDir "${csvBaseName}_part${fileIndex}.csv"
-    $csvHeader | Out-File -FilePath $tempCsv -Encoding UTF8
-    $allTempFiles = [System.Collections.Generic.List[string]]::new()
-    $allTempFiles.Add($tempCsv)
+    $hostShort = $vmHost.Name.Split('.')[0]
+    $tempCsv = Join-Path ([System.IO.Path]::GetTempPath()) "esxtop_${hostShort}.csv"
+    '"Timestamp","SampleNumber","RawData"' | Out-File -FilePath $tempCsv -Encoding UTF8
     $totalBytes = 0
 
     for ($i = 1; $i -le $Iterations; $i++) {
@@ -227,17 +220,9 @@ function Get-EsxtopData {
         $csvRow | Out-File -FilePath $tempCsv -Encoding UTF8 -Append
         $totalBytes += $stats.Length
 
-        if ((Get-Item $tempCsv).Length -ge $maxBytes -and $i -lt $Iterations) {
-            $fileIndex++
-            $tempCsv = Join-Path $tempDir "${csvBaseName}_part${fileIndex}.csv"
-            $csvHeader | Out-File -FilePath $tempCsv -Encoding UTF8
-            $allTempFiles.Add($tempCsv)
-            Write-Information "Started new file part $fileIndex" -InformationAction Continue
-        }
-
         $dataKB = [math]::Round($totalBytes / 1024, 1)
         $remainSec = ($Iterations - $i) * $IntervalSeconds
-        Write-Information "Sample $i/$Iterations - Done (${dataKB} KB, part $fileIndex, ${remainSec}s remaining)" -InformationAction Continue
+        Write-Information "Sample $i/$Iterations - Done (${dataKB} KB, ${remainSec}s remaining)" -InformationAction Continue
 
         if ($i -lt $Iterations) {
             Start-Sleep -Seconds $IntervalSeconds
@@ -253,7 +238,7 @@ function Get-EsxtopData {
         Write-Warning "FreeStats call failed: $($_.Exception.Message)"
     }
 
-    # Upload CSV files to vSAN datastore
+    # Upload CSV to vSAN datastore with rotation (keep last 3 collections)
     try {
         $datastore = Get-Datastore -RelatedObject $cluster -ErrorAction SilentlyContinue |
             Where-Object { $_.Type -eq 'vsan' -or $_.Name -like '*vsan*' } |
@@ -267,23 +252,39 @@ function Get-EsxtopData {
                 New-Item -Path $destFolder -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
             }
 
-            foreach ($f in $allTempFiles) {
-                $fName = Split-Path $f -Leaf
-                Copy-DatastoreItem -Item $f -Destination "$destFolder\$fName" -Force -ErrorAction Stop
-                Write-Information "Uploaded: [$($datastore.Name)] esxtop_output/$fName" -InformationAction Continue
+            # Rotate: rm .2, .1→.2, .0→.1, write new to .0
+            $dsFile = "esxtop_${hostShort}"
+            $slot2 = "$destFolder\${dsFile}.2.csv"
+            $slot1 = "$destFolder\${dsFile}.1.csv"
+            $slot0 = "$destFolder\${dsFile}.0.csv"
+
+            if (Test-Path $slot2 -ErrorAction SilentlyContinue) {
+                Remove-Item $slot2 -Force -ErrorAction SilentlyContinue
+                Write-Information "Removed oldest: ${dsFile}.2.csv" -InformationAction Continue
             }
+            if (Test-Path $slot1 -ErrorAction SilentlyContinue) {
+                Copy-DatastoreItem -Item $slot1 -Destination $slot2 -Force -ErrorAction SilentlyContinue
+                Remove-Item $slot1 -Force -ErrorAction SilentlyContinue
+                Write-Information "Rotated: ${dsFile}.1.csv -> .2.csv" -InformationAction Continue
+            }
+            if (Test-Path $slot0 -ErrorAction SilentlyContinue) {
+                Copy-DatastoreItem -Item $slot0 -Destination $slot1 -Force -ErrorAction SilentlyContinue
+                Remove-Item $slot0 -Force -ErrorAction SilentlyContinue
+                Write-Information "Rotated: ${dsFile}.0.csv -> .1.csv" -InformationAction Continue
+            }
+
+            Copy-DatastoreItem -Item $tempCsv -Destination $slot0 -Force -ErrorAction Stop
+            Write-Information "Saved: [$($datastore.Name)] esxtop_output/${dsFile}.0.csv" -InformationAction Continue
         }
     }
     catch {
         Write-Warning "Datastore save failed: $($_.Exception.Message)"
     }
     finally {
-        foreach ($f in $allTempFiles) {
-            Remove-Item $f -Force -ErrorAction SilentlyContinue
-        }
+        Remove-Item $tempCsv -Force -ErrorAction SilentlyContinue
     }
 
-    Write-Information "Esxtop collection complete. $Iterations samples, $($allTempFiles.Count) file(s) from $($vmHost.Name)." -InformationAction Continue
+    Write-Information "Esxtop collection complete. $Iterations samples from $($vmHost.Name)." -InformationAction Continue
 }
 
 
