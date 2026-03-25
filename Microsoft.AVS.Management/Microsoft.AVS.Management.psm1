@@ -4,6 +4,113 @@
 
 
 
+function Export-AvsVsanRawMetrics {
+    <#
+    .SYNOPSIS
+        Exports raw vSAN performance metrics for a cluster and its virtual machines.
+
+    .DESCRIPTION
+        Connects to the specified vCenter server, resolves the target cluster, discovers
+        supported virtual-machine vSAN metric labels, collects raw cluster-level and VM-level
+        performance metrics for a given lookback window, and writes the output as JSON/CSV
+        files under the specified output folder.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$VCenterServer,
+        [Parameter(Mandatory = $true)][string]$ClusterName,
+        [Parameter(Mandatory = $false)][int]$LookbackMinutes = 10,
+        [Parameter(Mandatory = $false)][string]$OutFolder = ".\vsan_raw_metrics_out"
+    )
+
+    $ErrorActionPreference = "Stop"
+
+    try {
+        $OutFolder = Ensure-OutFolder $OutFolder
+
+        Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false | Out-Null
+        Set-PowerCLIConfiguration -Scope User -ParticipateInCEIP $false -Confirm:$false | Out-Null
+        Import-Module VCF.PowerCLI -ErrorAction Stop
+
+        Write-Log "Connecting to vCenter $VCenterServer ..." "INFO"
+        $vc = Connect-VIServer -Server $VCenterServer
+        Write-Log "Connected: $($vc.Name) v$($vc.Version)" "OK"
+
+        $cluster = Get-Cluster -Name $ClusterName -ErrorAction Stop
+        $vms = Get-VM -Location $cluster | Sort-Object Name
+
+        $runStamp = Get-Date -Format "yyyyMMdd_HHmmss"
+        $root = Join-Path $OutFolder "RawMetrics_$runStamp"
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+
+        $startTime = (Get-Date).AddMinutes(-1 * $LookbackMinutes)
+        $endTime   = Get-Date
+
+        Write-Log "Window: $startTime -> $endTime" "INFO"
+
+        # Supported VM labels
+        $vmInfo = Get-SupportedVmLabels
+        Save-JsonSafe -Object $vmInfo.Supported -Path (Join-Path $root "supported_entity_types.json")
+        $vmInfo.Labels | Out-File -FilePath (Join-Path $root "virtual_machine_labels.txt") -Encoding utf8
+        Save-JsonSafe -Object $vmInfo.Labels -Path (Join-Path $root "virtual_machine_labels.json")
+        Write-Log "Found $($vmInfo.Labels.Count) supported virtual-machine labels." "OK"
+
+        # Cluster raw metrics
+        $clusterFolder = Join-Path $root "cluster_raw"
+        New-Item -ItemType Directory -Path $clusterFolder -Force | Out-Null
+
+        $clusterMetrics = Get-InterestingClusterMetrics
+        $clusterResult = Export-RawStatsForEntity `
+            -Entity $cluster `
+            -EntityName $cluster.Name `
+            -MetricNames $clusterMetrics `
+            -StartTime $startTime `
+            -EndTime $endTime `
+            -Folder $clusterFolder
+
+        Write-Log "Cluster raw rows: $($clusterResult.RawCount), flat rows: $($clusterResult.FlatCount), errors: $($clusterResult.ErrorCount)" "OK"
+
+        # VM raw metrics
+        $vmRoot = Join-Path $root "vm_raw"
+        New-Item -ItemType Directory -Path $vmRoot -Force | Out-Null
+
+        $vmSummary = New-Object System.Collections.Generic.List[object]
+
+        foreach ($vm in $vms) {
+            $safeVm = ($vm.Name -replace '[\\/:*?"<>| ]','_')
+            $vmFolder = Join-Path $vmRoot $safeVm
+            New-Item -ItemType Directory -Path $vmFolder -Force | Out-Null
+
+            Write-Log "Processing VM: $($vm.Name)" "INFO"
+
+            $res = Export-RawStatsForEntity `
+                -Entity $vm `
+                -EntityName $vm.Name `
+                -MetricNames $vmInfo.Labels `
+                -StartTime $startTime `
+                -EndTime $endTime `
+                -Folder $vmFolder
+
+            $vmSummary.Add([pscustomobject]@{
+                VMName      = $vm.Name
+                RawRows     = $res.RawCount
+                FlatRows    = $res.FlatCount
+                ErrorCount  = $res.ErrorCount
+            }) | Out-Null
+        }
+
+        $vmSummary | Export-Csv -NoTypeInformation -Path (Join-Path $root "vm_collection_summary.csv")
+
+        Write-Log "Done. Output folder: $root" "OK"
+    }
+    finally {
+        if ($global:DefaultVIServer) {
+            Disconnect-VIServer -Server $global:DefaultVIServer -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+        }
+    }
+}
+
+
 function Remove-AvsUnassociatedObject {
     <#
     .SYNOPSIS
