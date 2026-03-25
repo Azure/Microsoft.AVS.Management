@@ -1,220 +1,420 @@
-# Overview
-These guidelines layout responsibilities for Microsoft and 3rd party PowerShell script developers for bringing the features to [AVS Run Command](https://learn.microsoft.com/en-us/azure/azure-vmware/using-run-command) platform.
-AVS Scripting functionality is exposed as standard [ARM resource](https://github.com/Azure/azure-rest-api-specs/blob/master/specification/vmware/resource-manager/Microsoft.AVS/stable/2021-06-01/vmware.json), vendors should familiarize themselves with the capabilities available.
+# AVS Run Command — Scripting Guidelines
 
-----
+Guidelines for Microsoft and third-party PowerShell developers building features for the [AVS Run Command](https://learn.microsoft.com/en-us/azure/azure-vmware/using-run-command) platform. Scripts run on **PowerShell 7.4+** with **VMware PowerCLI** in a **Linux container** environment (PSEdition `Core` only). AVS scripting is exposed as a standard [ARM resource](https://github.com/Azure/azure-rest-api-specs/blob/master/specification/vmware/resource-manager/Microsoft.AVS/stable/2021-06-01/vmware.json) — vendors should familiarize themselves with the capabilities available.
 
-# Responsibilities of AVS
+## Table of Contents
 
-AVS Scripting environment is expecting to run scripts targeted for vCenter via PowerCLI from VMware. Microsoft will import vendor's PowerShell package, verify it's conformance to the AVS Run Command constraints and make it available for execution in AVS regions.
+1. [Runtime Environment](#1-runtime-environment)
+2. [Module Packaging](#2-module-packaging)
+3. [Function Conventions](#3-function-conventions)
+4. [Security](#4-security)
+5. [Error Handling](#5-error-handling)
+6. [Output and Streams](#6-output-and-streams)
+7. [Lifecycle Cmdlets](#7-lifecycle-cmdlets)
+8. [Development Workflow](#8-development-workflow)
+9. [Release Process](#9-release-process)
+10. [FAQ](#10-faq)
 
+---
 
-## Administration Level logins
+## 1. Runtime Environment
 
-The 3rd Party script will not have access to administrator password.  Prior to executing a 3rd Party script, AVS will establish administrator level login sessions with vCenter. This will allow any API within vCenter to be accessed. Following logins will be performed prior to your script starting:
+Microsoft imports vendor PowerShell packages, verifies conformance to AVS Run Command constraints, and makes them available for execution in AVS regions. The sections below describe what the platform provides before your script starts.
 
-- PowerCLI's [Connect-VIServer](https://developer.vmware.com/docs/powercli/latest/vmware.vimautomation.core/commands/connect-viserver/#Default) cmdlet.
-- VMware's [Connect-SsoAdminServer](https://github.com/vmware/PowerCLI-Example-Scripts/tree/master/Modules/VMware.vSphere.SsoAdmin).
-- VMware's [Connect-VcenterServerMOB](https://github.com/vmware/PowerCLI-Example-Scripts/tree/master/Modules/VMware.vSphere.SsoAdmin).
+### 1.1 Pre-Established Sessions
 
+Your script will **not** have access to the administrator password. Before execution begins, AVS establishes administrator-level sessions with vCenter, giving your code access to all vCenter APIs. The following logins are performed automatically:
 
-## Environment
+- PowerCLI's [Connect-VIServer](https://developer.vmware.com/docs/powercli/latest/vmware.vimautomation.core/commands/connect-viserver/#Default)
+- VMware's [Connect-SsoAdminServer](https://github.com/vmware/PowerCLI-Example-Scripts/tree/master/Modules/VMware.vSphere.SsoAdmin)
+- VMware's [Connect-VcenterServerMOB](https://github.com/vmware/PowerCLI-Example-Scripts/tree/master/Modules/VMware.vSphere.SsoAdmin)
 
-AVS will expose some standard runtime options via PowerShell variables.  See below table for current list.
+> **Do not** call any of these in your scripts — see [Session Management](#41-session-management).
 
-| Var | Description | Notes |
-| ------- | ----------- |--|
-| `VC_ADDRESS` | IP Address of VCenter | Script authors: use `"vc.$SddcDnsSuffix"` for any HTTPS requests instead |
-| `SddcDnsSuffix` | Domain suffix of the SDDC |  |
-| `SddcResourceId` | ARM ResourceId of the SDDC | "/subscriptions/7f1fae41-7708-4fa4-89b3-f6552cad2fc1/resourceGroups/myRG/providers/Microsoft.AVS/privateClouds/myCloud" |
-| `AadAuthority` | Azure Active Directory address in this Azure Cloud | "https://login.microsoftonline.com/" |
-| `PersistentSecrets` | Hashtable for keeping secrets across package script executions | `$PersistentSecrets.ManagementAppliancePassword = '***'` |
-| `SSH_Sessions` | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SSHSession.md) | `Invoke-SSHCommand -Command "uname -a" -SSHSession $SSH_Sessions["esx.hostname.fqdn"].Value`. Another key to the dictionary is `"VC"` for SSH to vCenter. |
-| `SFTP_Sessions` | Dictionary of hostname to [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) instance of [posh-ssh sftp session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SFTPSession.md) | `New-SFTPItem -ItemType Directory -Path "/tmp/zzz" -SFTPSession $SSH_Sessions[esx.hostname.fqdn].Value`. Another key to the dictionary is `"VC"` for SFTP to vCenter |
-| `MOB_Connection` | Connection object returned by `Connect-VcenterServerMOB` | Ensure that Microsoft.AVS.Management at least v7.0.170 is referenced as your dependency |
+### 1.2 Environment Variables
 
-### Persistent secrets:
-- The secrets are kept in a Keyvault, they are isolated on package name basis, shared across all versions of your package and made available for each of your package scripts. Delete secrets by setting the hastable entry to an empty string or `$null`. [See the secret naming constraints](https://learn.microsoft.com/en-us/rest/api/keyvault/secrets/set-secret/set-secret?tabs=HTTP#uri-parameters).
-- The secrets are only stored on succesful commandlet termination, any exceptions will prevent the persistence.
+AVS exposes the following PowerShell variables at runtime:
 
-### Temporary storage:
-The script shall assume the directory it is executed in is temporary and can use it as needed, with ~25GB of space available. This environment including any files will be torn down after the script execution.
+| Variable | Description | Notes |
+|----------|-------------|-------|
+| `$VC_ADDRESS` | IP address of vCenter | Use `"vc.$SddcDnsSuffix"` for HTTPS requests instead |
+| `$SddcDnsSuffix` | Domain suffix of the SDDC | |
+| `$SddcResourceId` | ARM ResourceId of the SDDC | e.g., `"/subscriptions/.../providers/Microsoft.AVS/privateClouds/myCloud"` |
+| `$AadAuthority` | Azure Active Directory address in this Azure Cloud | e.g., `"https://login.microsoftonline.com/"` |
+| `$PersistentSecrets` | Hashtable for keeping secrets across executions | See [Persistent Secrets](#13-persistent-secrets) |
+| `$SSH_Sessions` | Dictionary of hostname → [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) [SSH session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SSHSession.md) | `Invoke-SSHCommand -Command "uname -a" -SSHSession $SSH_Sessions["esx.host.fqdn"].Value` — use key `"VC"` for SSH to vCenter |
+| `$SFTP_Sessions` | Dictionary of hostname → [Lazy](https://docs.microsoft.com/en-us/dotnet/api/system.lazy-1?view=netcore-2.1) [SFTP session](https://github.com/darkoperator/Posh-SSH/blob/master/docs/New-SFTPSession.md) | `New-SFTPItem -ItemType Directory -Path "/tmp/zzz" -SFTPSession $SFTP_Sessions["esx.host.fqdn"].Value` — use key `"VC"` for SFTP to vCenter |
+| `$MOB_Connection` | Connection object from `Connect-VcenterServerMOB` | Requires `Microsoft.AVS.Management` ≥ v7.0.170 as a dependency |
 
-### AVS Gen 2 specifics:
-Run Command agent environment on Gen 2 AVS SDDCs will continue to provide HTTPS connectivity to common Azure endpoints, but in general the Internet connectivity will have to be provided by the customer network.
+### 1.3 Persistent Secrets
 
-## Script Execution
+- Secrets are stored in Azure Key Vault, isolated by package name, shared across all versions of your package, and made available to each of your package's scripts.
+- Delete a secret by setting its hashtable entry to an empty string or `$null`.
+- Secret names must conform to [Key Vault naming constraints](https://learn.microsoft.com/en-us/rest/api/keyvault/secrets/set-secret/set-secret?tabs=HTTP#uri-parameters).
+- Secrets are only persisted on **successful** cmdlet termination — any unhandled exception prevents persistence.
 
-Script executions are serialized (executed one at a time) for the safety of all parties.
+```powershell
+# Store a secret
+$PersistentSecrets['ManagementAppliancePassword'] = $secureValue
 
-If a script executes against an SDDC in the `Updating` state it will result in an error.  A script can set the SDDC state to `Updating` using an `AVSAttribute`, see below.
+# Delete a secret
+$PersistentSecrets['ManagementAppliancePassword'] = $null
+```
 
-## Script Termination
+### 1.4 Temporary Storage
 
-AVS will terminate the script if it runs beyond the established AVS scripting timeout period. Timeout will be defaulted to 30 minutes unless one is provided by the script author (see `AVSAttribute` below).  The max timeout value is one hour.  The timeout value can override on a per-cmdlet basis.
+The script's working directory is temporary with approximately **25 GB** of space available. This environment, including any files created, is torn down after script execution completes.
 
-## Script Review
+### 1.5 Network Connectivity
 
-AVS will review the scripts and attempt to run them.  Where necessary it is expected that the script author will provide support to AVS during this process.
+Network access differs between AVS Gen 1 and Gen 2 SDDCs:
 
-----
+| Capability | Gen 1 | Gen 2 |
+|------------|-------|-------|
+| Internet access | Connected via AVS management network | HTTPS connectivity to common Azure endpoints; general Internet connectivity provided by the customer network |
+| Customer Azure VNet access | **No** — access to customer resources other than VMware infrastructure must be scripted by the vendor | **Yes** — the Run Command agent has access to the customer's Azure network |
 
-# Responsibilities of 3rd Party 
+### 1.6 Script Execution Model
 
-These guidelines are expected to help scripts be more robust and supportable.  The guidelines are also to help avoid negative impact to the AVS customer's Private Cloud.
+- **Serialized execution**: scripts execute one at a time for safety.
+- **SDDC state**: executing against an SDDC in the `Updating` state results in an error. A script can set the SDDC state to `Updating` via `AVSAttribute` (see [Required Attributes](#31-required-attributes)).
+- **Timeout**: default is 30 minutes; maximum is 60 minutes. Authors can override this per-cmdlet via `AVSAttribute`. AVS terminates scripts that exceed their timeout.
+- **No child processes**: Use PowerShell-native facilities.
+- **Review**: AVS reviews all scripts before making them available. Script authors are expected to provide support during this process.
 
-## Never login with cloudadmins through script
+---
 
-A Module should not attempt to login to vCenter with the AVS provided `cloudadmins` or any other role. Scripts that use `Connect-VIServer` or `Connect-SsoAdminServer` will not be allowed to run against an AVS Private Cloud.
+## 2. Module Packaging
 
-## Never elevate privileges for cloudadmins
+Scripts must be packaged as PowerShell modules and published as NuGet packages. AVS uses a private package repository for production; publish to [PowerShell Gallery](https://www.powershellgallery.com/) for testing and review.
 
-A Module should not attempt to elevate privileges for the AVS provided `cloudadmins` role.  Scripts that attempt to do this will not be allowed to run against an AVS Private Cloud. Elevating privileges for cloudadmin could have unintended consequences by giving elevated access to anyone using cloudadmin. The script is already logged in with administrator privileges and does not require elevating `cloudadmins` role.
+### 2.1 Module Manifest
 
-## Never use cloudadmin as the user for any installed software
+The module manifest (`.psd1`) must include:
 
-If necessary, use the installation script to create a separate vCenter user and role to give it.  Recommendation is to use the `cloudadmins` role as a base by duplicating it, then add necessary elevated privileges to the new role.  The privileges required for the new role will need to be reviewed by Microsoft. 
-> Always add the created account to `CloudAdmins` SSO group.
+| Field | Value |
+|-------|-------|
+| `PowerShellVersion` | `'7.4'` |
+| `FunctionsToExport` | Explicit list of public functions |
+| `ProjectUri` | Product support landing page for AVS customers |
 
-### Protecting service credentials
-If deploying an appliance in customer infrastruture that needs service credentials with privileges above `cloudadmins` role the vendor must ensure that the credentials are never exposed - not in-flight, nor at rest.
-- The appliance user must not be able to gain root access or direct access to the storage or file system where credentials are stored.
-- The appliance must be deployed in a folder with ReadOnly permission to `CloudAdmins` SSO group. See `[AVSSecureFolder]::Root()` and `[AVSSecureFolder]::GetOrCreate()`.
-- The objects deployed into the secure folder must subseqently be re-secured with `[AVSSecureFolder]::Secure()` method.
-- The credentials must be passed as OVA properties to the appliance, including the rotation scenario.
-- The credentials must never be logged, no diagnostic bundle may include the credentials.
-- The vendor must provide the cmdlets to rotate the service account password and perform any appliance updates, including security patches.
-- When passing the credentials to vCenter the appliance must enforce HTTPS with host authentication.
-- Use `PersistentSecrets` if access to credentials is required by the scripts later.
+### 2.2 Dependencies
 
-### Other information protection
-If deploying an appliance, the appliance may not expose any VMware logs directly to the customer, any logs and diagnostics from the VMware infrastructure must go through AVS where they can be filtered for sensitive information.
-AVS provides syslog forwarding that makes relevant logs available in Azure.
+- Vendor packages **must** list the latest version of [Microsoft.AVS.Management](https://www.powershellgallery.com/packages/Microsoft.AVS.Management) as a [dependency](https://docs.microsoft.com/en-us/nuget/reference/nuspec#dependencies).
+- Add any other required modules (e.g., `VMware.VimAutomation.Core`).
 
-## Top-level functionality should be exposed as functions with [CmdletBinding](https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_functions_cmdletbindingattribute?view=powershell-7.1) taking all the inputs as the named parameters.
+> **IMPORTANT**: Test your package using a Linux [PowerShell container](https://hub.docker.com/_/microsoft-powershell), connecting to your on-prem datacenter. Install **only** your package from PS Gallery to verify all dependencies are correctly declared.
 
-Secrets and additional attributes:
-- Use `PSCredential` and `SecureString` if taking credentials or secrets as inputs. These parameters are encrypted while inflight and at rest and will never be echoed back to the user.
-- The functions and parameters must have user-friendly description, using standard PS facilities.
-- All names must follow PowerShell [naming guidelines](https://learn.microsoft.com/en-us/powershell/scripting/developer/cmdlet/required-development-guidelines?view=powershell-7.3#use-only-approved-verbs-rd01).
-- Apply `AVSAttribute` as show in [this example](https://www.powershellgallery.com/packages/Microsoft.AVS.Management/1.0.31/Content/Microsoft.AVS.Management.psm1) to specify the default timeout, SDDC status and whether it is intended to be invoked only through automation for your scripts.
+### 2.3 Versioning
 
-Other supported parameter types:
-- `System.String`
-- `System.Double`
-- `System.Boolean`
-- `System.Int32`
+Follow [semver guidelines](https://semver.org/) when publishing. Supported version suffixes:
 
-> IMPORTANT: `String` parameters must be [validated/sanitized](https://learn.microsoft.com/en-us/mem/configmgr/apps/deploy-use/learn-script-security#powershell-parameters-security) against script injection if used in script generation.
+| Suffix | Purpose | Access Control |
+|--------|---------|----------------|
+| `-dev` | Vendor testing | Mapped to a subscription flag assigned only to testing vendors |
+| `-preview` | Opt-in preview | Mapped to `Microsoft.AVS/scriptingPreview` flag; any subscription owner can self-register |
+| *(none)* | General availability | Available to all customers |
 
-If you need another parameter type please make sure it supports automatic conversion from `String`, as all the other parameter types will be taken as text.
+Until there is an agreement with AVS about general availability, publish **only** with `-dev` or `-preview` suffix.
 
-Optional parameters are supported, however the commandlets should not use dynamic or conditional parameters. For example if value of one parameter/switch affects optionality/meaning of other parameters the commandlet should be split into two or more commandlets - where each new commandlet is tailored for the specific use-case therefore avoiding the need for the switch. Commandlets will be statically analyzed to determine the parameters and all the parameters will be presented for the user to specify. 
+#### API Version References
 
+To avoid breakages when AVS deprecates specific package versions, API consumers should reference packages using the `Major.*` pattern instead of a specific version.
 
-## Outputs and termination of a function.
-The script execution pipeline supports following PowerShell streams:
-- Output
-- Information 
-- Warning
-- Error
+For example, if the current version of `Microsoft.AVS.VMFS` is `1.0.151`, API calls should use `Microsoft.AVS.VMFS@1.*`.
 
-Use the stream appropriate for the purpose, suppress outputs with `Out-Null` for information that doesn't not help with the installation or troubleshooting. 
-Be aware that content of these streams is always stored as strings. Objects emitted into these streams should either be primitives (strings, ints, etc), of type `HashTable` or be explicitly converted to string by your script, otherwise they may fail to deserialize and won't be captured.
-> Note that in PowerShell an expression that produces a value (for example, `Stop-VM` or `$true`) will emit that value into `Output` stream unless it's either captured in a variable or piped into `Out-Null`. We observe that this may disrupt outputs to other streams, so make sure to be intentional and eliminate any unintended outputs.
+---
 
-Use `-ErrorAction Stop` or equivalent means to terminate with an error and indicate the final status to the user.
+## 3. Function Conventions
 
-On successful execution a script may assign `NamedOutputs` hashmap/dictionary to return the named key/value pairs to the user, for example:
+### 3.1 Required Attributes
+
+Every exported function available via AVS Run Command **must** have:
+
+1. **`[CmdletBinding()]`** attribute
+2. **`[AVSAttribute(timeoutMinutes)]`** — max 60, default 30
+3. All inputs as **named parameters** in a `param()` block
+
+```powershell
+function Set-Example {
+    <#
+    .DESCRIPTION
+        Applies example configuration to all hosts in the specified
+        vSphere cluster. Validates that the cluster exists before
+        making any changes.
+    .PARAMETER ClusterName
+        Name of the vSphere cluster to configure.
+    #>
+    [CmdletBinding()]
+    [AVSAttribute(30, UpdatesSDDC = $false)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ClusterName
+    )
+    # ...
+}
+```
+
+`AVSAttribute` properties:
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `Timeout` | `int` (minutes) | 30 | Constructor argument. Maximum 60 minutes. |
+| `UpdatesSDDC` | `bool` | `$false` | Set to `$true` if the function changes SDDC state. |
+| `AutomationOnly` | `bool` | `$false` | Set to `$true` for functions callable only via automation (not the portal). |
+
+### 3.2 Parameter Types
+
+Only the following types are natively supported — all others are passed as strings and must support automatic conversion from `String`:
+
+| Type | Notes |
+|------|-------|
+| `String` | Must be [sanitized](#43-input-sanitization) if intended for command-line formatting |
+| `Double` | |
+| `Boolean` | |
+| `Int32` | |
+| `PSCredential` | Encrypted in-flight and at rest; never echoed back |
+| `SecureString` | Encrypted in-flight and at rest; never echoed back |
+
+### 3.3 Parameter Rules
+
+- **No dynamic or conditional parameters.** If the value of one parameter affects the optionality or meaning of another, split the cmdlet into two or more cmdlets — each tailored for a specific use case. Cmdlets are statically analyzed and all parameters are presented for the user to fill in.
+- Optional parameters are supported.
+- Functions and parameters must have user-friendly descriptions using standard PowerShell facilities.
+
+### 3.4 Naming
+
+All function and parameter names must follow PowerShell [naming guidelines](https://learn.microsoft.com/en-us/powershell/scripting/developer/cmdlet/required-development-guidelines?view=powershell-7.3#use-only-approved-verbs-rd01) (`Verb-Noun` format with approved verbs).
+
+### 3.5 Comment-Based Help
+
+Every exported function **must** include comment-based help with at least:
+
+- `.SYNOPSIS` — brief one-line description, or
+- `.DESCRIPTION` — detailed description of behavior (if .SYNOPSIS is omitted)
+- `.PARAMETER` — one entry per parameter
+
+See the example in [Required Attributes](#31-required-attributes) above.
+
+---
+
+## 4. Security
+
+### 4.1 Session Management
+
+**Never** call `Connect-VIServer`, `Connect-SsoAdminServer`, or `Connect-VcenterServerMOB` in your scripts. AVS establishes these sessions automatically with administrator-level privileges before your code runs (see [Pre-Established Sessions](#11-pre-established-sessions)). Scripts that attempt their own logins will not be allowed to run.
+
+### 4.2 Privilege Restrictions
+
+**Never** elevate privileges for the `cloudadmins` role. The script is already logged in with administrator privileges and does not need `cloudadmins` elevation. Elevating `cloudadmins` would give elevated access to anyone using that role, leading to unintended consequences.
+
+**Never** use `cloudadmin` as the service account for installed software. Instead:
+
+1. Create a separate vCenter user and role during installation.
+2. Use the `cloudadmins` role as a base — duplicate it, then add the necessary elevated privileges.
+3. The new role's privileges will be reviewed by Microsoft.
+4. Always add the new account to the `CloudAdmins` SSO group.
+
+### 4.3 Input Sanitization
+
+`String` parameters do not pose a code injection risk when passed directly as cmdlet parameters — PowerShell parameter binding does not execute string values as code. However, sanitization is still required in two scenarios:
+
+1. **Wildcard injection** — many PowerShell cmdlets (e.g., `Get-Cluster -Name`, `Get-Tag -Name`, `Get-SpbmStoragePolicy -Name`) interpret wildcard characters in `-Name` parameters. A user-supplied `*` or `?` could match unintended objects. Sanitize before any cmdlet call where wildcards are not desired or could cause unexpected matches.
+
+2. **Script generation** — if `String` parameters are used to [build or generate scripts](https://learn.microsoft.com/en-us/mem/configmgr/apps/deploy-use/learn-script-security#powershell-parameters-security), they must be sanitized to prevent code injection.
+
+Available functions (provided by `Microsoft.AVS.Management`):
+
+- **`Limit-WildcardsandCodeInjectionCharacters`** — strips wildcard and injection characters (`*`, `?`, `[`, `]`, `;`, `|`, `\`, `$_`, `{`, `}`).
+
+  ```powershell
+  $ClusterName = Limit-WildcardsandCodeInjectionCharacters -String $ClusterName
+  $Cluster = Get-Cluster -Name $ClusterName   # safe from wildcard matching
+  ```
+
+- **`Test-AVSProtectedObjectName`** — validates names against a list of 60+ protected vSAN policies, storage policies, system roles, and NSX roles. Call this before creating or deleting any policies, roles, or users.
+
+  ```powershell
+  Test-AVSProtectedObjectName -Name $PolicyName  # throws if name is protected
+  ```
+
+### 4.4 Credential Handling
+
+- Use `PSCredential` and `SecureString` parameter types for any secrets or credentials — these are encrypted in-flight and at rest and are never echoed back to the user.
+- **Never** log or dump secrets to any output stream.
+- Use `$PersistentSecrets` for credentials that need to survive across executions (see [Persistent Secrets](#13-persistent-secrets)).
+
+### 4.5 Appliance Deployments
+
+When deploying an appliance that requires service credentials with privileges above the `cloudadmins` role, vendors must ensure credentials are never exposed — not in-flight and not at rest.
+
+#### Secure Folder API
+
+The `[AVSSecureFolder]` class (from `Microsoft.AVS.Management`) manages vSphere folders with restricted permissions:
+
+| Method | Description |
+|--------|-------------|
+| `[AVSSecureFolder]::Root()` | Returns (or creates) the vendor root folder (`vm/AVS-vendor-folders`) with restricted permissions: `scripting` user gets Admin role, `CloudAdmins` gets ReadOnly |
+| `[AVSSecureFolder]::GetOrCreate($name)` | Creates a named subfolder under the vendor root, inheriting the restricted permission model |
+| `[AVSSecureFolder]::Secure($folder)` | Applies the restricted permission model to all objects in an existing folder |
+
+#### Appliance Security Requirements
+
+- The appliance user must not have root access or direct access to the storage/file system where credentials are stored.
+- Deploy the appliance in a secure folder (`[AVSSecureFolder]::GetOrCreate()`), then re-secure with `[AVSSecureFolder]::Secure()` after deployment.
+- Pass credentials as OVA properties to the appliance, including during credential rotation.
+- The appliance must enforce HTTPS with host authentication when communicating with vCenter.
+- Credentials must never be logged; no diagnostic bundle may include credentials.
+- The vendor must provide cmdlets to rotate the service account password and to perform appliance updates including security patches.
+- Use `$PersistentSecrets` if scripts need access to credentials later.
+
+#### Information Protection
+
+- The appliance may not expose VMware logs directly to the customer. All logs and diagnostics from VMware infrastructure must go through AVS, where they are filtered for sensitive information.
+- AVS provides syslog forwarding to make relevant logs available in Azure.
+
+---
+
+## 5. Error Handling
+
+### 5.1 Fail-Fast Validation
+
+Validate all prerequisites **before** making any changes. Fail early with a clear error if something is missing:
+
+```powershell
+$Cluster = Get-Cluster -Name $ClusterName -ErrorAction Ignore
+if (-not $Cluster) {
+    throw "Cluster '$ClusterName' not found."
+}
+```
+
+### 5.2 Rollback on Partial Failure
+
+When a function modifies multiple resources (e.g., configuring each host in a cluster), track changes as you go so you can roll back on failure. Only undo changes made in the **current run** — preserve pre-existing state.
+
+Reference implementation: `Set-VmfsIscsi` in `Microsoft.AVS.VMFS/Microsoft.AVS.VMFS.psm1`:
+
+```powershell
+$ConfiguredHosts = @()
+foreach ($VMHost in $VMHosts) {
+    try {
+        # Make the change ...
+        $ConfiguredHosts += @{ VMHost = $VMHost; TargetAdded = $true }
+    }
+    catch {
+        $FailedHost = $VMHost.Name
+        # Rollback only what THIS run changed
+        foreach ($Entry in $ConfiguredHosts) {
+            if ($Entry.TargetAdded) {
+                Remove-IScsiHbaTarget -Target $Target -Confirm:$false -ErrorAction Stop
+                Write-Warning "Rolled back iSCSI target on host $($Entry.VMHost.Name)."
+            }
+        }
+        throw "Failed to configure iSCSI on host $FailedHost. " +
+              "Changes on previously configured hosts have been rolled back. " +
+              "Error: $($_.Exception.Message)"
+    }
+}
+```
+
+### 5.3 Error Messages
+
+- Use `-ErrorAction Stop` for fatal errors.
+- Always include the failing entity in error messages for troubleshooting context:
+
+```powershell
+throw "Failed to set storage policy on cluster '$ClusterName': $($_.Exception.Message)"
+```
+
+---
+
+## 6. Output and Streams
+
+### 6.1 PowerShell Streams
+
+The execution pipeline supports four streams:
+
+| Stream | Usage | Cmdlet |
+|--------|-------|--------|
+| Output | Results returned to the caller | Implicit (any unassigned expression) |
+| Information | User-facing confirmations | `Write-Host` |
+| Warning | Cautions and non-fatal issues | `Write-Warning` |
+| Error | Failures | `Write-Error` + `throw` |
+
+Stream content is always stored as strings. Objects emitted into streams should be primitives (`String`, `Int`, etc.), `HashTable`, or explicitly converted to string — otherwise they may fail to deserialize and won't be captured.
+
+### 6.2 Suppressing Stray Output
+
+In PowerShell, any expression that produces a value (e.g., `Stop-VM`, `$true`) emits that value into the Output stream unless captured in a variable or piped to `Out-Null`. Stray output can disrupt other streams. Be intentional about every expression:
+
+```powershell
+$null = Stop-VM -VM $vm -Confirm:$false   # capture to suppress
+Set-VMHost -VMHost $h -State Maintenance | Out-Null   # pipe to suppress
+```
+
+### 6.3 NamedOutputs
+
+On successful execution, a script can return structured key/value pairs to the caller via a `$NamedOutputs` hashtable. This object appears in the [ARM resource properties](https://github.com/Azure/azure-rest-api-specs/blob/master/specification/vmware/resource-manager/Microsoft.AVS/stable/2021-06-01/vmware.json#L6921).
+
 ```powershell
 $NamedOutputs = @{}
 $NamedOutputs['k1'] = 'v1'
-$NamedOutputs['k2'] = 2 # the value will be converted to string, convert it yourself if need to return complex types
+$NamedOutputs['k2'] = 2  # values are converted to string — convert complex types yourself
 
 Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
-
 ```
-> IMPORTANT: Note, that the total size of `NamedOutputs` collection cannot exceed 32KB.
 
-This object will be available in the [ARM resource properties](https://github.com/Azure/azure-rest-api-specs/blob/master/specification/vmware/resource-manager/Microsoft.AVS/stable/2021-06-01/vmware.json#L6921).
+> **IMPORTANT**: The total size of the `NamedOutputs` collection must not exceed **32 KB**.
 
+---
 
-## Spawning child processes.
-Spawning child processes is not supported at this time and must be avoided. Please find PowerShell-native alternative.
+## 7. Lifecycle Cmdlets
 
+It is strongly recommended that packages include cmdlets covering the complete product lifecycle. The table below describes the expected categories — vendors should choose their own `Verb-Noun` names following [PowerShell naming guidelines](https://learn.microsoft.com/en-us/powershell/scripting/developer/cmdlet/required-development-guidelines?view=powershell-7.3#use-only-approved-verbs-rd01).
 
-## Scripts should be packaged as a module and published as a nuget package.
+| Category | Description | Example Name |
+|----------|-------------|--------------|
+| preflight-install | Run before installation. Reports current state and prerequisites. If no errors, it is safe to install. | `Test-ProductInstallPreFlight` |
+| install | Calls preflight first. Installs the product, skipping steps already completed from a previous attempt. | `Install-Product` |
+| preflight-upgrade | Run before upgrade. Reports current state and prerequisites. If no errors, it is safe to upgrade. | `Test-ProductUpgradePreFlight` |
+| upgrade | Calls preflight first. Upgrades the product, skipping steps already completed. | `Update-Product` |
+| rotate-credentials | Generates a new password for the service account created during installation. | `Set-ProductCredentialRotation` |
+| preflight-uninstall | Reports the current state that the uninstall will work on. | `Test-ProductUninstallPreFlight` |
+| uninstall | Removes the product, skipping steps already completed. | `Uninstall-Product` |
+| diagnostics | Returns verbose system state for troubleshooting failed installs or uninstalls. | `Get-ProductDiagnostics` |
 
-Private AVS package repository will be used to install the modules. For the purpose of testing and review publish the package to [PowerShell Gallery](https://www.powershellgallery.com/).
+### 7.1 Idempotency
 
-> <b>IMPORTANT</b>: Vendors must test their package using a Linux [PowerShell container](https://hub.docker.com/_/microsoft-powershell), connecting to their on-prem datacenter.
-> <b>IMPORTANT:</b> When publishing the package, please ensure latest version of [Microsoft.AVS.Management](https://www.powershellgallery.com/packages/Microsoft.AVS.Management) is a listed [dependency](https://docs.microsoft.com/en-us/nuget/reference/nuspec#dependencies) of the package.
-> Please add any other additional dependencies as required.
+Scripts must detect partially completed state and skip past steps that are already done. An initial installation attempt may partially complete before failure — the script should be resilient enough to resume from any intermediate state without manual intervention.
 
-## Versioning, Module manifest and Run Command API
-AVS scripting modules are expected to follow [semver guidelines](https://semver.org/) when publishing a new version. Adhering to the guidelines will ensure that any automation built around the ARM resources representing the commandlets will keep working while benefiting from the patch fixes.
+### 7.2 Uninstall Requirements
 
-We also support following version suffixes:
-- `-dev`, for example `1.0.0-dev`. Versions with this suffix are mapped to a subscription flag we only assign to vendors doing the testing on AVS.
-- `-preview`. Versions with this suffix are mapped to `Microsoft.AVS/scriptingPreview` flag that any subscription owner can register for themselves.
+- The uninstall script must recover from **any** partially installed state: successful install, failed install, or failed uninstall.
+- The uninstall script from the **most recent** package version must be able to uninstall any previous version. The portal UI shows only recent versions, and users should not need CLI or template deployment to uninstall an older version.
 
-Until there's an agreement with the AVS about the general availability, publish the package with `-dev` or `-preview` version suffix only. This would allow us to control the rollout and enable the consumer to opt-in into the experience before it is generally available.
+---
 
-To direct the customers to the information about the module make sure to include `ProjectUri` in the module manifest, supplying the address of the product support landing page designed for AVS customers. 
+## 8. Development Workflow
 
-### Using Run Command API with semver-versioned modules
+### 8.1 Local Development Loop
 
-AVS may require deprecation of certain package versions and to avoid breakages on the client side using Run Command API it is stronly recommended that any invocations via the API use "major.*" version pattern instead of referencing the specific version.
+Set up an on-prem vCenter, then develop on a Linux machine with PowerShell:
 
-For example, if an automation/client is invoking a function from Microsoft.AVS.VMFS package when the currently listed version is 1.0.151 the API call should call with `Microsoft.AVS.VMFS@1.*` instead.
+1. Create a non-root user and log in as that user.
+2. Check out your module repository.
+3. Edit your module files.
+4. Start `pwsh`.
+5. Set up context: log in via PowerCLI and set the runtime variables (`$VC_ADDRESS`, `$SSH_Sessions`, etc.).
+6. Import your module from the checked-out directory.
+7. Test.
+8. Make changes, then restart `pwsh` (or `Remove-Module` / `Import-Module`) and repeat.
 
+This gets scripts to ~99% ready for testing on AVS.
 
-## Lifecycle commandlets
-It is strongly recommended that the package includes the commandlets to manage and diagnose the entire lifecycle of the product.
+<details>
+<summary>Example context setup script</summary>
 
-| Cmdlet | Description |
-| ------ | ----------- |
-| preflight-install | Customer should be able to run this script prior to installation.  It should report on any current state that the install script will depend on.  If there are no errors it should be safe to install.|
-| install | This script should call the pre-flight script and only continue if there are no errors in pre-flight.  The script should be able to skip install steps already completed.  Possibly from a previous install attempt.|
-| preflight-upgrade | Customer should be able to run this script prior to upgrade.  It should report on any current state that the install script will depend on.  If there are no errors it should be safe to upgrade.|
-| upgrade | This script should call the pre-flight script and only continue if there are no errors in pre-flight.  The script should be able to skip upgrade steps already completed.|
-| rotate-credentials | If a service account was created during installation this commandlet should generate new password for the account.|
-| preflight-uninstall | It should report on current state that the uninstall script will be working on.|
-| uninstall | This script should be able to skip uninstall steps that were already completed. |
-| diagnostics | This customer should be able to run this to get the most verbose state of the system. The intent is to have a tool to aid troubleshooting if install and/or uninstall do not run successfully|
-
-## Scripts should be able to check if a step was already done and skip to next step
-
-Things can go wrong and an initial installation attempt may partially complete before failure.   In the interest of reducing operational support, the script should be smart enough to know what state the previous attempt is in and be able to either redo the steps leading up to it or skip past them if it can.
-
-## Uninstall script requirements
-
-In the interest of reducing operational support, the script should be able to recover from any partially installed state - be smart enough to know what state an installation is in.  It may be installed successfully, failed on install, or failed on uninstall.  For any scenario the script should be smart enough to either redo the steps it already did or skip past them if they are not needed.
-
-The uninstall script from the most recent package version should be able to uninstall any previous version. The portal UI will show only most recent versions and while the package might still be available for execution the user shouldn't be forced to use command line or template deployment to uninstall an older version.
-
-## Script should not dump secrets to output
-
-Any user credentials created for the 3rd party software installation, should be kept secret.   
-
-# Suggested script vendor development flow
-For the general script development the vendor should setup an on-prem vCenter. 
-Then using a Linux dev box with PowerShell:
-- Create a non-root user and login as that user
-- Checkout your module repository
-- Edit your module files
-- Start `pwsh`
-- Setup the context: login via PowerCLI and set the variables, like $VC_ADDRESS and $SSH_Sessions
-- Import the module from your checked out directory
-- Test
-- Make changes to your module as necessary
-- Restart the `pwsh` or remove and re-import your module
-- Repeat
-
-This should get the scripts to 99% ready for testing on AVS.
-
-> Note: example of a script that sets up the context for your dev loop:
-```ps
+```powershell
 Set-PowerCLIConfiguration -InvalidCertificateAction:Ignore
 $VC_ADDRESS = "10.0.0.2"
 $PersistentSecrets = @{}
@@ -235,37 +435,69 @@ $ESX_Credentials = Get-Credential
 sshLogin $ESX_Credentials
 ```
 
-The final QA cycle would be:
-- Publish the package with `-dev` version suffix
-- Get on the Linux jumpbox connected to your SDDC vnet
-- install docker and spin up an instance of this image: mcr.microsoft.com/powershell:7.4-alpine-3.17
-- In the PowerShell container:
-    - Install only your package from PS Gallery – this is to ensure that your package has correctly specified all the dependencies
-    - Setup the context
-    - Test
+</details>
 
-## Introducing breaking change in Microsoft management packages
-For minor (non-breaking) changes we either let the build number increment or if we are introducing new functionality that we may need to referece we bump the minor version component.
-For breaking changes please open a [RFC](/RFCs/template.md) PR and get the agreement of the stakeholders.
+### 8.2 Testing in a Linux Container
 
-## Testing via Run Command and preparing for release
-At this point you can tell us that it’s ready to be reviewed.
-- We’ll review the package, import it into our private repository and list it for execution via Run Command/ARM API. Additional checklist may be required, work with your PM to determine.
-- AVS "Customer 0" will evaluate the overall GA readiness
-- Re-publish the package with `-preview` suffix to do a Private Preview with your customers.
-- Re-publish the package w/o `-preview` suffix to make your package available to general public.
- 
-After this initial onboarding we require that the vendor sets up [CI testing](https://github.com/Azure/Microsoft.AVS.Management-FCT) that executes the commandlets via AVS SDK to make sure future packages pass the lifecycle test and to shield you from any possible changes on the AVS side. Promotion from `-preview` to generally available package will be conditional on the test report that shows that all commandlets perform as expected.
+The final QA cycle before requesting AVS review:
 
-## FAQ
-**Q**: Does the Run Command container have access to the Internet?</br>
-**A**: Yes, the agent executing the commands is always connected to the Internet via AVS management network.
+1. Publish the package with `-dev` version suffix.
+2. Get on a Linux jumpbox connected to your SDDC VNet.
+3. Spin up a PowerShell container: `mcr.microsoft.com/powershell:7.4-alpine-3.17`
+4. In the container:
+   - Install **only** your package from PS Gallery — this verifies all dependencies are correctly declared.
+   - Set up the context.
+   - Test all lifecycle cmdlets.
 
-**Q**: Does the Run Command container have access to the customer's Azure VNet or resources?</br>
-**A**: No, any access to customer resources other than VMware infrastructure of the SDDC would have to be scripted by the vendor.
+### 8.3 CI Testing
 
-**Q**: Does Run Command carry session state across invocations?</br>
-**A**: No, with the exception of package-scoped secrets there is no support for preserving state across executions.
+After initial onboarding, vendors must set up [CI testing](https://github.com/Azure/Microsoft.AVS.Management-FCT) that executes cmdlets via the AVS SDK. This ensures future package versions pass lifecycle tests and protects against platform-side changes.
 
-**Q**: Is there a way to invoke Run Command outside of the Azure portal?</br>
-**A**: Yes, see [az vmware script-execution create](https://learn.microsoft.com/en-us/cli/azure/vmware/script-execution?view=azure-cli-latest#az-vmware-script-execution-create) documentation, or see the [C# sample](https://github.com/boumenot/Microsoft.AVS.Management/blob/main/samples/Program.cs) for an example using the Azure SDK.
+Promotion from `-preview` to generally available status is conditional on a test report showing all cmdlets perform as expected.
+
+---
+
+## 9. Release Process
+
+### 9.1 Onboarding Flow
+
+1. **Develop and test locally** using the workflow described in [Development Workflow](#8-development-workflow).
+2. **Publish with `-dev` suffix** and notify AVS that the package is ready for review.
+3. **AVS review**: the package is imported into the private repository and listed for execution via Run Command / ARM API. Work with your PM to determine any additional checklist items.
+4. **Customer 0 evaluation**: AVS evaluates GA readiness.
+5. **Publish with `-preview` suffix** to run a Private Preview with your customers.
+6. **Publish without suffix** to make the package generally available.
+
+### 9.2 Breaking Changes
+
+For **non-breaking** changes, increment the build number. For new functionality that needs to be referenced, bump the minor version.
+
+For **breaking** changes to Microsoft management packages, open an [RFC](/RFCs/template.md) PR and get agreement from stakeholders before proceeding.
+
+### 9.3 ARM API Versioning
+
+To avoid client-side breakages when AVS deprecates specific package versions, it is strongly recommended that API invocations use the `Major.*` version pattern instead of referencing a specific version.
+
+```
+# Instead of:
+Microsoft.AVS.VMFS@1.0.151
+
+# Use:
+Microsoft.AVS.VMFS@1.*
+```
+
+---
+
+## 10. FAQ
+
+**Q: Does the Run Command container have access to the Internet?**
+**A:** On Gen 1 SDDCs, the agent is always connected to the Internet via the AVS management network. On Gen 2 SDDCs, HTTPS connectivity to common Azure endpoints is provided, but general Internet connectivity must be provided by the customer network.
+
+**Q: Does the Run Command container have access to the customer's Azure VNet or resources?**
+**A:** On Gen 1, no — any access to customer resources other than the SDDC's VMware infrastructure must be scripted by the vendor. On Gen 2, yes — the Run Command agent has access to the customer's Azure network.
+
+**Q: Does Run Command carry session state across invocations?**
+**A:** No. With the exception of package-scoped [persistent secrets](#13-persistent-secrets), there is no support for preserving state across executions.
+
+**Q: Is there a way to invoke Run Command outside of the Azure portal?**
+**A:** Yes. See the [az vmware script-execution create](https://learn.microsoft.com/en-us/cli/azure/vmware/script-execution?view=azure-cli-latest#az-vmware-script-execution-create) CLI documentation, or see the [C# sample](https://github.com/boumenot/Microsoft.AVS.Management/blob/main/samples/Program.cs) for an example using the Azure SDK.
