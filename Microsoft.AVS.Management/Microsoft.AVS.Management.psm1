@@ -199,14 +199,20 @@ function Get-EsxtopData {
     Write-Output "=== COUNTER_INFO ==="
     Write-Output $counterInfo
 
-    # FetchStats loop - stream to temp CSV file to avoid StringBuilder memory limits
+    # FetchStats loop - stream to temp CSV, split at 150MB per file
     $durationMin = [math]::Round($Iterations * $IntervalSeconds / 60, 1)
     Write-Information "Collecting $Iterations samples (interval=${IntervalSeconds}s, ~${durationMin} min)..." -InformationAction Continue
 
     $ts = Get-Date -Format 'yyyyMMdd_HHmmss'
-    $csvFileName = "esxtop_$($vmHost.Name.Split('.')[0])_${ts}.csv"
-    $tempCsv = Join-Path ([System.IO.Path]::GetTempPath()) $csvFileName
-    '"Timestamp","SampleNumber","RawData"' | Out-File -FilePath $tempCsv -Encoding UTF8
+    $csvBaseName = "esxtop_$($vmHost.Name.Split('.')[0])_${ts}"
+    $csvHeader = '"Timestamp","SampleNumber","RawData"'
+    $maxBytes = 150MB
+    $tempDir = [System.IO.Path]::GetTempPath()
+    $fileIndex = 1
+    $tempCsv = Join-Path $tempDir "${csvBaseName}_part${fileIndex}.csv"
+    $csvHeader | Out-File -FilePath $tempCsv -Encoding UTF8
+    $allTempFiles = [System.Collections.Generic.List[string]]::new()
+    $allTempFiles.Add($tempCsv)
     $totalBytes = 0
 
     for ($i = 1; $i -le $Iterations; $i++) {
@@ -221,9 +227,17 @@ function Get-EsxtopData {
         $csvRow | Out-File -FilePath $tempCsv -Encoding UTF8 -Append
         $totalBytes += $stats.Length
 
+        if ((Get-Item $tempCsv).Length -ge $maxBytes -and $i -lt $Iterations) {
+            $fileIndex++
+            $tempCsv = Join-Path $tempDir "${csvBaseName}_part${fileIndex}.csv"
+            $csvHeader | Out-File -FilePath $tempCsv -Encoding UTF8
+            $allTempFiles.Add($tempCsv)
+            Write-Information "Started new file part $fileIndex" -InformationAction Continue
+        }
+
         $dataKB = [math]::Round($totalBytes / 1024, 1)
         $remainSec = ($Iterations - $i) * $IntervalSeconds
-        Write-Information "Sample $i/$Iterations - Done (${dataKB} KB collected, ${remainSec}s remaining)" -InformationAction Continue
+        Write-Information "Sample $i/$Iterations - Done (${dataKB} KB, part $fileIndex, ${remainSec}s remaining)" -InformationAction Continue
 
         if ($i -lt $Iterations) {
             Start-Sleep -Seconds $IntervalSeconds
@@ -239,7 +253,7 @@ function Get-EsxtopData {
         Write-Warning "FreeStats call failed: $($_.Exception.Message)"
     }
 
-    # Upload CSV to vSAN datastore
+    # Upload CSV files to vSAN datastore
     try {
         $datastore = Get-Datastore -RelatedObject $cluster -ErrorAction SilentlyContinue |
             Where-Object { $_.Type -eq 'vsan' -or $_.Name -like '*vsan*' } |
@@ -253,18 +267,23 @@ function Get-EsxtopData {
                 New-Item -Path $destFolder -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
             }
 
-            Copy-DatastoreItem -Item $tempCsv -Destination "$destFolder\$csvFileName" -Force -ErrorAction Stop
-            Write-Information "CSV saved to datastore: [$($datastore.Name)] esxtop_output/$csvFileName" -InformationAction Continue
+            foreach ($f in $allTempFiles) {
+                $fName = Split-Path $f -Leaf
+                Copy-DatastoreItem -Item $f -Destination "$destFolder\$fName" -Force -ErrorAction Stop
+                Write-Information "Uploaded: [$($datastore.Name)] esxtop_output/$fName" -InformationAction Continue
+            }
         }
     }
     catch {
         Write-Warning "Datastore save failed: $($_.Exception.Message)"
     }
     finally {
-        Remove-Item $tempCsv -Force -ErrorAction SilentlyContinue
+        foreach ($f in $allTempFiles) {
+            Remove-Item $f -Force -ErrorAction SilentlyContinue
+        }
     }
 
-    Write-Information "Esxtop collection complete. $Iterations samples collected from $($vmHost.Name)." -InformationAction Continue
+    Write-Information "Esxtop collection complete. $Iterations samples, $($allTempFiles.Count) file(s) from $($vmHost.Name)." -InformationAction Continue
 }
 
 
