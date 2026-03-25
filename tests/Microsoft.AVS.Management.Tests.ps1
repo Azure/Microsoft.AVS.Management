@@ -375,3 +375,155 @@ Describe "Set-ToolsRepo" {
         }
     }
 }
+
+Describe "Get-EsxtopData" {
+    Context "Parameter Validation" {
+        It "Should have ClusterName as mandatory parameter" {
+            $command = Get-Command Get-EsxtopData
+            $param = $command.Parameters['ClusterName']
+            $param.Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have EsxiHostName as mandatory parameter" {
+            $command = Get-Command Get-EsxtopData
+            $param = $command.Parameters['EsxiHostName']
+            $param.Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have Iterations as optional parameter with default 60" {
+            $command = Get-Command Get-EsxtopData
+            $param = $command.Parameters['Iterations']
+            $mandatoryAttrs = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }
+            $mandatoryAttrs.Mandatory | Should -Be $false
+        }
+
+        It "Should have IntervalSeconds as optional parameter" {
+            $command = Get-Command Get-EsxtopData
+            $param = $command.Parameters['IntervalSeconds']
+            $mandatoryAttrs = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }
+            $mandatoryAttrs.Mandatory | Should -Be $false
+        }
+
+        It "Should have ValidateNotNullOrEmpty on ClusterName" {
+            $command = Get-Command Get-EsxtopData
+            $param = $command.Parameters['ClusterName']
+            $validateAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateNotNullOrEmptyAttribute] }
+            $validateAttr | Should -Not -BeNullOrEmpty
+        }
+
+        It "Should have ValidateNotNullOrEmpty on EsxiHostName" {
+            $command = Get-Command Get-EsxtopData
+            $param = $command.Parameters['EsxiHostName']
+            $validateAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateNotNullOrEmptyAttribute] }
+            $validateAttr | Should -Not -BeNullOrEmpty
+        }
+
+        It "Should have ValidateRange(1,360) on Iterations" {
+            $command = Get-Command Get-EsxtopData
+            $param = $command.Parameters['Iterations']
+            $rangeAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateRangeAttribute] }
+            $rangeAttr | Should -Not -BeNullOrEmpty
+            $rangeAttr.MinRange | Should -Be 1
+            $rangeAttr.MaxRange | Should -Be 360
+        }
+
+        It "Should have ValidateRange(1,60) on IntervalSeconds" {
+            $command = Get-Command Get-EsxtopData
+            $param = $command.Parameters['IntervalSeconds']
+            $rangeAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateRangeAttribute] }
+            $rangeAttr | Should -Not -BeNullOrEmpty
+            $rangeAttr.MinRange | Should -Be 1
+            $rangeAttr.MaxRange | Should -Be 60
+        }
+
+        It "Should have HelpMessage on ClusterName" {
+            $command = Get-Command Get-EsxtopData
+            $param = $command.Parameters['ClusterName']
+            $paramAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }
+            $paramAttr.HelpMessage | Should -Not -BeNullOrEmpty
+        }
+
+        It "Should have HelpMessage on EsxiHostName" {
+            $command = Get-Command Get-EsxtopData
+            $param = $command.Parameters['EsxiHostName']
+            $paramAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }
+            $paramAttr.HelpMessage | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    Context "AVSAttribute Validation" {
+        It "Should have AVSAttribute with 30 minute timeout" {
+            $command = Get-Command Get-EsxtopData
+            $avsAttr = $command.ScriptBlock.Attributes | Where-Object { $_.TypeId.Name -eq 'AVSAttribute' }
+            $avsAttr | Should -Not -BeNullOrEmpty
+            $avsAttr.Timeout.TotalMinutes | Should -Be 30
+        }
+
+        It "Should have AVSAttribute with UpdatesSDDC set to false" {
+            $command = Get-Command Get-EsxtopData
+            $avsAttr = $command.ScriptBlock.Attributes | Where-Object { $_.TypeId.Name -eq 'AVSAttribute' }
+            $avsAttr.UpdatesSDDC | Should -Be $false
+        }
+    }
+
+    Context "Host Resolution" {
+        It "Should throw when cluster is not found" {
+            Mock Get-Cluster { throw "Cluster not found" } -ModuleName Microsoft.AVS.Management
+
+            { Get-EsxtopData -ClusterName "NonExistent" -EsxiHostName "esx01" } |
+                Should -Throw
+        }
+
+        It "Should throw when no matching host is found" {
+            Mock Get-Cluster { [PSCustomObject]@{ Name = "Cluster-1" } } -ModuleName Microsoft.AVS.Management
+            Mock Get-VMHost { @() } -ModuleName Microsoft.AVS.Management
+
+            { Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "nonexistent" } |
+                Should -Throw -ExpectedMessage "*No connected ESXi host*"
+        }
+    }
+
+    Context "Esxtop Service Discovery" {
+        BeforeAll {
+            $mockHost = [PSCustomObject]@{ Name = "esx01.sddc.local"; ConnectionState = "Connected" }
+            Mock Get-Cluster { [PSCustomObject]@{ Name = "Cluster-1" } } -ModuleName Microsoft.AVS.Management
+            Mock Get-VMHost { $mockHost } -ModuleName Microsoft.AVS.Management
+        }
+
+        It "Should throw when Esxtop service is not found on host" {
+            $soapResponse = @"
+<?xml version="1.0"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+<soap:Body>
+<QueryServiceListResponse xmlns="urn:vim25">
+  <returnval><serviceName>OtherService</serviceName><service type="SimpleCommand">other-ref</service></returnval>
+</QueryServiceListResponse>
+</soap:Body>
+</soap:Envelope>
+"@
+            Mock Invoke-WebRequest {
+                [PSCustomObject]@{ Content = $soapResponse }
+            } -ModuleName Microsoft.AVS.Management
+
+            $global:DefaultVIServer = [PSCustomObject]@{
+                Name = "vcenter.local"
+                SessionSecret = "mock-session-cookie"
+                ExtensionData = [PSCustomObject]@{
+                    Content = [PSCustomObject]@{
+                        ServiceManager = [PSCustomObject]@{ Type = "ServiceManager"; Value = "ServiceMgr" }
+                    }
+                }
+            }
+
+            { Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 1 } |
+                Should -Throw -ExpectedMessage "*Esxtop service not found*"
+        }
+    }
+
+    Context "Module Export" {
+        It "Should be listed in FunctionsToExport" {
+            $manifest = Test-ModuleManifest -Path (Join-Path $PSScriptRoot ".." "Microsoft.AVS.Management" "Microsoft.AVS.Management.psd1")
+            $manifest.ExportedFunctions.Keys | Should -Contain "Get-EsxtopData"
+        }
+    }
+}

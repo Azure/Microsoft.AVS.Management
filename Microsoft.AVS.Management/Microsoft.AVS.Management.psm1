@@ -2,6 +2,270 @@
 . $PSScriptRoot\AVSGenericUtils.ps1
 . $PSScriptRoot\AVSvSANUtils.ps1
 
+function Invoke-VCenterSoapRequest {
+    <#
+    .SYNOPSIS
+        Sends a raw SOAP request to vCenter and returns the parsed XML response.
+    .DESCRIPTION
+        Bypasses Get-View and the WCF SOAP client, both of which have known bugs
+        with the ServiceManager managed object in VCF.PowerCLI 9.x.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Server,
+        [Parameter(Mandatory = $true)][string]$SessionCookie,
+        [Parameter(Mandatory = $true)][string]$SoapBody
+    )
+
+    $envelope = @"
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+<soap:Body>
+$SoapBody
+</soap:Body>
+</soap:Envelope>
+"@
+
+    $headers = @{
+        "Content-Type" = "text/xml; charset=utf-8"
+        "SOAPAction"   = "urn:vim25"
+        "Cookie"       = "vmware_soap_session=$SessionCookie"
+    }
+
+    $resp = Invoke-WebRequest -Uri "https://$Server/sdk" -Method POST -Headers $headers `
+        -Body $envelope -SkipCertificateCheck -UseBasicParsing -ErrorAction Stop
+
+    return [xml]$resp.Content
+}
+
+function Get-EsxtopData {
+    <#
+    .SYNOPSIS
+        Collects esxtop performance data from an ESXi host via the vCenter Esxtop service API.
+
+    .DESCRIPTION
+        Uses the vCenter Service Manager to access the Esxtop service on a specified ESXi host.
+        Collects batch-mode performance counter snapshots (CPU, memory, disk, network) at a
+        configurable interval without requiring SSH or root access to the host.
+
+        This cmdlet is safe for AVS environments -- it operates entirely through the vCenter API
+        on port 443 using the pre-established administrator session. It uses raw SOAP requests to
+        bypass known Get-View bugs with the ServiceManager object in VCF.PowerCLI 9.x.
+
+        Output is written to the pipeline and optionally saved to the vSAN datastore under
+        the esxtop_output folder.
+
+    .PARAMETER ClusterName
+        The name of the vSphere cluster containing the target ESXi host.
+
+    .PARAMETER EsxiHostName
+        The ESXi host name or prefix. The first host matching this prefix will be used.
+
+    .PARAMETER Iterations
+        The number of performance snapshots to collect. Each snapshot is taken at the interval
+        specified by IntervalSeconds. Maximum 360 (30 minutes at 5-second intervals).
+
+    .PARAMETER IntervalSeconds
+        Seconds between each performance snapshot. Default is 5.
+
+    .EXAMPLE
+        Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 60
+        Collects 60 snapshots at 5-second intervals (5 minutes of data) from the first host
+        matching "esx01*" in Cluster-1.
+
+    .EXAMPLE
+        Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 12 -IntervalSeconds 10
+        Collects 12 snapshots at 10-second intervals (2 minutes of data).
+    #>
+
+    [CmdletBinding()]
+    [AVSAttribute(30, UpdatesSDDC = $false)]
+    param(
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Name of the vSphere cluster containing the target ESXi host.')]
+        [ValidateNotNullOrEmpty()]
+        [string]$ClusterName,
+
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'ESXi host name or name prefix. The first matching host will be used.')]
+        [ValidateNotNullOrEmpty()]
+        [string]$EsxiHostName,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'Number of performance snapshots to collect (max 360).')]
+        [ValidateRange(1, 360)]
+        [int]$Iterations = 60,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'Seconds between each snapshot (default 5).')]
+        [ValidateRange(1, 60)]
+        [int]$IntervalSeconds = 5
+    )
+
+    $EsxiHostName = Limit-WildcardsandCodeInjectionCharacters -String $EsxiHostName
+    $ClusterName = Limit-WildcardsandCodeInjectionCharacters -String $ClusterName
+
+    $cluster = Get-Cluster -Name $ClusterName -ErrorAction Stop
+    $vmHost = $cluster | Get-VMHost |
+        Where-Object { $_.Name -like "$EsxiHostName*" -and $_.ConnectionState -eq 'Connected' } |
+        Select-Object -First 1
+
+    if ($null -eq $vmHost) {
+        Write-Error "No connected ESXi host matching '$EsxiHostName' found in cluster '$ClusterName'." -ErrorAction Stop
+    }
+
+    Write-Information "Target host: $($vmHost.Name)" -InformationAction Continue
+
+    # Extract session cookie and vCenter server from the pre-established connection
+    $vc = $global:DefaultVIServer
+    $vcServer = $vc.Name
+    $sessionCookie = $vc.SessionSecret
+    if (-not $sessionCookie) {
+        try {
+            $cookieJar = $vc.ExtensionData.Client.VimService.CookieContainer
+            if ($cookieJar) {
+                $soapCookie = $cookieJar.GetCookies([Uri]"https://$vcServer/sdk") |
+                    Where-Object { $_.Name -eq "vmware_soap_session" }
+                if ($soapCookie) { $sessionCookie = $soapCookie.Value }
+            }
+        }
+        catch { }
+    }
+    if (-not $sessionCookie) {
+        Write-Error "Could not extract SOAP session cookie from the VIServer connection." -ErrorAction Stop
+    }
+
+    # Get ServiceManager MoRef
+    $svcMgrRef = $vc.ExtensionData.Content.ServiceManager
+    Write-Information "ServiceManager: $($svcMgrRef.Type)/$($svcMgrRef.Value)" -InformationAction Continue
+
+    # XML-escape all values before inserting into SOAP body to prevent XML injection
+    $xmlEscape = { param([string]$s) [System.Security.SecurityElement]::Escape($s) }
+
+    # Query services on the target host via raw SOAP
+    $locationString = "vmware.host." + $vmHost.Name
+    $qslBody = @"
+<QueryServiceList xmlns="urn:vim25">
+  <_this type="$(& $xmlEscape $svcMgrRef.Type)">$(& $xmlEscape $svcMgrRef.Value)</_this>
+  <location>$(& $xmlEscape $locationString)</location>
+</QueryServiceList>
+"@
+    $qslXml = Invoke-VCenterSoapRequest -Server $vcServer -SessionCookie $sessionCookie -SoapBody $qslBody
+    $services = $qslXml.Envelope.Body.QueryServiceListResponse.returnval
+    if (-not $services) {
+        Write-Error "No services found at location '$locationString'." -ErrorAction Stop
+    }
+
+    $esxtopRef = $null
+    foreach ($svc in $services) {
+        if ($svc.serviceName -eq "Esxtop") {
+            $esxtopRef = $svc.service
+            break
+        }
+    }
+    if ($null -eq $esxtopRef) {
+        $available = ($services | ForEach-Object { $_.serviceName }) -join ', '
+        Write-Error "Esxtop service not found on host $($vmHost.Name). Available: $available" -ErrorAction Stop
+    }
+
+    $esxtopType = $esxtopRef.type
+    $esxtopValue = $esxtopRef.'#text'
+    Write-Information "Esxtop service: $esxtopType/$esxtopValue" -InformationAction Continue
+
+    # Helper to invoke ExecuteSimpleCommand via raw SOAP
+    $safeEsxtopType = & $xmlEscape $esxtopType
+    $safeEsxtopValue = & $xmlEscape $esxtopValue
+    $invokeEsxtopCmd = {
+        param([string]$Command)
+        $safeCmd = [System.Security.SecurityElement]::Escape($Command)
+        $escBody = @"
+<ExecuteSimpleCommand xmlns="urn:vim25">
+  <_this type="$safeEsxtopType">$safeEsxtopValue</_this>
+  <arguments>$safeCmd</arguments>
+</ExecuteSimpleCommand>
+"@
+        $escXml = Invoke-VCenterSoapRequest -Server $vcServer -SessionCookie $sessionCookie -SoapBody $escBody
+        return $escXml.Envelope.Body.ExecuteSimpleCommandResponse.returnval
+    }
+
+    # CounterInfo
+    Write-Information "Fetching counter definitions..." -InformationAction Continue
+    $counterInfo = & $invokeEsxtopCmd "CounterInfo"
+    Write-Output "=== COUNTER_INFO ==="
+    Write-Output $counterInfo
+
+    # FetchStats loop
+    $durationMin = [math]::Round($Iterations * $IntervalSeconds / 60, 1)
+    Write-Information "Collecting $Iterations samples (interval=${IntervalSeconds}s, ~${durationMin} min)..." -InformationAction Continue
+
+    $allOutput = [System.Text.StringBuilder]::new()
+    [void]$allOutput.AppendLine("=== COUNTER_INFO ===")
+    [void]$allOutput.AppendLine($counterInfo)
+
+    for ($i = 1; $i -le $Iterations; $i++) {
+        Write-Information "Sample $i/$Iterations - Fetching..." -InformationAction Continue
+        $stats = & $invokeEsxtopCmd "FetchStats"
+        Write-Output "=== SAMPLE $i ==="
+        Write-Output $stats
+
+        [void]$allOutput.AppendLine("=== SAMPLE $i ===")
+        [void]$allOutput.AppendLine($stats)
+
+        $dataKB = [math]::Round($allOutput.Length / 1024, 1)
+        $remainSec = ($Iterations - $i) * $IntervalSeconds
+        Write-Information "Sample $i/$Iterations - Done (${dataKB} KB collected, ${remainSec}s remaining)" -InformationAction Continue
+
+        if ($i -lt $Iterations) {
+            Start-Sleep -Seconds $IntervalSeconds
+        }
+    }
+
+    # FreeStats
+    try {
+        & $invokeEsxtopCmd "FreeStats" | Out-Null
+        Write-Information "Stats released on host $($vmHost.Name)." -InformationAction Continue
+    }
+    catch {
+        Write-Warning "FreeStats call failed: $($_.Exception.Message)"
+    }
+
+    # Save to vSAN datastore
+    try {
+        $datastore = Get-Datastore -RelatedObject $cluster -ErrorAction SilentlyContinue |
+            Where-Object { $_.Type -eq 'vsan' -or $_.Name -like '*vsan*' } |
+            Select-Object -First 1
+
+        if ($datastore) {
+            $ts = Get-Date -Format 'yyyyMMdd_HHmmss'
+            $fileName = "esxtop_$($vmHost.Name.Split('.')[0])_${ts}.txt"
+            $dsPath = "vmstore:\$($datastore.Datacenter)\$($datastore.Name)"
+            $destFolder = "$dsPath\esxtop_output"
+
+            if (-not (Test-Path $destFolder -ErrorAction SilentlyContinue)) {
+                New-Item -Path $destFolder -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
+            }
+
+            $tempFile = [System.IO.Path]::GetTempFileName()
+            $allOutput.ToString() | Out-File -FilePath $tempFile -Encoding UTF8
+
+            Copy-DatastoreItem -Item $tempFile -Destination "$destFolder\$fileName" -Force -ErrorAction Stop
+            Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+
+            Write-Information "Output saved to datastore: [$($datastore.Name)] esxtop_output/$fileName" -InformationAction Continue
+        }
+    }
+    catch {
+        Write-Warning "Datastore save failed: $($_.Exception.Message)"
+    }
+
+    Write-Information "Esxtop collection complete. $Iterations samples collected from $($vmHost.Name)." -InformationAction Continue
+}
+
 
 
 function Remove-AvsUnassociatedObject {
