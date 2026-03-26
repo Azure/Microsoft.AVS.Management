@@ -349,3 +349,6 @@ MigrationBackup/
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
 /.idea/
+
+# Local-only Esxtop SOAP test harness (not shipped with the module)
+scripts/Test-EsxtopCollection.ps1
