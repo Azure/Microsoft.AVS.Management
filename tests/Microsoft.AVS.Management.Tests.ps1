@@ -390,11 +390,12 @@ Describe "Get-EsxtopData" {
             $param.Attributes.Mandatory | Should -Contain $true
         }
 
-        It "Should have Iterations as optional parameter with default 60" {
+        It "Should have Iterations as optional parameter with default 6" {
             $command = Get-Command Get-EsxtopData
             $param = $command.Parameters['Iterations']
             $mandatoryAttrs = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }
             $mandatoryAttrs.Mandatory | Should -Be $false
+            $param.DefaultValue | Should -Be 6
         }
 
         It "Should have IntervalSeconds as optional parameter" {
@@ -418,22 +419,20 @@ Describe "Get-EsxtopData" {
             $validateAttr | Should -Not -BeNullOrEmpty
         }
 
-        It "Should have ValidateRange(1,360) on Iterations" {
+        It "Should have ValidateScript requiring Iterations >= 1" {
             $command = Get-Command Get-EsxtopData
             $param = $command.Parameters['Iterations']
-            $rangeAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateRangeAttribute] }
-            $rangeAttr | Should -Not -BeNullOrEmpty
-            $rangeAttr.MinRange | Should -Be 1
-            $rangeAttr.MaxRange | Should -Be 360
+            $scriptAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateScriptAttribute] }
+            $scriptAttr | Should -Not -BeNullOrEmpty
         }
 
-        It "Should have ValidateRange(1,60) on IntervalSeconds" {
+        It "Should have ValidateRange(1,30) on IntervalSeconds" {
             $command = Get-Command Get-EsxtopData
             $param = $command.Parameters['IntervalSeconds']
             $rangeAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateRangeAttribute] }
             $rangeAttr | Should -Not -BeNullOrEmpty
             $rangeAttr.MinRange | Should -Be 1
-            $rangeAttr.MaxRange | Should -Be 60
+            $rangeAttr.MaxRange | Should -Be 30
         }
 
         It "Should have HelpMessage on ClusterName" {
@@ -448,6 +447,13 @@ Describe "Get-EsxtopData" {
             $param = $command.Parameters['EsxiHostName']
             $paramAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }
             $paramAttr.HelpMessage | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    Context "Sampling duration limit" {
+        It "Should reject (Iterations-1)*IntervalSeconds greater than 30" {
+            { Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 10 -IntervalSeconds 5 } |
+                Should -Throw -ExpectedMessage "*30*"
         }
     }
 

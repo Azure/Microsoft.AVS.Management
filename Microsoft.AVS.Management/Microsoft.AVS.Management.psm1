@@ -9,6 +9,12 @@ function Invoke-VCenterSoapRequest {
     .DESCRIPTION
         Bypasses Get-View and the WCF SOAP client, both of which have known bugs
         with the ServiceManager managed object in VCF.PowerCLI 9.x.
+
+    .NOTES
+        PowerCLI does not expose typed .NET bindings for every Vim managed object (for example
+        ServiceManager and host Esxtop SimpleCommand). That gap cannot be fixed in consumer code.
+        This helper resolves API access by posting standard Vim SOAP to https://<server>/sdk and
+        parsing the XML response, using only the session cookie from the existing VIServer connection.
     #>
     param(
         [Parameter(Mandatory = $true)][string]$Server,
@@ -45,38 +51,50 @@ function Get-EsxtopData {
         Collects esxtop performance data from an ESXi host via the vCenter Esxtop service API.
 
     .DESCRIPTION
-        Uses the vCenter Service Manager to access the Esxtop service on a specified ESXi host.
-        Collects batch-mode performance counter snapshots (CPU, memory, disk, network) at a
-        configurable interval without requiring SSH or root access to the host.
+        Collects Esxtop performance data for a single ESXi host (the first connected host matching
+        EsxiHostName in the cluster). Uses the vCenter Service Manager and batch-mode snapshots (CPU,
+        memory, disk, network) without SSH or root on the host.
+
+        Sampling is capped at 30 seconds of scheduled spacing between snapshots:
+        (Iterations - 1) * IntervalSeconds must be less than or equal to 30. This limits payload
+        size on customer vSAN datastores when results are uploaded to esxtop_output.
 
         This cmdlet is safe for AVS environments -- it operates entirely through the vCenter API
         on port 443 using the pre-established administrator session. It uses raw SOAP requests to
         bypass known Get-View bugs with the ServiceManager object in VCF.PowerCLI 9.x.
 
-        Output is written to the pipeline and optionally saved to the vSAN datastore under
-        the esxtop_output folder.
+        Output is written to the pipeline as one CSV per run (no file splitting) and optionally
+        saved to the vSAN datastore under the esxtop_output folder (three-file rotation per host).
 
     .PARAMETER ClusterName
         The name of the vSphere cluster containing the target ESXi host.
 
     .PARAMETER EsxiHostName
-        The ESXi host name or prefix. The first host matching this prefix will be used.
+        The ESXi host name or prefix. The first connected host matching this prefix is used.
 
     .PARAMETER Iterations
-        The number of performance snapshots to collect. Each snapshot is taken at the interval
-        specified by IntervalSeconds. Maximum 360 (30 minutes at 5-second intervals).
+        Number of FetchStats snapshots. Combined with IntervalSeconds, total spacing between the
+        first and last sample must not exceed 30 seconds: (Iterations - 1) * IntervalSeconds <= 30.
 
     .PARAMETER IntervalSeconds
-        Seconds between each performance snapshot. Default is 5.
+        Seconds to wait after each sample before the next (not applied after the last sample).
+        Range 1-30.
 
     .EXAMPLE
-        Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 60
-        Collects 60 snapshots at 5-second intervals (5 minutes of data) from the first host
-        matching "esx01*" in Cluster-1.
+        Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01"
+        Collects the default sample count at the default 5-second interval (within the 30s cap).
 
     .EXAMPLE
-        Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 12 -IntervalSeconds 10
-        Collects 12 snapshots at 10-second intervals (2 minutes of data).
+        Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 7 -IntervalSeconds 5
+        Seven samples with 5 seconds between them (30 seconds between first and last FetchStats).
+
+    .NOTES
+        ServiceManager / Esxtop and typed PowerCLI views: VCF.PowerCLI may report that no .NET type
+        mapping exists for ServiceManager or for Esxtop ExecuteSimpleCommand. That is a client binding
+        limitation, not a missing vCenter API. This cmdlet still works: it reads ServiceManager only as
+        a ManagedObjectReference (Type/Value) from Content, then calls QueryServiceList and
+        ExecuteSimpleCommand via Invoke-VCenterSoapRequest. For compliance matrices, record the
+        requirement as satisfied by direct Vim SOAP rather than by PowerCLI-generated types.
     #>
 
     [CmdletBinding()]
@@ -96,19 +114,26 @@ function Get-EsxtopData {
 
         [Parameter(
             Mandatory = $false,
-            HelpMessage = 'Number of performance snapshots to collect (max 360).')]
-        [ValidateRange(1, 360)]
-        [int]$Iterations = 60,
+            HelpMessage = 'Number of FetchStats snapshots (spacing (Iterations-1)*IntervalSeconds must be <= 30s).')]
+        [ValidateScript({ $_ -ge 1 })]
+        [int]$Iterations = 6,
 
         [Parameter(
             Mandatory = $false,
-            HelpMessage = 'Seconds between each snapshot (default 5).')]
-        [ValidateRange(1, 60)]
+            HelpMessage = 'Seconds between snapshots (1-30; with Iterations, total spacing <= 30s).')]
+        [ValidateRange(1, 30)]
         [int]$IntervalSeconds = 5
     )
 
     $EsxiHostName = Limit-WildcardsandCodeInjectionCharacters -String $EsxiHostName
     $ClusterName = Limit-WildcardsandCodeInjectionCharacters -String $ClusterName
+
+    $samplingSpanSec = [Math]::Max(0, $Iterations - 1) * $IntervalSeconds
+    if ($samplingSpanSec -gt 30) {
+        Write-Error ("Esxtop sampling is limited to 30 seconds between the first and last sample: " +
+            "(Iterations-1)*IntervalSeconds must be <= 30. Current spacing is ${samplingSpanSec}s " +
+            "(Iterations=$Iterations, IntervalSeconds=$IntervalSeconds).") -ErrorAction Stop
+    }
 
     $cluster = Get-Cluster -Name $ClusterName -ErrorAction Stop
     $vmHost = $cluster | Get-VMHost |
@@ -199,9 +224,8 @@ function Get-EsxtopData {
     Write-Output "=== COUNTER_INFO ==="
     Write-Output $counterInfo
 
-    # FetchStats loop - stream to single temp CSV file
-    $durationMin = [math]::Round($Iterations * $IntervalSeconds / 60, 1)
-    Write-Information "Collecting $Iterations samples (interval=${IntervalSeconds}s, ~${durationMin} min)..." -InformationAction Continue
+    # FetchStats loop - stream to single temp CSV file (no splitting; duration capped at 30s spacing)
+    Write-Information "Collecting $Iterations samples (interval=${IntervalSeconds}s, ${samplingSpanSec}s between first and last sample)..." -InformationAction Continue
 
     $hostShort = $vmHost.Name.Split('.')[0]
     $tempCsv = Join-Path ([System.IO.Path]::GetTempPath()) "esxtop_${hostShort}.csv"
