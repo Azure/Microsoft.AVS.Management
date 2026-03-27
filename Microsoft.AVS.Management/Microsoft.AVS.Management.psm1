@@ -20,8 +20,8 @@ function Get-EsxtopData {
         on port 443 using the pre-established administrator session. It uses Get-View to resolve
         ServiceManager and the Esxtop SimpleCommand service.
 
-        Output is written to the pipeline as one CSV per run (no file splitting) and optionally
-        saved to the vSAN datastore under the esxtop_output folder.
+        Output is collected to a local temp file and uploaded to the vSAN datastore under the
+        esxtop_output folder via Copy-DatastoreItem (one CSV per run, no file splitting).
 
     .PARAMETER ClusterName
         The name of the vSphere cluster containing the target ESXi host.
@@ -139,11 +139,13 @@ function Get-EsxtopData {
     # CounterInfo
     $counterInfo = $esxtopView.ExecuteSimpleCommand("CounterInfo")
 
-    # FetchStats loop
-    Write-Host "Collecting $Iterations samples from $($vmHost.Name) (interval=${IntervalSeconds}s)..."
-
+    # FetchStats loop — collect samples to local temp file, then upload to vSAN datastore
     $hostShort = $vmHost.Name.Split('.')[0]
-    $tempCsv = Join-Path ([System.IO.Path]::GetTempPath()) "esxtop_${hostShort}.csv"
+    $runTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $csvFileName = "esxtop_${hostShort}_${runTimestamp}.csv"
+    $tempCsv = Join-Path ([System.IO.Path]::GetTempPath()) $csvFileName
+
+    Write-Host "Collecting $Iterations samples from $($vmHost.Name) (interval=${IntervalSeconds}s)..."
     '"Timestamp","SampleNumber","RawData"' | Out-File -FilePath $tempCsv -Encoding UTF8
     $totalBytes = 0
 
@@ -173,13 +175,16 @@ function Get-EsxtopData {
         Write-Warning "FreeStats call failed: $($_.Exception.Message)"
     }
 
-    # Upload CSV to vSAN datastore (single file, overwritten each run)
+    # Upload CSV to vSAN datastore
     try {
         $datastore = Get-Datastore -RelatedObject $cluster -ErrorAction SilentlyContinue |
             Where-Object { $_.Type -eq 'vsan' -or $_.Name -like '*vsan*' } |
             Select-Object -First 1
 
-        if ($datastore) {
+        if ($null -eq $datastore) {
+            Write-Warning "No vSAN datastore found in cluster '$ClusterName'. CSV not uploaded."
+        }
+        else {
             $dsPath = "vmstore:\$($datastore.Datacenter)\$($datastore.Name)"
             $destFolder = "$dsPath\esxtop_output"
 
@@ -187,14 +192,14 @@ function Get-EsxtopData {
                 New-Item -Path $destFolder -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
             }
 
-            $destFile = "$destFolder\esxtop_${hostShort}.csv"
+            $destFile = "$destFolder\$csvFileName"
             Copy-DatastoreItem -Item $tempCsv -Destination $destFile -Force -ErrorAction Stop
             $fileSizeKB = [math]::Round((Get-Item $tempCsv).Length / 1024, 1)
-            Write-Host "Uploaded ${fileSizeKB} KB to [$($datastore.Name)] esxtop_output/esxtop_${hostShort}.csv"
+            Write-Host "Uploaded ${fileSizeKB} KB to [$($datastore.Name)] esxtop_output/$csvFileName"
         }
     }
     catch {
-        Write-Warning "Datastore save failed: $($_.Exception.Message)"
+        Write-Warning "Datastore upload failed: $($_.Exception.Message)"
     }
     finally {
         Remove-Item $tempCsv -Force -ErrorAction SilentlyContinue
