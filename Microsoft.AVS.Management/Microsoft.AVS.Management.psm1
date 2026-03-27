@@ -98,7 +98,7 @@ function Get-EsxtopData {
         Write-Error "No connected ESXi host matching '$EsxiHostName' found in cluster '$ClusterName'." -ErrorAction Stop
     }
 
-    Write-Information "Target host: $($vmHost.Name)" -InformationAction Continue
+    Write-Host "Target host: $($vmHost.Name)"
 
     # Get ServiceManager via Get-View (emits non-fatal error but returns usable object)
     $serviceManager = Get-View ($global:DefaultVIServer.ExtensionData.Content.ServiceManager) -Property "" -ErrorAction SilentlyContinue
@@ -108,7 +108,6 @@ function Get-EsxtopData {
     if (-not (Get-Member -InputObject $serviceManager -Name "QueryServiceList")) {
         Write-Error "ServiceManager object is missing QueryServiceList method. MoRef may be invalid." -ErrorAction Stop
     }
-    Write-Information "ServiceManager: $($serviceManager.MoRef.Type)/$($serviceManager.MoRef.Value)" -InformationAction Continue
 
     # Query services on the target host
     $locationString = "vmware.host." + $vmHost.Name
@@ -136,16 +135,12 @@ function Get-EsxtopData {
     if (-not (Get-Member -InputObject $esxtopView -Name "ExecuteSimpleCommand")) {
         Write-Error "Esxtop service view is missing ExecuteSimpleCommand method. MoRef may be invalid." -ErrorAction Stop
     }
-    Write-Information "Esxtop service: $($esxtopService.Service.Type)/$($esxtopService.Service.Value)" -InformationAction Continue
 
     # CounterInfo
-    Write-Information "Fetching counter definitions..." -InformationAction Continue
     $counterInfo = $esxtopView.ExecuteSimpleCommand("CounterInfo")
-    Write-Output "=== COUNTER_INFO ==="
-    Write-Output $counterInfo
 
     # FetchStats loop
-    Write-Information "Collecting $Iterations samples (interval=${IntervalSeconds}s, ${samplingSpanSec}s between first and last sample)..." -InformationAction Continue
+    Write-Host "Collecting $Iterations samples from $($vmHost.Name) (interval=${IntervalSeconds}s)..."
 
     $hostShort = $vmHost.Name.Split('.')[0]
     $tempCsv = Join-Path ([System.IO.Path]::GetTempPath()) "esxtop_${hostShort}.csv"
@@ -153,10 +148,7 @@ function Get-EsxtopData {
     $totalBytes = 0
 
     for ($i = 1; $i -le $Iterations; $i++) {
-        Write-Information "Sample $i/$Iterations - Fetching..." -InformationAction Continue
         $stats = $esxtopView.ExecuteSimpleCommand("FetchStats")
-        Write-Output "=== SAMPLE $i ==="
-        Write-Output $stats
 
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
         $escaped = $stats -replace '"', '""'
@@ -164,9 +156,9 @@ function Get-EsxtopData {
         $csvRow | Out-File -FilePath $tempCsv -Encoding UTF8 -Append
         $totalBytes += $stats.Length
 
+        $pct = [math]::Round(($i / $Iterations) * 100)
         $dataKB = [math]::Round($totalBytes / 1024, 1)
-        $remainSec = ($Iterations - $i) * $IntervalSeconds
-        Write-Information "Sample $i/$Iterations - Done (${dataKB} KB, ${remainSec}s remaining)" -InformationAction Continue
+        Write-Host "Sample $i/$Iterations (${pct}%) - ${dataKB} KB collected"
 
         if ($i -lt $Iterations) {
             Start-Sleep -Seconds $IntervalSeconds
@@ -176,7 +168,6 @@ function Get-EsxtopData {
     # FreeStats
     try {
         $esxtopView.ExecuteSimpleCommand("FreeStats") | Out-Null
-        Write-Information "Stats released on host $($vmHost.Name)." -InformationAction Continue
     }
     catch {
         Write-Warning "FreeStats call failed: $($_.Exception.Message)"
@@ -198,7 +189,8 @@ function Get-EsxtopData {
 
             $destFile = "$destFolder\esxtop_${hostShort}.csv"
             Copy-DatastoreItem -Item $tempCsv -Destination $destFile -Force -ErrorAction Stop
-            Write-Information "Saved: [$($datastore.Name)] esxtop_output/esxtop_${hostShort}.csv" -InformationAction Continue
+            $fileSizeKB = [math]::Round((Get-Item $tempCsv).Length / 1024, 1)
+            Write-Host "Uploaded ${fileSizeKB} KB to [$($datastore.Name)] esxtop_output/esxtop_${hostShort}.csv"
         }
     }
     catch {
@@ -208,7 +200,7 @@ function Get-EsxtopData {
         Remove-Item $tempCsv -Force -ErrorAction SilentlyContinue
     }
 
-    Write-Information "Esxtop collection complete. $Iterations samples from $($vmHost.Name)." -InformationAction Continue
+    Write-Host "Esxtop collection complete. $Iterations samples from $($vmHost.Name)."
 }
 
 
