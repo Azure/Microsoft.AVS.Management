@@ -69,7 +69,7 @@ function Get-EsxtopData {
         [Parameter(
             Mandatory = $false,
             HelpMessage = 'Number of FetchStats snapshots (spacing (Iterations-1)*IntervalSeconds must be <= 30s).')]
-        [ValidateScript({ $_ -ge 1 })]
+        [ValidateRange(1, 6)]
         [int]$Iterations = 6,
 
         [Parameter(
