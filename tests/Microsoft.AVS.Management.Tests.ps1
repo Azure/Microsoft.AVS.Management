@@ -489,6 +489,46 @@ Describe "Get-EsxtopData" {
         }
     }
 
+    Context "ServiceManager Resolution" {
+        BeforeAll {
+            $mockHost = [PSCustomObject]@{ Name = "esx01.sddc.local"; ConnectionState = "Connected" }
+            Mock Get-Cluster { [PSCustomObject]@{ Name = "Cluster-1" } } -ModuleName Microsoft.AVS.Management
+            Mock Get-VMHost { $mockHost } -ModuleName Microsoft.AVS.Management
+        }
+
+        It "Should throw when ServiceManager Get-View returns null" {
+            $global:DefaultVIServer = [PSCustomObject]@{
+                ExtensionData = [PSCustomObject]@{
+                    Content = [PSCustomObject]@{
+                        ServiceManager = [PSCustomObject]@{ Type = "ServiceManager"; Value = "ServiceMgr" }
+                    }
+                }
+            }
+            Mock Get-View { $null } -ModuleName Microsoft.AVS.Management
+
+            { Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 1 } |
+                Should -Throw -ExpectedMessage "*Could not resolve ServiceManager*"
+        }
+
+        It "Should throw when ServiceManager is missing QueryServiceList method" {
+            $global:DefaultVIServer = [PSCustomObject]@{
+                ExtensionData = [PSCustomObject]@{
+                    Content = [PSCustomObject]@{
+                        ServiceManager = [PSCustomObject]@{ Type = "ServiceManager"; Value = "ServiceMgr" }
+                    }
+                }
+            }
+            # Return an object that lacks QueryServiceList
+            $mockSM = [PSCustomObject]@{
+                MoRef = [PSCustomObject]@{ Type = "ServiceManager"; Value = "ServiceMgr" }
+            }
+            Mock Get-View { $mockSM } -ModuleName Microsoft.AVS.Management
+
+            { Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 1 } |
+                Should -Throw -ExpectedMessage "*missing QueryServiceList*"
+        }
+    }
+
     Context "Esxtop Service Discovery" {
         BeforeAll {
             $mockHost = [PSCustomObject]@{ Name = "esx01.sddc.local"; ConnectionState = "Connected" }
@@ -496,24 +536,34 @@ Describe "Get-EsxtopData" {
             Mock Get-VMHost { $mockHost } -ModuleName Microsoft.AVS.Management
         }
 
-        It "Should throw when Esxtop service is not found on host" {
-            $soapResponse = @"
-<?xml version="1.0"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-<soap:Body>
-<QueryServiceListResponse xmlns="urn:vim25">
-  <returnval><serviceName>OtherService</serviceName><service type="SimpleCommand">other-ref</service></returnval>
-</QueryServiceListResponse>
-</soap:Body>
-</soap:Envelope>
-"@
-            Mock Invoke-WebRequest {
-                [PSCustomObject]@{ Content = $soapResponse }
-            } -ModuleName Microsoft.AVS.Management
+        It "Should throw when no services are found on host" {
+            $mockSM = New-Object PSObject
+            $mockSM | Add-Member -MemberType NoteProperty -Name MoRef -Value ([PSCustomObject]@{ Type = "ServiceManager"; Value = "ServiceMgr" })
+            $mockSM | Add-Member -MemberType ScriptMethod -Name QueryServiceList -Value { param($a, $b) return $null }
+            Mock Get-View { $mockSM } -ModuleName Microsoft.AVS.Management
 
             $global:DefaultVIServer = [PSCustomObject]@{
-                Name = "vcenter.local"
-                SessionSecret = "mock-session-cookie"
+                ExtensionData = [PSCustomObject]@{
+                    Content = [PSCustomObject]@{
+                        ServiceManager = [PSCustomObject]@{ Type = "ServiceManager"; Value = "ServiceMgr" }
+                    }
+                }
+            }
+
+            { Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 1 } |
+                Should -Throw -ExpectedMessage "*No services found*"
+        }
+
+        It "Should throw when Esxtop service is not found on host" {
+            $mockSM = New-Object PSObject
+            $mockSM | Add-Member -MemberType NoteProperty -Name MoRef -Value ([PSCustomObject]@{ Type = "ServiceManager"; Value = "ServiceMgr" })
+            $mockSM | Add-Member -MemberType ScriptMethod -Name QueryServiceList -Value {
+                param($a, $b)
+                return @([PSCustomObject]@{ ServiceName = "OtherService"; Service = [PSCustomObject]@{ Type = "SimpleCommand"; Value = "other-ref" } })
+            }
+            Mock Get-View { $mockSM } -ModuleName Microsoft.AVS.Management
+
+            $global:DefaultVIServer = [PSCustomObject]@{
                 ExtensionData = [PSCustomObject]@{
                     Content = [PSCustomObject]@{
                         ServiceManager = [PSCustomObject]@{ Type = "ServiceManager"; Value = "ServiceMgr" }
@@ -523,6 +573,37 @@ Describe "Get-EsxtopData" {
 
             { Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 1 } |
                 Should -Throw -ExpectedMessage "*Esxtop service not found*"
+        }
+
+        It "Should throw when Esxtop view is missing ExecuteSimpleCommand method" {
+            $mockSM = New-Object PSObject
+            $mockSM | Add-Member -MemberType NoteProperty -Name MoRef -Value ([PSCustomObject]@{ Type = "ServiceManager"; Value = "ServiceMgr" })
+            $mockSM | Add-Member -MemberType ScriptMethod -Name QueryServiceList -Value {
+                param($a, $b)
+                return @([PSCustomObject]@{ ServiceName = "Esxtop"; Service = [PSCustomObject]@{ Type = "SimpleCommand"; Value = "esxtop-ref" } })
+            }
+
+            # First call returns ServiceManager, second call returns an Esxtop view missing ExecuteSimpleCommand
+            $script:getViewCallCount = 0
+            $mockEsxtopView = [PSCustomObject]@{
+                MoRef = [PSCustomObject]@{ Type = "SimpleCommand"; Value = "esxtop-ref" }
+            }
+            Mock Get-View {
+                $script:getViewCallCount++
+                if ($script:getViewCallCount -eq 1) { return $mockSM }
+                else { return $mockEsxtopView }
+            } -ModuleName Microsoft.AVS.Management
+
+            $global:DefaultVIServer = [PSCustomObject]@{
+                ExtensionData = [PSCustomObject]@{
+                    Content = [PSCustomObject]@{
+                        ServiceManager = [PSCustomObject]@{ Type = "ServiceManager"; Value = "ServiceMgr" }
+                    }
+                }
+            }
+
+            { Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 1 } |
+                Should -Throw -ExpectedMessage "*missing ExecuteSimpleCommand*"
         }
     }
 
