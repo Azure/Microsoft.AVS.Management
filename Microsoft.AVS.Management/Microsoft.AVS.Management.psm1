@@ -2,49 +2,6 @@
 . $PSScriptRoot\AVSGenericUtils.ps1
 . $PSScriptRoot\AVSvSANUtils.ps1
 
-function Invoke-VCenterSoapRequest {
-    <#
-    .SYNOPSIS
-        Sends a raw SOAP request to vCenter and returns the parsed XML response.
-    .DESCRIPTION
-        Bypasses Get-View and the WCF SOAP client, both of which have known bugs
-        with the ServiceManager managed object in VCF.PowerCLI 9.x.
-
-    .NOTES
-        PowerCLI does not expose typed .NET bindings for every Vim managed object (for example
-        ServiceManager and host Esxtop SimpleCommand). That gap cannot be fixed in consumer code.
-        This helper resolves API access by posting standard Vim SOAP to https://<server>/sdk and
-        parsing the XML response, using only the session cookie from the existing VIServer connection.
-    #>
-    param(
-        [Parameter(Mandatory = $true)][string]$Server,
-        [Parameter(Mandatory = $true)][string]$SessionCookie,
-        [Parameter(Mandatory = $true)][string]$SoapBody
-    )
-
-    $envelope = @"
-<?xml version="1.0" encoding="UTF-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-               xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-<soap:Body>
-$SoapBody
-</soap:Body>
-</soap:Envelope>
-"@
-
-    $headers = @{
-        "Content-Type" = "text/xml; charset=utf-8"
-        "SOAPAction"   = "urn:vim25"
-        "Cookie"       = "vmware_soap_session=$SessionCookie"
-    }
-
-    $resp = Invoke-WebRequest -Uri "https://$Server/sdk" -Method POST -Headers $headers `
-        -Body $envelope -SkipCertificateCheck -UseBasicParsing -ErrorAction Stop
-
-    return [xml]$resp.Content
-}
-
 function Get-EsxtopData {
     <#
     .SYNOPSIS
@@ -60,11 +17,11 @@ function Get-EsxtopData {
         size on customer vSAN datastores when results are uploaded to esxtop_output.
 
         This cmdlet is safe for AVS environments -- it operates entirely through the vCenter API
-        on port 443 using the pre-established administrator session. It uses raw SOAP requests to
-        bypass known Get-View bugs with the ServiceManager object in VCF.PowerCLI 9.x.
+        on port 443 using the pre-established administrator session. It uses Get-View to resolve
+        ServiceManager and the Esxtop SimpleCommand service.
 
         Output is written to the pipeline as one CSV per run (no file splitting) and optionally
-        saved to the vSAN datastore under the esxtop_output folder (three-file rotation per host).
+        saved to the vSAN datastore under the esxtop_output folder.
 
     .PARAMETER ClusterName
         The name of the vSphere cluster containing the target ESXi host.
@@ -89,12 +46,9 @@ function Get-EsxtopData {
         Seven samples with 5 seconds between them (30 seconds between first and last FetchStats).
 
     .NOTES
-        ServiceManager / Esxtop and typed PowerCLI views: VCF.PowerCLI may report that no .NET type
-        mapping exists for ServiceManager or for Esxtop ExecuteSimpleCommand. That is a client binding
-        limitation, not a missing vCenter API. This cmdlet still works: it reads ServiceManager only as
-        a ManagedObjectReference (Type/Value) from Content, then calls QueryServiceList and
-        ExecuteSimpleCommand via Invoke-VCenterSoapRequest. For compliance matrices, record the
-        requirement as satisfied by direct Vim SOAP rather than by PowerCLI-generated types.
+        Get-View emits a non-fatal "Invalid property" error for ServiceManager and Esxtop service
+        objects but still returns a usable object. ErrorAction SilentlyContinue suppresses the noise.
+        The returned object is validated via Get-Member before use.
     #>
 
     [CmdletBinding()]
@@ -146,85 +100,51 @@ function Get-EsxtopData {
 
     Write-Information "Target host: $($vmHost.Name)" -InformationAction Continue
 
-    # Extract session cookie and vCenter server from the pre-established connection
-    $vc = $global:DefaultVIServer
-    $vcServer = $vc.Name
-    $sessionCookie = $vc.SessionSecret
-    if (-not $sessionCookie) {
-        try {
-            $cookieJar = $vc.ExtensionData.Client.VimService.CookieContainer
-            if ($cookieJar) {
-                $soapCookie = $cookieJar.GetCookies([Uri]"https://$vcServer/sdk") |
-                    Where-Object { $_.Name -eq "vmware_soap_session" }
-                if ($soapCookie) { $sessionCookie = $soapCookie.Value }
-            }
-        }
-        catch { }
+    # Get ServiceManager via Get-View (emits non-fatal error but returns usable object)
+    $serviceManager = Get-View ($global:DefaultVIServer.ExtensionData.Content.ServiceManager) -Property "" -ErrorAction SilentlyContinue
+    if ($null -eq $serviceManager) {
+        Write-Error "Could not resolve ServiceManager via Get-View." -ErrorAction Stop
     }
-    if (-not $sessionCookie) {
-        Write-Error "Could not extract SOAP session cookie from the VIServer connection." -ErrorAction Stop
+    if (-not (Get-Member -InputObject $serviceManager -Name "QueryServiceList")) {
+        Write-Error "ServiceManager object is missing QueryServiceList method. MoRef may be invalid." -ErrorAction Stop
     }
+    Write-Information "ServiceManager: $($serviceManager.MoRef.Type)/$($serviceManager.MoRef.Value)" -InformationAction Continue
 
-    # Get ServiceManager MoRef
-    $svcMgrRef = $vc.ExtensionData.Content.ServiceManager
-    Write-Information "ServiceManager: $($svcMgrRef.Type)/$($svcMgrRef.Value)" -InformationAction Continue
-
-    # XML-escape all values before inserting into SOAP body to prevent XML injection
-    $xmlEscape = { param([string]$s) [System.Security.SecurityElement]::Escape($s) }
-
-    # Query services on the target host via raw SOAP
+    # Query services on the target host
     $locationString = "vmware.host." + $vmHost.Name
-    $qslBody = @"
-<QueryServiceList xmlns="urn:vim25">
-  <_this type="$(& $xmlEscape $svcMgrRef.Type)">$(& $xmlEscape $svcMgrRef.Value)</_this>
-  <location>$(& $xmlEscape $locationString)</location>
-</QueryServiceList>
-"@
-    $qslXml = Invoke-VCenterSoapRequest -Server $vcServer -SessionCookie $sessionCookie -SoapBody $qslBody
-    $services = $qslXml.Envelope.Body.QueryServiceListResponse.returnval
+    $services = $serviceManager.QueryServiceList($null, $locationString)
     if (-not $services) {
         Write-Error "No services found at location '$locationString'." -ErrorAction Stop
     }
 
-    $esxtopRef = $null
+    $esxtopService = $null
     foreach ($svc in $services) {
-        if ($svc.serviceName -eq "Esxtop") {
-            $esxtopRef = $svc.service
+        if ($svc.ServiceName -eq "Esxtop") {
+            $esxtopService = $svc
             break
         }
     }
-    if ($null -eq $esxtopRef) {
-        $available = ($services | ForEach-Object { $_.serviceName }) -join ', '
+    if ($null -eq $esxtopService) {
+        $available = ($services | ForEach-Object { $_.ServiceName }) -join ', '
         Write-Error "Esxtop service not found on host $($vmHost.Name). Available: $available" -ErrorAction Stop
     }
 
-    $esxtopType = $esxtopRef.type
-    $esxtopValue = $esxtopRef.'#text'
-    Write-Information "Esxtop service: $esxtopType/$esxtopValue" -InformationAction Continue
-
-    # Helper to invoke ExecuteSimpleCommand via raw SOAP
-    $safeEsxtopType = & $xmlEscape $esxtopType
-    $safeEsxtopValue = & $xmlEscape $esxtopValue
-    $invokeEsxtopCmd = {
-        param([string]$Command)
-        $safeCmd = [System.Security.SecurityElement]::Escape($Command)
-        $escBody = @"
-<ExecuteSimpleCommand xmlns="urn:vim25">
-  <_this type="$safeEsxtopType">$safeEsxtopValue</_this>
-  <arguments>$safeCmd</arguments>
-</ExecuteSimpleCommand>
-"@
-        $escXml = Invoke-VCenterSoapRequest -Server $vcServer -SessionCookie $sessionCookie -SoapBody $escBody
-        return $escXml.Envelope.Body.ExecuteSimpleCommandResponse.returnval
+    $esxtopView = Get-View $esxtopService.Service -Property "" -ErrorAction SilentlyContinue
+    if ($null -eq $esxtopView) {
+        Write-Error "Could not resolve Esxtop service view via Get-View." -ErrorAction Stop
     }
+    if (-not (Get-Member -InputObject $esxtopView -Name "ExecuteSimpleCommand")) {
+        Write-Error "Esxtop service view is missing ExecuteSimpleCommand method. MoRef may be invalid." -ErrorAction Stop
+    }
+    Write-Information "Esxtop service: $($esxtopService.Service.Type)/$($esxtopService.Service.Value)" -InformationAction Continue
 
     # CounterInfo
     Write-Information "Fetching counter definitions..." -InformationAction Continue
-    $counterInfo = & $invokeEsxtopCmd "CounterInfo"
+    $counterInfo = $esxtopView.ExecuteSimpleCommand("CounterInfo")
     Write-Output "=== COUNTER_INFO ==="
     Write-Output $counterInfo
 
-    # FetchStats loop - stream to single temp CSV file (no splitting; duration capped at 30s spacing)
+    # FetchStats loop
     Write-Information "Collecting $Iterations samples (interval=${IntervalSeconds}s, ${samplingSpanSec}s between first and last sample)..." -InformationAction Continue
 
     $hostShort = $vmHost.Name.Split('.')[0]
@@ -234,7 +154,7 @@ function Get-EsxtopData {
 
     for ($i = 1; $i -le $Iterations; $i++) {
         Write-Information "Sample $i/$Iterations - Fetching..." -InformationAction Continue
-        $stats = & $invokeEsxtopCmd "FetchStats"
+        $stats = $esxtopView.ExecuteSimpleCommand("FetchStats")
         Write-Output "=== SAMPLE $i ==="
         Write-Output $stats
 
@@ -255,7 +175,7 @@ function Get-EsxtopData {
 
     # FreeStats
     try {
-        & $invokeEsxtopCmd "FreeStats" | Out-Null
+        $esxtopView.ExecuteSimpleCommand("FreeStats") | Out-Null
         Write-Information "Stats released on host $($vmHost.Name)." -InformationAction Continue
     }
     catch {
