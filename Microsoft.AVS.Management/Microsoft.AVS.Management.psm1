@@ -42,8 +42,8 @@ function Get-EsxtopData {
         Collects the default sample count at the default 5-second interval (within the 30s cap).
 
     .EXAMPLE
-        Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 7 -IntervalSeconds 5
-        Seven samples with 5 seconds between them (30 seconds between first and last FetchStats).
+        Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 6 -IntervalSeconds 5
+        Six samples with 5 seconds between them (25 seconds between first and last FetchStats).
 
     .NOTES
         Get-View emits a non-fatal "Invalid property" error for ServiceManager and Esxtop service
