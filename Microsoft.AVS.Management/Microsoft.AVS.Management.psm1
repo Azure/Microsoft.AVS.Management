@@ -178,16 +178,26 @@ function Get-EsxtopData {
     # Upload CSV to vSAN datastore
     try {
         $datastore = Get-Datastore -RelatedObject $cluster -ErrorAction SilentlyContinue |
-            Where-Object { $_.Type -eq 'vsan' -or $_.Name -like '*vsan*' } |
+            Where-Object { $_.Type -eq 'vsan' -or $_.Name -like '*vsan*' -or $_.Name -like '*vsanDatastore*' } |
             Select-Object -First 1
 
         if ($null -eq $datastore) {
-            Write-Warning "No vSAN datastore found in cluster '$ClusterName'. CSV not uploaded."
+            $datastore = Get-Datastore -ErrorAction SilentlyContinue |
+                Where-Object { $_.Type -eq 'vsan' -or $_.Name -like '*vsan*' } |
+                Select-Object -First 1
+        }
+
+        if ($null -eq $datastore) {
+            Write-Warning "No vSAN datastore found. CSV not uploaded."
         }
         else {
-            $dsPath = "vmstore:\$($datastore.Datacenter)\$($datastore.Name)"
-            $destFolder = "$dsPath\esxtop_output"
+            $driveName = "esxtopUpload"
+            if (Get-PSDrive -Name $driveName -ErrorAction SilentlyContinue) {
+                Remove-PSDrive -Name $driveName -Force -ErrorAction SilentlyContinue
+            }
+            New-PSDrive -Name $driveName -Location $datastore -PSProvider VimDatastore -Root "\" -ErrorAction Stop | Out-Null
 
+            $destFolder = "${driveName}:\esxtop_output"
             if (-not (Test-Path $destFolder -ErrorAction SilentlyContinue)) {
                 New-Item -Path $destFolder -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
             }
@@ -203,6 +213,7 @@ function Get-EsxtopData {
     }
     finally {
         Remove-Item $tempCsv -Force -ErrorAction SilentlyContinue
+        Remove-PSDrive -Name "esxtopUpload" -Force -ErrorAction SilentlyContinue
     }
 
     Write-Host "Esxtop collection complete. $Iterations samples from $($vmHost.Name)."
