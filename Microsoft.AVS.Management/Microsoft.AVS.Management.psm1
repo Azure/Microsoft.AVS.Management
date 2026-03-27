@@ -262,7 +262,7 @@ function Get-EsxtopData {
         Write-Warning "FreeStats call failed: $($_.Exception.Message)"
     }
 
-    # Upload CSV to vSAN datastore with rotation (keep last 3 collections)
+    # Upload CSV to vSAN datastore (single file, overwritten each run)
     try {
         $datastore = Get-Datastore -RelatedObject $cluster -ErrorAction SilentlyContinue |
             Where-Object { $_.Type -eq 'vsan' -or $_.Name -like '*vsan*' } |
@@ -276,29 +276,9 @@ function Get-EsxtopData {
                 New-Item -Path $destFolder -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
             }
 
-            # Rotate: rm .2, .1→.2, .0→.1, write new to .0
-            $dsFile = "esxtop_${hostShort}"
-            $slot2 = "$destFolder\${dsFile}.2.csv"
-            $slot1 = "$destFolder\${dsFile}.1.csv"
-            $slot0 = "$destFolder\${dsFile}.0.csv"
-
-            if (Test-Path $slot2 -ErrorAction SilentlyContinue) {
-                Remove-Item $slot2 -Force -ErrorAction SilentlyContinue
-                Write-Information "Removed oldest: ${dsFile}.2.csv" -InformationAction Continue
-            }
-            if (Test-Path $slot1 -ErrorAction SilentlyContinue) {
-                Copy-DatastoreItem -Item $slot1 -Destination $slot2 -Force -ErrorAction SilentlyContinue
-                Remove-Item $slot1 -Force -ErrorAction SilentlyContinue
-                Write-Information "Rotated: ${dsFile}.1.csv -> .2.csv" -InformationAction Continue
-            }
-            if (Test-Path $slot0 -ErrorAction SilentlyContinue) {
-                Copy-DatastoreItem -Item $slot0 -Destination $slot1 -Force -ErrorAction SilentlyContinue
-                Remove-Item $slot0 -Force -ErrorAction SilentlyContinue
-                Write-Information "Rotated: ${dsFile}.0.csv -> .1.csv" -InformationAction Continue
-            }
-
-            Copy-DatastoreItem -Item $tempCsv -Destination $slot0 -Force -ErrorAction Stop
-            Write-Information "Saved: [$($datastore.Name)] esxtop_output/${dsFile}.0.csv" -InformationAction Continue
+            $destFile = "$destFolder\esxtop_${hostShort}.csv"
+            Copy-DatastoreItem -Item $tempCsv -Destination $destFile -Force -ErrorAction Stop
+            Write-Information "Saved: [$($datastore.Name)] esxtop_output/esxtop_${hostShort}.csv" -InformationAction Continue
         }
     }
     catch {
