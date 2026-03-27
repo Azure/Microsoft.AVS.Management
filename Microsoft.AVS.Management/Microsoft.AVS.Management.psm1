@@ -597,6 +597,7 @@ function Set-ToolsRepo {
     # Initialize variables
     $new_folder = 'GuestStore'
     $archive_path = '/vmware/apps/vmtools/windows64/'
+    $normalizedArchivePath = if ($null -ne $archive_path) { $archive_path.Trim('/','\') } else { '' }
     $tmp_dir = $null
     $currentPSDrive = $null
     $successfulDatastores = @()
@@ -626,12 +627,9 @@ function Set-ToolsRepo {
 
         $tools_file = Join-Path -Path $tmp_dir.FullName -ChildPath "tools.zip"
 
-        # Download the tools file with progress (preserve ProgressPreference)
-        $oldProgressPreference = $null
+        # Download the tools file
         try {
             Write-Information "Downloading tools..." -InformationAction Continue
-            $oldProgressPreference = $ProgressPreference
-            $ProgressPreference = 'Continue'
             Invoke-WebRequest -Uri $ToolsURLPlain -OutFile $tools_file -ErrorAction Stop
 
             # Validate downloaded file
@@ -647,8 +645,6 @@ function Set-ToolsRepo {
             Write-Verbose "Downloaded file size: $($fileSize / 1MB) MB"
         } catch {
             throw "Failed to download tools file: $_"
-        } finally {
-            if ($null -ne $oldProgressPreference) { $ProgressPreference = $oldProgressPreference }
         }
 
         # Extract the archive
@@ -660,7 +656,10 @@ function Set-ToolsRepo {
         }
 
         # Find and validate tools version
-        $tools_path_new = Join-Path -Path $tmp_dir.FullName -ChildPath "${archive_path}vmtools-*"
+        $tools_path_new = Join-Path -Path $tmp_dir.FullName -ChildPath (
+            if ([string]::IsNullOrEmpty($normalizedArchivePath)) { 'vmtools-*' }
+            else { ("{0}/vmtools-*" -f $normalizedArchivePath) }
+        )
         $tools_directories = Get-ChildItem -Path $tools_path_new -Directory -ErrorAction SilentlyContinue
 
         if ($null -eq $tools_directories -or $tools_directories.Count -eq 0) {
@@ -732,7 +731,13 @@ function Set-ToolsRepo {
                 }
 
                 # Check existing tools versions to determine highest version
-                $tools_path = "DS:/$new_folder/$archive_path"
+                $baseDestPath = "DS:/$new_folder"
+                $destPath = if ([string]::IsNullOrEmpty($normalizedArchivePath)) {
+                    $baseDestPath
+                } else {
+                    Join-Path -Path $baseDestPath -ChildPath $normalizedArchivePath
+                }
+                $tools_path = $destPath
                 $highestExistingVersion = $null
                 $shouldUpdateTopLevelMetadata = $false
 
@@ -771,9 +776,6 @@ function Set-ToolsRepo {
                     # Use the discovered vmtools directory from the extracted archive as the source
                     $sourceDir = $tools_directories[0].FullName
 
-                    # Destination inside GuestStore should include archive_path so layout matches expected structure
-                    $destPath = "DS:/$new_folder$archive_path"
-
                     # Ensure destination folder exists on the datastore
                     if (-not (Test-Path -Path $destPath)) {
                         New-Item -ItemType Directory -Path $destPath -Force -ErrorAction Stop | Out-Null
@@ -792,6 +794,21 @@ function Set-ToolsRepo {
                         if (-not $versionMeta) { throw "metadata.json not found in copied version folder on $ds_name" }
 
                         Write-Information "Successfully copied $tools_version to $ds_name" -InformationAction Continue
+                    }
+
+                    # Ensure top-level GuestStore artifacts (for example, gueststore-vmtools) are present.
+                    # Keep metadata.json handling separate below so preserve/update rules stay unchanged.
+                    $topLevelSourceDir = Split-Path -Path $sourceDir -Parent
+                    if (-not [string]::IsNullOrEmpty($topLevelSourceDir) -and (Test-Path -Path $topLevelSourceDir)) {
+                        $topLevelFiles = Get-ChildItem -Path $topLevelSourceDir -File -ErrorAction SilentlyContinue |
+                            Where-Object { $_.Name -ne 'metadata.json' }
+                        foreach ($file in $topLevelFiles) {
+                            $destFilePath = Join-Path -Path $destPath -ChildPath $file.Name
+                            Copy-DatastoreItem -Item $file.FullName -Destination $destFilePath -Force -ErrorAction Stop
+                        }
+                        if ($topLevelFiles) {
+                            Write-Information "Ensured top-level GuestStore artifacts are present on $ds_name" -InformationAction Continue
+                        }
                     }
 
                     # Update top-level metadata.json only if new version is greater
@@ -887,11 +904,6 @@ function Set-ToolsRepo {
         # Ensure PSDrive is removed
         if (Get-PSDrive -Name DS -ErrorAction SilentlyContinue) {
             Remove-PSDrive -Name DS -Force -ErrorAction SilentlyContinue
-        }
-
-        # Remove temporary directory if it exists
-        if ($tmp_dir -and $tmp_dir.FullName -and (Test-Path -Path $tmp_dir.FullName)) {
-            Remove-Item -Path $tmp_dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 }
