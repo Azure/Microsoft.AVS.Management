@@ -419,11 +419,23 @@ Describe "Get-EsxtopData" {
             $validateAttr | Should -Not -BeNullOrEmpty
         }
 
-        It "Should have ValidateScript requiring Iterations >= 1" {
+        It "Should have ValidateRange(1,6) on Iterations" {
             $command = Get-Command Get-EsxtopData
             $param = $command.Parameters['Iterations']
-            $scriptAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateScriptAttribute] }
-            $scriptAttr | Should -Not -BeNullOrEmpty
+            $rangeAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateRangeAttribute] }
+            $rangeAttr | Should -Not -BeNullOrEmpty
+            $rangeAttr.MinRange | Should -Be 1
+            $rangeAttr.MaxRange | Should -Be 6
+        }
+
+        It "Should reject Iterations greater than 6" {
+            { Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 7 } |
+                Should -Throw
+        }
+
+        It "Should reject Iterations less than 1" {
+            { Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 0 } |
+                Should -Throw
         }
 
         It "Should have ValidateRange(1,30) on IntervalSeconds" {
@@ -451,8 +463,8 @@ Describe "Get-EsxtopData" {
     }
 
     Context "Sampling duration limit" {
-        It "Should reject (Iterations-1)*IntervalSeconds greater than 30" {
-            { Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 10 -IntervalSeconds 5 } |
+        It "Should reject when (Iterations-1)*IntervalSeconds exceeds 30" {
+            { Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 4 -IntervalSeconds 15 } |
                 Should -Throw -ExpectedMessage "*30*"
         }
     }
