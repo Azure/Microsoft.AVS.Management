@@ -656,10 +656,12 @@ function Set-ToolsRepo {
         }
 
         # Find and validate tools version
-        $tools_path_new = Join-Path -Path $tmp_dir.FullName -ChildPath (
-            if ([string]::IsNullOrEmpty($normalizedArchivePath)) { 'vmtools-*' }
-            else { ("{0}/vmtools-*" -f $normalizedArchivePath) }
-        )
+        if ([string]::IsNullOrEmpty($normalizedArchivePath)) {
+            $toolsChildPath = 'vmtools-*'
+        } else {
+            $toolsChildPath = "{0}/vmtools-*" -f $normalizedArchivePath
+        }
+        $tools_path_new = Join-Path -Path $tmp_dir.FullName -ChildPath $toolsChildPath
         $tools_directories = Get-ChildItem -Path $tools_path_new -Directory -ErrorAction SilentlyContinue
 
         if ($null -eq $tools_directories -or $tools_directories.Count -eq 0) {
@@ -706,7 +708,8 @@ function Set-ToolsRepo {
                     $Dsbrowser = Get-View -Id $Datastore.Extensiondata.Browser -ErrorAction Stop
                     $spec = New-Object VMware.Vim.HostDatastoreBrowserSearchSpec
                     $spec.Query += New-Object VMware.Vim.FolderFileQuery
-                    $searchResult = $dsBrowser.SearchDatastore("[$ds_name] \", $spec)
+                    $datastoreRoot = "[{0}]" -f $ds_name
+                    $searchResult = $dsBrowser.SearchDatastore($datastoreRoot, $spec)
                     $folderObj = $searchResult.File | Where-Object { $_.FriendlyName -eq $new_folder }
                 } catch {
                     throw "Failed to browse datastore $ds_name : $_"
@@ -722,7 +725,7 @@ function Set-ToolsRepo {
                     }
 
                     # Verify folder creation
-                    $searchResult = $dsBrowser.SearchDatastore("[$ds_name] \", $spec)
+                    $searchResult = $dsBrowser.SearchDatastore($datastoreRoot, $spec)
                     $folderObj = $searchResult.File | Where-Object { $_.FriendlyName -eq $new_folder }
 
                     if ($null -eq $folderObj) {
