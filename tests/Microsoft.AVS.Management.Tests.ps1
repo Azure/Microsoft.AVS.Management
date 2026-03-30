@@ -438,12 +438,12 @@ Describe "Get-EsxtopData" {
                 Should -Throw
         }
 
-        It "Should have ValidateRange(1,30) on IntervalSeconds" {
+        It "Should have ValidateRange(2,30) on IntervalSeconds" {
             $command = Get-Command Get-EsxtopData
             $param = $command.Parameters['IntervalSeconds']
             $rangeAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateRangeAttribute] }
             $rangeAttr | Should -Not -BeNullOrEmpty
-            $rangeAttr.MinRange | Should -Be 1
+            $rangeAttr.MinRange | Should -Be 2
             $rangeAttr.MaxRange | Should -Be 30
         }
 

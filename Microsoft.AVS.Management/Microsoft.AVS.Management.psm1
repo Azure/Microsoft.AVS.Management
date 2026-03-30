@@ -35,7 +35,7 @@ function Get-EsxtopData {
 
     .PARAMETER IntervalSeconds
         Seconds to wait after each sample before the next (not applied after the last sample).
-        Range 1-30.
+        Range 2-30. The minimum of 2 seconds aligns with esxtop's minimum sampling interval.
 
     .EXAMPLE
         Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01"
@@ -74,8 +74,8 @@ function Get-EsxtopData {
 
         [Parameter(
             Mandatory = $false,
-            HelpMessage = 'Seconds between snapshots (1-30; with Iterations, total spacing <= 30s).')]
-        [ValidateRange(1, 30)]
+            HelpMessage = 'Seconds between snapshots (2-30; with Iterations, total spacing <= 30s).')]
+        [ValidateRange(2, 30)]
         [int]$IntervalSeconds = 5
     )
 
