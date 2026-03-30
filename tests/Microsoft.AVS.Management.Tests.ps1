@@ -460,6 +460,29 @@ Describe "Get-EsxtopData" {
             $paramAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }
             $paramAttr.HelpMessage | Should -Not -BeNullOrEmpty
         }
+
+        It "Should have OutputDatastoreName as optional String parameter" {
+            $command = Get-Command Get-EsxtopData
+            $param = $command.Parameters['OutputDatastoreName']
+            $param | Should -Not -BeNullOrEmpty
+            $param.ParameterType.Name | Should -Be 'String'
+            $mandatoryAttrs = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }
+            $mandatoryAttrs.Mandatory | Should -Be $false
+        }
+
+        It "Should have ValidateNotNullOrEmpty on OutputDatastoreName" {
+            $command = Get-Command Get-EsxtopData
+            $param = $command.Parameters['OutputDatastoreName']
+            $validateAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateNotNullOrEmptyAttribute] }
+            $validateAttr | Should -Not -BeNullOrEmpty
+        }
+
+        It "Should have HelpMessage on OutputDatastoreName" {
+            $command = Get-Command Get-EsxtopData
+            $param = $command.Parameters['OutputDatastoreName']
+            $paramAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }
+            $paramAttr.HelpMessage | Should -Not -BeNullOrEmpty
+        }
     }
 
     Context "Sampling duration limit" {

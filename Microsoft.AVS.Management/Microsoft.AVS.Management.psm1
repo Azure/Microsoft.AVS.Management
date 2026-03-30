@@ -20,8 +20,10 @@ function Get-EsxtopData {
         on port 443 using the pre-established administrator session. It uses Get-View to resolve
         ServiceManager and the Esxtop SimpleCommand service.
 
-        Output is collected to a local temp file and uploaded to the vSAN datastore under the
+        Output is collected to a local temp file and uploaded to a datastore under the
         esxtop_output folder via Copy-DatastoreItem (one CSV per run, no file splitting).
+        By default, the first vSAN datastore on the cluster is used, but the customer can
+        override this with OutputDatastoreName to target any accessible datastore.
 
     .PARAMETER ClusterName
         The name of the vSphere cluster containing the target ESXi host.
@@ -37,6 +39,11 @@ function Get-EsxtopData {
         Seconds to wait after each sample before the next (not applied after the last sample).
         Range 2-30. The minimum of 2 seconds aligns with esxtop's minimum sampling interval.
 
+    .PARAMETER OutputDatastoreName
+        Name of the datastore to upload the CSV to. When omitted, defaults to the first vSAN
+        datastore on the cluster. Specify this to use a non-vSAN datastore or when automatic
+        vSAN discovery does not find the desired target.
+
     .EXAMPLE
         Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01"
         Collects the default sample count at the default 5-second interval (within the 30s cap).
@@ -44,6 +51,10 @@ function Get-EsxtopData {
     .EXAMPLE
         Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 6 -IntervalSeconds 5
         Six samples with 5 seconds between them (25 seconds between first and last FetchStats).
+
+    .EXAMPLE
+        Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -OutputDatastoreName "myDatastore"
+        Uploads the CSV to the specified datastore instead of auto-discovering the vSAN datastore.
 
     .NOTES
         Get-View emits a non-fatal "Invalid property" error for ServiceManager and Esxtop service
@@ -81,11 +92,20 @@ function Get-EsxtopData {
             Mandatory = $false,
             HelpMessage = 'Seconds between snapshots (2-30; with Iterations, total spacing <= 30s).')]
         [ValidateRange(2, 30)]
-        [int]$IntervalSeconds = 5
+        [int]$IntervalSeconds = 5,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'Name of the datastore for CSV upload. Defaults to the first vSAN datastore on the cluster.')]
+        [ValidateNotNullOrEmpty()]
+        [string]$OutputDatastoreName
     )
 
     $EsxiHostName = Limit-WildcardsandCodeInjectionCharacters -String $EsxiHostName
     $ClusterName = Limit-WildcardsandCodeInjectionCharacters -String $ClusterName
+    if ($PSBoundParameters.ContainsKey('OutputDatastoreName')) {
+        $OutputDatastoreName = Limit-WildcardsandCodeInjectionCharacters -String $OutputDatastoreName
+    }
 
     $samplingSpanSec = [Math]::Max(0, $Iterations - 1) * $IntervalSeconds
     if ($samplingSpanSec -gt 30) {
@@ -180,20 +200,20 @@ function Get-EsxtopData {
         Write-Warning "FreeStats call failed: $($_.Exception.Message)"
     }
 
-    # Upload CSV to vSAN datastore
+    # Upload CSV to datastore
     try {
-        $datastore = Get-Datastore -RelatedObject $cluster -ErrorAction SilentlyContinue |
-            Where-Object { $_.Type -eq 'vsan' -or $_.Name -like '*vsan*' -or $_.Name -like '*vsanDatastore*' } |
-            Select-Object -First 1
-
-        if ($null -eq $datastore) {
-            $datastore = Get-Datastore -ErrorAction SilentlyContinue |
-                Where-Object { $_.Type -eq 'vsan' -or $_.Name -like '*vsan*' } |
+        if ($PSBoundParameters.ContainsKey('OutputDatastoreName')) {
+            $datastore = Get-Datastore -Name $OutputDatastoreName -ErrorAction Stop
+        }
+        else {
+            $datastore = Get-Datastore -RelatedObject $cluster -ErrorAction SilentlyContinue |
+                Where-Object { $_.Type -eq 'vsan' -or $_.Name -like '*vsan*' -or $_.Name -like '*vsanDatastore*' } |
                 Select-Object -First 1
         }
 
         if ($null -eq $datastore) {
-            Write-Warning "No vSAN datastore found. CSV not uploaded."
+            Write-Warning ("No vSAN datastore found on cluster '$ClusterName'. CSV saved locally at $tempCsv. " +
+                "Use -OutputDatastoreName to specify an accessible datastore.")
         }
         else {
             $driveName = "esxtopUpload"
