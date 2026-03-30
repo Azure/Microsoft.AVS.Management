@@ -49,6 +49,11 @@ function Get-EsxtopData {
         Get-View emits a non-fatal "Invalid property" error for ServiceManager and Esxtop service
         objects but still returns a usable object. ErrorAction SilentlyContinue suppresses the noise.
         The returned object is validated via Get-Member before use.
+
+        The Esxtop SimpleCommand API (CounterInfo, FetchStats, FreeStats) is not covered in the
+        official vSphere API reference. The approach used here is based on:
+        - https://williamlam.com/2017/02/using-the-vsphere-api-in-vcenter-server-to-collect-esxtop-vscsistats-metrics.html
+        - https://github.com/lamw/vmware-scripts/blob/master/powershell/Get-EsxtopAPI.ps1
     #>
 
     [CmdletBinding()]
