@@ -2,6 +2,226 @@
 . $PSScriptRoot\AVSGenericUtils.ps1
 . $PSScriptRoot\AVSvSANUtils.ps1
 
+function Get-EsxtopData {
+    <#
+    .SYNOPSIS
+        Collects esxtop performance data from an ESXi host via the vCenter Esxtop service API.
+
+    .DESCRIPTION
+        Collects batch-mode esxtop snapshots from a single ESXi host via the vCenter ServiceManager
+        API (no SSH) and uploads the resulting CSV to the cluster's vSAN datastore (or a
+        customer-specified datastore via OutputDatastoreName).
+
+    .PARAMETER ClusterName
+        The name of the vSphere cluster containing the target ESXi host.
+
+    .PARAMETER EsxiHostName
+        The ESXi host name or prefix. The first connected host matching this prefix is used.
+
+    .PARAMETER Iterations
+        Number of FetchStats snapshots. Combined with IntervalSeconds, total spacing between the
+        first and last sample must not exceed 30 seconds: (Iterations - 1) * IntervalSeconds <= 30.
+
+    .PARAMETER IntervalSeconds
+        Seconds to wait after each sample before the next (not applied after the last sample).
+        Range 2-30. The minimum of 2 seconds aligns with esxtop's minimum sampling interval.
+
+    .PARAMETER OutputDatastoreName
+        Name of the datastore to upload the CSV to. When omitted, defaults to the first vSAN
+        datastore on the cluster. Specify this to use a non-vSAN datastore or when automatic
+        vSAN discovery does not find the desired target.
+
+    .NOTES
+        Get-View emits a non-fatal "Invalid property" error for ServiceManager and Esxtop service
+        objects but still returns a usable object. ErrorAction SilentlyContinue suppresses the noise.
+        The returned object is validated via Get-Member before use.
+
+        The Esxtop SimpleCommand API (CounterInfo, FetchStats, FreeStats) is not covered in the
+        official vSphere API reference. The approach used here is based on:
+        - https://williamlam.com/2017/02/using-the-vsphere-api-in-vcenter-server-to-collect-esxtop-vscsistats-metrics.html
+        - https://github.com/lamw/vmware-scripts/blob/master/powershell/Get-EsxtopAPI.ps1
+    #>
+
+    [CmdletBinding()]
+    [AVSAttribute(30, UpdatesSDDC = $false)]
+    param(
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'Name of the vSphere cluster containing the target ESXi host.')]
+        [ValidateNotNullOrEmpty()]
+        [string]$ClusterName,
+
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'ESXi host name or name prefix. The first matching host will be used.')]
+        [ValidateNotNullOrEmpty()]
+        [string]$EsxiHostName,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'Number of FetchStats snapshots (spacing (Iterations-1)*IntervalSeconds must be <= 30s).')]
+        [ValidateRange(1, 6)]
+        [int]$Iterations = 6,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'Seconds between snapshots (2-30; with Iterations, total spacing <= 30s).')]
+        [ValidateRange(2, 30)]
+        [int]$IntervalSeconds = 5,
+
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'Name of the datastore for CSV upload. Defaults to the first vSAN datastore on the cluster.')]
+        [ValidateNotNullOrEmpty()]
+        [string]$OutputDatastoreName
+    )
+
+    $EsxiHostName = Limit-WildcardsandCodeInjectionCharacters -String $EsxiHostName
+    $ClusterName = Limit-WildcardsandCodeInjectionCharacters -String $ClusterName
+    if ($PSBoundParameters.ContainsKey('OutputDatastoreName')) {
+        $OutputDatastoreName = Limit-WildcardsandCodeInjectionCharacters -String $OutputDatastoreName
+    }
+
+    $samplingSpanSec = [Math]::Max(0, $Iterations - 1) * $IntervalSeconds
+    if ($samplingSpanSec -gt 30) {
+        throw ("Esxtop sampling is limited to 30 seconds between the first and last sample: " +
+            "(Iterations-1)*IntervalSeconds must be <= 30. Current spacing is ${samplingSpanSec}s " +
+            "(Iterations=$Iterations, IntervalSeconds=$IntervalSeconds).")
+    }
+
+    $cluster = Get-Cluster -Name $ClusterName -ErrorAction Stop
+    $vmHost = $cluster | Get-VMHost |
+        Where-Object { $_.Name -like "$EsxiHostName*" -and $_.ConnectionState -eq 'Connected' } |
+        Select-Object -First 1
+
+    if ($null -eq $vmHost) {
+        throw "No connected ESXi host matching '$EsxiHostName' found in cluster '$ClusterName'."
+    }
+
+    Write-Host "Target host: $($vmHost.Name)"
+
+    # Get ServiceManager via Get-View (emits non-fatal error but returns usable object)
+    $serviceManager = Get-View ($global:DefaultVIServer.ExtensionData.Content.ServiceManager) -Property "" -ErrorAction SilentlyContinue
+    if ($null -eq $serviceManager) {
+        throw "Could not resolve ServiceManager via Get-View."
+    }
+    if (-not (Get-Member -InputObject $serviceManager -Name "QueryServiceList")) {
+        throw "ServiceManager object is missing QueryServiceList method. MoRef may be invalid."
+    }
+
+    # Query services on the target host
+    $locationString = "vmware.host." + $vmHost.Name
+    $services = $serviceManager.QueryServiceList($null, $locationString)
+    if (-not $services) {
+        throw "No services found at location '$locationString'."
+    }
+
+    $esxtopService = $null
+    foreach ($svc in $services) {
+        if ($svc.ServiceName -eq "Esxtop") {
+            $esxtopService = $svc
+            break
+        }
+    }
+    if ($null -eq $esxtopService) {
+        $available = ($services | ForEach-Object { $_.ServiceName }) -join ', '
+        throw "Esxtop service not found on host $($vmHost.Name). Available: $available"
+    }
+
+    $esxtopView = Get-View $esxtopService.Service -Property "" -ErrorAction SilentlyContinue
+    if ($null -eq $esxtopView) {
+        throw "Could not resolve Esxtop service view via Get-View."
+    }
+    if (-not (Get-Member -InputObject $esxtopView -Name "ExecuteSimpleCommand")) {
+        throw "Esxtop service view is missing ExecuteSimpleCommand method. MoRef may be invalid."
+    }
+
+    # CounterInfo
+    $counterInfo = $esxtopView.ExecuteSimpleCommand("CounterInfo")
+
+    # FetchStats loop — collect samples to local temp file, then upload to vSAN datastore
+    $hostShort = $vmHost.Name.Split('.')[0]
+    $runTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $csvFileName = "esxtop_${hostShort}_${runTimestamp}.csv"
+    $tempCsv = Join-Path ([System.IO.Path]::GetTempPath()) $csvFileName
+
+    Write-Host "Collecting $Iterations samples from $($vmHost.Name) (interval=${IntervalSeconds}s)..."
+    '"Timestamp","SampleNumber","RawData"' | Out-File -FilePath $tempCsv -Encoding UTF8
+    $totalBytes = 0
+
+    for ($i = 1; $i -le $Iterations; $i++) {
+        $stats = $esxtopView.ExecuteSimpleCommand("FetchStats")
+
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        $escaped = $stats -replace '"', '""'
+        $csvRow = '"' + $timestamp + '",' + $i + ',"' + $escaped + '"'
+        $csvRow | Out-File -FilePath $tempCsv -Encoding UTF8 -Append
+        $totalBytes += $stats.Length
+
+        $pct = [math]::Round(($i / $Iterations) * 100)
+        $dataKB = [math]::Round($totalBytes / 1024, 1)
+        Write-Host "Sample $i/$Iterations (${pct}%) - ${dataKB} KB collected"
+
+        if ($i -lt $Iterations) {
+            Start-Sleep -Seconds $IntervalSeconds
+        }
+    }
+
+    # FreeStats
+    try {
+        $esxtopView.ExecuteSimpleCommand("FreeStats") | Out-Null
+    }
+    catch {
+        Write-Warning "FreeStats call failed: $($_.Exception.Message)"
+    }
+
+    # Upload CSV to datastore
+    try {
+        if ($PSBoundParameters.ContainsKey('OutputDatastoreName')) {
+            $datastore = Get-Datastore -Name $OutputDatastoreName -ErrorAction Stop
+        }
+        else {
+            $datastore = Get-Datastore -RelatedObject $cluster -ErrorAction SilentlyContinue |
+                Where-Object { $_.Type -eq 'vsan' -or $_.Name -like '*vsan*' -or $_.Name -like '*vsanDatastore*' } |
+                Select-Object -First 1
+        }
+
+        if ($null -eq $datastore) {
+            Write-Warning ("No vSAN datastore found on cluster '$ClusterName'. CSV saved locally at $tempCsv. " +
+                "Use -OutputDatastoreName to specify an accessible datastore.")
+        }
+        else {
+            $driveName = "esxtopUpload"
+            if (Get-PSDrive -Name $driveName -ErrorAction SilentlyContinue) {
+                Remove-PSDrive -Name $driveName -Force -ErrorAction SilentlyContinue
+            }
+            New-PSDrive -Name $driveName -Location $datastore -PSProvider VimDatastore -Root "\" -ErrorAction Stop | Out-Null
+
+            $destFolder = "${driveName}:\esxtop_output"
+            if (-not (Test-Path $destFolder -ErrorAction SilentlyContinue)) {
+                New-Item -Path $destFolder -ItemType Directory -ErrorAction Stop | Out-Null
+                if (-not (Test-Path $destFolder -ErrorAction SilentlyContinue)) {
+                    throw "Failed to create esxtop_output folder on datastore [$($datastore.Name)]."
+                }
+            }
+
+            $destFile = "$destFolder\$csvFileName"
+            Copy-DatastoreItem -Item $tempCsv -Destination $destFile -Force -ErrorAction Stop
+            $fileSizeKB = [math]::Round((Get-Item $tempCsv).Length / 1024, 1)
+            Write-Host "Uploaded ${fileSizeKB} KB to [$($datastore.Name)] esxtop_output/$csvFileName"
+        }
+    }
+    catch {
+        Write-Warning "Datastore upload failed: $($_.Exception.Message)"
+    }
+    finally {
+        Remove-Item $tempCsv -Force -ErrorAction SilentlyContinue
+        Remove-PSDrive -Name "esxtopUpload" -Force -ErrorAction SilentlyContinue
+    }
+
+    Write-Host "Esxtop collection complete. $Iterations samples from $($vmHost.Name)."
+}
+
 
 
 function Remove-AvsUnassociatedObject {
