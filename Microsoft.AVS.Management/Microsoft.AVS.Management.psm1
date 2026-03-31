@@ -224,7 +224,10 @@ function Get-EsxtopData {
 
             $destFolder = "${driveName}:\esxtop_output"
             if (-not (Test-Path $destFolder -ErrorAction SilentlyContinue)) {
-                New-Item -Path $destFolder -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
+                New-Item -Path $destFolder -ItemType Directory -ErrorAction Stop | Out-Null
+                if (-not (Test-Path $destFolder -ErrorAction SilentlyContinue)) {
+                    Write-Error "Failed to create esxtop_output folder on datastore [$($datastore.Name)]." -ErrorAction Stop
+                }
             }
 
             $destFile = "$destFolder\$csvFileName"
