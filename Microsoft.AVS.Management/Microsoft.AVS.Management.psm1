@@ -8,22 +8,9 @@ function Get-EsxtopData {
         Collects esxtop performance data from an ESXi host via the vCenter Esxtop service API.
 
     .DESCRIPTION
-        Collects Esxtop performance data for a single ESXi host (the first connected host matching
-        EsxiHostName in the cluster). Uses the vCenter Service Manager and batch-mode snapshots (CPU,
-        memory, disk, network) without SSH or root on the host.
-
-        Sampling is capped at 30 seconds of scheduled spacing between snapshots:
-        (Iterations - 1) * IntervalSeconds must be less than or equal to 30. This limits payload
-        size on customer vSAN datastores when results are uploaded to esxtop_output.
-
-        This cmdlet is safe for AVS environments -- it operates entirely through the vCenter API
-        on port 443 using the pre-established administrator session. It uses Get-View to resolve
-        ServiceManager and the Esxtop SimpleCommand service.
-
-        Output is collected to a local temp file and uploaded to a datastore under the
-        esxtop_output folder via Copy-DatastoreItem (one CSV per run, no file splitting).
-        By default, the first vSAN datastore on the cluster is used, but the customer can
-        override this with OutputDatastoreName to target any accessible datastore.
+        Collects batch-mode esxtop snapshots from a single ESXi host via the vCenter ServiceManager
+        API (no SSH) and uploads the resulting CSV to the cluster's vSAN datastore (or a
+        customer-specified datastore via OutputDatastoreName).
 
     .PARAMETER ClusterName
         The name of the vSphere cluster containing the target ESXi host.
@@ -43,18 +30,6 @@ function Get-EsxtopData {
         Name of the datastore to upload the CSV to. When omitted, defaults to the first vSAN
         datastore on the cluster. Specify this to use a non-vSAN datastore or when automatic
         vSAN discovery does not find the desired target.
-
-    .EXAMPLE
-        Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01"
-        Collects the default sample count at the default 5-second interval (within the 30s cap).
-
-    .EXAMPLE
-        Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -Iterations 6 -IntervalSeconds 5
-        Six samples with 5 seconds between them (25 seconds between first and last FetchStats).
-
-    .EXAMPLE
-        Get-EsxtopData -ClusterName "Cluster-1" -EsxiHostName "esx01" -OutputDatastoreName "myDatastore"
-        Uploads the CSV to the specified datastore instead of auto-discovering the vSAN datastore.
 
     .NOTES
         Get-View emits a non-fatal "Invalid property" error for ServiceManager and Esxtop service
@@ -109,9 +84,9 @@ function Get-EsxtopData {
 
     $samplingSpanSec = [Math]::Max(0, $Iterations - 1) * $IntervalSeconds
     if ($samplingSpanSec -gt 30) {
-        Write-Error ("Esxtop sampling is limited to 30 seconds between the first and last sample: " +
+        throw ("Esxtop sampling is limited to 30 seconds between the first and last sample: " +
             "(Iterations-1)*IntervalSeconds must be <= 30. Current spacing is ${samplingSpanSec}s " +
-            "(Iterations=$Iterations, IntervalSeconds=$IntervalSeconds).") -ErrorAction Stop
+            "(Iterations=$Iterations, IntervalSeconds=$IntervalSeconds).")
     }
 
     $cluster = Get-Cluster -Name $ClusterName -ErrorAction Stop
@@ -120,7 +95,7 @@ function Get-EsxtopData {
         Select-Object -First 1
 
     if ($null -eq $vmHost) {
-        Write-Error "No connected ESXi host matching '$EsxiHostName' found in cluster '$ClusterName'." -ErrorAction Stop
+        throw "No connected ESXi host matching '$EsxiHostName' found in cluster '$ClusterName'."
     }
 
     Write-Host "Target host: $($vmHost.Name)"
@@ -128,17 +103,17 @@ function Get-EsxtopData {
     # Get ServiceManager via Get-View (emits non-fatal error but returns usable object)
     $serviceManager = Get-View ($global:DefaultVIServer.ExtensionData.Content.ServiceManager) -Property "" -ErrorAction SilentlyContinue
     if ($null -eq $serviceManager) {
-        Write-Error "Could not resolve ServiceManager via Get-View." -ErrorAction Stop
+        throw "Could not resolve ServiceManager via Get-View."
     }
     if (-not (Get-Member -InputObject $serviceManager -Name "QueryServiceList")) {
-        Write-Error "ServiceManager object is missing QueryServiceList method. MoRef may be invalid." -ErrorAction Stop
+        throw "ServiceManager object is missing QueryServiceList method. MoRef may be invalid."
     }
 
     # Query services on the target host
     $locationString = "vmware.host." + $vmHost.Name
     $services = $serviceManager.QueryServiceList($null, $locationString)
     if (-not $services) {
-        Write-Error "No services found at location '$locationString'." -ErrorAction Stop
+        throw "No services found at location '$locationString'."
     }
 
     $esxtopService = $null
@@ -150,15 +125,15 @@ function Get-EsxtopData {
     }
     if ($null -eq $esxtopService) {
         $available = ($services | ForEach-Object { $_.ServiceName }) -join ', '
-        Write-Error "Esxtop service not found on host $($vmHost.Name). Available: $available" -ErrorAction Stop
+        throw "Esxtop service not found on host $($vmHost.Name). Available: $available"
     }
 
     $esxtopView = Get-View $esxtopService.Service -Property "" -ErrorAction SilentlyContinue
     if ($null -eq $esxtopView) {
-        Write-Error "Could not resolve Esxtop service view via Get-View." -ErrorAction Stop
+        throw "Could not resolve Esxtop service view via Get-View."
     }
     if (-not (Get-Member -InputObject $esxtopView -Name "ExecuteSimpleCommand")) {
-        Write-Error "Esxtop service view is missing ExecuteSimpleCommand method. MoRef may be invalid." -ErrorAction Stop
+        throw "Esxtop service view is missing ExecuteSimpleCommand method. MoRef may be invalid."
     }
 
     # CounterInfo
@@ -226,7 +201,7 @@ function Get-EsxtopData {
             if (-not (Test-Path $destFolder -ErrorAction SilentlyContinue)) {
                 New-Item -Path $destFolder -ItemType Directory -ErrorAction Stop | Out-Null
                 if (-not (Test-Path $destFolder -ErrorAction SilentlyContinue)) {
-                    Write-Error "Failed to create esxtop_output folder on datastore [$($datastore.Name)]." -ErrorAction Stop
+                    throw "Failed to create esxtop_output folder on datastore [$($datastore.Name)]."
                 }
             }
 
