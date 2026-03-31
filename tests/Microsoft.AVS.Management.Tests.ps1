@@ -9,7 +9,26 @@ BeforeAll {
             AVSAttribute([int]$timeoutMinutes) { $this.Timeout = New-TimeSpan -Minutes $timeoutMinutes }
         }
     }
-    
+
+    # Define stub functions for VMware cmdlets so Pester can mock them
+    # These are only created when the real cmdlets are not available (e.g. no PowerCLI installed)
+    $vmwareCmdlets = @(
+        'Get-Cluster', 'Get-VMHost', 'Get-Datastore', 'Get-View',
+        'Copy-DatastoreItem', 'New-PSDrive', 'Remove-PSDrive'
+    )
+    foreach ($cmdlet in $vmwareCmdlets) {
+        if (-not (Get-Command $cmdlet -ErrorAction SilentlyContinue)) {
+            Set-Item -Path "function:global:$cmdlet" -Value { param() $null }
+        }
+    }
+    # Always override Get-VMHost with a stub that accepts pipeline input,
+    # preventing mock failures when PowerCLI is not installed
+    function global:Get-VMHost {
+        param($Name, $Location, $State,
+              [Parameter(ValueFromPipeline=$true)]$InputObject)
+        process { $null }
+    }
+
     # Import the Management module
     $modulePath = Join-Path $PSScriptRoot ".." "Microsoft.AVS.Management" "Microsoft.AVS.Management.psd1"
     Import-Module $modulePath -Force
