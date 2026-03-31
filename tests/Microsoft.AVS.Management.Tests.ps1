@@ -482,14 +482,18 @@ Describe "Get-EsxtopData" {
 
         It "Should not throw on sampling span validation when spacing equals 30" {
             Mock Get-Cluster { throw "Expected: past validation" } -ModuleName Microsoft.AVS.Management
-            { Get-EsxtopData -ClusterName 'TestCluster' -EsxiHostName 'host1' -Iterations 6 -IntervalSeconds 6 } |
-                Should -Throw -Not -ExpectedMessage "*Esxtop sampling is limited*"
+            $err = $null
+            try { Get-EsxtopData -ClusterName 'TestCluster' -EsxiHostName 'host1' -Iterations 6 -IntervalSeconds 6 } catch { $err = $_ }
+            $err | Should -Not -BeNullOrEmpty
+            $err.Exception.Message | Should -Not -BeLike "*Esxtop sampling is limited*"
         }
 
         It "Should not throw on sampling span validation with single iteration" {
             Mock Get-Cluster { throw "Expected: past validation" } -ModuleName Microsoft.AVS.Management
-            { Get-EsxtopData -ClusterName 'TestCluster' -EsxiHostName 'host1' -Iterations 1 -IntervalSeconds 30 } |
-                Should -Throw -Not -ExpectedMessage "*Esxtop sampling is limited*"
+            $err = $null
+            try { Get-EsxtopData -ClusterName 'TestCluster' -EsxiHostName 'host1' -Iterations 1 -IntervalSeconds 30 } catch { $err = $_ }
+            $err | Should -Not -BeNullOrEmpty
+            $err.Exception.Message | Should -Not -BeLike "*Esxtop sampling is limited*"
         }
     }
 
@@ -506,7 +510,7 @@ Describe "Get-EsxtopData" {
 
         It "Should throw when no matching connected host is found" {
             Mock Get-Cluster { [PSCustomObject]@{ Name = 'TestCluster' } } -ModuleName Microsoft.AVS.Management
-            Mock Get-VMHost { @() } -ModuleName Microsoft.AVS.Management
+            Mock Get-VMHost { return $null } -ModuleName Microsoft.AVS.Management
             { Get-EsxtopData -ClusterName 'TestCluster' -EsxiHostName 'nohost' } |
                 Should -Throw -ExpectedMessage "*No connected ESXi host matching*"
         }
