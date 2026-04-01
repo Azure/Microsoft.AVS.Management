@@ -746,7 +746,8 @@ function Set-ToolsRepo {
 
                 if (Test-Path -Path $tools_path) {
                     try {
-                        $existing_dirs = Get-ChildItem -Path $tools_path -ErrorAction Stop | Where-Object Name -Match vmtools
+                        $existing_dirs = Get-ChildItem -Path $tools_path -Directory -ErrorAction Stop |
+                            Where-Object { $_.Name -match '^vmtools-\d+(?:\.\d+)*$' }
 
                         foreach ($existing_dir in $existing_dirs) {
                             $ver = $existing_dir.Name -replace 'vmtools-', ''
@@ -873,7 +874,7 @@ function Set-ToolsRepo {
                 }
 
                 if ($failedHosts.Count -gt 0) {
-                    Write-Warning "Failed to configure hosts for datastore $ds_name : $($failedHosts -join ', ')"
+                    throw "Failed to configure hosts for datastore $ds_name : $($failedHosts -join ', ')"
                 }
 
                 $successfulDatastores += $ds_name

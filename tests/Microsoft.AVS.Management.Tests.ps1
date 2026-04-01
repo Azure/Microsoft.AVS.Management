@@ -466,10 +466,14 @@ Describe "Set-ToolsRepo" {
                 # Validates: when incoming version is older than existing highest, top-level metadata is not overwritten.
                 $IncomingVersion = '12.3.0'
                 $ExistingVersion = '12.4.0'
-                Initialize-SetToolsRepoScenarioMocks -ToolsShortVersion $IncomingVersion -HighestExistingVersion $ExistingVersion -VersionAlreadyExists $true
+                Initialize-SetToolsRepoScenarioMocks -ToolsShortVersion $IncomingVersion -HighestExistingVersion $ExistingVersion -VersionAlreadyExists $false
                 $secureUrl = ConvertTo-TestSecureString 'https://example.com/tools.zip'
 
                 { Set-ToolsRepo -ToolsURL $secureUrl } | Should -Not -Throw
+
+                Assert-MockCalled Copy-DatastoreItem -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It -ParameterFilter {
+                    $Destination -like "*/vmtools-$IncomingVersion"
+                }
 
                 Assert-MockCalled Copy-DatastoreItem -ModuleName Microsoft.AVS.Management -Times 0 -Exactly -Scope It -ParameterFilter {
                     $Destination -like '*metadata.json'
