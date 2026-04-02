@@ -746,8 +746,11 @@ function Set-ToolsRepo {
 
                 if (Test-Path -Path $tools_path) {
                     try {
-                        $existing_dirs = Get-ChildItem -Path $tools_path -Directory -ErrorAction Stop |
-                            Where-Object { $_.Name -match '^vmtools-\d+(?:\.\d+)*$' }
+                        $existing_dirs = Get-ChildItem -Path $tools_path -ErrorAction Stop |
+                            Where-Object {
+                                $_.PSIsContainer -and
+                                $_.Name -match '^vmtools-\d'
+                            }
 
                         foreach ($existing_dir in $existing_dirs) {
                             $ver = $existing_dir.Name -replace 'vmtools-', ''

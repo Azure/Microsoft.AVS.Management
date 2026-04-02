@@ -244,7 +244,10 @@ Describe "Set-ToolsRepo" {
         }
 
         It "Should throw when vmtools directory not found in archive" {
-            Mock Get-ChildItem { $null } -ModuleName Microsoft.AVS.Management
+            Mock Get-ChildItem {
+                param($Path, $Filter, [switch]$Directory, [switch]$File, [switch]$Recurse)
+                $null
+            } -ModuleName Microsoft.AVS.Management
 
             $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
             { Set-ToolsRepo -ToolsURL $secureUrl } |
@@ -266,13 +269,14 @@ Describe "Set-ToolsRepo" {
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
             Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
-            Mock Get-ChildItem {
-                [PSCustomObject]@{ Name = "vmtools-12.3.0" }
-            } -ModuleName Microsoft.AVS.Management
             Mock Join-Path { "$Path/$ChildPath" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like 'DS:*' }
         }
 
         It "Should throw when no vSAN datastores found" {
+            Mock Get-ChildItem {
+                param($Path, $Filter, [switch]$Directory, [switch]$File, [switch]$Recurse)
+                [PSCustomObject]@{ Name = "vmtools-12.3.0" }
+            } -ModuleName Microsoft.AVS.Management
             Mock Get-Datastore { $null } -ModuleName Microsoft.AVS.Management
 
             $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
@@ -281,6 +285,10 @@ Describe "Set-ToolsRepo" {
         }
 
         It "Should throw when Get-Datastore fails" {
+            Mock Get-ChildItem {
+                param($Path, $Filter, [switch]$Directory, [switch]$File, [switch]$Recurse)
+                [PSCustomObject]@{ Name = "vmtools-12.3.0" }
+            } -ModuleName Microsoft.AVS.Management
             Mock Get-Datastore { throw "Connection error" } -ModuleName Microsoft.AVS.Management
 
             $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
@@ -336,10 +344,23 @@ Describe "Set-ToolsRepo" {
     InModuleScope 'Microsoft.AVS.Management' {
         Context "Version and metadata decision logic (mock-only)" {
             BeforeAll {
+                $script:originalTemp = $env:TEMP
+                $script:originalTmp = $env:TMP
+                $script:testTempDir = Join-Path $TestDrive 'temp'
+                New-Item -Path $script:testTempDir -ItemType Directory -Force | Out-Null
+                $env:TEMP = $script:testTempDir
+                $env:TMP = $script:testTempDir
+
                 function ConvertTo-TestSecureString {
                     param([string]$PlainText)
                     return ConvertTo-SecureString -String $PlainText -AsPlainText -Force
                 }
+
+                Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
+
+                # Shadow the real Get-EsxCli cmdlet with a plain function so Pester
+                # can mock it without PowerCLI's VMHost[] type constraint blocking.
+                function Get-EsxCli { param([switch]$V2, $VMHost) }
 
                 function Initialize-SetToolsRepoScenarioMocks {
                     param(
@@ -349,17 +370,34 @@ Describe "Set-ToolsRepo" {
                     )
 
                     $script:toolsVersion = "vmtools-$ToolsShortVersion"
-                    $script:tempRoot = "C:\mock\newtools_test"
-                    $script:sourceDir = "$script:tempRoot\vmware\apps\vmtools\windows64\$script:toolsVersion"
-                    $script:topLevelSourceDir = "$script:tempRoot\vmware\apps\vmtools\windows64"
+                    $script:tempRoot = Join-Path $TestDrive 'newtools_test'
+                    $script:sourceDir = Join-Path $TestDrive "vmtools-$ToolsShortVersion"
+                    $script:topLevelSourceDir = Join-Path $script:tempRoot 'vmware' 'apps' 'vmtools' 'windows64'
                     $script:destPath = "DS:/GuestStore/vmware/apps/vmtools/windows64"
                     $script:versionDestPath = "$script:destPath/$script:toolsVersion"
                     $script:highestExistingVersion = $HighestExistingVersion
                     $script:versionAlreadyExists = $VersionAlreadyExists
 
+                    # Create fake extracted directory and metadata.json under $TestDrive
+                    [System.IO.Directory]::CreateDirectory($script:sourceDir) | Out-Null
+                    [System.IO.File]::WriteAllText((Join-Path $script:sourceDir 'metadata.json'), '{}')
+
                     # URL validation and download path are always mocked; no network access.
                     Mock Invoke-WebRequest {
-                        if ($Method -eq 'Head') { return [PSCustomObject]@{ StatusCode = 200 } }
+                        if ($Method -eq 'Head') {
+                            return [PSCustomObject]@{ StatusCode = 200 }
+                        }
+
+                        if ($OutFile) {
+                            $parentPath = [System.IO.Path]::GetDirectoryName($OutFile)
+                            if (-not [string]::IsNullOrEmpty($parentPath)) {
+                                [System.IO.Directory]::CreateDirectory($parentPath) | Out-Null
+                            }
+
+                            [System.IO.File]::WriteAllText($OutFile, 'dummy')
+                            return [PSCustomObject]@{ StatusCode = 200 }
+                        }
+
                         return $null
                     } -ModuleName Microsoft.AVS.Management
 
@@ -386,19 +424,33 @@ Describe "Set-ToolsRepo" {
                     } -ModuleName Microsoft.AVS.Management
 
                     Mock Get-ChildItem {
-                        # Locate extracted vmtools-* directory
-                        if ($Directory) {
+                        param(
+                            $Path,
+                            $Filter,
+                            [switch]$Directory,
+                            [switch]$File,
+                            [switch]$Recurse
+                        )
+
+                        # vmtools-* directory discovery: production passes
+                        # <tmp>\vmware\apps\vmtools\windows64\vmtools-* with -Directory
+                        if ($Directory -and $Path -like '*windows64*') {
                             return @([PSCustomObject]@{ Name = $script:toolsVersion; FullName = $script:sourceDir })
                         }
 
                         # Existing datastore versions used to compute highestExistingVersion
                         if ($Path -eq $script:destPath -and -not $Filter -and -not $Recurse -and -not $File) {
-                            return @([PSCustomObject]@{ Name = "vmtools-$script:highestExistingVersion"; FullName = "$script:destPath/vmtools-$script:highestExistingVersion" })
+                            return @([PSCustomObject]@{ Name = "vmtools-$script:highestExistingVersion"; FullName = "$script:destPath/vmtools-$script:highestExistingVersion"; PSIsContainer = $true })
                         }
 
                         # Source metadata is present so update path is testable
                         if ($Path -eq $script:sourceDir -and $Filter -eq 'metadata.json') {
                             return @([PSCustomObject]@{ Name = 'metadata.json'; FullName = "$script:sourceDir\metadata.json" })
+                        }
+
+                        # Copied version folder metadata check after Copy-DatastoreItem
+                        if ($Path -eq $script:versionDestPath -and $Filter -eq 'metadata.json') {
+                            return @([PSCustomObject]@{ Name = 'metadata.json'; FullName = "$script:versionDestPath/metadata.json" })
                         }
 
                         return @()
@@ -445,7 +497,7 @@ Describe "Set-ToolsRepo" {
                     } -ModuleName Microsoft.AVS.Management
 
                     $script:setObj = New-Object psobject
-                    Add-Member -InputObject $script:setObj -MemberType ScriptMethod -Name CreateArgs -Value { return [PSCustomObject]@{ url = $null } } -Force
+                    Add-Member -InputObject $script:setObj -MemberType ScriptMethod -Name CreateArgs -Value { return @{ url = $null } } -Force
                     Add-Member -InputObject $script:setObj -MemberType ScriptMethod -Name invoke -Value { param($arguments) return $true } -Force
                     $script:esxcli = [PSCustomObject]@{
                         system = [PSCustomObject]@{
@@ -456,10 +508,22 @@ Describe "Set-ToolsRepo" {
                             }
                         }
                     }
-                    Mock Get-EsxCli { $script:esxcli } -ModuleName Microsoft.AVS.Management
+                    Mock Get-EsxCli {
+                        param(
+                            [switch]$V2,
+                            [object]$VMHost
+                        )
+
+                        return $script:esxcli
+                    } -ModuleName Microsoft.AVS.Management
 
                     Mock Copy-DatastoreItem { } -ModuleName Microsoft.AVS.Management
                 }
+            }
+
+            AfterAll {
+                $env:TEMP = $script:originalTemp
+                $env:TMP = $script:originalTmp
             }
 
             It "Older version upload preserves top-level metadata.json" {
@@ -472,7 +536,7 @@ Describe "Set-ToolsRepo" {
                 { Set-ToolsRepo -ToolsURL $secureUrl } | Should -Not -Throw
 
                 Assert-MockCalled Copy-DatastoreItem -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It -ParameterFilter {
-                    $Destination -like "*/vmtools-$IncomingVersion"
+                    $Destination -like '*windows64'
                 }
 
                 Assert-MockCalled Copy-DatastoreItem -ModuleName Microsoft.AVS.Management -Times 0 -Exactly -Scope It -ParameterFilter {
@@ -543,7 +607,10 @@ Describe "Set-ToolsRepo" {
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
             Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
-            Mock Get-ChildItem { [PSCustomObject]@{ Name = "vmtools-$IncomingVersion" } } -ModuleName Microsoft.AVS.Management
+            Mock Get-ChildItem {
+                param($Path, $Filter, [switch]$Directory, [switch]$File, [switch]$Recurse)
+                [PSCustomObject]@{ Name = "vmtools-$IncomingVersion" }
+            } -ModuleName Microsoft.AVS.Management
             Mock Get-Datastore {
                 [PSCustomObject]@{
                     Name = "vsanDatastore"
