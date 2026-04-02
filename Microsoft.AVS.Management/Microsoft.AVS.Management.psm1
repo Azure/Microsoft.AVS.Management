@@ -1,6 +1,3 @@
-# Load Classes first (must be loaded before other files that use them)
-. $PSScriptRoot\Classes.ps1
-
 <# Private Function Import #>
 . $PSScriptRoot\AVSGenericUtils.ps1
 . $PSScriptRoot\AVSvSANUtils.ps1
