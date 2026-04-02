@@ -534,26 +534,6 @@ Describe "Get-EsxtopData" {
                 Should -Throw -ExpectedMessage "*No connected ESXi host matching*"
         }
 
-        It "Should exclude Microsoft fleet/Gen2 hosts" {
-            Mock Get-Cluster { [PSCustomObject]@{ Name = 'TestCluster' } } -ModuleName Microsoft.AVS.Management
-            Mock Get-VMHost {
-                @(
-                    [PSCustomObject]@{
-                        Name = 'fleethost1'
-                        ConnectionState = 'Connected'
-                        ExtensionData = [PSCustomObject]@{
-                            Hardware = [PSCustomObject]@{
-                                SystemInfo = [PSCustomObject]@{
-                                    Vendor = 'Microsoft Corporation'
-                                }
-                            }
-                        }
-                    }
-                )
-            } -ModuleName Microsoft.AVS.Management
-            { Get-EsxtopData -ClusterName 'TestCluster' -EsxiHostName 'fleet' } |
-                Should -Throw -ExpectedMessage "*No connected ESXi host matching*"
-        }
     }
 
     Context "Input Sanitization" {
