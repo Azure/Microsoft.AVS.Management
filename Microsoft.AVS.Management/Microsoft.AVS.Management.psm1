@@ -1971,11 +1971,7 @@ function Get-EsxtopData {
 
     $cluster = Get-Cluster -Name $ClusterName -ErrorAction Stop
     $vmHost = $cluster | Get-VMHost |
-        Where-Object {
-            $_.Name -like "$EsxiHostName*" -and
-            $_.ConnectionState -eq 'Connected' -and
-            $_.ExtensionData.Hardware.SystemInfo.Vendor -inotlike "Microsoft*"
-        } |
+        Where-Object { $_.Name -like "$EsxiHostName*" -and $_.ConnectionState -eq 'Connected' } |
         Select-Object -First 1
 
     if ($null -eq $vmHost) {
