@@ -10,6 +10,26 @@ BeforeAll {
         }
     }
 
+    # Define stub functions for VMware cmdlets so Pester can mock them
+    # These are only created when the real cmdlets are not available (e.g. no PowerCLI installed)
+    $vmwareCmdlets = @(
+        'Get-Cluster', 'Get-VMHost', 'Get-Datastore', 'Get-View',
+        'Copy-DatastoreItem', 'New-PSDrive', 'Remove-PSDrive'
+    )
+    foreach ($cmdlet in $vmwareCmdlets) {
+        if (-not (Get-Command $cmdlet -ErrorAction SilentlyContinue)) {
+            Set-Item -Path "function:global:$cmdlet" -Value { param() $null }
+        }
+    }
+    # Always override Get-VMHost with a stub that accepts pipeline input,
+    # preventing mock failures when PowerCLI is not installed
+    function global:Get-VMHost {
+        param($Name, $Location, $State,
+              [Parameter(ValueFromPipeline=$true)]$InputObject)
+        process { $null }
+    }
+
+
     if (-not ('VMware.VimAutomation.ViCore.Types.V1.Inventory.Folder' -as [type])) {
         Add-Type @"
 namespace VMware.VimAutomation.ViCore.Types.V1.Inventory {
@@ -627,6 +647,176 @@ Describe "Set-ToolsRepo" {
 
             # Verify cleanup was attempted
             Should -Invoke Remove-PSDrive -ModuleName Microsoft.AVS.Management -ParameterFilter { $Name -eq 'DS' }
+        }
+    }
+}
+
+Describe "Get-EsxtopData" {
+    Context "Parameter Validation" {
+        It "Should have ClusterName as mandatory String parameter" {
+            $cmd = Get-Command Get-EsxtopData
+            $param = $cmd.Parameters['ClusterName']
+            $param.ParameterType.Name | Should -Be 'String'
+            ($param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }).Mandatory | Should -Be $true
+        }
+
+        It "Should have EsxiHostName as mandatory String parameter" {
+            $cmd = Get-Command Get-EsxtopData
+            $param = $cmd.Parameters['EsxiHostName']
+            $param.ParameterType.Name | Should -Be 'String'
+            ($param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }).Mandatory | Should -Be $true
+        }
+
+        It "Should have Iterations as optional Int32 with default 6" {
+            $cmd = Get-Command Get-EsxtopData
+            $param = $cmd.Parameters['Iterations']
+            $param.ParameterType.Name | Should -Be 'Int32'
+            ($param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }).Mandatory | Should -Be $false
+        }
+
+        It "Should have IntervalSeconds as optional Int32 with ValidateRange(2,30)" {
+            $cmd = Get-Command Get-EsxtopData
+            $param = $cmd.Parameters['IntervalSeconds']
+            $param.ParameterType.Name | Should -Be 'Int32'
+            $rangeAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateRangeAttribute] }
+            $rangeAttr | Should -Not -BeNullOrEmpty
+            $rangeAttr.MinRange | Should -Be 2
+            $rangeAttr.MaxRange | Should -Be 30
+        }
+
+        It "Should have Iterations with ValidateRange(1,6)" {
+            $cmd = Get-Command Get-EsxtopData
+            $param = $cmd.Parameters['Iterations']
+            $rangeAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateRangeAttribute] }
+            $rangeAttr | Should -Not -BeNullOrEmpty
+            $rangeAttr.MinRange | Should -Be 1
+            $rangeAttr.MaxRange | Should -Be 6
+        }
+
+        It "Should have OutputDatastoreName as optional String parameter" {
+            $cmd = Get-Command Get-EsxtopData
+            $param = $cmd.Parameters['OutputDatastoreName']
+            $param.ParameterType.Name | Should -Be 'String'
+            ($param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }).Mandatory | Should -Be $false
+        }
+
+        It "Should have ValidateNotNullOrEmpty on ClusterName" {
+            $cmd = Get-Command Get-EsxtopData
+            $param = $cmd.Parameters['ClusterName']
+            $validateAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateNotNullOrEmptyAttribute] }
+            $validateAttr | Should -Not -BeNullOrEmpty
+        }
+
+        It "Should have ValidateNotNullOrEmpty on EsxiHostName" {
+            $cmd = Get-Command Get-EsxtopData
+            $param = $cmd.Parameters['EsxiHostName']
+            $validateAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateNotNullOrEmptyAttribute] }
+            $validateAttr | Should -Not -BeNullOrEmpty
+        }
+
+        It "Should have HelpMessage on all parameters" {
+            $cmd = Get-Command Get-EsxtopData
+            foreach ($name in @('ClusterName', 'EsxiHostName', 'Iterations', 'IntervalSeconds', 'OutputDatastoreName')) {
+                $param = $cmd.Parameters[$name]
+                $paramAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }
+                $paramAttr.HelpMessage | Should -Not -BeNullOrEmpty -Because "$name should have HelpMessage"
+            }
+        }
+    }
+
+    Context "AVSAttribute Verification" {
+        It "Should have AVSAttribute with 30 minute timeout" {
+            $cmd = Get-Command Get-EsxtopData
+            $avsAttr = $cmd.ScriptBlock.Attributes | Where-Object { $_.TypeId.Name -eq 'AVSAttribute' }
+            $avsAttr | Should -Not -BeNullOrEmpty
+            $avsAttr.Timeout.TotalMinutes | Should -Be 30
+        }
+
+        It "Should have AVSAttribute with UpdatesSDDC set to false" {
+            $cmd = Get-Command Get-EsxtopData
+            $avsAttr = $cmd.ScriptBlock.Attributes | Where-Object { $_.TypeId.Name -eq 'AVSAttribute' }
+            $avsAttr.UpdatesSDDC | Should -Be $false
+        }
+
+        It "Should have AVSAttribute timeout <= 60 minutes" {
+            $cmd = Get-Command Get-EsxtopData
+            $avsAttr = $cmd.ScriptBlock.Attributes | Where-Object { $_.TypeId.Name -eq 'AVSAttribute' }
+            $avsAttr.Timeout.TotalMinutes | Should -BeLessOrEqual 60
+        }
+    }
+
+    Context "Sampling Span Validation" {
+        BeforeEach {
+            Mock Limit-WildcardsandCodeInjectionCharacters { param($String) $String } -ModuleName Microsoft.AVS.Management
+        }
+
+        It "Should throw when (Iterations-1)*IntervalSeconds exceeds 30" {
+            { Get-EsxtopData -ClusterName 'TestCluster' -EsxiHostName 'host1' -Iterations 6 -IntervalSeconds 7 } |
+                Should -Throw -ExpectedMessage "*Esxtop sampling is limited to 30 seconds*"
+        }
+
+        It "Should not throw on sampling span validation when spacing equals 30" {
+            Mock Get-Cluster { throw "Expected: past validation" } -ModuleName Microsoft.AVS.Management
+            $err = $null
+            try { Get-EsxtopData -ClusterName 'TestCluster' -EsxiHostName 'host1' -Iterations 6 -IntervalSeconds 6 } catch { $err = $_ }
+            $err | Should -Not -BeNullOrEmpty
+            $err.Exception.Message | Should -Not -BeLike "*Esxtop sampling is limited*"
+        }
+
+        It "Should not throw on sampling span validation with single iteration" {
+            Mock Get-Cluster { throw "Expected: past validation" } -ModuleName Microsoft.AVS.Management
+            $err = $null
+            try { Get-EsxtopData -ClusterName 'TestCluster' -EsxiHostName 'host1' -Iterations 1 -IntervalSeconds 30 } catch { $err = $_ }
+            $err | Should -Not -BeNullOrEmpty
+            $err.Exception.Message | Should -Not -BeLike "*Esxtop sampling is limited*"
+        }
+    }
+
+    Context "Host Resolution" {
+        BeforeEach {
+            Mock Limit-WildcardsandCodeInjectionCharacters { param($String) $String } -ModuleName Microsoft.AVS.Management
+        }
+
+        It "Should throw when cluster is not found" {
+            Mock Get-Cluster { throw "Cluster 'BadCluster' not found." } -ModuleName Microsoft.AVS.Management
+            { Get-EsxtopData -ClusterName 'BadCluster' -EsxiHostName 'host1' } |
+                Should -Throw -ExpectedMessage "*BadCluster*"
+        }
+
+        It "Should throw when no matching connected host is found" {
+            Mock Get-Cluster { [PSCustomObject]@{ Name = 'TestCluster' } } -ModuleName Microsoft.AVS.Management
+            Mock Get-VMHost { return $null } -ModuleName Microsoft.AVS.Management
+            { Get-EsxtopData -ClusterName 'TestCluster' -EsxiHostName 'nohost' } |
+                Should -Throw -ExpectedMessage "*No connected ESXi host matching*"
+        }
+
+    }
+
+    Context "Input Sanitization" {
+        It "Should call Limit-WildcardsandCodeInjectionCharacters for ClusterName and EsxiHostName" {
+            Mock Limit-WildcardsandCodeInjectionCharacters { param($String) $String } -ModuleName Microsoft.AVS.Management
+            Mock Get-Cluster { throw "stop here" } -ModuleName Microsoft.AVS.Management
+
+            try { Get-EsxtopData -ClusterName 'TestCluster' -EsxiHostName 'host1' } catch { }
+
+            Should -Invoke Limit-WildcardsandCodeInjectionCharacters -ModuleName Microsoft.AVS.Management -Times 2 -Exactly
+        }
+
+        It "Should sanitize OutputDatastoreName when provided" {
+            Mock Limit-WildcardsandCodeInjectionCharacters { param($String) $String } -ModuleName Microsoft.AVS.Management
+            Mock Get-Cluster { throw "stop here" } -ModuleName Microsoft.AVS.Management
+
+            try { Get-EsxtopData -ClusterName 'TestCluster' -EsxiHostName 'host1' -OutputDatastoreName 'myDS' } catch { }
+
+            Should -Invoke Limit-WildcardsandCodeInjectionCharacters -ModuleName Microsoft.AVS.Management -Times 3 -Exactly
+        }
+    }
+
+    Context "CmdletBinding" {
+        It "Should have CmdletBinding attribute" {
+            $cmd = Get-Command Get-EsxtopData
+            $cmdletBindingAttr = $cmd.ScriptBlock.Attributes | Where-Object { $_ -is [System.Management.Automation.CmdletBindingAttribute] }
+            $cmdletBindingAttr | Should -Not -BeNullOrEmpty
         }
     }
 }
