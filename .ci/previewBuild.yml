@@ -47,11 +47,6 @@ extends:
 
     - template: templates/common-preview-build-stages.yml@self
       parameters:
-        moduleFolderName: ${{ variables.vvolsModuleFolderName }}
-        moduleDisplayName: ${{ variables.vvolsModuleDisplayName }}
-
-    - template: templates/common-preview-build-stages.yml@self
-      parameters:
         moduleFolderName: ${{ variables.nfsModuleFolderName }}
         moduleDisplayName: ${{ variables.nfsModuleDisplayName }}
 

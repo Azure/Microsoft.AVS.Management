@@ -55,10 +55,5 @@ extends:
 
     - template: templates/common-validation-stages.yml@self
       parameters:
-        moduleFolderName: ${{ variables.vvolsModuleFolderName }}
-        moduleDisplayName: ${{ variables.vvolsModuleDisplayName }}
-
-    - template: templates/common-validation-stages.yml@self
-      parameters:
         moduleFolderName: ${{ variables.nfsModuleFolderName }}
         moduleDisplayName: ${{ variables.nfsModuleDisplayName }}
