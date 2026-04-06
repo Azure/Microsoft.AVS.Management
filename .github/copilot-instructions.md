@@ -10,7 +10,6 @@ Azure VMware Solution (AVS) PowerShell toolkit for administering private VMware 
 | `Microsoft.AVS.CDR` | Conservative Dependency Resolver — pins PowerCLI transitive deps to known-good versions |
 | `Microsoft.AVS.NFS` | NFS datastore mount/unmount |
 | `Microsoft.AVS.VMFS` | iSCSI + VMFS datastore lifecycle |
-| `Microsoft.AVS.VVOLS` | vVol storage, VASA providers, replication |
 
 Vendor packages must list `Microsoft.AVS.Management` as a dependency.
 
