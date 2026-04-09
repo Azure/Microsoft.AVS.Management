@@ -820,3 +820,164 @@ Describe "Get-EsxtopData" {
         }
     }
 }
+
+Describe "Set-StoragePolicyOnVM" {
+    BeforeAll {
+        # Use local stubs so tests are not blocked by PowerCLI type binding.
+        if (-not ('VMware.VimAutomation.ViCore.Types.V1.ErrorHandling.InvalidVmConfig' -as [type])) {
+            Add-Type @"
+namespace VMware.VimAutomation.ViCore.Types.V1.ErrorHandling {
+    public class InvalidVmConfig : System.Exception {
+        public InvalidVmConfig(string message) : base(message) {}
+    }
+}
+"@
+        }
+
+        function global:Get-SpbmEntityConfiguration {
+            param($VM)
+            $null
+        }
+
+        function global:Set-VM {
+            param($VM, $StoragePolicy, [switch]$Confirm, $ErrorAction)
+            $null
+        }
+    }
+
+    InModuleScope 'Microsoft.AVS.Management' {
+        Context "Parameter Validation" {
+            It "Should have VM as mandatory parameter" {
+                $cmd = Get-Command Set-StoragePolicyOnVM
+                $param = $cmd.Parameters['VM']
+                ($param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }).Mandatory | Should -Contain $true
+            }
+
+            It "Should have VSANStoragePolicies as mandatory parameter" {
+                $cmd = Get-Command Set-StoragePolicyOnVM
+                $param = $cmd.Parameters['VSANStoragePolicies']
+                ($param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }).Mandatory | Should -Contain $true
+            }
+
+            It "Should have StoragePolicy as mandatory parameter" {
+                $cmd = Get-Command Set-StoragePolicyOnVM
+                $param = $cmd.Parameters['StoragePolicy']
+                ($param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }).Mandatory | Should -Contain $true
+            }
+        }
+
+        Context "Unsupported Current Policy Check" {
+            It "Should write error when VM current policy is not in supported vSAN policy list" {
+                $vm = [PSCustomObject]@{ Name = 'TestVM' }
+                $currentPolicy = [PSCustomObject]@{ Name = 'OldPolicy' }
+                $targetPolicy = [PSCustomObject]@{ Name = 'NewPolicy' }
+                $supportedPolicies = @($false)
+
+                Mock Get-SpbmEntityConfiguration {
+                    [PSCustomObject]@{ StoragePolicy = $currentPolicy }
+                } -ModuleName Microsoft.AVS.Management
+                Mock Write-Error { } -ModuleName Microsoft.AVS.Management
+                Mock Set-VM { } -ModuleName Microsoft.AVS.Management
+
+                Set-StoragePolicyOnVM -VM $vm -VSANStoragePolicies $supportedPolicies -StoragePolicy $targetPolicy
+
+                Should -Invoke Write-Error -ModuleName Microsoft.AVS.Management -ParameterFilter {
+                    $Message -like "*Modifying storage policy on TestVM is not supported*"
+                }
+            }
+        }
+
+        Context "Success Path" {
+            It "Should call Set-VM and write success output when policy update succeeds" {
+                $vm = [PSCustomObject]@{ Name = 'TestVM' }
+                $currentPolicy = [PSCustomObject]@{ Name = 'CurrentPolicy' }
+                $targetPolicy = [PSCustomObject]@{ Name = 'NewPolicy' }
+                $supportedPolicies = @($true)
+
+                Mock Get-SpbmEntityConfiguration {
+                    [PSCustomObject]@{ StoragePolicy = $currentPolicy }
+                } -ModuleName Microsoft.AVS.Management
+                Mock Set-VM { } -ModuleName Microsoft.AVS.Management
+                Mock Write-Output { } -ModuleName Microsoft.AVS.Management
+                Mock Write-Error { } -ModuleName Microsoft.AVS.Management
+
+                Set-StoragePolicyOnVM -VM $vm -VSANStoragePolicies $supportedPolicies -StoragePolicy $targetPolicy
+
+                Should -Invoke Set-VM -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                    $VM.Name -eq 'TestVM' -and $StoragePolicy.Name -eq 'NewPolicy' -and $Confirm -eq $false
+                }
+                Should -Invoke Write-Output -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                    $InputObject -like "*Successfully set the storage policy on VM TestVM to NewPolicy*"
+                }
+                Should -Not -Invoke Write-Error -ModuleName Microsoft.AVS.Management
+            }
+        }
+
+        Context "Compatibility Failure Path" {
+            It "Should write compatibility error when Set-VM throws InvalidVmConfig" {
+                $vm = [PSCustomObject]@{ Name = 'TestVM' }
+                $currentPolicy = [PSCustomObject]@{ Name = 'CurrentPolicy' }
+                $targetPolicy = [PSCustomObject]@{ Name = 'NewPolicy' }
+                $supportedPolicies = @($true)
+                $script:capturedWriteErrorMessage = $null
+
+                Mock Get-SpbmEntityConfiguration {
+                    [PSCustomObject]@{ StoragePolicy = $currentPolicy }
+                } -ModuleName Microsoft.AVS.Management
+                Mock Set-VM {
+                    $exceptionArgs = @(
+                        'errId',
+                        [VMware.VimAutomation.Sdk.Types.V1.ErrorHandling.VimException.ErrorCategory]0,
+                        'Compatibility failure',
+                        [VMware.VimAutomation.Sdk.Types.V1.ErrorHandling.VimException.VimExceptionSeverity]0,
+                        $null,
+                        $null,
+                        $null,
+                        $null,
+                        $null,
+                        $null,
+                        $null
+                    )
+                    throw (New-Object 'VMware.VimAutomation.ViCore.Types.V1.ErrorHandling.InvalidVmConfig' -ArgumentList $exceptionArgs)
+                } -ModuleName Microsoft.AVS.Management
+                Mock Write-Error {
+                    param($Message)
+                    $script:capturedWriteErrorMessage = $Message
+                } -ModuleName Microsoft.AVS.Management
+                Mock Write-Output { } -ModuleName Microsoft.AVS.Management
+
+                Set-StoragePolicyOnVM -VM $vm -VSANStoragePolicies $supportedPolicies -StoragePolicy $targetPolicy
+
+                $script:capturedWriteErrorMessage | Should -BeLike '*The selected storage policy NewPolicy is not compatible with TestVM*may need more hosts*Compatibility failure*'
+                Should -Not -Invoke Write-Output -ModuleName Microsoft.AVS.Management
+            }
+        }
+
+        Context "Generic Failure Path" {
+            It "Should write generic error when Set-VM throws a normal exception" {
+                $vm = [PSCustomObject]@{ Name = 'TestVM' }
+                $currentPolicy = [PSCustomObject]@{ Name = 'CurrentPolicy' }
+                $targetPolicy = [PSCustomObject]@{ Name = 'NewPolicy' }
+                $supportedPolicies = @($true)
+                $script:capturedGenericWriteErrorMessage = $null
+
+                Mock Get-SpbmEntityConfiguration {
+                    [PSCustomObject]@{ StoragePolicy = $currentPolicy }
+                } -ModuleName Microsoft.AVS.Management
+                Mock Set-VM {
+                    throw 'Network timeout'
+                } -ModuleName Microsoft.AVS.Management
+                Mock Write-Error {
+                    param($Message)
+                    $script:capturedGenericWriteErrorMessage = $Message
+                } -ModuleName Microsoft.AVS.Management
+                Mock Write-Output { } -ModuleName Microsoft.AVS.Management
+
+                Set-StoragePolicyOnVM -VM $vm -VSANStoragePolicies $supportedPolicies -StoragePolicy $targetPolicy
+
+                $script:capturedGenericWriteErrorMessage | Should -BeLike '*Was not able to set the storage policy on TestVM*Network timeout*'
+                Should -Not -Invoke Write-Output -ModuleName Microsoft.AVS.Management
+            }
+        }
+    }
+}
