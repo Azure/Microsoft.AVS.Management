@@ -14,6 +14,48 @@
 
 #>
 
+# Helper that attempts to extract a friendly name from ext attrs JSON
+function Get-VsanFriendlyNameFromExtAttrs {
+    param(
+        [Parameter(Mandatory = $true)]
+        $ExtAttrsJson
+    )
+
+    # Common “name-like” fields that sometimes show up in vSAN ext attrs
+    $candidateKeys = @(
+        'friendlyName',
+        'FriendlyName',
+        'name',
+        'Name',
+        'objectName',
+        'ObjectName',
+        'vmName',
+        'VmName',
+        'path',
+        'Path',
+        'namespace',
+        'Namespace',
+        'filePath',
+        'FilePath',
+        'displayName',
+        'DisplayName'
+        )
+
+    foreach ($k in $candidateKeys) {
+        try {
+            # Works for both PSCustomObject (ConvertFrom-Json) and Hashtable-like shapes
+            if ($null -ne $ExtAttrsJson.PSObject.Properties[$k] -and
+                [string]::IsNullOrWhiteSpace([string]$ExtAttrsJson.$k) -eq $false) {
+                return [string]$ExtAttrsJson.$k
+            }
+         } catch {
+            # ignore and continue
+        }
+    }
+
+    return $null
+}
+
 Function New-AVSCommonStoragePolicy {
     <#
         .DESCRIPTION

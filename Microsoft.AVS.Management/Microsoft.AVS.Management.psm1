@@ -210,7 +210,23 @@ function Get-UnassociatedVsanObjectsWithPolicy {
             $matchedObjects++
             try {
                 $jsonResult = ($vsanIntSys.GetVsanObjExtAttrs($obj.Uuid)) | ConvertFrom-Json
-                Write-Output $jsonResult
+                
+                # derive friendly name if present in ext attrs
+                $friendlyName = Get-VsanFriendlyNameFromExtAttrs -ExtAttrsJson $jsonResult
+                if ([string]::IsNullOrWhiteSpace($friendlyName)) {
+                    $friendlyName = '<not-available>'
+                }
+
+                # emit enriched object (still includes the raw ext attrs)
+                $output = [pscustomobject]@{
+                    Uuid         = $obj.Uuid
+                    PolicyName   = $obj.SpbmProfileName
+                    FriendlyName = $friendlyName
+                    ExtAttrs     = $jsonResult
+                }
+
+                Write-Output $output
+
             }
             catch {
                 Write-Warning "Failed to retrieve or parse attributes for object $($obj.Uuid): $_"
