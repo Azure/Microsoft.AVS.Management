@@ -941,8 +941,18 @@ function Set-vSANCompressDedupe {
         $Clusters += Get-Cluster -Name $cluster_each
     }
 
+    $skippedESA = @()
+
     foreach ($Cluster in $Clusters) {
         $cluster_name = $Cluster.Name
+
+        # ESA Detection: check if cluster uses vSAN Express Storage Architecture
+        $vsanConfig = Get-VsanClusterConfiguration -Cluster $Cluster
+        if ($vsanConfig.VsanDiskClaimMode -eq "FullyAutomated") {
+            Write-Warning "Cluster '$cluster_name' uses vSAN ESA (Express Storage Architecture). Compression and deduplication are managed via Storage Policies on ESA clusters. Skipping."
+            $skippedESA += $cluster_name
+            continue
+        }
 
         If ($Deduplication) {
             # Deduplication requires compression
@@ -959,6 +969,11 @@ function Set-vSANCompressDedupe {
             Write-Host "Disabling deduplication and compression on $cluster_name"
             Set-VsanClusterConfiguration -Configuration $cluster_name -SpaceEfficiencyEnabled $false
         }
+    }
+
+    if ($skippedESA.Count -gt 0) {
+        $skippedList = $skippedESA -join ", "
+        throw "The following ESA clusters were skipped because compression/deduplication is managed via Storage Policies on ESA: $skippedList"
     }
 }
 
