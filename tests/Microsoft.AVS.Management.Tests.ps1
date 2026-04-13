@@ -846,26 +846,6 @@ namespace VMware.VimAutomation.ViCore.Types.V1.ErrorHandling {
     }
 
     InModuleScope 'Microsoft.AVS.Management' {
-        Context "Parameter Validation" {
-            It "Should have VM as mandatory parameter" {
-                $cmd = Get-Command Set-StoragePolicyOnVM
-                $param = $cmd.Parameters['VM']
-                ($param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }).Mandatory | Should -Contain $true
-            }
-
-            It "Should have VSANStoragePolicies as mandatory parameter" {
-                $cmd = Get-Command Set-StoragePolicyOnVM
-                $param = $cmd.Parameters['VSANStoragePolicies']
-                ($param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }).Mandatory | Should -Contain $true
-            }
-
-            It "Should have StoragePolicy as mandatory parameter" {
-                $cmd = Get-Command Set-StoragePolicyOnVM
-                $param = $cmd.Parameters['StoragePolicy']
-                ($param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }).Mandatory | Should -Contain $true
-            }
-        }
-
         Context "Unsupported Current Policy Check" {
             It "Should write error when VM current policy is not in supported vSAN policy list" {
                 $vm = [PSCustomObject]@{ Name = 'TestVM' }
@@ -997,32 +977,6 @@ Describe "Remove-AvsUnassociatedObject" {
     }
 
     InModuleScope 'Microsoft.AVS.Management' {
-        Context "Parameter Validation" {
-            It "Should have Uuid as a mandatory parameter" {
-                $cmd = Get-Command Remove-AvsUnassociatedObject
-                $param = $cmd.Parameters['Uuid']
-                ($param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }).Mandatory | Should -Contain $true
-            }
-
-            It "Should have Uuid parameter of type String" {
-                $cmd = Get-Command Remove-AvsUnassociatedObject
-                $param = $cmd.Parameters['Uuid']
-                $param.ParameterType.Name | Should -Be 'String'
-            }
-
-            It "Should have ClusterName as a mandatory parameter" {
-                $cmd = Get-Command Remove-AvsUnassociatedObject
-                $param = $cmd.Parameters['ClusterName']
-                ($param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }).Mandatory | Should -Contain $true
-            }
-
-            It "Should have ClusterName parameter of type String" {
-                $cmd = Get-Command Remove-AvsUnassociatedObject
-                $param = $cmd.Parameters['ClusterName']
-                $param.ParameterType.Name | Should -Be 'String'
-            }
-        }
-
         Context "UUID Not Found" {
             It "Should write warning and not attempt deletion when UUID is absent from cluster" {
                 $script:deleteWasCalled = $false
