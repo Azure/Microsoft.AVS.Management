@@ -1034,7 +1034,7 @@ function New-AVSStoragePolicy {
         When only one cluster type exists, a single policy is created with the specified Name (no suffix).
         #>
     [CmdletBinding()]
-    [AVSAttribute(10, UpdatesSDDC = $false)]
+    # [AVSAttribute(10, UpdatesSDDC = $false)]
     param(
         #Add parameterSetNames to allow for vSAN, Tags, VMEncryption, StorageIOControl, vSANDirect to be optional.
         [Parameter(Mandatory = $true)]
@@ -1338,6 +1338,7 @@ function New-AVSStoragePolicy {
         # IMPORTANT - Any additional functionality should be added before the VMEncryption Parameter.
         # The reason is that this subprofile must be added as a capability to all subprofile types for API to accept.
         Write-Information "VMEncryption set to: $VMEncryption"
+        if ($VMEncryption -ne "None") {
         switch ($VMEncryption) {
             "PreIO" {
                 Write-Information "Adding VM Encryption with Pre-IO filter capability to ProfileSpec"
@@ -1357,6 +1358,9 @@ function New-AVSStoragePolicy {
                 Write-Information "No VM Encryption capability added to ProfileSpec"
             }
         }
+                    $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.dataAtRestEncryption" ) -Value $IOPolicy
+
+    }
     }
 
     process {
@@ -1453,62 +1457,62 @@ function New-AVSStoragePolicy {
             $createdPolicyNames += $Name
         }
 
-        if ($vmencryption -ne "None") {
-            # switch ($VMEncryption) {
-            #     "PreIO" {
-            #         Write-Information "Adding VM Encryption with Pre-IO filter capability to ProfileSpec"
-            #         # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.dataAtRestEncryption" ) -Value $true
-            #         $IOPolicy = Get-AVSStoragePolicy -Name "AVS PRE IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
-            #         if (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS PRE IO Encryption" -Description "Encrypts VM before VAIO Filter" -PostIOEncryption $false }
-            #         $IOPolicy = Get-AVSStoragePolicy -Name "AVS PRE IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
-            #     }
-            #     "PostIO" {
-            #         Write-Information "Adding VM Encryption with Post-IO filter capability to ProfileSpec"
-            #         # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.dataAtRestEncryption" ) -Value $true
-            #         $IOPolicy = Get-AVSStoragePolicy -Name "AVS POST IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
-            #         if (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS POST IO Encryption" -Description "Encrypts VM after VAIO Filter" -PostIOEncryption $true }
-            #         $IOPolicy = Get-AVSStoragePolicy -Name "AVS POST IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
-            #     }
-            #     default {
-            #         Write-Information "No VM Encryption capability added to ProfileSpec"
-            #     }
-            # }
-            # Get the PBM profile manager
-            $serviceInstanceView = Get-SpbmView -Id "PbmServiceInstance-ServiceInstance"
-            $spbmServiceContent = $serviceInstanceView.PbmRetrieveServiceContent()
-            $spbmProfMgr = Get-SpbmView -Id $spbmServiceContent.ProfileManager
+        # if ($vmencryption -ne "None") {
+        #     # switch ($VMEncryption) {
+        #     #     "PreIO" {
+        #     #         Write-Information "Adding VM Encryption with Pre-IO filter capability to ProfileSpec"
+        #     #         # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.dataAtRestEncryption" ) -Value $true
+        #     #         $IOPolicy = Get-AVSStoragePolicy -Name "AVS PRE IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
+        #     #         if (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS PRE IO Encryption" -Description "Encrypts VM before VAIO Filter" -PostIOEncryption $false }
+        #     #         $IOPolicy = Get-AVSStoragePolicy -Name "AVS PRE IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
+        #     #     }
+        #     #     "PostIO" {
+        #     #         Write-Information "Adding VM Encryption with Post-IO filter capability to ProfileSpec"
+        #     #         # $rules += New-SpbmRule -Capability (Get-SpbmCapability -Name "VSAN.dataService.dataAtRestEncryption" ) -Value $true
+        #     #         $IOPolicy = Get-AVSStoragePolicy -Name "AVS POST IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
+        #     #         if (!$IOPolicy) { $IOPolicy = New-AVSCommonStoragePolicy -Encryption -Name "AVS POST IO Encryption" -Description "Encrypts VM after VAIO Filter" -PostIOEncryption $true }
+        #     #         $IOPolicy = Get-AVSStoragePolicy -Name "AVS POST IO Encryption" -ResourceType "DATA_SERVICE_POLICY"
+        #     #     }
+        #     #     default {
+        #     #         Write-Information "No VM Encryption capability added to ProfileSpec"
+        #     #     }
+        #     # }
+        #     # Get the PBM profile manager
+        #     $serviceInstanceView = Get-SpbmView -Id "PbmServiceInstance-ServiceInstance"
+        #     $spbmServiceContent = $serviceInstanceView.PbmRetrieveServiceContent()
+        #     $spbmProfMgr = Get-SpbmView -Id $spbmServiceContent.ProfileManager
 
-            # Build the encryption capability instance (NOT a SubProfile)
-            $encCapability = New-Object VMware.Spbm.Views.PbmCapabilityInstance
-            $encCapability.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
-            $encCapability.Id.Namespace = "com.vmware.storageprofile.dataservice"
-            $encCapability.Id.Id = $IOPolicy.ProfileId.UniqueId
-            $encCapability.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
-            $encCapability.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
-            $encCapability.Constraint[0].PropertyInstance[0].Id = $IOPolicy.ProfileId.UniqueId
-            $encCapability.Constraint[0].PropertyInstance[0].Value = $IOPolicy.ProfileId.UniqueId
+        #     # Build the encryption capability instance (NOT a SubProfile)
+        #     $encCapability = New-Object VMware.Spbm.Views.PbmCapabilityInstance
+        #     $encCapability.Id = New-Object VMware.Spbm.Views.PbmCapabilityMetadataUniqueId
+        #     $encCapability.Id.Namespace = "com.vmware.storageprofile.dataservice"
+        #     $encCapability.Id.Id = $IOPolicy.ProfileId.UniqueId
+        #     $encCapability.Constraint = New-Object VMware.Spbm.Views.PbmCapabilityConstraintInstance
+        #     $encCapability.Constraint[0].PropertyInstance = New-Object VMware.Spbm.Views.PbmCapabilityPropertyInstance
+        #     $encCapability.Constraint[0].PropertyInstance[0].Id = $IOPolicy.ProfileId.UniqueId
+        #     $encCapability.Constraint[0].PropertyInstance[0].Value = $IOPolicy.ProfileId.UniqueId
 
-            # Retrieve the full profile we just created
-            $pbmProfileResourceType = New-Object VMware.Spbm.Views.PbmProfileResourceType
-            $pbmProfileResourceType.ResourceType = "STORAGE"
-            $allProfiles = $spbmProfMgr.PbmQueryProfile($pbmProfileResourceType, "REQUIREMENT")
-            $fullProfiles = $spbmProfMgr.PbmRetrieveContent($allProfiles)
-            $targetProfile = $fullProfiles | Where-Object { $_.Name -eq $Name }
+        #     # Retrieve the full profile we just created
+        #     $pbmProfileResourceType = New-Object VMware.Spbm.Views.PbmProfileResourceType
+        #     $pbmProfileResourceType.ResourceType = "STORAGE"
+        #     $allProfiles = $spbmProfMgr.PbmQueryProfile($pbmProfileResourceType, "REQUIREMENT")
+        #     $fullProfiles = $spbmProfMgr.PbmRetrieveContent($allProfiles)
+        #     $targetProfile = $fullProfiles | Where-Object { $_.Name -eq $Name }
 
-            # Add to EVERY existing sub-profile (VAIO rules must be identical across all rulesets)
-            $existingConstraints = $targetProfile.Constraints
-            foreach ($subProfile in $existingConstraints.SubProfiles) {
-                $subProfile.Capability += $encCapability
-            }
+        #     # Add to EVERY existing sub-profile (VAIO rules must be identical across all rulesets)
+        #     $existingConstraints = $targetProfile.Constraints
+        #     foreach ($subProfile in $existingConstraints.SubProfiles) {
+        #         $subProfile.Capability += $encCapability
+        #     }
 
-            $updateSpec = New-Object VMware.Spbm.Views.PbmCapabilityProfileUpdateSpec
-            $updateSpec.Name = $targetProfile.Name
-            $updateSpec.Description = $targetProfile.Description
-            $updateSpec.Constraints = $existingConstraints
+        #     $updateSpec = New-Object VMware.Spbm.Views.PbmCapabilityProfileUpdateSpec
+        #     $updateSpec.Name = $targetProfile.Name
+        #     $updateSpec.Description = $targetProfile.Description
+        #     $updateSpec.Constraints = $existingConstraints
 
-            # Update
-            $spbmProfMgr.PbmUpdate($targetProfile.ProfileId, $updateSpec)
-        }
+        #     # Update
+        #     $spbmProfMgr.PbmUpdate($targetProfile.ProfileId, $updateSpec)
+        # }
 
         Write-Debug "=== PROCESS BLOCK END ==="
         Write-Debug "Returning policy names: $($createdPolicyNames -join ', ')"
