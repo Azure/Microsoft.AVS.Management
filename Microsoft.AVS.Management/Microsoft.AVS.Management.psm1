@@ -956,21 +956,21 @@ function New-AVSStoragePolicy {
     .PARAMETER Description
         Description of Storage Policy you are creating, free form text.
     .PARAMETER vSANSiteDisasterTolerance
-        Default is "None"
+        Optional. When not specified, no site locality rule is added.
         Valid Values are "None", "Preferred", "Secondary"
         None = No Site Redundancy (Recommended Option for Non-Stretch Clusters)
         Preferred = No site redundancy - keep data on Preferred (stretched cluster)
         Secondary = No site redundancy - Keep data on Secondary Site (stretched cluster)
         Only valid for stretch clusters.
     .PARAMETER vSANFailuresToTolerate
-        Default is "R1FTT1"
-        Valid values are "None", "R1FTT1", "R1FTT2", "R1FTT3", "R5FTT1", "R6FTT2", "R1FTT3"
+        Optional. When not specified, no failures-to-tolerate rule is added to the policy.
+        Valid values are "None", "R1FTT1", "R5FTT1", "R1FTT2", "R6FTT2", "R1FTT3"
         None = No Data Redundancy
         R1FTT1 = 1 failure - RAID-1 (Mirroring)
-        R1FTT2 = 2 failures - RAID-1 (Mirroring)
-        R1FTT3 = 3 failures - RAID-1 (Mirroring)
         R5FTT1 = 1 failure - RAID-5 (Erasure Coding)
+        R1FTT2 = 2 failures - RAID-1 (Mirroring)
         R6FTT2 = 2 failures - RAID-6 (Erasure Coding)
+        R1FTT3 = 3 failures - RAID-1 (Mirroring)
         No Data Redundancy options are not covered under Microsoft SLA.
     .PARAMETER VMEncryption
         Default is None.  Valid values are None, PreIO, PostIO.
@@ -993,10 +993,6 @@ function New-AVSStoragePolicy {
         Default is $false. Enable or disable checksum for the policy. Valid values are $true or $false.
         WARNING - Disabling checksum may lead to data LOSS and/or corruption.
         Recommended value is $false.
-    .PARAMETER NoCompression
-        Switch parameter. When specified, disables space efficiency (compression) for ESA clusters.
-        Only applies to vSAN ESA (Express Storage Architecture) clusters.
-        When not specified (default), compression is enabled for ESA clusters.
     .PARAMETER vSANForceProvisioning
         Default is $false. Force provisioning for the policy. Valid values are $true or $false.
         WARNING - vSAN Force Provisioned Objects are not covered under Microsoft SLA.  Data LOSS and vSAN instability may occur.
@@ -1011,9 +1007,16 @@ function New-AVSStoragePolicy {
         Overwrite existing Storage Policy.  Default is $false.
         Passing overwrite true provided will overwrite an existing policy exactly as defined.
         Those values not passed will be removed or set to default values.
+    .PARAMETER NoCompression
+        Switch parameter. When specified, disables space efficiency (compression) for ESA clusters.
+        Only applies to vSAN ESA (Express Storage Architecture) clusters.
+        When not specified (default), compression is enabled for ESA clusters.
     .EXAMPLE
-        Creates a new storage policy named Encryption with that enables Pre-IO filter VM encryption
+        Creates a new storage policy named Encryption that enables Pre-IO filter VM encryption
         New-AVSStoragePolicy -Name "Encryption" -VMEncryption "PreIO"
+    .EXAMPLE
+        Creates a new storage policy named "Post-IO Encryption" that enables Post-IO filter VM encryption
+        New-AVSStoragePolicy -Name "Post-IO Encryption" -VMEncryption "PostIO"
     .EXAMPLE
         Creates a new storage policy named "RAID-1 FTT-1 with Pre-IO VM Encryption" with a description enabled for Pre-IO VM Encryption
         New-AVSStoragePolicy -Name "RAID-1 FTT-1 with Pre-IO VM Encryption" -Description "My super secure and performant storage policy" -VMEncryption "PreIO" -vSANFailuresToTolerate "R1FTT1"
@@ -1023,6 +1026,9 @@ function New-AVSStoragePolicy {
     .EXAMPLE
         Creates a new storage policy named "Production Only" to use datastore tagged w/ Production and not tagged w/ Test or Dev.  Set with RAID-1, 100% read cache, and Thick Provisioning of Disk.
         New-AVSStoragePolicy -Name "Production Only" -Tags "Production" -NotTags "Test","Dev" -vSANFailuresToTolerate "R1FTT1" -vSANObjectSpaceReservation 100 -vSANCacheReservation 100
+    .EXAMPLE
+        Creates a new storage policy with compression disabled for ESA clusters
+        New-AVSStoragePolicy -Name "No Compression" -vSANFailuresToTolerate "R1FTT1" -NoCompression
     .EXAMPLE
         Passing -Overwrite:$true to any examples provided will overwrite an existing policy exactly as defined.  Those values not passed will be removed or set to default values.
     .NOTES
