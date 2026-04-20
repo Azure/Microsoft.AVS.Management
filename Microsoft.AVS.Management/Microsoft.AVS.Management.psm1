@@ -964,8 +964,10 @@ function Test-IsEsaCluster {
 
     # ESA indicator 3: VsanEnabled is true and both space fields are blank or missing
     if ($VsanConfig.VsanEnabled -eq $true) {
-        $spaceEffBlank = (Test-HasProperty $VsanConfig "SpaceEfficiencyEnabled") -and (Test-IsBlank $VsanConfig.SpaceEfficiencyEnabled) -or !(Test-HasProperty $VsanConfig "SpaceEfficiencyEnabled")
-        $spaceCompBlank = (Test-HasProperty $VsanConfig "SpaceCompressionEnabled") -and (Test-IsBlank $VsanConfig.SpaceCompressionEnabled) -or !(Test-HasProperty $VsanConfig "SpaceCompressionEnabled")
+        $hasSpaceEfficiencyEnabled = Test-HasProperty $VsanConfig "SpaceEfficiencyEnabled"
+        $hasSpaceCompressionEnabled = Test-HasProperty $VsanConfig "SpaceCompressionEnabled"
+        $spaceEffBlank = ((-not $hasSpaceEfficiencyEnabled) -or (Test-IsBlank $VsanConfig.SpaceEfficiencyEnabled))
+        $spaceCompBlank = ((-not $hasSpaceCompressionEnabled) -or (Test-IsBlank $VsanConfig.SpaceCompressionEnabled))
 
         if ($spaceEffBlank -and $spaceCompBlank) {
             return $true
@@ -1003,43 +1005,60 @@ function Set-vSANCompressDedupe {
 
     # $cluster is an array of cluster names or "*""
     $Clusters = @()
-    foreach ($cluster_each in ($ClustersToChange.split(",", [System.StringSplitOptions]::RemoveEmptyEntries)).Trim()) {
+    foreach ($cluster_each in (Convert-StringToArray -String $ClustersToChange)) {
         $Clusters += @(Get-Cluster -Name $cluster_each)
     }
 
     $skippedESA = @()
 
+    # PASS 1: VALIDATION - Check all clusters can be determined
+    $clusterValidation = @()  # Array to store: @{Name, ClusterObj, Architecture}
+
     foreach ($Cluster in $Clusters) {
         $cluster_name = $Cluster.Name
-
-        # ESA detection using tri-state logic
         $vsanConfig = Get-VsanClusterConfiguration -Cluster $Cluster
         $esaResult = Test-IsEsaCluster $vsanConfig
 
-        if ($esaResult -eq $true) {
+        if ($esaResult -eq $null) {
+            # Found uncertain cluster - stop BEFORE any modifications
+            throw "Unable to confidently determine vSAN architecture for cluster '$cluster_name'. Cannot proceed with any modifications."
+        }
+
+        # Store validation result for pass 2
+        $clusterValidation += @{
+            Name = $cluster_name
+            ClusterObj = $Cluster
+            IsESA = ($esaResult -eq $true)
+        }
+    }
+
+    # PASS 2: MODIFICATION - Only if all clusters passed validation
+    foreach ($clusterInfo in $clusterValidation) {
+        $cluster_name = $clusterInfo.Name
+        $Cluster = $clusterInfo.ClusterObj
+        $isESA = $clusterInfo.IsESA
+
+        if ($isESA) {
             Write-Warning "Cluster '$cluster_name' is vSAN ESA. In AVS ESA, compression is storage-policy managed and deduplication isn't supported; cluster-level space-efficiency changes are not applicable. Skipping."
             $skippedESA += $cluster_name
-            continue
-        }
-        elseif ($esaResult -eq $null) {
-            throw "Unable to confidently determine vSAN architecture for cluster $cluster_name; no changes made."
-        }
-        # $esaResult -eq $false means OSA, proceed with changes below
-
-        If ($Deduplication) {
-            # Deduplication requires compression
-            Write-Host "Enabling deduplication and compression on $cluster_name"
-            Set-VsanClusterConfiguration -Configuration $cluster_name -SpaceEfficiencyEnabled $true
-        }
-        elseif ($Compression) {
-            # Compression only
-            Write-Host "Enabling compression on $cluster_name"
-            Set-VsanClusterConfiguration -Configuration $cluster_name -SpaceCompressionEnabled $true
         }
         else {
-            # Disable both
-            Write-Host "Disabling deduplication and compression on $cluster_name"
-            Set-VsanClusterConfiguration -Configuration $cluster_name -SpaceEfficiencyEnabled $false
+            # OSA cluster - apply modifications
+            If ($Deduplication) {
+                # Deduplication requires compression
+                Write-Host "Enabling deduplication and compression on $cluster_name"
+                Set-VsanClusterConfiguration -Configuration $cluster_name -SpaceEfficiencyEnabled $true
+            }
+            elseif ($Compression) {
+                # Compression only
+                Write-Host "Enabling compression on $cluster_name"
+                Set-VsanClusterConfiguration -Configuration $cluster_name -SpaceCompressionEnabled $true
+            }
+            else {
+                # Disable both
+                Write-Host "Disabling deduplication and compression on $cluster_name"
+                Set-VsanClusterConfiguration -Configuration $cluster_name -SpaceEfficiencyEnabled $false
+            }
         }
     }
 
