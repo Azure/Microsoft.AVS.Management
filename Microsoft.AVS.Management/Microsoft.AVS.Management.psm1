@@ -911,6 +911,71 @@ function Set-ToolsRepo {
         }
     }
 }
+
+function Test-IsBlank {
+    param(
+        [Parameter(Mandatory = $false)]
+        [object]$Value
+    )
+
+    return [string]::IsNullOrWhiteSpace([string]$Value)
+}
+
+function Test-HasProperty {
+    param(
+        [Parameter(Mandatory = $false)]
+        [object]$Object,
+        [Parameter(Mandatory = $true)]
+        [string]$PropertyName
+    )
+
+    if ($null -eq $Object) {
+        return $false
+    }
+
+    return $Object.PSObject.Properties.Name -contains $PropertyName
+}
+
+function Test-IsEsaCluster {
+    param(
+        [Parameter(Mandatory = $false)]
+        [object]$VsanConfig
+    )
+
+    # Return $null if config is missing (uncertain state)
+    if ($null -eq $VsanConfig) {
+        return $null
+    }
+
+    # Return $null when VsanEnabled exists but is not a boolean value.
+    if ((Test-HasProperty $VsanConfig "VsanEnabled") -and ($VsanConfig.VsanEnabled -isnot [bool])) {
+        return $null
+    }
+
+    # ESA indicator 1: DiskClaimMode is FullyAutomated
+    if ($VsanConfig.VsanDiskClaimMode -eq "FullyAutomated") {
+        return $true
+    }
+
+    # ESA indicator 2: VsanEsaEnabled property exists and is true
+    if ((Test-HasProperty $VsanConfig "VsanEsaEnabled") -and ($VsanConfig.VsanEsaEnabled -eq $true)) {
+        return $true
+    }
+
+    # ESA indicator 3: VsanEnabled is true and both space fields are blank or missing
+    if ($VsanConfig.VsanEnabled -eq $true) {
+        $spaceEffBlank = (Test-HasProperty $VsanConfig "SpaceEfficiencyEnabled") -and (Test-IsBlank $VsanConfig.SpaceEfficiencyEnabled) -or !(Test-HasProperty $VsanConfig "SpaceEfficiencyEnabled")
+        $spaceCompBlank = (Test-HasProperty $VsanConfig "SpaceCompressionEnabled") -and (Test-IsBlank $VsanConfig.SpaceCompressionEnabled) -or !(Test-HasProperty $VsanConfig "SpaceCompressionEnabled")
+
+        if ($spaceEffBlank -and $spaceCompBlank) {
+            return $true
+        }
+    }
+
+    # Not ESA
+    return $false
+}
+
 <#
 .Synopsis
     Set vSAN compression and deduplication on a cluster or clusters. If deduplication is enabled then compression is required.
@@ -937,8 +1002,9 @@ function Set-vSANCompressDedupe {
     )
 
     # $cluster is an array of cluster names or "*""
+    $Clusters = @()
     foreach ($cluster_each in ($ClustersToChange.split(",", [System.StringSplitOptions]::RemoveEmptyEntries)).Trim()) {
-        $Clusters += Get-Cluster -Name $cluster_each
+        $Clusters += @(Get-Cluster -Name $cluster_each)
     }
 
     $skippedESA = @()
@@ -946,13 +1012,19 @@ function Set-vSANCompressDedupe {
     foreach ($Cluster in $Clusters) {
         $cluster_name = $Cluster.Name
 
-        # ESA Detection: check if cluster uses vSAN Express Storage Architecture
+        # ESA detection using tri-state logic
         $vsanConfig = Get-VsanClusterConfiguration -Cluster $Cluster
-        if ($vsanConfig.VsanDiskClaimMode -eq "FullyAutomated") {
-            Write-Warning "Cluster '$cluster_name' uses vSAN ESA (Express Storage Architecture). Compression and deduplication are managed via Storage Policies on ESA clusters. Skipping."
+        $esaResult = Test-IsEsaCluster $vsanConfig
+
+        if ($esaResult -eq $true) {
+            Write-Warning "Cluster '$cluster_name' is vSAN ESA. In AVS ESA, compression is storage-policy managed and deduplication isn't supported; cluster-level space-efficiency changes are not applicable. Skipping."
             $skippedESA += $cluster_name
             continue
         }
+        elseif ($esaResult -eq $null) {
+            throw "Unable to confidently determine vSAN architecture for cluster $cluster_name; no changes made."
+        }
+        # $esaResult -eq $false means OSA, proceed with changes below
 
         If ($Deduplication) {
             # Deduplication requires compression
@@ -973,7 +1045,7 @@ function Set-vSANCompressDedupe {
 
     if ($skippedESA.Count -gt 0) {
         $skippedList = $skippedESA -join ", "
-        throw "The following ESA clusters were skipped because compression/deduplication is managed via Storage Policies on ESA: $skippedList"
+        throw "The following clusters were skipped because they are vSAN ESA: $skippedList. In AVS ESA, compression is storage-policy managed and deduplication isn't supported; cluster-level space-efficiency changes are not applicable."
     }
 }
 
