@@ -14,7 +14,8 @@ BeforeAll {
     # These are only created when the real cmdlets are not available (e.g. no PowerCLI installed)
     $vmwareCmdlets = @(
         'Get-Cluster', 'Get-VMHost', 'Get-Datastore', 'Get-View',
-        'Copy-DatastoreItem', 'New-PSDrive', 'Remove-PSDrive'
+        'Copy-DatastoreItem', 'New-PSDrive', 'Remove-PSDrive',
+        'Get-VsanClusterConfiguration', 'Set-VsanClusterConfiguration'
     )
     foreach ($cmdlet in $vmwareCmdlets) {
         if (-not (Get-Command $cmdlet -ErrorAction SilentlyContinue)) {
@@ -29,6 +30,16 @@ BeforeAll {
         process { $null }
     }
 
+    # Always override vSAN cmdlets with untyped stubs so PowerCLI's strict
+    # typed parameters don't block mocking when PowerCLI is installed
+    function global:Get-VsanClusterConfiguration {
+        param($Cluster, $Configuration)
+        $null
+    }
+    function global:Set-VsanClusterConfiguration {
+        param($Configuration, $SpaceEfficiencyEnabled, $SpaceCompressionEnabled)
+        $null
+    }
 
     if (-not ('VMware.VimAutomation.ViCore.Types.V1.Inventory.Folder' -as [type])) {
         Add-Type @"
@@ -53,6 +64,314 @@ Describe "Microsoft.AVS.Management Module" {
         It "Should import the module successfully" {
             $module = Get-Module Microsoft.AVS.Management
             $module | Should -Not -BeNullOrEmpty
+        }
+    }
+}
+
+Describe "Set-vSANCompressDedupe" {
+    Context "OSA dedupe path" {
+        It "Should enable SpaceEfficiencyEnabled for OSA cluster when Deduplication is true from a disabled starting state" {
+            Mock Get-Cluster {
+                [PSCustomObject]@{ Name = 'Cluster-1' }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Get-VsanClusterConfiguration {
+                [PSCustomObject]@{
+                    VsanDiskClaimMode       = 'Manual'
+                    VsanEsaEnabled          = $false
+                    VsanEnabled             = $true
+                    SpaceEfficiencyEnabled  = $false
+                    SpaceCompressionEnabled = $false
+                }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Set-VsanClusterConfiguration { } -ModuleName Microsoft.AVS.Management
+
+            { Set-vSANCompressDedupe -ClustersToChange 'Cluster-1' -Deduplication $true } | Should -Not -Throw
+
+            Should -Invoke Get-Cluster -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Name -eq 'Cluster-1'
+            }
+
+            Should -Invoke Get-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Cluster.Name -eq 'Cluster-1'
+            }
+
+            Should -Invoke Set-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Configuration -eq 'Cluster-1' -and $SpaceEfficiencyEnabled -eq $true
+            }
+        }
+    }
+
+    Context "ESA dedupe path" {
+        It "Should skip ESA cluster, write warning, and throw final summary error when Deduplication is true" {
+            Mock Get-Cluster {
+                [PSCustomObject]@{ Name = 'Cluster-1' }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Get-VsanClusterConfiguration {
+                [PSCustomObject]@{
+                    VsanDiskClaimMode       = 'Manual'
+                    VsanEsaEnabled          = $true
+                    VsanEnabled             = $true
+                    SpaceEfficiencyEnabled  = $false
+                    SpaceCompressionEnabled = $false
+                }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Set-VsanClusterConfiguration { } -ModuleName Microsoft.AVS.Management
+            Mock Write-Warning { } -ModuleName Microsoft.AVS.Management
+
+            { Set-vSANCompressDedupe -ClustersToChange 'Cluster-1' -Deduplication $true } |
+                Should -Throw -ExpectedMessage "*skipped because they are vSAN ESA: Cluster-1*"
+
+            Should -Invoke Get-Cluster -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Name -eq 'Cluster-1'
+            }
+
+            Should -Invoke Get-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Cluster.Name -eq 'Cluster-1'
+            }
+
+            Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Message -like "*Cluster 'Cluster-1' is vSAN ESA*"
+            }
+
+            Should -Invoke Set-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 0 -Exactly
+        }
+    }
+
+    Context "OSA compression path" {
+        It "Should enable SpaceCompressionEnabled for OSA cluster when Compression is true from a disabled starting state" {
+            Mock Get-Cluster {
+                [PSCustomObject]@{ Name = 'Cluster-1' }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Get-VsanClusterConfiguration {
+                [PSCustomObject]@{
+                    VsanDiskClaimMode       = 'Manual'
+                    VsanEsaEnabled          = $false
+                    VsanEnabled             = $true
+                    SpaceEfficiencyEnabled  = $false
+                    SpaceCompressionEnabled = $false
+                }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Set-VsanClusterConfiguration { } -ModuleName Microsoft.AVS.Management
+
+            { Set-vSANCompressDedupe -ClustersToChange 'Cluster-1' -Compression $true } | Should -Not -Throw
+
+            Should -Invoke Get-Cluster -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Name -eq 'Cluster-1'
+            }
+
+            Should -Invoke Get-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Cluster.Name -eq 'Cluster-1'
+            }
+
+            Should -Invoke Set-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Configuration -eq 'Cluster-1' -and $SpaceCompressionEnabled -eq $true
+            }
+        }
+    }
+
+    Context "OSA disable path" {
+        It "Should disable deduplication and compression for OSA cluster when neither Deduplication nor Compression is specified" {
+            Mock Get-Cluster {
+                [PSCustomObject]@{ Name = 'Cluster-1' }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Get-VsanClusterConfiguration {
+                [PSCustomObject]@{
+                    VsanDiskClaimMode       = 'Manual'
+                    VsanEsaEnabled          = $false
+                    VsanEnabled             = $true
+                    SpaceEfficiencyEnabled  = $true
+                    SpaceCompressionEnabled = $true
+                }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Set-VsanClusterConfiguration { } -ModuleName Microsoft.AVS.Management
+
+            { Set-vSANCompressDedupe -ClustersToChange 'Cluster-1' } | Should -Not -Throw
+
+            Should -Invoke Get-Cluster -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Name -eq 'Cluster-1'
+            }
+
+            Should -Invoke Get-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Cluster.Name -eq 'Cluster-1'
+            }
+
+            Should -Invoke Set-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Configuration -eq 'Cluster-1' -and $SpaceEfficiencyEnabled -eq $false
+            }
+
+            Should -Invoke Set-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 0 -Exactly -ParameterFilter {
+                $Configuration -eq 'Cluster-1' -and $SpaceCompressionEnabled -eq $true
+            }
+        }
+    }
+
+    Context "Mixed OSA + ESA input" {
+        It "Should process only OSA cluster when input contains both OSA and ESA clusters, skip ESA, and throw final ESA summary error" {
+            Mock Get-Cluster {
+                if ($Name -eq 'Cluster-OSA') {
+                    [PSCustomObject]@{ Name = 'Cluster-OSA' }
+                } elseif ($Name -eq 'Cluster-ESA') {
+                    [PSCustomObject]@{ Name = 'Cluster-ESA' }
+                }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Get-VsanClusterConfiguration {
+                if ($Cluster.Name -eq 'Cluster-OSA') {
+                    [PSCustomObject]@{
+                        VsanDiskClaimMode       = 'Manual'
+                        VsanEsaEnabled          = $false
+                        VsanEnabled             = $true
+                        SpaceEfficiencyEnabled  = $false
+                        SpaceCompressionEnabled = $false
+                    }
+                } elseif ($Cluster.Name -eq 'Cluster-ESA') {
+                    [PSCustomObject]@{
+                        VsanDiskClaimMode       = 'Manual'
+                        VsanEsaEnabled          = $true
+                        VsanEnabled             = $true
+                        SpaceEfficiencyEnabled  = $false
+                        SpaceCompressionEnabled = $false
+                    }
+                }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Set-VsanClusterConfiguration { } -ModuleName Microsoft.AVS.Management
+            Mock Write-Warning { } -ModuleName Microsoft.AVS.Management
+
+            { Set-vSANCompressDedupe -ClustersToChange 'Cluster-OSA,Cluster-ESA' -Compression $true } |
+                Should -Throw -ExpectedMessage "*skipped because they are vSAN ESA: Cluster-ESA*"
+
+            Should -Invoke Get-Cluster -ModuleName Microsoft.AVS.Management -Times 2 -Exactly -ParameterFilter {
+                $Name -in @('Cluster-OSA', 'Cluster-ESA')
+            }
+
+            Should -Invoke Get-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 2 -Exactly -ParameterFilter {
+                $Cluster.Name -in @('Cluster-OSA', 'Cluster-ESA')
+            }
+
+            Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Message -like "*Cluster 'Cluster-ESA' is vSAN ESA*"
+            }
+
+            Should -Invoke Set-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Configuration -eq 'Cluster-OSA' -and $SpaceCompressionEnabled -eq $true
+            }
+        }
+    }
+
+    Context "Uncertain architecture fail-safe" {
+        It "Should throw fail-safe error and make no changes when vSAN architecture cannot be determined" {
+            Mock Get-Cluster {
+                [PSCustomObject]@{ Name = 'Cluster-1' }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Get-VsanClusterConfiguration {
+                # VsanEnabled is a string instead of bool, triggering the uncertain ($null) path in Test-IsEsaCluster
+                [PSCustomObject]@{
+                    VsanDiskClaimMode       = 'Manual'
+                    VsanEsaEnabled          = $false
+                    VsanEnabled             = 'unknown'
+                    SpaceEfficiencyEnabled  = $false
+                    SpaceCompressionEnabled = $false
+                }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Set-VsanClusterConfiguration { } -ModuleName Microsoft.AVS.Management
+
+            { Set-vSANCompressDedupe -ClustersToChange 'Cluster-1' -Compression $true } |
+                Should -Throw -ExpectedMessage "*Unable to confidently determine vSAN architecture for cluster Cluster-1; no changes made.*"
+
+            Should -Invoke Get-Cluster -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Name -eq 'Cluster-1'
+            }
+
+            Should -Invoke Get-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Cluster.Name -eq 'Cluster-1'
+            }
+
+            Should -Invoke Set-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 0 -Exactly
+        }
+    }
+
+    Context "Comma-separated multiple OSA clusters" {
+        It "Should process each OSA cluster independently when multiple clusters are passed as a comma-separated string" {
+            Mock Get-Cluster {
+                if ($Name -eq 'Cluster-1') {
+                    [PSCustomObject]@{ Name = 'Cluster-1' }
+                } elseif ($Name -eq 'Cluster-2') {
+                    [PSCustomObject]@{ Name = 'Cluster-2' }
+                }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Get-VsanClusterConfiguration {
+                [PSCustomObject]@{
+                    VsanDiskClaimMode       = 'Manual'
+                    VsanEsaEnabled          = $false
+                    VsanEnabled             = $true
+                    SpaceEfficiencyEnabled  = $false
+                    SpaceCompressionEnabled = $false
+                }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Set-VsanClusterConfiguration { } -ModuleName Microsoft.AVS.Management
+
+            { Set-vSANCompressDedupe -ClustersToChange 'Cluster-1,Cluster-2' -Deduplication $true } | Should -Not -Throw
+
+            Should -Invoke Get-Cluster -ModuleName Microsoft.AVS.Management -Times 2 -Exactly -ParameterFilter {
+                $Name -in @('Cluster-1', 'Cluster-2')
+            }
+
+            Should -Invoke Get-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 2 -Exactly -ParameterFilter {
+                $Cluster.Name -in @('Cluster-1', 'Cluster-2')
+            }
+
+            Should -Invoke Set-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Configuration -eq 'Cluster-1' -and $SpaceEfficiencyEnabled -eq $true
+            }
+
+            Should -Invoke Set-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Configuration -eq 'Cluster-2' -and $SpaceEfficiencyEnabled -eq $true
+            }
+        }
+    }
+
+    Context "ESA detected by blank space fields" {
+        It "Should skip cluster and throw ESA summary error when VsanEnabled is true and both space fields are null" {
+            Mock Get-Cluster {
+                [PSCustomObject]@{ Name = 'Cluster-1' }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Get-VsanClusterConfiguration {
+                # VsanEsaEnabled is absent/false but both space fields are null,
+                # triggering ESA indicator 3 in Test-IsEsaCluster
+                [PSCustomObject]@{
+                    VsanDiskClaimMode       = 'Manual'
+                    VsanEsaEnabled          = $false
+                    VsanEnabled             = $true
+                    SpaceEfficiencyEnabled  = $null
+                    SpaceCompressionEnabled = $null
+                }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Set-VsanClusterConfiguration { } -ModuleName Microsoft.AVS.Management
+            Mock Write-Warning { } -ModuleName Microsoft.AVS.Management
+
+            { Set-vSANCompressDedupe -ClustersToChange 'Cluster-1' -Compression $true } |
+                Should -Throw -ExpectedMessage "*skipped because they are vSAN ESA: Cluster-1*"
+
+            Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Message -like "*Cluster 'Cluster-1' is vSAN ESA*"
+            }
+
+            Should -Invoke Set-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 0 -Exactly
         }
     }
 }
