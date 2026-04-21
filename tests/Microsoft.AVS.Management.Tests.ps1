@@ -267,6 +267,53 @@ Describe "Set-vSANCompressDedupe" {
         }
     }
 
+    Context "Two-pass validation no partial writes" {
+        It "Should not apply any writes when first cluster is OSA but a later cluster is uncertain" {
+            Mock Get-Cluster {
+                if ($Name -eq 'Cluster-OSA') {
+                    [PSCustomObject]@{ Name = 'Cluster-OSA' }
+                } elseif ($Name -eq 'Cluster-UNCERTAIN') {
+                    [PSCustomObject]@{ Name = 'Cluster-UNCERTAIN' }
+                }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Get-VsanClusterConfiguration {
+                if ($Cluster.Name -eq 'Cluster-OSA') {
+                    [PSCustomObject]@{
+                        VsanDiskClaimMode       = 'Manual'
+                        VsanEsaEnabled          = $false
+                        VsanEnabled             = $true
+                        SpaceEfficiencyEnabled  = $false
+                        SpaceCompressionEnabled = $false
+                    }
+                } elseif ($Cluster.Name -eq 'Cluster-UNCERTAIN') {
+                    [PSCustomObject]@{
+                        VsanDiskClaimMode       = 'Manual'
+                        VsanEsaEnabled          = $false
+                        VsanEnabled             = 'unknown'
+                        SpaceEfficiencyEnabled  = $false
+                        SpaceCompressionEnabled = $false
+                    }
+                }
+            } -ModuleName Microsoft.AVS.Management
+
+            Mock Set-VsanClusterConfiguration { } -ModuleName Microsoft.AVS.Management
+
+            { Set-vSANCompressDedupe -ClustersToChange 'Cluster-OSA,Cluster-UNCERTAIN' -Compression $true } |
+                Should -Throw -ExpectedMessage "*Unable to confidently determine vSAN architecture for cluster 'Cluster-UNCERTAIN'. Cannot proceed with any modifications.*"
+
+            Should -Invoke Get-Cluster -ModuleName Microsoft.AVS.Management -Times 2 -Exactly -ParameterFilter {
+                $Name -in @('Cluster-OSA', 'Cluster-UNCERTAIN')
+            }
+
+            Should -Invoke Get-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 2 -Exactly -ParameterFilter {
+                $Cluster.Name -in @('Cluster-OSA', 'Cluster-UNCERTAIN')
+            }
+
+            Should -Invoke Set-VsanClusterConfiguration -ModuleName Microsoft.AVS.Management -Times 0 -Exactly
+        }
+    }
+
     Context "Uncertain architecture fail-safe" {
         It "Should throw fail-safe error and make no changes when vSAN architecture cannot be determined" {
             Mock Get-Cluster {
@@ -287,7 +334,7 @@ Describe "Set-vSANCompressDedupe" {
             Mock Set-VsanClusterConfiguration { } -ModuleName Microsoft.AVS.Management
 
             { Set-vSANCompressDedupe -ClustersToChange 'Cluster-1' -Compression $true } |
-                Should -Throw -ExpectedMessage "*Unable to confidently determine vSAN architecture for cluster Cluster-1; no changes made.*"
+                Should -Throw -ExpectedMessage "*Unable to confidently determine vSAN architecture for cluster 'Cluster-1'. Cannot proceed with any modifications.*"
 
             Should -Invoke Get-Cluster -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
                 $Name -eq 'Cluster-1'
