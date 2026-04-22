@@ -1456,3 +1456,338 @@ Describe "Remove-AvsUnassociatedObject" {
         }
     }
 }
+
+Describe "Get-AVSIPv6Status" {
+    BeforeAll {
+        # Set the runtime variable the function depends on
+        $global:SddcDnsSuffix = "sddc.test.local"
+
+        function New-TestCredential {
+            $secPass = ConvertTo-SecureString 'TestPass123!' -AsPlainText -Force
+            return [PSCredential]::new('admin', $secPass)
+        }
+    }
+
+    AfterAll {
+        Remove-Variable -Name SddcDnsSuffix -Scope Global -ErrorAction SilentlyContinue
+    }
+
+    Context "Parameter Validation" {
+        It "Should have NsxCredential as mandatory parameter" {
+            $cmd = Get-Command Get-AVSIPv6Status
+            $param = $cmd.Parameters['NsxCredential']
+            $param.Attributes.Where({ $_ -is [System.Management.Automation.ParameterAttribute] }).Mandatory | Should -Contain $true
+        }
+
+        It "Should have NsxCredential parameter of type PSCredential" {
+            $cmd = Get-Command Get-AVSIPv6Status
+            $cmd.Parameters['NsxCredential'].ParameterType.Name | Should -Be 'PSCredential'
+        }
+
+        It "Should have AVSAttribute with 10 minute timeout" {
+            $cmd = Get-Command Get-AVSIPv6Status
+            $avsAttr = $cmd.ScriptBlock.Attributes | Where-Object { $_.TypeId.Name -eq 'AVSAttribute' }
+            $avsAttr | Should -Not -BeNullOrEmpty
+            $avsAttr.Timeout.TotalMinutes | Should -Be 10
+        }
+
+        It "Should have AVSAttribute with UpdatesSDDC set to false" {
+            $cmd = Get-Command Get-AVSIPv6Status
+            $avsAttr = $cmd.ScriptBlock.Attributes | Where-Object { $_.TypeId.Name -eq 'AVSAttribute' }
+            $avsAttr.UpdatesSDDC | Should -Be $false
+        }
+    }
+
+    Context "Successful Query" {
+        It "Should return the current l3_forwarding_mode" {
+            Mock Invoke-RestMethod {
+                [PSCustomObject]@{ l3_forwarding_mode = 'IPV4_ONLY' }
+            } -ModuleName Microsoft.AVS.Management
+            Mock Write-Host { } -ModuleName Microsoft.AVS.Management
+
+            $cred = New-TestCredential
+            { Get-AVSIPv6Status -NsxCredential $cred } | Should -Not -Throw
+
+            Should -Invoke Invoke-RestMethod -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Uri -eq 'https://nsx.sddc.test.local/policy/api/v1/infra/connectivity-global-config' -and
+                $Method -eq 'Get'
+            }
+        }
+    }
+
+    Context "Error Handling" {
+        It "Should throw when NSX API call fails" {
+            Mock Invoke-RestMethod { throw "Connection refused" } -ModuleName Microsoft.AVS.Management
+
+            $cred = New-TestCredential
+            { Get-AVSIPv6Status -NsxCredential $cred } |
+                Should -Throw -ExpectedMessage "*Failed to get IPv6 status from NSX*"
+        }
+    }
+}
+
+Describe "Enable-AVSIPv6" {
+    BeforeAll {
+        $global:SddcDnsSuffix = "sddc.test.local"
+
+        function New-TestCredential {
+            $secPass = ConvertTo-SecureString 'TestPass123!' -AsPlainText -Force
+            return [PSCredential]::new('admin', $secPass)
+        }
+    }
+
+    AfterAll {
+        Remove-Variable -Name SddcDnsSuffix -Scope Global -ErrorAction SilentlyContinue
+    }
+
+    Context "Parameter Validation" {
+        It "Should have NsxCredential as mandatory parameter" {
+            $cmd = Get-Command Enable-AVSIPv6
+            $param = $cmd.Parameters['NsxCredential']
+            $param.Attributes.Where({ $_ -is [System.Management.Automation.ParameterAttribute] }).Mandatory | Should -Contain $true
+        }
+
+        It "Should have NsxCredential parameter of type PSCredential" {
+            $cmd = Get-Command Enable-AVSIPv6
+            $cmd.Parameters['NsxCredential'].ParameterType.Name | Should -Be 'PSCredential'
+        }
+
+        It "Should have AVSAttribute with 30 minute timeout" {
+            $cmd = Get-Command Enable-AVSIPv6
+            $avsAttr = $cmd.ScriptBlock.Attributes | Where-Object { $_.TypeId.Name -eq 'AVSAttribute' }
+            $avsAttr | Should -Not -BeNullOrEmpty
+            $avsAttr.Timeout.TotalMinutes | Should -Be 30
+        }
+
+        It "Should have AVSAttribute with UpdatesSDDC set to true" {
+            $cmd = Get-Command Enable-AVSIPv6
+            $avsAttr = $cmd.ScriptBlock.Attributes | Where-Object { $_.TypeId.Name -eq 'AVSAttribute' }
+            $avsAttr.UpdatesSDDC | Should -Be $true
+        }
+    }
+
+    Context "Already Enabled" {
+        It "Should return early when IPv6 is already enabled" {
+            $callCount = 0
+            Mock Invoke-RestMethod {
+                $callCount++
+                [PSCustomObject]@{ l3_forwarding_mode = 'IPV4_AND_IPV6' }
+            } -ModuleName Microsoft.AVS.Management
+            Mock Write-Host { } -ModuleName Microsoft.AVS.Management
+
+            $cred = New-TestCredential
+            { Enable-AVSIPv6 -NsxCredential $cred } | Should -Not -Throw
+
+            # Should only call GET (read current state), not PATCH
+            Should -Invoke Invoke-RestMethod -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Method -eq 'Get'
+            }
+            Should -Invoke Invoke-RestMethod -ModuleName Microsoft.AVS.Management -Times 0 -Exactly -ParameterFilter {
+                $Method -eq 'Patch'
+            }
+        }
+    }
+
+    Context "Successful Enable" {
+        It "Should PATCH and verify when enabling IPv6" {
+            $invokeCount = 0
+            Mock Invoke-RestMethod {
+                param($Uri, $Method, $Body, $ContentType, $Credential, [switch]$SkipCertificateCheck)
+                $invokeCount++
+                if ($Method -eq 'Get' -and $invokeCount -eq 1) {
+                    return [PSCustomObject]@{ l3_forwarding_mode = 'IPV4_ONLY' }
+                }
+                if ($Method -eq 'Patch') {
+                    return $null
+                }
+                # Verification GET
+                return [PSCustomObject]@{ l3_forwarding_mode = 'IPV4_AND_IPV6' }
+            } -ModuleName Microsoft.AVS.Management
+            Mock Write-Host { } -ModuleName Microsoft.AVS.Management
+
+            $cred = New-TestCredential
+            { Enable-AVSIPv6 -NsxCredential $cred } | Should -Not -Throw
+
+            Should -Invoke Invoke-RestMethod -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Method -eq 'Patch'
+            }
+        }
+    }
+
+    Context "Error Handling" {
+        It "Should throw when initial GET fails" {
+            Mock Invoke-RestMethod { throw "Connection refused" } -ModuleName Microsoft.AVS.Management
+
+            $cred = New-TestCredential
+            { Enable-AVSIPv6 -NsxCredential $cred } |
+                Should -Throw -ExpectedMessage "*Failed to read current NSX global config*"
+        }
+
+        It "Should throw when PATCH fails" {
+            $invokeCount = 0
+            Mock Invoke-RestMethod {
+                param($Uri, $Method)
+                $invokeCount++
+                if ($Method -eq 'Get' -and $invokeCount -eq 1) {
+                    return [PSCustomObject]@{ l3_forwarding_mode = 'IPV4_ONLY' }
+                }
+                throw "403 Forbidden"
+            } -ModuleName Microsoft.AVS.Management
+
+            $cred = New-TestCredential
+            { Enable-AVSIPv6 -NsxCredential $cred } |
+                Should -Throw -ExpectedMessage "*Failed to enable IPv6 on NSX*"
+        }
+
+        It "Should throw when verification shows wrong mode" {
+            $invokeCount = 0
+            Mock Invoke-RestMethod {
+                param($Uri, $Method)
+                $invokeCount++
+                if ($Method -eq 'Get' -and $invokeCount -eq 1) {
+                    return [PSCustomObject]@{ l3_forwarding_mode = 'IPV4_ONLY' }
+                }
+                if ($Method -eq 'Patch') {
+                    return $null
+                }
+                return [PSCustomObject]@{ l3_forwarding_mode = 'IPV4_ONLY' }
+            } -ModuleName Microsoft.AVS.Management
+            Mock Write-Host { } -ModuleName Microsoft.AVS.Management
+
+            $cred = New-TestCredential
+            { Enable-AVSIPv6 -NsxCredential $cred } |
+                Should -Throw -ExpectedMessage "*Verification failed*"
+        }
+    }
+}
+
+Describe "Disable-AVSIPv6" {
+    BeforeAll {
+        $global:SddcDnsSuffix = "sddc.test.local"
+
+        function New-TestCredential {
+            $secPass = ConvertTo-SecureString 'TestPass123!' -AsPlainText -Force
+            return [PSCredential]::new('admin', $secPass)
+        }
+    }
+
+    AfterAll {
+        Remove-Variable -Name SddcDnsSuffix -Scope Global -ErrorAction SilentlyContinue
+    }
+
+    Context "Parameter Validation" {
+        It "Should have NsxCredential as mandatory parameter" {
+            $cmd = Get-Command Disable-AVSIPv6
+            $param = $cmd.Parameters['NsxCredential']
+            $param.Attributes.Where({ $_ -is [System.Management.Automation.ParameterAttribute] }).Mandatory | Should -Contain $true
+        }
+
+        It "Should have NsxCredential parameter of type PSCredential" {
+            $cmd = Get-Command Disable-AVSIPv6
+            $cmd.Parameters['NsxCredential'].ParameterType.Name | Should -Be 'PSCredential'
+        }
+
+        It "Should have AVSAttribute with 30 minute timeout" {
+            $cmd = Get-Command Disable-AVSIPv6
+            $avsAttr = $cmd.ScriptBlock.Attributes | Where-Object { $_.TypeId.Name -eq 'AVSAttribute' }
+            $avsAttr | Should -Not -BeNullOrEmpty
+            $avsAttr.Timeout.TotalMinutes | Should -Be 30
+        }
+
+        It "Should have AVSAttribute with UpdatesSDDC set to true" {
+            $cmd = Get-Command Disable-AVSIPv6
+            $avsAttr = $cmd.ScriptBlock.Attributes | Where-Object { $_.TypeId.Name -eq 'AVSAttribute' }
+            $avsAttr.UpdatesSDDC | Should -Be $true
+        }
+    }
+
+    Context "Already Disabled" {
+        It "Should return early when IPv6 is already disabled" {
+            Mock Invoke-RestMethod {
+                [PSCustomObject]@{ l3_forwarding_mode = 'IPV4_ONLY' }
+            } -ModuleName Microsoft.AVS.Management
+            Mock Write-Host { } -ModuleName Microsoft.AVS.Management
+
+            $cred = New-TestCredential
+            { Disable-AVSIPv6 -NsxCredential $cred } | Should -Not -Throw
+
+            Should -Invoke Invoke-RestMethod -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Method -eq 'Get'
+            }
+            Should -Invoke Invoke-RestMethod -ModuleName Microsoft.AVS.Management -Times 0 -Exactly -ParameterFilter {
+                $Method -eq 'Patch'
+            }
+        }
+    }
+
+    Context "Successful Disable" {
+        It "Should PATCH and verify when disabling IPv6" {
+            $invokeCount = 0
+            Mock Invoke-RestMethod {
+                param($Uri, $Method, $Body, $ContentType, $Credential, [switch]$SkipCertificateCheck)
+                $invokeCount++
+                if ($Method -eq 'Get' -and $invokeCount -eq 1) {
+                    return [PSCustomObject]@{ l3_forwarding_mode = 'IPV4_AND_IPV6' }
+                }
+                if ($Method -eq 'Patch') {
+                    return $null
+                }
+                return [PSCustomObject]@{ l3_forwarding_mode = 'IPV4_ONLY' }
+            } -ModuleName Microsoft.AVS.Management
+            Mock Write-Host { } -ModuleName Microsoft.AVS.Management
+
+            $cred = New-TestCredential
+            { Disable-AVSIPv6 -NsxCredential $cred } | Should -Not -Throw
+
+            Should -Invoke Invoke-RestMethod -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                $Method -eq 'Patch'
+            }
+        }
+    }
+
+    Context "Error Handling" {
+        It "Should throw when initial GET fails" {
+            Mock Invoke-RestMethod { throw "Connection refused" } -ModuleName Microsoft.AVS.Management
+
+            $cred = New-TestCredential
+            { Disable-AVSIPv6 -NsxCredential $cred } |
+                Should -Throw -ExpectedMessage "*Failed to read current NSX global config*"
+        }
+
+        It "Should throw when PATCH fails" {
+            $invokeCount = 0
+            Mock Invoke-RestMethod {
+                param($Uri, $Method)
+                $invokeCount++
+                if ($Method -eq 'Get' -and $invokeCount -eq 1) {
+                    return [PSCustomObject]@{ l3_forwarding_mode = 'IPV4_AND_IPV6' }
+                }
+                throw "403 Forbidden"
+            } -ModuleName Microsoft.AVS.Management
+
+            $cred = New-TestCredential
+            { Disable-AVSIPv6 -NsxCredential $cred } |
+                Should -Throw -ExpectedMessage "*Failed to disable IPv6 on NSX*"
+        }
+
+        It "Should throw when verification shows wrong mode" {
+            $invokeCount = 0
+            Mock Invoke-RestMethod {
+                param($Uri, $Method)
+                $invokeCount++
+                if ($Method -eq 'Get' -and $invokeCount -eq 1) {
+                    return [PSCustomObject]@{ l3_forwarding_mode = 'IPV4_AND_IPV6' }
+                }
+                if ($Method -eq 'Patch') {
+                    return $null
+                }
+                return [PSCustomObject]@{ l3_forwarding_mode = 'IPV4_AND_IPV6' }
+            } -ModuleName Microsoft.AVS.Management
+            Mock Write-Host { } -ModuleName Microsoft.AVS.Management
+
+            $cred = New-TestCredential
+            { Disable-AVSIPv6 -NsxCredential $cred } |
+                Should -Throw -ExpectedMessage "*Verification failed*"
+        }
+    }
+}

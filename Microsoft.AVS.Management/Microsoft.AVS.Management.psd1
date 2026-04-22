@@ -12,7 +12,7 @@
     RootModule = 'Microsoft.AVS.Management.psm1'
     
     # Version number of this module.
-    ModuleVersion = '9.0.1'
+    ModuleVersion = '9.1.0'
     
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -92,6 +92,9 @@
         'Update-StoragePolicyofUnassociatedvSANObjects'
         'Remove-AvsUnassociatedObject'
         'Get-EsxtopData'
+        'Get-AVSIPv6Status'
+        'Enable-AVSIPv6'
+        'Disable-AVSIPv6'
     )
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.

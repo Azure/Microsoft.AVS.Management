@@ -2196,3 +2196,193 @@ function Get-EsxtopData {
 
     Write-Host "Esxtop collection complete. $Iterations samples from $($vmHost.Name)."
 }
+
+function Get-AVSIPv6Status {
+    <#
+    .SYNOPSIS
+        Gets the current IPv6 L3 forwarding mode from NSX.
+
+    .DESCRIPTION
+        Queries the NSX Policy API connectivity-global-config endpoint
+        and returns the current l3_forwarding_mode setting (IPV4_ONLY or IPV4_AND_IPV6).
+
+    .PARAMETER NsxCredential
+        PSCredential for the NSX Manager admin account.
+
+    .EXAMPLE
+        Get-AVSIPv6Status -NsxCredential $cred
+    #>
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    param(
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'PSCredential for NSX Manager admin account.')]
+        [PSCredential]$NsxCredential
+    )
+
+    $nsxHost = "nsx.$SddcDnsSuffix"
+    $uri = "https://$nsxHost/policy/api/v1/infra/connectivity-global-config"
+
+    try {
+        $response = Invoke-RestMethod -Uri $uri -Method Get `
+            -Credential $NsxCredential -SkipCertificateCheck -ErrorAction Stop
+
+        $mode = $response.l3_forwarding_mode
+        Write-Host "Current L3 forwarding mode: $mode"
+
+        $NamedOutputs = @{ 'l3_forwarding_mode' = $mode }
+        Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
+    }
+    catch {
+        throw "Failed to get IPv6 status from NSX at '$uri': $($_.Exception.Message)"
+    }
+}
+
+function Enable-AVSIPv6 {
+    <#
+    .SYNOPSIS
+        Enables IPv6 by setting NSX L3 forwarding mode to IPV4_AND_IPV6.
+
+    .DESCRIPTION
+        Patches the NSX Policy API connectivity-global-config endpoint to set
+        l3_forwarding_mode to IPV4_AND_IPV6, then verifies the change by reading
+        the configuration back.
+
+    .PARAMETER NsxCredential
+        PSCredential for the NSX Manager admin account.
+
+    .EXAMPLE
+        Enable-AVSIPv6 -NsxCredential $cred
+    #>
+    [CmdletBinding()]
+    [AVSAttribute(30, UpdatesSDDC = $true)]
+    param(
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'PSCredential for NSX Manager admin account.')]
+        [PSCredential]$NsxCredential
+    )
+
+    $nsxHost = "nsx.$SddcDnsSuffix"
+    $uri = "https://$nsxHost/policy/api/v1/infra/connectivity-global-config"
+    $body = @{ l3_forwarding_mode = 'IPV4_AND_IPV6' } | ConvertTo-Json
+
+    # Read current state before making changes
+    try {
+        $currentConfig = Invoke-RestMethod -Uri $uri -Method Get `
+            -Credential $NsxCredential -SkipCertificateCheck -ErrorAction Stop
+    }
+    catch {
+        throw "Failed to read current NSX global config at '$uri': $($_.Exception.Message)"
+    }
+
+    if ($currentConfig.l3_forwarding_mode -eq 'IPV4_AND_IPV6') {
+        Write-Host "IPv6 is already enabled. L3 forwarding mode: IPV4_AND_IPV6"
+        $NamedOutputs = @{ 'l3_forwarding_mode' = 'IPV4_AND_IPV6' }
+        Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
+        return
+    }
+
+    # Apply the change
+    try {
+        Invoke-RestMethod -Uri $uri -Method Patch -Body $body `
+            -ContentType 'application/json' -Credential $NsxCredential `
+            -SkipCertificateCheck -ErrorAction Stop | Out-Null
+        Write-Host "PATCH request sent successfully."
+    }
+    catch {
+        throw "Failed to enable IPv6 on NSX at '$uri': $($_.Exception.Message)"
+    }
+
+    # Verify the change
+    try {
+        $verify = Invoke-RestMethod -Uri $uri -Method Get `
+            -Credential $NsxCredential -SkipCertificateCheck -ErrorAction Stop
+    }
+    catch {
+        throw "IPv6 PATCH was sent but verification read failed at '$uri': $($_.Exception.Message)"
+    }
+
+    if ($verify.l3_forwarding_mode -ne 'IPV4_AND_IPV6') {
+        throw "Verification failed. Expected 'IPV4_AND_IPV6' but got '$($verify.l3_forwarding_mode)'."
+    }
+
+    Write-Host "IPv6 enabled successfully. L3 forwarding mode: $($verify.l3_forwarding_mode)"
+    $NamedOutputs = @{ 'l3_forwarding_mode' = $verify.l3_forwarding_mode }
+    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
+}
+
+function Disable-AVSIPv6 {
+    <#
+    .SYNOPSIS
+        Disables IPv6 by setting NSX L3 forwarding mode to IPV4_ONLY.
+
+    .DESCRIPTION
+        Patches the NSX Policy API connectivity-global-config endpoint to set
+        l3_forwarding_mode to IPV4_ONLY, then verifies the change by reading
+        the configuration back.
+
+    .PARAMETER NsxCredential
+        PSCredential for the NSX Manager admin account.
+
+    .EXAMPLE
+        Disable-AVSIPv6 -NsxCredential $cred
+    #>
+    [CmdletBinding()]
+    [AVSAttribute(30, UpdatesSDDC = $true)]
+    param(
+        [Parameter(
+            Mandatory = $true,
+            HelpMessage = 'PSCredential for NSX Manager admin account.')]
+        [PSCredential]$NsxCredential
+    )
+
+    $nsxHost = "nsx.$SddcDnsSuffix"
+    $uri = "https://$nsxHost/policy/api/v1/infra/connectivity-global-config"
+    $body = @{ l3_forwarding_mode = 'IPV4_ONLY' } | ConvertTo-Json
+
+    # Read current state before making changes
+    try {
+        $currentConfig = Invoke-RestMethod -Uri $uri -Method Get `
+            -Credential $NsxCredential -SkipCertificateCheck -ErrorAction Stop
+    }
+    catch {
+        throw "Failed to read current NSX global config at '$uri': $($_.Exception.Message)"
+    }
+
+    if ($currentConfig.l3_forwarding_mode -eq 'IPV4_ONLY') {
+        Write-Host "IPv6 is already disabled. L3 forwarding mode: IPV4_ONLY"
+        $NamedOutputs = @{ 'l3_forwarding_mode' = 'IPV4_ONLY' }
+        Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
+        return
+    }
+
+    # Apply the change
+    try {
+        Invoke-RestMethod -Uri $uri -Method Patch -Body $body `
+            -ContentType 'application/json' -Credential $NsxCredential `
+            -SkipCertificateCheck -ErrorAction Stop | Out-Null
+        Write-Host "PATCH request sent successfully."
+    }
+    catch {
+        throw "Failed to disable IPv6 on NSX at '$uri': $($_.Exception.Message)"
+    }
+
+    # Verify the change
+    try {
+        $verify = Invoke-RestMethod -Uri $uri -Method Get `
+            -Credential $NsxCredential -SkipCertificateCheck -ErrorAction Stop
+    }
+    catch {
+        throw "IPv6 PATCH was sent but verification read failed at '$uri': $($_.Exception.Message)"
+    }
+
+    if ($verify.l3_forwarding_mode -ne 'IPV4_ONLY') {
+        throw "Verification failed. Expected 'IPV4_ONLY' but got '$($verify.l3_forwarding_mode)'."
+    }
+
+    Write-Host "IPv6 disabled successfully. L3 forwarding mode: $($verify.l3_forwarding_mode)"
+    $NamedOutputs = @{ 'l3_forwarding_mode' = $verify.l3_forwarding_mode }
+    Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
+}
