@@ -1590,11 +1590,11 @@ Describe "Enable-AVSIPv6" {
 
     Context "Successful Enable" {
         It "Should PATCH and verify when enabling IPv6" {
-            $invokeCount = 0
+            $script:enableInvokeCount = 0
             Mock Invoke-RestMethod {
                 param($Uri, $Method, $Body, $ContentType, $Credential, [switch]$SkipCertificateCheck)
-                $invokeCount++
-                if ($Method -eq 'Get' -and $invokeCount -eq 1) {
+                $script:enableInvokeCount++
+                if ($Method -eq 'Get' -and $script:enableInvokeCount -eq 1) {
                     return [PSCustomObject]@{ l3_forwarding_mode = 'IPV4_ONLY' }
                 }
                 if ($Method -eq 'Patch') {
@@ -1722,11 +1722,11 @@ Describe "Disable-AVSIPv6" {
 
     Context "Successful Disable" {
         It "Should PATCH and verify when disabling IPv6" {
-            $invokeCount = 0
+            $script:disableInvokeCount = 0
             Mock Invoke-RestMethod {
                 param($Uri, $Method, $Body, $ContentType, $Credential, [switch]$SkipCertificateCheck)
-                $invokeCount++
-                if ($Method -eq 'Get' -and $invokeCount -eq 1) {
+                $script:disableInvokeCount++
+                if ($Method -eq 'Get' -and $script:disableInvokeCount -eq 1) {
                     return [PSCustomObject]@{ l3_forwarding_mode = 'IPV4_AND_IPV6' }
                 }
                 if ($Method -eq 'Patch') {
