@@ -2226,7 +2226,8 @@ function Get-AVSIPv6Status {
 
     try {
         $response = Invoke-RestMethod -Uri $uri -Method Get `
-            -Credential $NsxCredential -SkipCertificateCheck -ErrorAction Stop
+            -Authentication Basic -Credential $NsxCredential `
+            -SkipCertificateCheck -ErrorAction Stop
 
         $mode = $response.l3_forwarding_mode
         Write-Host "Current L3 forwarding mode: $mode"
@@ -2271,7 +2272,8 @@ function Enable-AVSIPv6 {
     # Read current state before making changes
     try {
         $currentConfig = Invoke-RestMethod -Uri $uri -Method Get `
-            -Credential $NsxCredential -SkipCertificateCheck -ErrorAction Stop
+            -Authentication Basic -Credential $NsxCredential `
+            -SkipCertificateCheck -ErrorAction Stop
     }
     catch {
         throw "Failed to read current NSX global config at '$uri': $($_.Exception.Message)"
@@ -2287,8 +2289,8 @@ function Enable-AVSIPv6 {
     # Apply the change
     try {
         Invoke-RestMethod -Uri $uri -Method Patch -Body $body `
-            -ContentType 'application/json' -Credential $NsxCredential `
-            -SkipCertificateCheck -ErrorAction Stop | Out-Null
+            -ContentType 'application/json' -Authentication Basic `
+            -Credential $NsxCredential -SkipCertificateCheck -ErrorAction Stop | Out-Null
         Write-Host "PATCH request sent successfully."
     }
     catch {
@@ -2298,7 +2300,8 @@ function Enable-AVSIPv6 {
     # Verify the change
     try {
         $verify = Invoke-RestMethod -Uri $uri -Method Get `
-            -Credential $NsxCredential -SkipCertificateCheck -ErrorAction Stop
+            -Authentication Basic -Credential $NsxCredential `
+            -SkipCertificateCheck -ErrorAction Stop
     }
     catch {
         throw "IPv6 PATCH was sent but verification read failed at '$uri': $($_.Exception.Message)"
@@ -2345,7 +2348,8 @@ function Disable-AVSIPv6 {
     # Read current state before making changes
     try {
         $currentConfig = Invoke-RestMethod -Uri $uri -Method Get `
-            -Credential $NsxCredential -SkipCertificateCheck -ErrorAction Stop
+            -Authentication Basic -Credential $NsxCredential `
+            -SkipCertificateCheck -ErrorAction Stop
     }
     catch {
         throw "Failed to read current NSX global config at '$uri': $($_.Exception.Message)"
@@ -2361,8 +2365,8 @@ function Disable-AVSIPv6 {
     # Apply the change
     try {
         Invoke-RestMethod -Uri $uri -Method Patch -Body $body `
-            -ContentType 'application/json' -Credential $NsxCredential `
-            -SkipCertificateCheck -ErrorAction Stop | Out-Null
+            -ContentType 'application/json' -Authentication Basic `
+            -Credential $NsxCredential -SkipCertificateCheck -ErrorAction Stop | Out-Null
         Write-Host "PATCH request sent successfully."
     }
     catch {
@@ -2372,7 +2376,8 @@ function Disable-AVSIPv6 {
     # Verify the change
     try {
         $verify = Invoke-RestMethod -Uri $uri -Method Get `
-            -Credential $NsxCredential -SkipCertificateCheck -ErrorAction Stop
+            -Authentication Basic -Credential $NsxCredential `
+            -SkipCertificateCheck -ErrorAction Stop
     }
     catch {
         throw "IPv6 PATCH was sent but verification read failed at '$uri': $($_.Exception.Message)"
