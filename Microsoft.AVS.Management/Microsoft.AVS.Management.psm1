@@ -742,8 +742,8 @@ function Set-ToolsRepo {
                         throw "Version metadata.json not found on $ds_name at $versionMetadataPath"
                     }
 
-                    $topLevelMetadataObj = Get-Content -Path $topLevelMetadataPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-                    $versionMetadataObj = Get-Content -Path $versionMetadataPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                    $topLevelMetadataObj = (Get-Content -Path $topLevelMetadataPath -ErrorAction Stop | Out-String) | ConvertFrom-Json -ErrorAction Stop
+                    $versionMetadataObj = (Get-Content -Path $versionMetadataPath -ErrorAction Stop | Out-String) | ConvertFrom-Json -ErrorAction Stop
 
                     $topLevelJson = ConvertTo-Json $topLevelMetadataObj -Depth 100 -Compress
                     $versionJson = ConvertTo-Json $versionMetadataObj -Depth 100 -Compress
