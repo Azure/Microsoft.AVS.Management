@@ -210,7 +210,7 @@ function Get-UnassociatedVsanObjectsWithPolicy {
             $matchedObjects++
             try {
                 $jsonResult = ($vsanIntSys.GetVsanObjExtAttrs($obj.Uuid)) | ConvertFrom-Json
-                
+
                 foreach ($object in $jsonResult | Get-Member) {
 
                     if ($($object.Name) -ne "Equals" -and
@@ -592,43 +592,212 @@ function Set-ClusterDefaultStoragePolicy {
 }
 
 <#
-    .Synopsis
-     This will create a folder on each cluster's vSAN datastore -- GuestStore and set each cluster to pull tools from their respective vsan datastore. The 'gueststore-vmtools' file is required.
-     The Tools zip file must be in a publicly available HTTP(S) downloadable location.
+    .SYNOPSIS
+    Manages the Tools Repository on vSAN datastores for VMware Tools deployment.
 
-     .EXAMPLE
-     Once the function is imported, you simply need to run Set-ToolsRepo -ToolsURL <url to tools zip file>
+    .DESCRIPTION
+    This function creates a GuestStore folder on each cluster's vSAN datastore and configures
+    hosts to pull VMware Tools from their respective vSAN datastore. The 'gueststore-vmtools'
+    file is required.
+
+    When -Validate is specified, only reads and validates metadata.json files without making changes.
+    When -Validate is NOT specified, uploads tools and configures hosts as normal.
+
+    .PARAMETER ToolsURL
+    A publicly available HTTP(S) URL to download the Tools zip file. Required when -Validate
+    is NOT specified. Must be HTTPS or HTTP.
+
+    .PARAMETER Validate
+    Switch to enable validation-only mode. When set, the function reads metadata.json files
+    to verify they are in sync, but makes no changes to the datastore or host configuration.
+
+    .EXAMPLE
+    # Upload tools to repositories
+    Set-ToolsRepo -ToolsURL "https://example.com/tools.zip"
+
+    .EXAMPLE
+    # Validate existing repositories (no upload)
+    Set-ToolsRepo -Validate
 #>
 function Set-ToolsRepo {
+    [CmdletBinding()]
     [AVSAttribute(30, UpdatesSDDC = $false)]
     param(
-        [Parameter(Mandatory = $true,
+        [Parameter(Mandatory = $false,
             HelpMessage = 'A publicly available HTTP(S) URL to download the Tools zip file.')]
         [ValidateNotNullOrEmpty()]
         [SecureString]
-        $ToolsURL
+        $ToolsURL,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$Validate
     )
 
     # Convert SecureString to plain text for use with web requests
-    $ToolsURLPlain = [System.Net.NetworkCredential]::new('', $ToolsURL).Password
-
-    # Validate URL pattern (must be HTTP or HTTPS)
-    if ($ToolsURLPlain -notmatch '^https?://') {
-        throw "ToolsURL must be a valid HTTP or HTTPS URL."
-    }
+    # Only used in upload mode (non-validate path).
+    $ToolsURLPlain = $null
 
     # Initialize variables
     $new_folder = 'GuestStore'
     $archive_path = '/vmware/apps/vmtools/windows64/'
     $normalizedArchivePath = if ($null -ne $archive_path) { $archive_path.Trim('/','\') } else { '' }
     $tmp_dir = $null
-    $currentPSDrive = $null
     $successfulDatastores = @()
     $failedDatastores = @()
 
     # Main execution wrapped in try-catch-finally
     try {
         Write-Verbose "Starting Set-ToolsRepo"
+
+        # Check mutual exclusion: -Validate or -ToolsURL required
+        if (-not $Validate -and [string]::IsNullOrEmpty($ToolsURL)) {
+            throw "ToolsURL is required when -Validate is not specified."
+        }
+
+        if ($Validate) {
+            Write-Information "Running in validation-only mode. No upload or configuration changes will be made." -InformationAction Continue
+
+            # Get vSAN datastores with error handling
+            try {
+                $datastores = Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq 'vsan' }
+
+                if ($null -eq $datastores -or $datastores.Count -eq 0) {
+                    throw "No vSAN datastores found in the environment"
+                }
+
+                Write-Information "Found $($datastores.Count) vSAN datastore(s)" -InformationAction Continue
+            } catch {
+                throw "Failed to retrieve vSAN datastores: $_"
+            }
+
+            foreach ($datastore in $datastores) {
+                $ds_name = $datastore.Name
+                Write-Information "Validating datastore: $ds_name" -InformationAction Continue
+
+                try {
+                    if (Get-PSDrive -Name DS -ErrorAction SilentlyContinue) {
+                        Remove-PSDrive -Name DS -Force -ErrorAction SilentlyContinue
+                    }
+
+                    try {
+                        New-PSDrive -Location $datastore -Name DS -PSProvider VimDatastore -Root '\' -ErrorAction Stop | Out-Null
+                    } catch {
+                        throw "Failed to create PSDrive for datastore $ds_name : $_"
+                    }
+
+                    $baseDestPath = "DS:/$new_folder"
+                    $destPath = if ([string]::IsNullOrEmpty($normalizedArchivePath)) {
+                        $baseDestPath
+                    } else {
+                        Join-Path -Path $baseDestPath -ChildPath $normalizedArchivePath
+                    }
+
+                    if (-not (Test-Path -Path $destPath)) {
+                        throw "GuestStore tools path not found on $ds_name : $destPath"
+                    }
+
+                    $existing_dirs = Get-ChildItem -Path $destPath -ErrorAction Stop |
+                        Where-Object {
+                            $_.PSIsContainer -and
+                            $_.Name -match '^vmtools-\d'
+                        }
+
+                    if ($null -eq $existing_dirs -or $existing_dirs.Count -eq 0) {
+                        throw "No vmtools-* version folders found on $ds_name under $destPath"
+                    }
+
+                    $highestVersionFolder = $null
+                    $highestVersion = $null
+
+                    foreach ($existing_dir in $existing_dirs) {
+                        $ver = $existing_dir.Name -replace 'vmtools-', ''
+                        try {
+                            $parsedVersion = [version]$ver
+                        } catch {
+                            continue
+                        }
+
+                        if ($null -eq $highestVersion -or $parsedVersion -gt $highestVersion) {
+                            $highestVersion = $parsedVersion
+                            $highestVersionFolder = $existing_dir
+                        }
+                    }
+
+                    if ($null -eq $highestVersionFolder) {
+                        throw "No valid vmtools version folders could be parsed on $ds_name"
+                    }
+
+                    $latestDetectedVersionFolder = $highestVersionFolder.Name
+                    $latestDetectedVersion = $latestDetectedVersionFolder -replace 'vmtools-', ''
+                    Write-Host "Datastore $ds_name latest detected tools version: $latestDetectedVersionFolder"
+
+                    $topLevelMetadataPath = Join-Path $destPath 'metadata.json'
+                    $versionMetadataPath = Join-Path (Join-Path $destPath $latestDetectedVersionFolder) 'metadata.json'
+
+                    if (-not (Test-Path -Path $topLevelMetadataPath)) {
+                        throw "Top-level metadata.json not found on $ds_name at $topLevelMetadataPath"
+                    }
+
+                    if (-not (Test-Path -Path $versionMetadataPath)) {
+                        throw "Version metadata.json not found on $ds_name at $versionMetadataPath"
+                    }
+
+                    $topLevelMetadataObj = Get-Content -Path $topLevelMetadataPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                    $versionMetadataObj = Get-Content -Path $versionMetadataPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+
+                    $topLevelJson = ConvertTo-Json $topLevelMetadataObj -Depth 100 -Compress
+                    $versionJson = ConvertTo-Json $versionMetadataObj -Depth 100 -Compress
+
+                    $metadataMatches = $topLevelJson -eq $versionJson
+
+                    $referencesLatestVersion = ($topLevelJson -match [regex]::Escape($latestDetectedVersionFolder)) -or
+                        ($topLevelJson -match [regex]::Escape($latestDetectedVersion))
+
+                    if ($metadataMatches -and $referencesLatestVersion) {
+                        Write-Host "Datastore $ds_name validation result: SUCCESS - metadata is in sync."
+                        $successfulDatastores += $ds_name
+                    } else {
+                        Write-Host "Datastore $ds_name validation result: FAILURE - metadata is not in sync."
+                        if (-not $metadataMatches) {
+                            Write-Warning "metadata.json mismatch between top-level and latest version folder on $ds_name"
+                        }
+                        if (-not $referencesLatestVersion) {
+                            Write-Warning "metadata.json does not reference latest detected version ($latestDetectedVersionFolder) on $ds_name"
+                        }
+                        $failedDatastores += $ds_name
+                    }
+                } catch {
+                    Write-Error "Validation failed for datastore $ds_name : $_"
+                    $failedDatastores += $ds_name
+                } finally {
+                    if (Get-PSDrive -Name DS -ErrorAction SilentlyContinue) {
+                        Remove-PSDrive -Name DS -Force -ErrorAction SilentlyContinue
+                    }
+                }
+            }
+
+            Write-Information "`n=== Validation Summary ===" -InformationAction Continue
+            if ($successfulDatastores.Count -gt 0) {
+                Write-Information "Datastores with metadata in sync: $($successfulDatastores -join ', ')" -InformationAction Continue
+            }
+            if ($failedDatastores.Count -gt 0) {
+                Write-Warning "Datastores with metadata out of sync or validation failure: $($failedDatastores -join ', ')"
+            }
+
+            if ($failedDatastores.Count -eq $datastores.Count) {
+                throw "Validation failed for all datastores"
+            }
+
+            return
+        }
+
+        # Convert SecureString to plain text for use with web requests
+        $ToolsURLPlain = [System.Net.NetworkCredential]::new('', $ToolsURL).Password
+
+        # Validate URL pattern (must be HTTP or HTTPS)
+        if ($ToolsURLPlain -notmatch '^https?://') {
+            throw "ToolsURL must be a valid HTTP or HTTPS URL."
+        }
 
         # Validate URL accessibility
         try {
@@ -721,7 +890,7 @@ function Set-ToolsRepo {
 
                 # Create PS drive with error handling
                 try {
-                    $currentPSDrive = New-PSDrive -Location $datastore -Name DS -PSProvider VimDatastore -Root '\' -ErrorAction Stop
+                    New-PSDrive -Location $datastore -Name DS -PSProvider VimDatastore -Root '\' -ErrorAction Stop | Out-Null
                 } catch {
                     throw "Failed to create PSDrive for datastore $ds_name : $_"
                 }
@@ -2116,7 +2285,7 @@ function Get-EsxtopData {
     }
 
     # CounterInfo
-    $counterInfo = $esxtopView.ExecuteSimpleCommand("CounterInfo")
+    $esxtopView.ExecuteSimpleCommand("CounterInfo") | Out-Null
 
     # FetchStats loop — collect samples to local temp file, then upload to vSAN datastore
     $hostShort = $vmHost.Name.Split('.')[0]
