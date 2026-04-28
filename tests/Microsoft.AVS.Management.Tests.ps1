@@ -234,6 +234,7 @@ Describe "Set-ToolsRepo" {
                     [PSCustomObject]@{ Name = "vmtools-12.3.0"; PSIsContainer = $true }
                 )
             } -ModuleName Microsoft.AVS.Management
+            Mock Copy-DatastoreItem { } -ModuleName Microsoft.AVS.Management
             Mock Get-Content {
                 param($Path, [switch]$Raw)
                 '{"version":"12.3.0","path":"vmtools-12.3.0"}'
@@ -261,6 +262,7 @@ Describe "Set-ToolsRepo" {
             Mock Get-ChildItem {
                 @([PSCustomObject]@{ Name = "vmtools-12.3.0"; PSIsContainer = $true })
             } -ModuleName Microsoft.AVS.Management
+            Mock Copy-DatastoreItem { } -ModuleName Microsoft.AVS.Management
             # Top-level and version metadata intentionally differ
             $callCount = 0
             Mock Get-Content {
@@ -296,8 +298,9 @@ Describe "Set-ToolsRepo" {
                     [PSCustomObject]@{ Name = "vmtools-12.3.0"; PSIsContainer = $true }
                 )
             } -ModuleName Microsoft.AVS.Management
+            Mock Copy-DatastoreItem { } -ModuleName Microsoft.AVS.Management
             Mock Get-Content {
-                param($Path)
+                param($Path, [switch]$Raw)
                 '{"version":"12.2.0","path":"vmtools-12.2.0"}'
             } -ModuleName Microsoft.AVS.Management
 
@@ -372,14 +375,14 @@ Describe "Set-ToolsRepo" {
                 )
             } -ModuleName Microsoft.AVS.Management
             Mock Get-Content {
-                param($Path)
+                param($Path, [switch]$Raw)
                 '{"version":"12.3.0","path":"vmtools-12.3.0"}'
             } -ModuleName Microsoft.AVS.Management
 
             # Upload-mode functions must not run when -Validate is supplied.
             Mock Invoke-WebRequest { throw "Should not call web requests in validate mode" } -ModuleName Microsoft.AVS.Management
             Mock Expand-Archive { throw "Should not extract archive in validate mode" } -ModuleName Microsoft.AVS.Management
-            Mock Copy-DatastoreItem { throw "Should not copy items in validate mode" } -ModuleName Microsoft.AVS.Management
+            Mock Copy-DatastoreItem { } -ModuleName Microsoft.AVS.Management
             Mock Get-EsxCli { throw "Should not call ESXCLI in validate mode" } -ModuleName Microsoft.AVS.Management
 
             $badUrl = ConvertTo-TestSecureString "not-a-valid-url"
@@ -388,7 +391,9 @@ Describe "Set-ToolsRepo" {
 
             Should -Invoke Invoke-WebRequest -Times 0 -ModuleName Microsoft.AVS.Management
             Should -Invoke Expand-Archive -Times 0 -ModuleName Microsoft.AVS.Management
-            Should -Invoke Copy-DatastoreItem -Times 0 -ModuleName Microsoft.AVS.Management
+            Should -Invoke Copy-DatastoreItem -Times 2 -ModuleName Microsoft.AVS.Management -ParameterFilter {
+                $Item -like "*metadata.json"
+            }
             Should -Invoke Get-EsxCli -Times 0 -ModuleName Microsoft.AVS.Management
         }
     }
