@@ -657,6 +657,96 @@ function Set-ToolsRepo {
         if ($Validate) {
             Write-Information "Running in validation-only mode. No upload or configuration changes will be made." -InformationAction Continue
 
+            $GetMetadataVersion = {
+                param(
+                    [Parameter(Mandatory = $true)]
+                    $MetadataObject,
+
+                    [Parameter(Mandatory = $true)]
+                    [string]$LatestVersion
+                )
+
+                if ($null -eq $MetadataObject) {
+                    return $null
+                }
+
+                $versionPattern = '(?i)vmtools-(\d+(?:\.\d+){1,3})'
+                $installerFilePattern = '(?i)vmware-tools-(\d+(?:\.\d+){1,3})'
+                $plainVersionPattern = '^\d+(?:\.\d+){1,3}$'
+                $candidateVersions = @()
+
+                if ($MetadataObject.PSObject.Properties.Name -contains 'installer' -and $null -ne $MetadataObject.installer) {
+                    $installerObj = $MetadataObject.installer
+
+                    if ($installerObj.PSObject.Properties.Name -contains 'version') {
+                        $installerVersion = [string]$installerObj.version
+                        if ($installerVersion -match $plainVersionPattern) {
+                            $candidateVersions += $installerVersion
+                        }
+                        if ($installerVersion -match $versionPattern) {
+                            $candidateVersions += $Matches[1]
+                        }
+                    }
+
+                    if ($installerObj.PSObject.Properties.Name -contains 'file') {
+                        $installerFile = [string]$installerObj.file
+                        if ($installerFile -match $installerFilePattern) {
+                            $candidateVersions += $Matches[1]
+                        }
+                    }
+                }
+
+                if ($MetadataObject.PSObject.Properties.Name -contains 'vmtools') {
+                    $vmtoolsField = [string]$MetadataObject.vmtools
+                    if ($vmtoolsField -match $versionPattern) {
+                        $candidateVersions += $Matches[1]
+                    }
+                }
+
+                foreach ($prop in $MetadataObject.PSObject.Properties) {
+                    $nameCandidate = [string]$prop.Name
+                    if ($nameCandidate -match $versionPattern) {
+                        $candidateVersions += $Matches[1]
+                    }
+
+                    $valueCandidate = [string]$prop.Value
+                    if ($valueCandidate -match $versionPattern) {
+                        $candidateVersions += $Matches[1]
+                    }
+                }
+
+                if ($candidateVersions.Count -gt 0) {
+                    $uniqueCandidates = $candidateVersions | Select-Object -Unique
+                    if ($uniqueCandidates -contains $LatestVersion) {
+                        return $LatestVersion
+                    }
+
+                    $sortedCandidates = $uniqueCandidates |
+                        Sort-Object {
+                            try {
+                                [version]$_
+                            } catch {
+                                [version]'0.0'
+                            }
+                        } -Descending
+
+                    return [string]$sortedCandidates[0]
+                }
+
+                # Fallback: some metadata formats store only the tools version in a plain 'version' field.
+                if ($MetadataObject.PSObject.Properties.Name -contains 'version') {
+                    $versionField = [string]$MetadataObject.version
+                    if ($versionField -match $versionPattern) {
+                        return $Matches[1]
+                    }
+                    if ($versionField -match $plainVersionPattern -and $versionField -eq $LatestVersion) {
+                        return $versionField
+                    }
+                }
+
+                return $null
+            }
+
             # Get vSAN datastores with error handling
             try {
                 $datastores = Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq 'vsan' }
@@ -672,6 +762,7 @@ function Set-ToolsRepo {
 
             foreach ($datastore in $datastores) {
                 $ds_name = $datastore.Name
+                $localMetadataTempDir = $null
                 Write-Information "Validating datastore: $ds_name" -InformationAction Continue
 
                 try {
@@ -742,27 +833,55 @@ function Set-ToolsRepo {
                         throw "Version metadata.json not found on $ds_name at $versionMetadataPath"
                     }
 
-                    $topLevelMetadataObj = (Get-Content -Path $topLevelMetadataPath -ErrorAction Stop | Out-String) | ConvertFrom-Json -ErrorAction Stop
-                    $versionMetadataObj = (Get-Content -Path $versionMetadataPath -ErrorAction Stop | Out-String) | ConvertFrom-Json -ErrorAction Stop
+                    # Copy metadata files locally because VimDatastore does not support Get-Content.
+                    $localMetadataTempDir = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("avs-validate-metadata-{0}-{1}" -f (Get-Date -Format 'yyyyMMddHHmmssfff'), [guid]::NewGuid().ToString('N'))
+                    New-Item -Path $localMetadataTempDir -ItemType Directory -ErrorAction Stop | Out-Null
 
-                    $topLevelJson = ConvertTo-Json $topLevelMetadataObj -Depth 100 -Compress
-                    $versionJson = ConvertTo-Json $versionMetadataObj -Depth 100 -Compress
+                    $localTopLevelMetadataPath = Join-Path -Path $localMetadataTempDir -ChildPath 'top-level-metadata.json'
+                    $localVersionMetadataPath = Join-Path -Path $localMetadataTempDir -ChildPath 'version-metadata.json'
 
-                    $metadataMatches = $topLevelJson -eq $versionJson
+                    try {
+                        Copy-DatastoreItem -Item $topLevelMetadataPath -Destination $localTopLevelMetadataPath -Force -ErrorAction Stop
+                    } catch {
+                        throw "Failed to copy top-level metadata.json from $ds_name : $($_.Exception.Message)"
+                    }
 
-                    $referencesLatestVersion = ($topLevelJson -match [regex]::Escape($latestDetectedVersionFolder)) -or
-                        ($topLevelJson -match [regex]::Escape($latestDetectedVersion))
+                    try {
+                        Copy-DatastoreItem -Item $versionMetadataPath -Destination $localVersionMetadataPath -Force -ErrorAction Stop
+                    } catch {
+                        throw "Failed to copy version metadata.json from $ds_name : $($_.Exception.Message)"
+                    }
 
-                    if ($metadataMatches -and $referencesLatestVersion) {
+                    try {
+                        $topLevelMetadataObj = Get-Content -Path $localTopLevelMetadataPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                        $versionMetadataObj = Get-Content -Path $localVersionMetadataPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                    } catch {
+                        throw "Failed to parse metadata.json content on $ds_name : $($_.Exception.Message)"
+                    }
+
+                    $topLevelMetadataVersion = & $GetMetadataVersion -MetadataObject $topLevelMetadataObj -LatestVersion $latestDetectedVersion
+                    $versionFolderMetadataVersion = & $GetMetadataVersion -MetadataObject $versionMetadataObj -LatestVersion $latestDetectedVersion
+
+                    Write-Host "Datastore $ds_name top-level metadata version: $topLevelMetadataVersion"
+                    Write-Host "Datastore $ds_name version-folder metadata version: $versionFolderMetadataVersion"
+
+                    $topLevelInSync = (-not [string]::IsNullOrEmpty($topLevelMetadataVersion)) -and ($topLevelMetadataVersion -eq $latestDetectedVersion)
+                    $versionFolderInSync = (-not [string]::IsNullOrEmpty($versionFolderMetadataVersion)) -and ($versionFolderMetadataVersion -eq $latestDetectedVersion)
+
+                    if ($topLevelInSync -and $versionFolderInSync) {
                         Write-Host "Datastore $ds_name validation result: SUCCESS - metadata is in sync."
                         $successfulDatastores += $ds_name
                     } else {
                         Write-Host "Datastore $ds_name validation result: FAILURE - metadata is not in sync."
-                        if (-not $metadataMatches) {
-                            Write-Warning "metadata.json mismatch between top-level and latest version folder on $ds_name"
+                        if ([string]::IsNullOrEmpty($topLevelMetadataVersion)) {
+                            Write-Warning "Unable to determine version from top-level metadata.json on $ds_name"
+                        } elseif (-not $topLevelInSync) {
+                            Write-Warning "top-level metadata.json version ($topLevelMetadataVersion) does not match latest detected version ($latestDetectedVersionFolder) on $ds_name"
                         }
-                        if (-not $referencesLatestVersion) {
-                            Write-Warning "metadata.json does not reference latest detected version ($latestDetectedVersionFolder) on $ds_name"
+                        if ([string]::IsNullOrEmpty($versionFolderMetadataVersion)) {
+                            Write-Warning "Unable to determine version from version-folder metadata.json on $ds_name"
+                        } elseif (-not $versionFolderInSync) {
+                            Write-Warning "version-folder metadata.json version ($versionFolderMetadataVersion) does not match latest detected version ($latestDetectedVersionFolder) on $ds_name"
                         }
                         $failedDatastores += $ds_name
                     }
@@ -770,6 +889,9 @@ function Set-ToolsRepo {
                     Write-Error "Validation failed for datastore $ds_name : $_"
                     $failedDatastores += $ds_name
                 } finally {
+                    if (-not [string]::IsNullOrEmpty($localMetadataTempDir) -and (Test-Path -Path $localMetadataTempDir)) {
+                        Remove-Item -Path $localMetadataTempDir -Recurse -Force -ErrorAction SilentlyContinue
+                    }
                     if (Get-PSDrive -Name DS -ErrorAction SilentlyContinue) {
                         Remove-PSDrive -Name DS -Force -ErrorAction SilentlyContinue
                     }
