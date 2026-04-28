@@ -126,18 +126,23 @@ Describe "Set-ToolsRepo" {
         }
 
         It "Should not validate URL format when -Validate is specified" {
-            Mock Get-Datastore { @{ Name = "vsanDatastore"; extensionData = @{ Summary = @{ Type = 'vsan' } } } } -ModuleName Microsoft.AVS.Management
-            Mock New-PSDrive { } -ModuleName Microsoft.AVS.Management
-            Mock Get-ChildItem { @{ Name = "vmtools-12.0.0" } } -ModuleName Microsoft.AVS.Management
+            Mock Get-Datastore { @([PSCustomObject]@{ Name = "vsanDatastore"; extensionData = @{ Summary = @{ Type = 'vsan' } } }) } -ModuleName Microsoft.AVS.Management
+            Mock Get-PSDrive { $null } -ModuleName Microsoft.AVS.Management
+            Mock New-PSDrive { $true } -ModuleName Microsoft.AVS.Management
+            Mock Join-Path {
+                param($Path, $ChildPath)
+                if ([string]::IsNullOrEmpty($Path)) {
+                    return $ChildPath
+                }
+                return "$Path/$ChildPath"
+            } -ModuleName Microsoft.AVS.Management
+            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
+            Mock Get-ChildItem {
+                @([PSCustomObject]@{ Name = "vmtools-12.0.0"; PSIsContainer = $true })
+            } -ModuleName Microsoft.AVS.Management
+            Mock Copy-DatastoreItem { } -ModuleName Microsoft.AVS.Management
             Mock Get-Content {
-                [CmdletBinding()]
-                param(
-                    [string]$Path,
-                    [switch]$Raw,
-                    [System.Management.Automation.ActionPreference]$ErrorAction,
-                    [Parameter(ValueFromRemainingArguments = $true)]
-                    [object[]]$RemainingArgs
-                )
+                param($Path, [switch]$Raw)
                 '{"version":"12.0.0"}'
             } -ModuleName Microsoft.AVS.Management
             Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
@@ -152,18 +157,22 @@ Describe "Set-ToolsRepo" {
     Context "Validate Mode Behavior" {
         It "Should not call upload/download functions when -Validate is specified" {
             # Mock functions that would be called for datastore reading
-            Mock Get-Datastore { @{ Name = "vsanDatastore"; extensionData = @{ Summary = @{ Type = 'vsan' } } } } -ModuleName Microsoft.AVS.Management
+            Mock Get-Datastore { @([PSCustomObject]@{ Name = "vsanDatastore"; extensionData = @{ Summary = @{ Type = 'vsan' } } }) } -ModuleName Microsoft.AVS.Management
+            Mock Get-PSDrive { $null } -ModuleName Microsoft.AVS.Management
             Mock New-PSDrive { $true } -ModuleName Microsoft.AVS.Management
-            Mock Get-ChildItem { @{ Name = "vmtools-12.0.0" } } -ModuleName Microsoft.AVS.Management
+            Mock Join-Path {
+                param($Path, $ChildPath)
+                if ([string]::IsNullOrEmpty($Path)) {
+                    return $ChildPath
+                }
+                return "$Path/$ChildPath"
+            } -ModuleName Microsoft.AVS.Management
+            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
+            Mock Get-ChildItem {
+                @([PSCustomObject]@{ Name = "vmtools-12.0.0"; PSIsContainer = $true })
+            } -ModuleName Microsoft.AVS.Management
             Mock Get-Content {
-                [CmdletBinding()]
-                param(
-                    [string]$Path,
-                    [switch]$Raw,
-                    [System.Management.Automation.ActionPreference]$ErrorAction,
-                    [Parameter(ValueFromRemainingArguments = $true)]
-                    [object[]]$RemainingArgs
-                )
+                param($Path, [switch]$Raw)
                 '{"version":"12.0.0"}'
             } -ModuleName Microsoft.AVS.Management
             Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
@@ -171,7 +180,8 @@ Describe "Set-ToolsRepo" {
             # These should NEVER be called in validate mode
             Mock Invoke-WebRequest { throw "Should not download in validate mode" } -ModuleName Microsoft.AVS.Management
             Mock Expand-Archive { throw "Should not extract in validate mode" } -ModuleName Microsoft.AVS.Management
-            Mock Copy-DatastoreItem { throw "Should not copy in validate mode" } -ModuleName Microsoft.AVS.Management
+            # Validate mode copies only metadata.json files locally for parsing.
+            Mock Copy-DatastoreItem { } -ModuleName Microsoft.AVS.Management
             Mock Get-EsxCli { throw "Should not call ESXi commands in validate mode" } -ModuleName Microsoft.AVS.Management
 
             # Call validate mode
@@ -180,7 +190,9 @@ Describe "Set-ToolsRepo" {
             # Verify the upload/download functions were never called
             Should -Invoke Invoke-WebRequest -Times 0 -ModuleName Microsoft.AVS.Management
             Should -Invoke Expand-Archive -Times 0 -ModuleName Microsoft.AVS.Management
-            Should -Invoke Copy-DatastoreItem -Times 0 -ModuleName Microsoft.AVS.Management
+            Should -Invoke Copy-DatastoreItem -Times 2 -ModuleName Microsoft.AVS.Management -ParameterFilter {
+                $Item -like "*metadata.json"
+            }
             Should -Invoke Get-EsxCli -Times 0 -ModuleName Microsoft.AVS.Management
         }
 
@@ -205,6 +217,11 @@ Describe "Set-ToolsRepo" {
                     [PSCustomObject]@{ Name = "vmtools-12.3.0"; PSIsContainer = $true },
                     [PSCustomObject]@{ Name = "vmtools-12.2.0"; PSIsContainer = $true }
                 )
+            } -ModuleName Microsoft.AVS.Management
+            Mock Copy-DatastoreItem { } -ModuleName Microsoft.AVS.Management
+            Mock Get-Content {
+                param($Path, [switch]$Raw)
+                '{"version":"12.3.0","path":"vmtools-12.3.0"}'
             } -ModuleName Microsoft.AVS.Management
 
             { Set-ToolsRepo -Validate } | Should -Throw -ExpectedMessage "*Validation failed for all datastores*"
