@@ -650,7 +650,7 @@ function Set-ToolsRepo {
         Write-Verbose "Starting Set-ToolsRepo"
 
         # Check mutual exclusion: -Validate or -ToolsURL required
-        if (-not $Validate -and [string]::IsNullOrEmpty($ToolsURL)) {
+        if (-not $Validate -and $null -eq $ToolsURL) {
             throw "ToolsURL is required when -Validate is not specified."
         }
 
@@ -749,7 +749,7 @@ function Set-ToolsRepo {
 
             # Get vSAN datastores with error handling
             try {
-                $datastores = Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq 'vsan' }
+                $datastores = @(Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq 'vsan' })
 
                 if ($null -eq $datastores -or $datastores.Count -eq 0) {
                     throw "No vSAN datastores found in the environment"
@@ -988,7 +988,7 @@ function Set-ToolsRepo {
 
         # Get vSAN datastores with error handling
         try {
-            $datastores = Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq 'vsan' }
+            $datastores = @(Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq 'vsan' })
 
             if ($null -eq $datastores -or $datastores.Count -eq 0) {
                 throw "No vSAN datastores found in the environment"
@@ -1196,7 +1196,7 @@ function Set-ToolsRepo {
 
                 $successfulDatastores += $ds_name
             } catch {
-                Write-Error "Error processing datastore $ds_name : $_"
+                Write-Warning "Error processing datastore $ds_name : $_"
                 $failedDatastores += $ds_name
             } finally {
                 # Always clean up PSDrive
