@@ -73,19 +73,46 @@ function Remove-AvsUnassociatedObject {
         }
 
         # Check if object is system-like
-        $isSystemLike = $fields | Where-Object { $_ -and $excludeRx.IsMatch($_) } | Measure-Object | Select-Object -Expand Count
-        $isSystemLike = $isSystemLike -gt 0
+        $systemMatches = @()
+        foreach ($f in $fields) {
+            if ($f -and $excludeRx.IsMatch($f)) {
+                $systemMatches += $f
+            }
+        }
+        $systemMatches = $systemMatches | Sort-Object -Unique
+        $isSystemLike = $systemMatches.Count -gt 0
 
         $hi = Get-HealthFromExt -Ext $ext
 
-        $safe = (-not $inMgmt) -and (-not $isSystemLike) -and (-not $hi.IsAbsent) -and (-not $hi.IsDegraded)
+        # Build explicit skip reasons for better customer visibility
+        $skipReasons = @()
 
-        if (-not $safe) {
-            Write-Warning "Skipping $($id.Uuid) → InMgmt=$inMgmt SystemLike=$isSystemLike Health=$($hi.HealthState)"
-            continue
+        if ($inMgmt) {
+            $skipReasons += "Object is associated with AVS management resources (management VMs or resource pools), so deletion is blocked"
         }
 
+        if ($isSystemLike) {
+            $skipReasons += "Object was not deleted because it appears to be related to protected AVS/vSAN infrastructure based on object metadata. Matched metadata value(s): $($systemMatches -join '; ')"
+        }
 
+        if ($hi.IsAbsent) {
+            $skipReasons += "Object health is Absent (data may not be fully available)"
+        }
+
+        if ($hi.IsDegraded) {
+            $skipReasons += "Object health is Degraded (object is not in a healthy state)"
+        }
+
+        $safe = $skipReasons.Count -eq 0
+
+        if (-not $safe) {
+            Write-Warning "Skipping $($id.Uuid)"
+            Write-Warning "Object Name: $($(if ($id.Name) { $id.Name } else { 'N/A' }))"
+            Write-Warning "Reason: $($skipReasons -join ' | ')"
+            Write-Warning "Details: UUID=$($id.Uuid); InMgmt=$inMgmt; SystemLike=$isSystemLike; Health=$($hi.HealthState); PolicyCompliance=$($hi.PolicyCompliance)"
+            Write-Warning "Action: Object not deleted due to AVS safety checks."
+            continue
+        }
 
         try {
             [void]$vsanIntSys.DeleteVsanObjects(@($id.Uuid), $true)
