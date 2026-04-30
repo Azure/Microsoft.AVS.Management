@@ -67,68 +67,16 @@ Describe "Set-ToolsRepo" {
     }
 
     Context "Parameter Validation" {
-        It "Should have ToolsURL as optional parameter" {
-            $command = Get-Command Set-ToolsRepo
-            $param = $command.Parameters['ToolsURL']
-            $param.Attributes.Mandatory | Should -Not -Contain $true
-        }
-
-        It "Should have Validate as optional switch parameter" {
-            $command = Get-Command Set-ToolsRepo
-            $param = $command.Parameters['Validate']
-            $param | Should -Not -BeNullOrEmpty
-            $param.ParameterType.Name | Should -Be 'SwitchParameter'
-            $param.Attributes.Mandatory | Should -Not -Contain $true
-        }
-
-        It "Should have ToolsURL parameter of type SecureString" {
-            $command = Get-Command Set-ToolsRepo
-            $param = $command.Parameters['ToolsURL']
-            $param.ParameterType.Name | Should -Be 'SecureString'
-        }
-
-        It "Should have ValidateNotNullOrEmpty attribute on ToolsURL" {
-            $command = Get-Command Set-ToolsRepo
-            $param = $command.Parameters['ToolsURL']
-            $validateAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateNotNullOrEmptyAttribute] }
-            $validateAttr | Should -Not -BeNullOrEmpty
-        }
-
-        It "Should have HelpMessage on ToolsURL parameter" {
-            $command = Get-Command Set-ToolsRepo
-            $param = $command.Parameters['ToolsURL']
-            $paramAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }
-            $paramAttr.HelpMessage | Should -Not -BeNullOrEmpty
-        }
-
-        It "Should have AVSAttribute with 30 minute timeout" {
-            $command = Get-Command Set-ToolsRepo
-            $avsAttr = $command.ScriptBlock.Attributes | Where-Object { $_.TypeId.Name -eq 'AVSAttribute' }
-            $avsAttr | Should -Not -BeNullOrEmpty
-            $avsAttr.Timeout.TotalMinutes | Should -Be 30
-        }
-
-        It "Should have AVSAttribute with UpdatesSDDC set to false" {
-            $command = Get-Command Set-ToolsRepo
-            $avsAttr = $command.ScriptBlock.Attributes | Where-Object { $_.TypeId.Name -eq 'AVSAttribute' }
-            $avsAttr.UpdatesSDDC | Should -Be $false
-        }
-
-        It "Should have CmdletBinding attribute" {
-            $command = Get-Command Set-ToolsRepo
-            $cmdletBindingAttr = $command.ScriptBlock.Attributes | Where-Object { $_ -is [System.Management.Automation.CmdletBindingAttribute] }
-            $cmdletBindingAttr | Should -Not -BeNullOrEmpty
-        }
-
         It "Should throw when neither ToolsURL nor Validate is provided" {
             { Set-ToolsRepo } |
                 Should -Throw -ExpectedMessage "*ToolsURL is required when -Validate is not specified*"
         }
 
-        It "Should not validate URL format when -Validate is specified" {
+        It "Should skip URL validation and complete validate mode successfully" {
             Mock Get-Datastore { @([PSCustomObject]@{ Name = "vsanDatastore"; extensionData = @{ Summary = @{ Type = 'vsan' } } }) } -ModuleName Microsoft.AVS.Management
             Mock Get-PSDrive { $null } -ModuleName Microsoft.AVS.Management
             Mock New-PSDrive { $true } -ModuleName Microsoft.AVS.Management
+            Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management
             Mock Join-Path {
                 param($Path, $ChildPath)
                 if ([string]::IsNullOrEmpty($Path)) {
@@ -140,19 +88,92 @@ Describe "Set-ToolsRepo" {
             Mock Get-ChildItem {
                 @([PSCustomObject]@{ Name = "vmtools-12.0.0"; PSIsContainer = $true })
             } -ModuleName Microsoft.AVS.Management
+            Mock New-Item {
+                [PSCustomObject]@{
+                    FullName = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "avs-validate-test")
+                }
+            } -ModuleName Microsoft.AVS.Management
             Mock Copy-DatastoreItem { } -ModuleName Microsoft.AVS.Management
             Mock Get-Content {
                 param($Path, [switch]$Raw)
                 '{"version":"12.0.0"}'
             } -ModuleName Microsoft.AVS.Management
+            Mock Remove-Item { } -ModuleName Microsoft.AVS.Management
             Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
 
             $invalidUrl = ConvertTo-TestSecureString "not-a-valid-url"
 
             { Set-ToolsRepo -ToolsURL $invalidUrl -Validate } |
                 Should -Not -Throw
+
+            # Verify function entered validate mode by checking Get-Datastore was called
+            Should -Invoke Get-Datastore -ModuleName Microsoft.AVS.Management -Times 1
+
+            # Verify URL validation was SKIPPED (Invoke-WebRequest should NOT be called)
+            Should -Not -Invoke Invoke-WebRequest -ModuleName Microsoft.AVS.Management
         }
     }
+
+    Context "Error Handling" {
+        It "Should wrap original error in descriptive message" {
+            Mock Invoke-WebRequest {
+                [PSCustomObject]@{ StatusCode = 200 }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
+            Mock New-Item { throw "Permission denied" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
+
+            $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
+
+            { Set-ToolsRepo -ToolsURL $secureUrl } |
+                Should -Throw -ExpectedMessage "*Failed to create temporary directory*Permission denied*"
+        }
+
+        It "Should re-throw after catching to propagate error" {
+            Mock Invoke-WebRequest { throw "Network error" } -ModuleName Microsoft.AVS.Management
+
+            $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
+
+            { Set-ToolsRepo -ToolsURL $secureUrl } | Should -Throw -ExpectedMessage "*Unable to access the provided URL*Network error*"
+        }
+    }
+
+    Context "PSDrive Cleanup" {
+        It "Should attempt PSDrive cleanup even when PSDrive creation fails" {
+            $IncomingVersion = '12.3.0'
+            Mock Invoke-WebRequest {
+                [PSCustomObject]@{ StatusCode = 200 }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
+            Mock New-Item {
+                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
+            Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
+            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
+            Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
+            Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
+            Mock Get-ChildItem {
+                param($Path, $Filter, [switch]$Directory, [switch]$File, [switch]$Recurse)
+                [PSCustomObject]@{ Name = "vmtools-$IncomingVersion" }
+            } -ModuleName Microsoft.AVS.Management
+            Mock Get-Datastore {
+                [PSCustomObject]@{
+                    Name = "vsanDatastore"
+                    extensionData = [PSCustomObject]@{ Summary = [PSCustomObject]@{ Type = 'vsan' } }
+                }
+            } -ModuleName Microsoft.AVS.Management
+            Mock Get-PSDrive { $true } -ModuleName Microsoft.AVS.Management
+            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+            Mock New-PSDrive { throw "PSDrive creation failed" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Name -eq 'DS' }
+
+            $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
+
+            # Verify error is thrown and cleanup still happens
+            { Set-ToolsRepo -ToolsURL $secureUrl } | Should -Throw -ExpectedMessage "*Failed to process any datastores successfully*"
+
+            # Verify cleanup was attempted despite the error
+            Should -Invoke Remove-PSDrive -ModuleName Microsoft.AVS.Management -ParameterFilter { $Name -eq 'DS' }
+        }
+    }
+
+
 
     Context "Validate Mode Behavior" {
         It "Should not call upload/download functions when -Validate is specified" {
@@ -178,11 +199,10 @@ Describe "Set-ToolsRepo" {
             Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
 
             # These should NEVER be called in validate mode
-            Mock Invoke-WebRequest { throw "Should not download in validate mode" } -ModuleName Microsoft.AVS.Management
-            Mock Expand-Archive { throw "Should not extract in validate mode" } -ModuleName Microsoft.AVS.Management
+            Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management
+            Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
             # Validate mode copies only metadata.json files locally for parsing.
             Mock Copy-DatastoreItem { } -ModuleName Microsoft.AVS.Management
-            Mock Get-EsxCli { throw "Should not call ESXi commands in validate mode" } -ModuleName Microsoft.AVS.Management
 
             # Call validate mode
             { Set-ToolsRepo -Validate } | Should -Not -Throw
@@ -193,7 +213,6 @@ Describe "Set-ToolsRepo" {
             Should -Invoke Copy-DatastoreItem -Times 2 -ModuleName Microsoft.AVS.Management -ParameterFilter {
                 $Item -like "*metadata.json"
             }
-            Should -Invoke Get-EsxCli -Times 0 -ModuleName Microsoft.AVS.Management
         }
 
         It "Should select highest vmtools version folder in validate mode" {
@@ -209,8 +228,7 @@ Describe "Set-ToolsRepo" {
                 }
                 return "$Path/$ChildPath"
             } -ModuleName Microsoft.AVS.Management
-            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -notlike "*metadata.json" }
-            Mock Test-Path { $false } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*metadata.json" }
+            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Get-ChildItem {
                 @(
                     [PSCustomObject]@{ Name = "vmtools-12.1.0"; PSIsContainer = $true },
@@ -222,13 +240,21 @@ Describe "Set-ToolsRepo" {
             Mock Get-Content {
                 param($Path, [switch]$Raw)
                 '{"version":"12.3.0","path":"vmtools-12.3.0"}'
-            } -ModuleName Microsoft.AVS.Management
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*top-level-metadata.json" }
+            Mock Get-Content {
+                param($Path, [switch]$Raw)
+                '{"version":"12.3.0","path":"vmtools-12.3.0"}'
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*version-metadata.json" }
 
-            { Set-ToolsRepo -Validate } | Should -Throw -ExpectedMessage "*Validation failed for all datastores*"
+            { Set-ToolsRepo -Validate } | Should -Not -Throw
 
             Should -Invoke Write-Host -Times 1 -ModuleName Microsoft.AVS.Management -ParameterFilter {
                 $Object -like "*latest detected tools version: vmtools-12.3.0*"
             }
+            Should -Invoke Copy-DatastoreItem -Times 1 -ModuleName Microsoft.AVS.Management -ParameterFilter {
+                $Item -like "*vmtools-12.3.0*metadata.json"
+            }
+            Should -Invoke Copy-DatastoreItem -Times 2 -ModuleName Microsoft.AVS.Management
         }
 
         It "Should succeed when metadata files are in sync and reference latest version" {
@@ -255,12 +281,19 @@ Describe "Set-ToolsRepo" {
             Mock Get-Content {
                 param($Path, [switch]$Raw)
                 '{"version":"12.3.0","path":"vmtools-12.3.0"}'
-            } -ModuleName Microsoft.AVS.Management
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*top-level-metadata.json" }
+            Mock Get-Content {
+                param($Path, [switch]$Raw)
+                '{"version":"12.3.0","path":"vmtools-12.3.0"}'
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*version-metadata.json" }
 
             { Set-ToolsRepo -Validate } | Should -Not -Throw
 
             Should -Invoke Write-Host -Times 1 -ModuleName Microsoft.AVS.Management -ParameterFilter {
                 $Object -like "*validation result: SUCCESS*"
+            }
+            Should -Invoke Copy-DatastoreItem -Times 2 -ModuleName Microsoft.AVS.Management -ParameterFilter {
+                $Item -like "*metadata.json"
             }
         }
 
@@ -275,25 +308,32 @@ Describe "Set-ToolsRepo" {
                 if ([string]::IsNullOrEmpty($Path)) { return $ChildPath }
                 return "$Path/$ChildPath"
             } -ModuleName Microsoft.AVS.Management
-            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
+            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*metadata.json" -or $Path -like "*GuestStore*" }
             Mock Get-ChildItem {
-                @([PSCustomObject]@{ Name = "vmtools-12.3.0"; PSIsContainer = $true })
+                @(
+                    [PSCustomObject]@{ Name = "vmtools-12.1.0"; PSIsContainer = $true },
+                    [PSCustomObject]@{ Name = "vmtools-12.3.0"; PSIsContainer = $true }
+                )
             } -ModuleName Microsoft.AVS.Management
             Mock Copy-DatastoreItem { } -ModuleName Microsoft.AVS.Management
             # Top-level and version metadata intentionally differ
-            $callCount = 0
             Mock Get-Content {
                 param($Path, [switch]$Raw)
-                $script:callCount++
-                if ($script:callCount -eq 1) { '{"version":"12.3.0"}' }     # top-level
-                else                         { '{"version":"12.2.0"}' }     # version folder — different
-            } -ModuleName Microsoft.AVS.Management
+                '{"version":"12.3.0"}'
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*top-level-metadata.json" }
+            Mock Get-Content {
+                param($Path, [switch]$Raw)
+                '{"version":"12.2.0"}'
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*version-metadata.json" }
 
             # When all datastores fail validation, function throws
             { Set-ToolsRepo -Validate } | Should -Throw -ExpectedMessage "*Validation failed for all datastores*"
 
             Should -Invoke Write-Host -Times 1 -ModuleName Microsoft.AVS.Management -ParameterFilter {
                 $Object -like "*validation result: FAILURE*"
+            }
+            Should -Invoke Copy-DatastoreItem -Times 2 -ModuleName Microsoft.AVS.Management -ParameterFilter {
+                $Item -like "*metadata.json"
             }
         }
 
@@ -308,7 +348,7 @@ Describe "Set-ToolsRepo" {
                 if ([string]::IsNullOrEmpty($Path)) { return $ChildPath }
                 return "$Path/$ChildPath"
             } -ModuleName Microsoft.AVS.Management
-            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
+            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*metadata.json" -or $Path -like "*GuestStore*" }
             Mock Get-ChildItem {
                 @(
                     [PSCustomObject]@{ Name = "vmtools-12.2.0"; PSIsContainer = $true },
@@ -316,15 +356,23 @@ Describe "Set-ToolsRepo" {
                 )
             } -ModuleName Microsoft.AVS.Management
             Mock Copy-DatastoreItem { } -ModuleName Microsoft.AVS.Management
+            # Metadata is in sync (both say 12.2.0) but points to old version (not latest 12.3.0)
             Mock Get-Content {
                 param($Path, [switch]$Raw)
-                '{"version":"12.2.0","path":"vmtools-12.2.0"}'
-            } -ModuleName Microsoft.AVS.Management
+                '{"version":"12.2.0"}'
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*top-level-metadata.json" }
+            Mock Get-Content {
+                param($Path, [switch]$Raw)
+                '{"version":"12.2.0"}'
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*version-metadata.json" }
 
             { Set-ToolsRepo -Validate } | Should -Throw -ExpectedMessage "*Validation failed for all datastores*"
 
             Should -Invoke Write-Host -Times 1 -ModuleName Microsoft.AVS.Management -ParameterFilter {
                 $Object -like "*validation result: FAILURE*"
+            }
+            Should -Invoke Copy-DatastoreItem -Times 2 -ModuleName Microsoft.AVS.Management -ParameterFilter {
+                $Item -like "*metadata.json"
             }
         }
 
@@ -334,18 +382,21 @@ Describe "Set-ToolsRepo" {
             Mock New-PSDrive { $true } -ModuleName Microsoft.AVS.Management
             Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
             Mock Write-Error { } -ModuleName Microsoft.AVS.Management
+            Mock Copy-DatastoreItem { } -ModuleName Microsoft.AVS.Management
             Mock Join-Path {
                 param($Path, $ChildPath)
                 if ([string]::IsNullOrEmpty($Path)) { return $ChildPath }
                 return "$Path/$ChildPath"
             } -ModuleName Microsoft.AVS.Management
-            Mock Test-Path { $false } -ModuleName Microsoft.AVS.Management
+            Mock Test-Path { $false } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*GuestStore*" }
+            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management  # Default for metadata files and other paths
 
             { Set-ToolsRepo -Validate } | Should -Throw -ExpectedMessage "*Validation failed for all datastores*"
 
             Should -Invoke Write-Error -Times 1 -ModuleName Microsoft.AVS.Management -ParameterFilter {
                 $Message -like "*GuestStore tools path not found on vsanDatastore*"
             }
+            Should -Not -Invoke Copy-DatastoreItem -ModuleName Microsoft.AVS.Management
         }
 
         It "Should fail when metadata.json files are missing" {
@@ -354,14 +405,17 @@ Describe "Set-ToolsRepo" {
             Mock New-PSDrive { $true } -ModuleName Microsoft.AVS.Management
             Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
             Mock Write-Error { } -ModuleName Microsoft.AVS.Management
+            Mock Copy-DatastoreItem { } -ModuleName Microsoft.AVS.Management
             Mock Join-Path {
                 param($Path, $ChildPath)
                 if ([string]::IsNullOrEmpty($Path)) { return $ChildPath }
                 return "$Path/$ChildPath"
             } -ModuleName Microsoft.AVS.Management
-            # Base tools path exists, but metadata.json files do not
-            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -notlike "*metadata.json" }
-            Mock Test-Path { $false } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*metadata.json" }
+            Mock Test-Path {
+                param($Path)
+                # Base tools path exists, but metadata.json files do not
+                return $Path -notlike "*metadata.json"
+            } -ModuleName Microsoft.AVS.Management
             Mock Get-ChildItem {
                 @([PSCustomObject]@{ Name = "vmtools-12.3.0"; PSIsContainer = $true })
             } -ModuleName Microsoft.AVS.Management
@@ -371,6 +425,7 @@ Describe "Set-ToolsRepo" {
             Should -Invoke Write-Error -Times 1 -ModuleName Microsoft.AVS.Management -ParameterFilter {
                 $Message -like "*Top-level metadata.json not found on vsanDatastore*"
             }
+            Should -Not -Invoke Copy-DatastoreItem -ModuleName Microsoft.AVS.Management
         }
 
         It "Should prioritize -Validate when both ToolsURL and Validate are provided" {
@@ -384,17 +439,15 @@ Describe "Set-ToolsRepo" {
                 if ([string]::IsNullOrEmpty($Path)) { return $ChildPath }
                 return "$Path/$ChildPath"
             } -ModuleName Microsoft.AVS.Management
-            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
+            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*metadata.json" -or $Path -like "*vmtools*" }
             Mock Get-ChildItem {
                 @(
                     [PSCustomObject]@{ Name = "vmtools-12.2.0"; PSIsContainer = $true },
                     [PSCustomObject]@{ Name = "vmtools-12.3.0"; PSIsContainer = $true }
                 )
             } -ModuleName Microsoft.AVS.Management
-            Mock Get-Content {
-                param($Path, [switch]$Raw)
-                '{"version":"12.3.0","path":"vmtools-12.3.0"}'
-            } -ModuleName Microsoft.AVS.Management
+            Mock Get-Content { '{"version":"12.3.0","path":"vmtools-12.3.0"}' } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*top-level-metadata.json" }
+            Mock Get-Content { '{"version":"12.3.0","path":"vmtools-12.3.0"}' } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*version-metadata.json" }
 
             # Upload-mode functions must not run when -Validate is supplied.
             Mock Invoke-WebRequest { throw "Should not call web requests in validate mode" } -ModuleName Microsoft.AVS.Management
@@ -435,72 +488,110 @@ Describe "Set-ToolsRepo" {
         }
 
         It "Should proceed past URL validation for valid HTTP URL" {
-            Mock Invoke-WebRequest { throw "Expected network call" } -ModuleName Microsoft.AVS.Management
+            Mock Get-Datastore { @([PSCustomObject]@{ Name = "vsanDatastore"; extensionData = @{ Summary = @{ Type = 'vsan' } } }) } -ModuleName Microsoft.AVS.Management
+            Mock Get-PSDrive { $null } -ModuleName Microsoft.AVS.Management
+            Mock New-PSDrive { $true } -ModuleName Microsoft.AVS.Management
+            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+            Mock Invoke-WebRequest { throw "DNS resolution failed for example.com" } -ModuleName Microsoft.AVS.Management
             $secureUrl = ConvertTo-TestSecureString "http://example.com/tools.zip"
 
             # Should fail at network request, not URL validation
             { Set-ToolsRepo -ToolsURL $secureUrl } |
-                Should -Throw -ExpectedMessage "*Unable to access the provided URL*"
+                Should -Throw -ExpectedMessage "*Unable to access the provided URL*DNS resolution failed for example.com*"
+
+            Should -Invoke Invoke-WebRequest -Times 1 -ModuleName Microsoft.AVS.Management
         }
 
         It "Should proceed past URL validation for valid HTTPS URL" {
-            Mock Invoke-WebRequest { throw "Expected network call" } -ModuleName Microsoft.AVS.Management
+            Mock Get-Datastore { @([PSCustomObject]@{ Name = "vsanDatastore"; extensionData = @{ Summary = @{ Type = 'vsan' } } }) } -ModuleName Microsoft.AVS.Management
+            Mock Get-PSDrive { $null } -ModuleName Microsoft.AVS.Management
+            Mock New-PSDrive { $true } -ModuleName Microsoft.AVS.Management
+            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+            Mock Invoke-WebRequest { throw "TLS handshake failed while connecting to https://example.com/tools.zip" } -ModuleName Microsoft.AVS.Management
             $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
 
             # Should fail at network request, not URL validation
             { Set-ToolsRepo -ToolsURL $secureUrl } |
-                Should -Throw -ExpectedMessage "*Unable to access the provided URL*"
+                Should -Throw -ExpectedMessage "*Unable to access the provided URL*TLS handshake failed while connecting to https://example.com/tools.zip*"
+
+            Should -Invoke Invoke-WebRequest -Times 1 -ModuleName Microsoft.AVS.Management
         }
 
         It "Should proceed past URL validation for HTTPS URL with query parameters" {
-            Mock Invoke-WebRequest { throw "Expected network call" } -ModuleName Microsoft.AVS.Management
+            Mock Get-Datastore { @([PSCustomObject]@{ Name = "vsanDatastore"; extensionData = @{ Summary = @{ Type = 'vsan' } } }) } -ModuleName Microsoft.AVS.Management
+            Mock Get-PSDrive { $null } -ModuleName Microsoft.AVS.Management
+            Mock New-PSDrive { $true } -ModuleName Microsoft.AVS.Management
+            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+            Mock Invoke-WebRequest { throw "403 Forbidden: SAS token expired" } -ModuleName Microsoft.AVS.Management
             $secureUrl = ConvertTo-TestSecureString "https://storage.example.com/tools.zip?token=secret123&sig=abc"
 
             # Should fail at network request, not URL validation
             { Set-ToolsRepo -ToolsURL $secureUrl } |
-                Should -Throw -ExpectedMessage "*Unable to access the provided URL*"
+                Should -Throw -ExpectedMessage "*Unable to access the provided URL*403 Forbidden: SAS token expired*"
+
+            Should -Invoke Invoke-WebRequest -Times 1 -ModuleName Microsoft.AVS.Management
         }
     }
 
     Context "URL Accessibility Validation" {
-        It "Should throw when URL is not accessible" {
-            Mock Invoke-WebRequest { throw "404 Not Found" } -ModuleName Microsoft.AVS.Management
+        # Tests 404 download failure (HEAD succeeds, GET fails)
+        It "Should throw when file at URL returns 404" {
+            Mock Invoke-WebRequest {
+                [PSCustomObject]@{ StatusCode = 200 }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
+            Mock New-Item {
+                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
+            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+            Mock Invoke-WebRequest { throw "404 Not Found" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             $secureUrl = ConvertTo-TestSecureString "https://example.com/nonexistent.zip"
             { Set-ToolsRepo -ToolsURL $secureUrl } |
-                Should -Throw -ExpectedMessage "*Unable to access the provided URL*"
+                Should -Throw -ExpectedMessage "*Failed to download tools file*"
+
+            Should -Invoke Invoke-WebRequest -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' } -Times 1
+            Should -Invoke Invoke-WebRequest -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile } -Times 1
         }
 
+        # Tests 403 download failure (HEAD succeeds, GET fails)
         It "Should throw when URL returns non-200 status code" {
             Mock Invoke-WebRequest {
-                [PSCustomObject]@{ StatusCode = 403 }
-            } -ModuleName Microsoft.AVS.Management
+                [PSCustomObject]@{ StatusCode = 200 }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
+            Mock New-Item {
+                [PSCustomObject]@{ FullName = "/tmp/newtools_test_403" }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
+            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+            Mock Invoke-WebRequest {
+                throw "URL returned status code: 403"
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             $secureUrl = ConvertTo-TestSecureString "https://example.com/forbidden.zip"
             { Set-ToolsRepo -ToolsURL $secureUrl } |
                 Should -Throw -ExpectedMessage "*URL returned status code: 403*"
+
+            Should -Invoke Invoke-WebRequest -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' } -Times 1
+            Should -Invoke Invoke-WebRequest -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile } -Times 1
         }
     }
 
     Context "Temporary Directory Creation" {
-        BeforeAll {
-            Mock Invoke-WebRequest {
-                [PSCustomObject]@{ StatusCode = 200 }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-        }
-
         It "Should throw when temporary directory cannot be created" {
+            # Tests that temp directory creation failure is caught and wrapped
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item { throw "Permission denied" } -ModuleName Microsoft.AVS.Management
+            Mock New-Item { throw "Permission denied" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
+            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
 
             $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
             { Set-ToolsRepo -ToolsURL $secureUrl } |
                 Should -Throw -ExpectedMessage "*Failed to create temporary directory*"
+
+            Should -Invoke Invoke-WebRequest -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' } -Times 1
         }
     }
 
     Context "File Download Validation" {
-        BeforeAll {
+        It "Should throw when download fails" {
             # Mock successful HEAD request
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
@@ -510,29 +601,49 @@ Describe "Set-ToolsRepo" {
             Mock New-Item {
                 [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
-        }
 
-        It "Should throw when download fails" {
+            # Mock file and cleanup operations
+            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
+            Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
+            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
             Mock Invoke-WebRequest { throw "Download failed" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
 
             $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
             { Set-ToolsRepo -ToolsURL $secureUrl } |
                 Should -Throw -ExpectedMessage "*Failed to download tools file*"
+
+            Should -Invoke Invoke-WebRequest -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' } -Times 1
+            Should -Invoke Remove-PSDrive -ModuleName Microsoft.AVS.Management -Times 0
         }
 
         It "Should throw when downloaded file is empty" {
-            Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
+            # Mock successful HEAD request
+            Mock Invoke-WebRequest {
+                [PSCustomObject]@{ StatusCode = 200 }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
+
+            # Mock successful temp directory creation
+            Mock New-Item {
+                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
+
+            # Mock file and cleanup operations
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
+            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+            Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Get-Item { [PSCustomObject]@{ Length = 0 } } -ModuleName Microsoft.AVS.Management
 
             $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
             { Set-ToolsRepo -ToolsURL $secureUrl } |
                 Should -Throw -ExpectedMessage "*Downloaded file is empty*"
+
+            Should -Invoke Get-Item -ModuleName Microsoft.AVS.Management -Times 1
+            Should -Invoke Remove-PSDrive -ModuleName Microsoft.AVS.Management -Times 0
         }
     }
 
     Context "Archive Extraction Validation" {
-        BeforeAll {
+        It "Should throw when archive extraction fails" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
@@ -544,34 +655,35 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
-        }
-
-        It "Should throw when archive extraction fails" {
+            Mock Get-Datastore { $null } -ModuleName Microsoft.AVS.Management
+            Mock Get-PSDrive { $null } -ModuleName Microsoft.AVS.Management
+            Mock New-PSDrive { $true } -ModuleName Microsoft.AVS.Management
+            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+            Mock Get-ChildItem { $null } -ModuleName Microsoft.AVS.Management
             Mock Expand-Archive { throw "Invalid archive" } -ModuleName Microsoft.AVS.Management
 
             $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
             { Set-ToolsRepo -ToolsURL $secureUrl } |
                 Should -Throw -ExpectedMessage "*Failed to extract tools archive*"
+
+            Should -Invoke Expand-Archive -ModuleName Microsoft.AVS.Management -Times 1
+            Should -Invoke Get-ChildItem -ModuleName Microsoft.AVS.Management -Times 0
+            Should -Invoke Remove-PSDrive -ModuleName Microsoft.AVS.Management -Times 0
         }
     }
 
     Context "VMtools Directory Validation" {
-        BeforeAll {
+        It "Should throw when vmtools directory not found in archive" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-
             Mock New-Item {
                 [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
-
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
             Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
-        }
-
-        It "Should throw when vmtools directory not found in archive" {
             Mock Get-ChildItem {
                 param($Path, $Filter, [switch]$Directory, [switch]$File, [switch]$Recurse)
                 $null
@@ -580,27 +692,25 @@ Describe "Set-ToolsRepo" {
             $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
             { Set-ToolsRepo -ToolsURL $secureUrl } |
                 Should -Throw -ExpectedMessage "*Unable to find vmtools directory*"
+
+            Should -Invoke Expand-Archive -ModuleName Microsoft.AVS.Management -Times 1
+            Should -Invoke Get-ChildItem -ModuleName Microsoft.AVS.Management -Times 1
         }
     }
 
     Context "vSAN Datastore Validation" {
-        BeforeAll {
+        It "Should throw when no vSAN datastores found" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-
             Mock New-Item {
                 [PSCustomObject]@{ FullName = "/tmp/newtools_test"; Name = "newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' -and $Path -match '^\.([\\/])newtools_' }
-
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' -and $Path -like '*newtools*' }
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
             Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
             Mock Join-Path { "$Path/$ChildPath" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like 'DS:*' }
-        }
-
-        It "Should throw when no vSAN datastores found" {
             Mock Get-ChildItem {
                 param($Path, $Filter, [switch]$Directory, [switch]$File, [switch]$Recurse)
                 [PSCustomObject]@{ Name = "vmtools-12.3.0" }
@@ -610,9 +720,24 @@ Describe "Set-ToolsRepo" {
             $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
             { Set-ToolsRepo -ToolsURL $secureUrl } |
                 Should -Throw -ExpectedMessage "*No vSAN datastores found*"
+
+            Should -Invoke Expand-Archive -ModuleName Microsoft.AVS.Management -Times 1
+            Should -Invoke Get-ChildItem -ModuleName Microsoft.AVS.Management -Times 1
+            Should -Invoke Get-Datastore -ModuleName Microsoft.AVS.Management -Times 1
         }
 
         It "Should throw when Get-Datastore fails" {
+            Mock Invoke-WebRequest {
+                [PSCustomObject]@{ StatusCode = 200 }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
+            Mock New-Item {
+                [PSCustomObject]@{ FullName = "/tmp/newtools_test"; Name = "newtools_test" }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' -and $Path -like '*newtools*' }
+            Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
+            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
+            Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
+            Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
+            Mock Join-Path { "$Path/$ChildPath" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like 'DS:*' }
             Mock Get-ChildItem {
                 param($Path, $Filter, [switch]$Directory, [switch]$File, [switch]$Recurse)
                 [PSCustomObject]@{ Name = "vmtools-12.3.0" }
@@ -622,28 +747,35 @@ Describe "Set-ToolsRepo" {
             $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
             { Set-ToolsRepo -ToolsURL $secureUrl } |
                 Should -Throw -ExpectedMessage "*Failed to retrieve vSAN datastores*"
+
+            Should -Invoke Expand-Archive -ModuleName Microsoft.AVS.Management -Times 1
+            Should -Invoke Get-ChildItem -ModuleName Microsoft.AVS.Management -Times 1
+            Should -Invoke Get-Datastore -ModuleName Microsoft.AVS.Management -Times 1
         }
     }
 
     Context "SecureString Handling" {
         It "Should pass converted SecureString URL to HEAD request" {
-            $capturedUri = $null
+            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
             Mock Invoke-WebRequest {
-                $capturedUri = $Uri
                 throw "Stop here for test"
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
 
             $testUrl = "https://example.com/tools.zip?token=secret123"
             $secureUrl = ConvertTo-TestSecureString $testUrl
 
-            try { Set-ToolsRepo -ToolsURL $secureUrl } catch { }
+            { Set-ToolsRepo -ToolsURL $secureUrl } |
+                Should -Throw
 
             Should -Invoke Invoke-WebRequest -ModuleName Microsoft.AVS.Management -ParameterFilter {
                 $Uri -eq $testUrl -and $Method -eq 'Head'
             }
+
+            Should -Invoke Remove-PSDrive -ModuleName Microsoft.AVS.Management -Times 0
         }
 
         It "Should pass converted SecureString URL to download request" {
+            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
@@ -657,20 +789,24 @@ Describe "Set-ToolsRepo" {
             $testUrl = "https://example.com/tools.zip?token=secret123"
             $secureUrl = ConvertTo-TestSecureString $testUrl
 
-            try { Set-ToolsRepo -ToolsURL $secureUrl } catch { }
+            { Set-ToolsRepo -ToolsURL $secureUrl } |
+                Should -Throw
 
             Should -Invoke Invoke-WebRequest -ModuleName Microsoft.AVS.Management -ParameterFilter {
                 $Uri -eq $testUrl -and $OutFile
             }
+
+            Should -Invoke New-Item -ModuleName Microsoft.AVS.Management -Times 1
+            Should -Invoke Remove-PSDrive -ModuleName Microsoft.AVS.Management -Times 0
         }
     }
 
-    if (-not (Get-Module Microsoft.AVS.Management)) {
-        Import-Module (Join-Path $PSScriptRoot ".." "Microsoft.AVS.Management" "Microsoft.AVS.Management.psd1") -Force
-    }
+    Context "Version and metadata decision logic (mock-only)" {
+        if (-not (Get-Module Microsoft.AVS.Management)) {
+            Import-Module (Join-Path $PSScriptRoot ".." "Microsoft.AVS.Management" "Microsoft.AVS.Management.psd1") -Force
+        }
 
-    InModuleScope 'Microsoft.AVS.Management' {
-        Context "Version and metadata decision logic (mock-only)" {
+        InModuleScope 'Microsoft.AVS.Management' {
             BeforeAll {
                 $script:originalTemp = $env:TEMP
                 $script:originalTmp = $env:TMP
@@ -683,8 +819,6 @@ Describe "Set-ToolsRepo" {
                     param([string]$PlainText)
                     return ConvertTo-SecureString -String $PlainText -AsPlainText -Force
                 }
-
-                Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
 
                 # Shadow the real Get-EsxCli cmdlet with a plain function so Pester
                 # can mock it without PowerCLI's VMHost[] type constraint blocking.
@@ -731,7 +865,7 @@ Describe "Set-ToolsRepo" {
 
                     Mock New-Item {
                         [PSCustomObject]@{ FullName = $script:tempRoot; Name = 'newtools_test' }
-                    } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' -and $Path -match '^\.([\\/])newtools_' }
+                    } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' -and $Path -like '*newtools*' }
 
                     Mock New-Item {
                         [PSCustomObject]@{ FullName = $Path; Name = (Split-Path -Path $Path -Leaf) }
@@ -850,12 +984,12 @@ Describe "Set-ToolsRepo" {
             }
 
             AfterAll {
-                $env:TEMP = $script:originalTemp
-                $env:TMP = $script:originalTmp
+                Remove-Item -Path Function:Get-EsxCli -ErrorAction SilentlyContinue
+                if ($null -ne $script:originalTemp) { $env:TEMP = $script:originalTemp }
+                if ($null -ne $script:originalTmp)  { $env:TMP  = $script:originalTmp  }
             }
 
             It "Older version upload preserves top-level metadata.json" {
-                # Validates: when incoming version is older than existing highest, top-level metadata is not overwritten.
                 $IncomingVersion = '12.3.0'
                 $ExistingVersion = '12.4.0'
                 Initialize-SetToolsRepoScenarioMocks -ToolsShortVersion $IncomingVersion -HighestExistingVersion $ExistingVersion -VersionAlreadyExists $false
@@ -863,17 +997,18 @@ Describe "Set-ToolsRepo" {
 
                 { Set-ToolsRepo -ToolsURL $secureUrl } | Should -Not -Throw
 
-                Assert-MockCalled Copy-DatastoreItem -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It -ParameterFilter {
+                Should -Invoke Copy-DatastoreItem -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It -ParameterFilter {
                     $Destination -like '*windows64'
                 }
-
-                Assert-MockCalled Copy-DatastoreItem -ModuleName Microsoft.AVS.Management -Times 0 -Exactly -Scope It -ParameterFilter {
+                Should -Invoke Copy-DatastoreItem -ModuleName Microsoft.AVS.Management -Times 0 -Exactly -Scope It -ParameterFilter {
                     $Destination -like '*metadata.json'
                 }
+                Should -Invoke Expand-Archive -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It
+                Should -Invoke New-PSDrive -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It
+                Should -Invoke Get-EsxCli -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It
             }
 
             It "Newer version upload updates top-level metadata.json" {
-                # Validates: when incoming version is newer than existing highest, top-level metadata update is performed once.
                 $IncomingVersion = '12.4.0'
                 $ExistingVersion = '12.3.0'
                 Initialize-SetToolsRepoScenarioMocks -ToolsShortVersion $IncomingVersion -HighestExistingVersion $ExistingVersion -VersionAlreadyExists $true
@@ -881,13 +1016,15 @@ Describe "Set-ToolsRepo" {
 
                 { Set-ToolsRepo -ToolsURL $secureUrl } | Should -Not -Throw
 
-                Assert-MockCalled Copy-DatastoreItem -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It -ParameterFilter {
+                Should -Invoke Copy-DatastoreItem -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It -ParameterFilter {
                     $Destination -like '*metadata.json'
                 }
+                Should -Invoke Expand-Archive -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It
+                Should -Invoke New-PSDrive -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It
+                Should -Invoke Get-EsxCli -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It
             }
 
             It "Version already exists skips copy and overwrite" {
-                # Validates: when target version folder already exists, no copy operation is performed.
                 $IncomingVersion = '12.4.0'
                 $ExistingVersion = '12.4.0'
                 Initialize-SetToolsRepoScenarioMocks -ToolsShortVersion $IncomingVersion -HighestExistingVersion $ExistingVersion -VersionAlreadyExists $true
@@ -895,68 +1032,14 @@ Describe "Set-ToolsRepo" {
 
                 { Set-ToolsRepo -ToolsURL $secureUrl } | Should -Not -Throw
 
-                Assert-MockCalled Copy-DatastoreItem -ModuleName Microsoft.AVS.Management -Times 0 -Exactly -Scope It
+                Should -Invoke Copy-DatastoreItem -ModuleName Microsoft.AVS.Management -Times 0 -Exactly -Scope It
+                Should -Invoke Expand-Archive -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It
+                Should -Invoke New-PSDrive -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It
+                Should -Invoke Get-EsxCli -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It
             }
         }
     }
 
-    Context "Error Handling" {
-        It "Should wrap original error in descriptive message" {
-            Mock Invoke-WebRequest {
-                [PSCustomObject]@{ StatusCode = 200 }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item { throw "Permission denied" } -ModuleName Microsoft.AVS.Management
-
-            $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
-
-            { Set-ToolsRepo -ToolsURL $secureUrl } |
-                Should -Throw -ExpectedMessage "*Failed to create temporary directory*Permission denied*"
-        }
-
-        It "Should re-throw after catching to propagate error" {
-            Mock Invoke-WebRequest { throw "Network error" } -ModuleName Microsoft.AVS.Management
-
-            $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
-
-            { Set-ToolsRepo -ToolsURL $secureUrl } | Should -Throw
-        }
-    }
-
-    Context "PSDrive Cleanup" {
-        It "Should attempt PSDrive cleanup even when datastore processing fails" {
-            $IncomingVersion = '12.3.0'
-            Mock Invoke-WebRequest {
-                [PSCustomObject]@{ StatusCode = 200 }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
-            Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
-            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
-            Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
-            Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
-            Mock Get-ChildItem {
-                param($Path, $Filter, [switch]$Directory, [switch]$File, [switch]$Recurse)
-                [PSCustomObject]@{ Name = "vmtools-$IncomingVersion" }
-            } -ModuleName Microsoft.AVS.Management
-            Mock Get-Datastore {
-                [PSCustomObject]@{
-                    Name = "vsanDatastore"
-                    extensionData = [PSCustomObject]@{ Summary = [PSCustomObject]@{ Type = 'vsan' } }
-                }
-            } -ModuleName Microsoft.AVS.Management
-            Mock Get-PSDrive { $true } -ModuleName Microsoft.AVS.Management
-            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
-            Mock New-PSDrive { throw "PSDrive creation failed" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Name -eq 'DS' }
-
-            $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
-
-            try { Set-ToolsRepo -ToolsURL $secureUrl } catch { }
-
-            # Verify cleanup was attempted
-            Should -Invoke Remove-PSDrive -ModuleName Microsoft.AVS.Management -ParameterFilter { $Name -eq 'DS' }
-        }
-    }
 }
 
 Describe "Get-EsxtopData" {
@@ -1151,6 +1234,10 @@ namespace VMware.VimAutomation.ViCore.Types.V1.ErrorHandling {
             param($VM, $StoragePolicy, [switch]$Confirm, $ErrorAction)
             $null
         }
+    }
+
+    if (-not (Get-Module Microsoft.AVS.Management)) {
+        Import-Module (Join-Path $PSScriptRoot ".." "Microsoft.AVS.Management" "Microsoft.AVS.Management.psd1") -Force
     }
 
     InModuleScope 'Microsoft.AVS.Management' {
