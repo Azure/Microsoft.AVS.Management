@@ -906,7 +906,7 @@ function Set-ToolsRepo {
                 Write-Warning "Datastores with metadata out of sync or validation failure: $($failedDatastores -join ', ')"
             }
 
-            if ($failedDatastores.Count -eq $datastores.Count) {
+            if ($failedDatastores.Count -eq @($datastores).Count) {
                 throw "Validation failed for all datastores"
             }
 
@@ -1215,7 +1215,7 @@ function Set-ToolsRepo {
             Write-Warning "Failed datastores: $($failedDatastores -join ', ')"
         }
 
-        if ($failedDatastores.Count -eq $datastores.Count) {
+        if ($failedDatastores.Count -eq @($datastores).Count) {
             throw "Failed to process any datastores successfully"
         }
     } catch {
