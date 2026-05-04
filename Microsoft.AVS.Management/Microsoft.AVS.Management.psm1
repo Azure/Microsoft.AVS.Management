@@ -633,10 +633,6 @@ function Set-ToolsRepo {
         [switch]$Validate
     )
 
-    # Convert SecureString to plain text for use with web requests
-    # Only used in upload mode (non-validate path).
-    $ToolsURLPlain = $null
-
     # Initialize variables
     $new_folder = 'GuestStore'
     $archive_path = '/vmware/apps/vmtools/windows64/'
