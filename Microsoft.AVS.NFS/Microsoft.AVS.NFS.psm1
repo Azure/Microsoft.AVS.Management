@@ -290,7 +290,7 @@ function Get-NFSDatastoreNConnectValue {
         throw "Failed to query all hosts in cluster '$ClusterName'. Check hosts connectivity."
     }
 
-    Write-Host $NamedOutputs | ConvertTo-Json -Depth 10
+    Write-Host ($NamedOutputs | ConvertTo-Json -Depth 10)
 
     Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
     Write-Host " "
