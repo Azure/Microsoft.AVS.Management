@@ -1,6 +1,6 @@
 # AVS Run Command — Scripting Guidelines
 
-Guidelines for Microsoft and third-party PowerShell developers building features for the [AVS Run Command](https://learn.microsoft.com/en-us/azure/azure-vmware/using-run-command) platform. Scripts run on **PowerShell 7.4+** with **VMware PowerCLI** in a **Linux container** environment (PSEdition `Core` only). AVS scripting is exposed as a standard [ARM resource](https://github.com/Azure/azure-rest-api-specs/blob/master/specification/vmware/resource-manager/Microsoft.AVS/stable/2021-06-01/vmware.json) — vendors should familiarize themselves with the capabilities available.
+Guidelines for Microsoft and third-party PowerShell developers building features for the [AVS Run Command](https://learn.microsoft.com/en-us/azure/azure-vmware/using-run-command) platform. Scripts run on **PowerShell 7.6+** with **VMware PowerCLI** in an **[Azure Linux 3.0 distroless/minimal](https://mcr.microsoft.com/azurelinux/distroless/minimal:3.0) container** environment (PSEdition `Core` only). AVS scripting is exposed as a standard [ARM resource](https://github.com/Azure/azure-rest-api-specs/blob/master/specification/vmware/resource-manager/Microsoft.AVS/stable/2021-06-01/vmware.json) — vendors should familiarize themselves with the capabilities available.
 
 ## Table of Contents
 
@@ -20,6 +20,8 @@ Guidelines for Microsoft and third-party PowerShell developers building features
 ## 1. Runtime Environment
 
 Microsoft imports vendor PowerShell packages, verifies conformance to AVS Run Command constraints, and makes them available for execution in AVS regions. The sections below describe what the platform provides before your script starts.
+
+> **Azure Linux 3.0 distroless/minimal**: The container base image is [Azure Linux 3.0 distroless/minimal](https://mcr.microsoft.com/azurelinux/distroless/minimal:3.0). This image includes only the PowerShell runtime and essential libraries — common OS tools (e.g., `curl`, `tar`, `awk`) are **not** available. Scripts must use pure PowerShell cmdlets instead of shelling out to OS utilities. If your scripts rely on external binaries, contact the AVS team to discuss options.
 
 ### 1.1 Pre-Established Sessions
 
@@ -79,7 +81,7 @@ Network access differs between AVS Gen 1 and Gen 2 SDDCs:
 - **Serialized execution**: scripts execute one at a time for safety.
 - **SDDC state**: executing against an SDDC in the `Updating` state results in an error. A script can set the SDDC state to `Updating` via `AVSAttribute` (see [Required Attributes](#31-required-attributes)).
 - **Timeout**: default is 30 minutes; maximum is 60 minutes. Authors can override this per-cmdlet via `AVSAttribute`. AVS terminates scripts that exceed their timeout.
-- **No child processes**: Use PowerShell-native facilities.
+- **No child processes**: Use PowerShell-native facilities. The distroless/minimal container image does not include common OS tools — use PowerShell-native alternatives.
 - **Review**: AVS reviews all scripts before making them available. Script authors are expected to provide support during this process.
 
 ---
@@ -94,7 +96,7 @@ The module manifest (`.psd1`) must include:
 
 | Field | Value |
 |-------|-------|
-| `PowerShellVersion` | `'7.4'` |
+| `PowerShellVersion` | `'7.6'` |
 | `FunctionsToExport` | Explicit list of public functions |
 | `ProjectUri` | Product support landing page for AVS customers |
 
@@ -103,7 +105,37 @@ The module manifest (`.psd1`) must include:
 - Vendor packages **must** list the latest version of [Microsoft.AVS.Management](https://www.powershellgallery.com/packages/Microsoft.AVS.Management) as a [dependency](https://docs.microsoft.com/en-us/nuget/reference/nuspec#dependencies).
 - Add any other required modules (e.g., `VMware.VimAutomation.Core`).
 
-> **IMPORTANT**: Test your package using a Linux [PowerShell container](https://hub.docker.com/_/microsoft-powershell), connecting to your on-prem datacenter. Install **only** your package from PS Gallery to verify all dependencies are correctly declared.
+> **Recommended**: Use [PSResourceGet](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.psresourceget/) (`Install-PSResource`) as the package manager for installing and managing module dependencies. PSResourceGet ships with PowerShell 7.6 and provides correct, secure dependency resolution.
+
+> **IMPORTANT**: Test your package using an Azure Linux 3.0 [PowerShell container](#82-testing-in-a-linux-container), connecting to your on-prem datacenter. Install **only** your package from PS Gallery to verify all dependencies are correctly declared.
+
+#### Conservative Dependency Resolver (CDR)
+
+[Microsoft.AVS.CDR](https://www.powershellgallery.com/packages/Microsoft.AVS.CDR) pins transitive dependencies to known-good versions, preventing backward-compatibility breaks (e.g., PowerCLI 13.4 breaking 13.3). CDR ships with redirect maps for each supported `Microsoft.AVS.Management` major version.
+
+Use CDR instead of plain `Install-PSResource` / `Import-Module` when your package depends on PowerCLI or other modules with fragile transitive dependency trees:
+
+| CDR Cmdlet | Purpose |
+|------------|----------|
+| `Install-PSResourcePinned` | Install a module with all transitive dependencies pinned to exact versions |
+| `Import-ModulePinned` | Import a module after pre-loading all transitive dependencies at exact versions |
+| `Install-PSResourceDependencies` | Resolve and install all dependencies declared in a module manifest (`.psd1`) |
+| `Import-PSResourceDependencies` | Import all manifest dependencies in topological order with pinned versions |
+| `Find-PSResourceDependencies` | Resolve manifest dependencies without installing — useful for dry-run validation |
+
+```powershell
+# Install your module's dependencies using CDR
+Install-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
+
+# Import dependencies in the correct order at pinned versions
+Import-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
+
+# Or install/import a single module with pinned transitive deps
+Install-PSResourcePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0"
+Import-ModulePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0"
+```
+
+CDR automatically loads the appropriate redirect map from its `maps/` directory based on the `Microsoft.AVS.Management` version in your dependency chain. You can also supply a custom redirect map via `-RedirectMapPath`.
 
 ### 2.3 Versioning
 
@@ -443,11 +475,19 @@ The final QA cycle before requesting AVS review:
 
 1. Publish the package with `-dev` version suffix.
 2. Get on a Linux jumpbox connected to your SDDC VNet.
-3. Spin up a PowerShell container: `mcr.microsoft.com/powershell:7.4-alpine-3.17`
+3. Spin up a PowerShell container based on Azure Linux 3.0 distroless/minimal: `mcr.microsoft.com/azurelinux/distroless/minimal:3.0` with PowerShell 7.6 installed.
 4. In the container:
-   - Install **only** your package from PS Gallery — this verifies all dependencies are correctly declared.
+   - Install `Microsoft.AVS.CDR` and use `Install-PSResourceDependencies` to install your package's dependencies with pinned versions — this verifies all dependencies are correctly declared and avoids transitive version conflicts.
    - Set up the context.
    - Test all lifecycle cmdlets.
+   - Verify that your scripts do not rely on OS tools absent from the distroless image.
+
+```powershell
+# Example: install and validate dependencies in a test container
+Install-PSResource -Name Microsoft.AVS.CDR -TrustRepository
+Install-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
+Import-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
+```
 
 ### 8.3 CI Testing
 
