@@ -8,7 +8,6 @@ if (-not $SkipPrereq) {
     $requiredModules = @(
         @{ Name = "PSScriptAnalyzer"; Version = "1.21.0" }
         @{ Name = "Pester"; Version = "5.7.1" }
-        @{ Name = "Microsoft.PowerShell.PSResourceGet"; Version = "1.2.0-rc1" }
     )
     foreach ($module in $requiredModules) {
         Write-Host "Installing $($module.Name)@$($module.Version) ...."

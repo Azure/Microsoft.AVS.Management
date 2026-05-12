@@ -21,9 +21,11 @@ stages:
 
     - pwsh: |
         dotnet tool install AVS.ScriptingMetadata.Shuttle `
-            --tool-path shuttle `
-            --version $(shuttleVersion) `
-            --add-source $(consumptionFeedUrl)/nuget/v3/index.json
+          --tool-path shuttle `
+          --version $(shuttleVersion) `
+          --add-source $(consumptionFeedUrl)/nuget/v3/index.json
+        dotnet tool update -g powershell --version $(PS_VERSION)
+          ln -s /opt/microsoft/powershell/7/Modules/* ~/.local/share/powershell/Modules
         .build-tools/registerSources.ps1 $(consumptionFeedUrl) $(destination)
         .build-tools/getRequiredModules.ps1 '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
       displayName: 'Restore Dependencies for ${{ parameters.moduleFolderName }}'

@@ -24,3 +24,4 @@ variables:
   consumptionFeedUrl: 'https://pkgs.dev.azure.com/avs-oss/Public/_packaging/PS-Consumption'
   previewFeedUrl: 'https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools'
   NUGET_PLUGIN_PATHS: "/root/.nuget/plugins/netcore/CredentialProvider.Microsoft/CredentialProvider.Microsoft.dll"
+  PS_VERSION: '7.6.0'

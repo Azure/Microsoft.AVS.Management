@@ -37,7 +37,9 @@ stages:
           --tool-path shuttle `
           --version $(shuttleVersion) `
           --add-source $(consumptionFeedUrl)/nuget/v3/index.json
-      displayName: Prepare shuttle
+        dotnet tool update -g powershell --version $(PS_VERSION)
+          ln -s /opt/microsoft/powershell/7/Modules/* ~/.local/share/powershell/Modules
+      displayName: Prepare tools
 
     - pwsh: |
         .build-tools/registerSources.ps1 $(consumptionFeedUrl) $(previewFeedUrl)
