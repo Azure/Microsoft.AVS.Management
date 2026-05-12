@@ -20,12 +20,17 @@ stages:
     - task: NuGetAuthenticate@1
 
     - pwsh: |
+        dotnet tool update -g powershell `
+          --version $(PS_VERSION) `
+          --add-source $(consumptionFeedUrl)
+
         dotnet tool install AVS.ScriptingMetadata.Shuttle `
           --tool-path shuttle `
           --version $(shuttleVersion) `
-          --add-source $(consumptionFeedUrl)/nuget/v3/index.json
-        dotnet tool update -g powershell --version $(PS_VERSION)
-          ln -s /opt/microsoft/powershell/7/Modules/* ~/.local/share/powershell/Modules
+          --add-source $(consumptionFeedUrl)
+      displayName: Prepare tools
+
+    - pwsh: |
         .build-tools/registerSources.ps1 $(consumptionFeedUrl) $(destination)
         .build-tools/getRequiredModules.ps1 '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
       displayName: 'Restore Dependencies for ${{ parameters.moduleFolderName }}'
@@ -49,6 +54,7 @@ stages:
       displayName: 'Test publish'
 
     - pwsh: |
+        $env:PSModulePath = "$(System.DefaultWorkingDirectory):$env:PSModulePath"
         echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)" > shuttle/baseline
         shuttle/shuttle generate
       env:

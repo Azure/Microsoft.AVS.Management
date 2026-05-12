@@ -24,5 +24,5 @@ else
     $cdr = Join-Path $PSScriptRoot "../Microsoft.AVS.CDR"
     import-module $cdr -Verbose
 
-    Install-PSResourceDependencies -ManifestPath $psdPath -Repository ConsumptionV3 -Verbose
+    Install-PSResourceDependencies -ManifestPath $psdPath -Repository Consumption -Verbose
 }

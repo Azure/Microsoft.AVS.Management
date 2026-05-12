@@ -28,7 +28,7 @@ function update-moduleversion {
 }
 
 function replicate-package ([string]$name, [string]$version, [string]$packagePath, [PSCredential]$credential) {
-    $existing = Find-PSResource -Repository PreviewV3 -Name $name -Version $version -Prerelease -ErrorAction SilentlyContinue -Credential $credential
+    $existing = Find-PSResource -Repository Preview -Name $name -Version $version -Prerelease -ErrorAction SilentlyContinue -Credential $credential
     
     if ($null -ne $existing) {
         Write-Output "$name@$version already in the feed, skipping"
@@ -36,14 +36,14 @@ function replicate-package ([string]$name, [string]$version, [string]$packagePat
     }
     
     Write-Output "Saving $name@$version..."
-    Save-PSResource -Name $name -Version $version -Path $packagePath -Repository ConsumptionV3 -Credential $credential -TrustRepository -SkipDependencyCheck -AsNupkg
+    Save-PSResource -Name $name -Version $version -Path $packagePath -Repository Consumption -Credential $credential -TrustRepository -SkipDependencyCheck -AsNupkg
     
     $expectedFileName = "$name.$version.nupkg"
     $pkg = Get-ChildItem -Path $packagePath -Filter $expectedFileName | Select-Object -First 1
     
     if ($pkg) {
         Write-Output "Publishing $($pkg.Name) to preview feed..."
-        Publish-PSResource -NupkgPath $pkg.FullName -Repository PreviewV3 -ApiKey "key"  -Credential $credential
+        Publish-PSResource -NupkgPath $pkg.FullName -Repository Preview -ApiKey "key"  -Credential $credential
     }
 }
 
@@ -62,7 +62,7 @@ New-Item -ItemType Directory -Path $packagePath -Force | Out-Null
 
 try {
     # Use CDR to find and resolve all required modules with conservative dependency resolution
-    $allPackages = Find-PSResourceDependencies -ManifestPath $absolutePathToManifest -Repository ConsumptionV3 -Credential $c
+    $allPackages = Find-PSResourceDependencies -ManifestPath $absolutePathToManifest -Repository Consumption -Credential $c
     
     Write-Output "Found $($allPackages.Count) total packages (including transitive dependencies)"
     
@@ -71,7 +71,7 @@ try {
     }
     
     # Publish the main module
-    Publish-PSResource -Path $moduleName -Repository PreviewV3 -ApiKey "key"  -Credential $c
+    Publish-PSResource -Path $moduleName -Repository Preview -ApiKey "key"  -Credential $c
     
     $version = if ([String]::IsNullOrWhiteSpace($manifest.PrivateData.PSData.Prerelease)) {
         $manifest.ModuleVersion.ToString()
@@ -82,10 +82,10 @@ try {
     $isRemoteFeed = $previewFeed -match '^https?://'
     if ($isRemoteFeed) {
         Write-Output "Verifying installation of $moduleName@$version..."
-        Install-PSResourcePinned -Name $moduleName -RequiredVersion $version -Prerelease -Repository PreviewV3 -Credential $c
+        Install-PSResourcePinned -Name $moduleName -RequiredVersion $version -Prerelease -Repository Preview -Credential $c
     } else {
         Write-Output "Verifying installation of $moduleName@$version (local folder, skipping dependencies)..."
-        Install-PSResource -Name $moduleName -Version $version -Repository PreviewV3 -SkipDependencyCheck -TrustRepository
+        Install-PSResource -Name $moduleName -Version $version -Repository Preview -SkipDependencyCheck -TrustRepository
     }
 }
 finally {

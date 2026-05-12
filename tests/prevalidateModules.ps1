@@ -74,7 +74,7 @@ if (Test-Path $pesterTestFile) {
     
     $env:SKIP_INTEGRATION_TESTS = 'false'
     $Global:FeedSettings = @{ 
-        Repository = "ConsumptionV3"
+        Repository = "Consumption"
     }
     
     $pesterConfig = New-PesterConfiguration
