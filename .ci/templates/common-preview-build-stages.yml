@@ -32,23 +32,12 @@ stages:
           Write-Host "##vso[task.setvariable variable=accessToken;issecret=true]$accessToken"
       displayName: Login to Azure
 
-    - task: AzureCLI@2
-      inputs:
-        azureSubscription: Scripting Metadata
-        scriptLocation: 'inlineScript'
-        scriptType: 'pscore'
-        inlineScript: |
-          az artifacts universal download `
-            --organization $(consumptionAuthority) `
-            --project=$(consumptionProject) `
-            --scope project `
-            --feed $(consumptionFeed) `
-            --name shuttle `
-            --version $(shuttleVersion) `
-            --path shuttle          
+    - pwsh: |
+        dotnet tool install AVS.ScriptingMetadata.Shuttle `
+          --tool-path shuttle `
+          --version $(shuttleVersion) `
+          --add-source $(consumptionFeedUrl)/nuget/v3/index.json
       displayName: Prepare shuttle
-      env:
-        AZURE_DEVOPS_EXT_PAT: $(accessToken)
 
     - pwsh: |
         .build-tools/registerSources.ps1 $(consumptionFeedUrl) $(previewFeedUrl)
@@ -88,7 +77,7 @@ stages:
 
     - pwsh: |
         echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)-dev" > shuttle/baseline
-        dotnet shuttle/Shuttle.dll generate
+        shuttle/shuttle generate
       env:
         AZURE_DEVOPS_EXT_PAT: $(accessToken)
         METADATA: $(metadataAuthority)/$(metadataProject)/_artifacts/feed/$(metadataFeed)

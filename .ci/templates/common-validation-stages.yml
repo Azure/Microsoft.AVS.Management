@@ -20,14 +20,10 @@ stages:
     - task: NuGetAuthenticate@1
 
     - pwsh: |
-        az artifacts universal download `
-            --organization $(consumptionAuthority) `
-            --project=$(consumptionProject) `
-            --scope project `
-            --feed $(consumptionFeed) `
-            --name shuttle `
+        dotnet tool install AVS.ScriptingMetadata.Shuttle `
+            --tool-path shuttle `
             --version $(shuttleVersion) `
-            --path shuttle          
+            --add-source $(consumptionFeedUrl)/nuget/v3/index.json
         .build-tools/registerSources.ps1 $(consumptionFeedUrl) $(destination)
         .build-tools/getRequiredModules.ps1 '$(System.AccessToken)' '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
       displayName: 'Restore Dependencies for ${{ parameters.moduleFolderName }}'
@@ -55,7 +51,7 @@ stages:
 
     - pwsh: |
         echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)" > shuttle/baseline
-        dotnet shuttle/Shuttle.dll generate
+        shuttle/shuttle generate
       env:
         METADATA: uri://console
       displayName: 'Generate metadata'
