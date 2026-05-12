@@ -41,7 +41,7 @@ stages:
 
     - pwsh: |
         .build-tools/registerSources.ps1 $(consumptionFeedUrl) $(previewFeedUrl)
-        .build-tools/getRequiredModules.ps1 '$(accessToken)' '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
+        .build-tools/getRequiredModules.ps1 '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
       displayName: 'Restore Dependencies for ${{ parameters.moduleFolderName }}'
 
     - task: PowerShell@2
@@ -50,7 +50,6 @@ stages:
         filePath: tests/prevalidateModules.ps1
         arguments: >
           "${{ parameters.moduleFolderName }}"
-          "$(accessToken)"
         pwsh: true
 
     - task: PowerShell@2
@@ -79,7 +78,7 @@ stages:
         echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)-dev" > shuttle/baseline
         shuttle/shuttle generate
       env:
-        AZURE_DEVOPS_EXT_PAT: $(accessToken)
         METADATA: $(metadataAuthority)/$(metadataProject)/_artifacts/feed/$(metadataFeed)
+        DATAPATH: $(System.DefaultWorkingDirectory)/shuttle
       displayName: 'Generate metadata'
       condition: eq(${{ parameters.genMetadata }}, true)

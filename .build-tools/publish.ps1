@@ -1,6 +1,6 @@
 #!/usr/bin/pwsh
 param (
-    [string]$accessToken,
+    [Parameter(Mandatory=$true)][string]$accessToken,
     [Parameter(Mandatory=$true)][string]$absolutePathToManifest,
     [Parameter(Mandatory=$true)][string]$buildNumber,
     [Parameter(Mandatory=$true)][string]$previewFeed,
