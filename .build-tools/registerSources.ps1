@@ -5,8 +5,7 @@ param (
 )
 Unregister-PSResourceRepository -Name PSGallery -ErrorAction SilentlyContinue
 
-Register-PSResourceRepository -Name Consumption -Trusted -Uri "$consumptionFeed/nuget/v2"
-Register-PSResourceRepository -Name ConsumptionV3 -Trusted -Uri "$consumptionFeed/nuget/v3/index.json"
+Register-PSResourceRepository -Name Consumption -Trusted -Uri "$consumptionFeed"
 
 # if preview feed is a temp folder
 [Uri]$uri = $null
@@ -16,9 +15,9 @@ if( [Uri]::TryCreate($previewFeed, [UriKind]::Absolute, [ref]$uri) -eq $false) {
 
 if ($uri.IsFile) {
     New-Item -ItemType Directory -Force -Path $previewFeed -ErrorAction SilentlyContinue
-    Register-PSResourceRepository -Name PreviewV3 -Trusted -Uri $previewFeed -ErrorAction SilentlyContinue
+    Register-PSResourceRepository -Name Preview -Trusted -Uri $previewFeed -ErrorAction SilentlyContinue
 } else {
-    Register-PSResourceRepository -Name PreviewV3 -Trusted -Uri "$previewFeed/nuget/v3/index.json" -ErrorAction SilentlyContinue
+    Register-PSResourceRepository -Name Preview -Trusted -Uri "$previewFeed" -ErrorAction SilentlyContinue
 }
 
 Write-Host "Registered repositories:"

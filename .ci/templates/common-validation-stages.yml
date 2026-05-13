@@ -20,19 +20,20 @@ stages:
     - task: NuGetAuthenticate@1
 
     - pwsh: |
-        az artifacts universal download `
-            --organization $(consumptionAuthority) `
-            --project=$(consumptionProject) `
-            --scope project `
-            --feed $(consumptionFeed) `
-            --name shuttle `
-            --version $(shuttleVersion) `
-            --path shuttle          
+        dotnet tool update -g powershell `
+          --version $(PS_VERSION) `
+          --add-source $(consumptionFeedUrl)
+
+        dotnet tool install AVS.ScriptingMetadata.Shuttle `
+          --tool-path shuttle `
+          --version $(shuttleVersion) `
+          --add-source $(consumptionFeedUrl)
+      displayName: Prepare tools
+
+    - pwsh: |
         .build-tools/registerSources.ps1 $(consumptionFeedUrl) $(destination)
-        .build-tools/getRequiredModules.ps1 '$(System.AccessToken)' '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
+        .build-tools/getRequiredModules.ps1 '${{ parameters.moduleFolderName }}/${{ parameters.moduleFolderName }}.psd1'
       displayName: 'Restore Dependencies for ${{ parameters.moduleFolderName }}'
-      env:
-        AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
 
     - task: PowerShell@2
       displayName: 'Pre-Validate Module and Scripts for ${{ parameters.moduleFolderName }}'
@@ -40,7 +41,6 @@ stages:
         filePath: 'tests/prevalidateModules.ps1'
         arguments: >
           "${{ parameters.moduleFolderName }}"
-          "$(System.AccessToken)"
         pwsh: true
 
     - task: PowerShell@2
@@ -54,9 +54,11 @@ stages:
       displayName: 'Test publish'
 
     - pwsh: |
+        $env:PSModulePath = "$(System.DefaultWorkingDirectory):$env:PSModulePath"
         echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)" > shuttle/baseline
-        dotnet shuttle/Shuttle.dll generate
+        shuttle/shuttle generate
       env:
         METADATA: uri://console
+        DATAPATH: $(System.DefaultWorkingDirectory)/shuttle
       displayName: 'Generate metadata'
       condition: eq(${{ parameters.genMetadata }}, true)
