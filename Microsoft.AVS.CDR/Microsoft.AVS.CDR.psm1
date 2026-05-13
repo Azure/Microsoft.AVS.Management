@@ -251,7 +251,137 @@ function Get-MergedRedirectMap {
 
 <#
 .SYNOPSIS
+    Fallback module lookup via NuGet v3 registration endpoint when Find-PSResource fails.
+.DESCRIPTION
+    When the NuGet search endpoint is broken (e.g. upstream PSGallery returning 500s),
+    Find-PSResource returns nothing even for cached packages. This function queries the
+    NuGet v3 registration endpoint directly, which serves cached metadata without
+    hitting upstream sources.
+.OUTPUTS
+    PSCustomObject with Name, Version, Dependencies, Repository — or $null on failure.
+#>
+function Find-PSResourceViaRegistration {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Version,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Repository,
+
+        [Parameter(Mandatory = $false)]
+        [PSCredential]$Credential
+    )
+
+    try {
+        $repo = Get-PSResourceRepository -Name $Repository -ErrorAction Stop
+        $repoUri = $repo.Uri.ToString()
+
+        # Derive v3 service index URL
+        if ($repoUri -like '*/v3/index.json') {
+            $indexUrl = $repoUri
+        } elseif ($repoUri -like '*/v2') {
+            $indexUrl = $repoUri.Replace('/v2', '/v3/index.json')
+        } else {
+            Write-Verbose "Cannot derive v3 index URL from $repoUri"
+            return $null
+        }
+
+        # Build auth headers (ADO feeds use Basic auth with PSCredential)
+        $headers = @{}
+        if ($Credential) {
+            $username = $Credential.UserName
+            $password = $Credential.GetNetworkCredential().Password
+            $bytes = [System.Text.Encoding]::ASCII.GetBytes("${username}:${password}")
+            $headers['Authorization'] = "Basic $([Convert]::ToBase64String($bytes))"
+        }
+
+        # Discover registration base URL from NuGet v3 service index
+        $serviceIndex = Invoke-RestMethod -Uri $indexUrl -Headers $headers -TimeoutSec 15 -ErrorAction Stop
+        $registrationResource = $serviceIndex.resources |
+            Where-Object { $_.'@type' -like 'RegistrationsBaseUrl*' } |
+            Sort-Object { if ($_.'@type' -match 'Versioned') { 1 } else { 0 } } |
+            Select-Object -First 1
+
+        if (-not $registrationResource) {
+            Write-Verbose "No RegistrationsBaseUrl found in service index"
+            return $null
+        }
+
+        $registrationBase = $registrationResource.'@id'.TrimEnd('/')
+        $packageId = $Name.ToLowerInvariant()
+        $registrationUrl = "${registrationBase}/${packageId}/index.json"
+
+        Write-Verbose "Registration fallback: querying $registrationUrl"
+        $registration = Invoke-RestMethod -Uri $registrationUrl -Headers $headers -TimeoutSec 15 -ErrorAction Stop
+
+        # Search through registration pages for the target version
+        $catalogEntry = $null
+        foreach ($page in $registration.items) {
+            $pageItems = $page.items
+            # Pages may not inline items — fetch if needed
+            if (-not $pageItems -and $page.'@id') {
+                try {
+                    $pageData = Invoke-RestMethod -Uri $page.'@id' -Headers $headers -TimeoutSec 15 -ErrorAction Stop
+                    $pageItems = $pageData.items
+                } catch {
+                    Write-Verbose "Failed to fetch registration page: $($_.Exception.Message)"
+                    continue
+                }
+            }
+
+            if (-not $pageItems) { continue }
+
+            foreach ($item in $pageItems) {
+                $entry = $item.catalogEntry
+                if ($entry -and ($entry.version -eq $Version)) {
+                    $catalogEntry = $entry
+                    break
+                }
+            }
+            if ($catalogEntry) { break }
+        }
+
+        if (-not $catalogEntry) {
+            Write-Verbose "Version $Version not found in registration for $Name"
+            return $null
+        }
+
+        # Convert NuGet dependency groups to the shape expected by Build-RemoteDependencyGraph
+        $dependencies = @()
+        if ($catalogEntry.dependencyGroups) {
+            foreach ($group in $catalogEntry.dependencyGroups) {
+                if ($group.dependencies) {
+                    foreach ($dep in $group.dependencies) {
+                        $dependencies += [PSCustomObject]@{
+                            Name         = $dep.id
+                            VersionRange = $dep.range
+                        }
+                    }
+                }
+            }
+            $dependencies = $dependencies | Sort-Object Name -Unique
+        }
+
+        Write-Verbose "Registration fallback found $Name@$Version with $($dependencies.Count) dependencies"
+        return [PSCustomObject]@{
+            Name         = $Name
+            Version      = [version]($Version -replace '-.*$', '')
+            Dependencies = $dependencies
+            Repository   = $Repository
+        }
+    } catch {
+        Write-Verbose "Registration fallback failed for ${Name}@${Version}: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+<#
+.SYNOPSIS
     Builds a dependency graph by recursively querying a remote repository via Find-PSResource.
+    Falls back to NuGet v3 registration endpoint if Find-PSResource returns nothing.
 #>
 function Build-RemoteDependencyGraph {
     param(
@@ -305,6 +435,12 @@ function Build-RemoteDependencyGraph {
     
     Write-Verbose "Looking for dependencies: $ModuleName version $ModuleVersion"
     $moduleInfo = Find-PSResource @findParams -ErrorAction SilentlyContinue | Select-Object -First 1
+    
+    # Fallback: if search endpoint failed (e.g. broken upstream), try NuGet v3 registration directly
+    if (-not $moduleInfo -and $Repository) {
+        Write-Verbose "${indent}Find-PSResource returned nothing, trying NuGet v3 registration fallback..."
+        $moduleInfo = Find-PSResourceViaRegistration -Name $ModuleName -Version $ModuleVersion -Repository $Repository -Credential $Credential
+    }
     
     $notFound = $false
     if (-not $moduleInfo) {
