@@ -78,7 +78,7 @@ stages:
 
     - pwsh: |
         $env:PSModulePath = "$(System.DefaultWorkingDirectory):$env:PSModulePath"
-        echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)-dev" > shuttle/baseline
+        echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)-preview" > shuttle/baseline
         shuttle/shuttle generate
       env:
         METADATA: $(metadataAuthority)/$(metadataProject)/_artifacts/feed/$(metadataFeed)
