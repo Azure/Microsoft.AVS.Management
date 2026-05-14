@@ -1776,7 +1776,7 @@ Describe "Save-PSResourcePinned" {
             @{ "DepModule@2.0.0" = "2.0.0" } | ConvertTo-Json | Set-Content $redirectMapPath
             
             Save-PSResourcePinned -Name "TestModule" -RequiredVersion "1.0.0" `
-                -Path $script:testSavePath -RedirectMapPath $redirectMapPath
+                -Path $script:testSavePath -RedirectMapPath $redirectMapPath -AsNupkg
             
             # Only main module should be saved, dependency already exists
             $script:savedModules | Should -Contain "TestModule"
@@ -1800,7 +1800,7 @@ Describe "Save-PSResourcePinned" {
         It "Should save a module with exact version as nupkg" {
             try {
                 Save-PSResourcePinned -Name $script:PSAnalyser.Name -RequiredVersion $script:PSAnalyser.Version `
-                    -Path $script:testSavePath -Repository $script:repository -Credential $script:credential
+                    -Path $script:testSavePath -Repository $script:repository -Credential $script:credential -AsNupkg
                 
                 $expectedFile = Join-Path $script:testSavePath "$($script:PSAnalyser.Name).$($script:PSAnalyser.Version).nupkg"
                 Test-Path $expectedFile | Should -BeTrue
