@@ -81,6 +81,7 @@ stages:
         echo "+ ${{ parameters.moduleFolderName }}@$(moduleVersion)-preview" > shuttle/baseline
         shuttle/shuttle generate
       env:
+        AZURE_DEVOPS_EXT_PAT: $(accessToken)
         METADATA: $(metadataAuthority)/$(metadataProject)/_artifacts/feed/$(metadataFeed)
         DATAPATH: $(System.DefaultWorkingDirectory)/shuttle
       displayName: 'Generate metadata'
