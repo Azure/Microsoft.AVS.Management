@@ -732,6 +732,48 @@ Describe "Import-ModulePinned" {
             Get-Module -Name $testModuleName -ErrorAction SilentlyContinue | Remove-Module -Force
         }
     }
+
+    Context "Prerelease Version Handling" {
+        # Verify Import-ModulePinned can resolve and import an installed prerelease
+        # module when the caller passes the full prerelease version string
+        # (e.g. "1.0.0-preview"). Mocks Get-PSResource / Get-Module / Import-Module
+        # so the test runs without touching real package feeds.
+        It "Should import a module installed as prerelease when given the full prerelease version" {
+            InModuleScope Microsoft.AVS.CDR {
+                $modName = "TestPrereleaseModule"
+                $baseVersion = "1.0.0"
+                $prereleaseSuffix = "preview"
+                $fullVersion = "$baseVersion-$prereleaseSuffix"
+
+                # Mimic real Get-PSResource: -Version "1.0.0-preview" matches the
+                # installed prerelease; -Version "1.0.0" (release) does not.
+                Mock Get-PSResource {
+                    param($Name, $Version)
+                    if ($Name -ne $modName) { return $null }
+                    if ([string]::IsNullOrEmpty($Version) -or $Version -eq $fullVersion) {
+                        return [PSCustomObject]@{
+                            Name              = $modName
+                            Version           = [version]$baseVersion
+                            Prerelease        = $prereleaseSuffix
+                            InstalledLocation = "/tmp/modules"
+                            Dependencies      = @()
+                        }
+                    }
+                    return $null
+                }
+
+                Mock Get-Module { }
+                Mock Import-Module {
+                    param($Name, $RequiredVersion)
+                    [PSCustomObject]@{ Name = $Name; Version = [version]$RequiredVersion }
+                } -ParameterFilter { $Name -eq $modName }
+
+                { Import-ModulePinned -Name $modName -RequiredVersion $fullVersion } | Should -Not -Throw
+
+                Should -Invoke Import-Module -Times 1 -ParameterFilter { $Name -eq $modName }
+            }
+        }
+    }
 }
 
 Describe "Module Manifest" {

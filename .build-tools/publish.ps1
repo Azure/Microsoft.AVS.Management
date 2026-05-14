@@ -82,7 +82,7 @@ try {
     $isRemoteFeed = $previewFeed -match '^https?://'
     if ($isRemoteFeed) {
         Write-Output "Verifying installation of $moduleName@$version..."
-        Install-PSResourcePinned -Name $moduleName -RequiredVersion $version -Prerelease -Repository Preview -Credential $c
+        Install-PSResourcePinned -Name $moduleName -RequiredVersion $version -Prerelease -Force -Repository Preview -Credential $c
     } else {
         Write-Output "Verifying installation of $moduleName@$version (local folder, skipping dependencies)..."
         Install-PSResource -Name $moduleName -Version $version -Repository Preview -SkipDependencyCheck -TrustRepository
