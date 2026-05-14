@@ -9,7 +9,7 @@
 @{
     RootModule = 'Microsoft.AVS.CDR.psm1'
 
-    ModuleVersion = '1.0.1'
+    ModuleVersion = '2.0.0'
 
     # CompatiblePSEditions = @()
 
