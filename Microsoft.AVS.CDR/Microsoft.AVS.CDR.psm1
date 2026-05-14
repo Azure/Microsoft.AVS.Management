@@ -495,7 +495,7 @@ function Resolve-DiamondDependencies {
     foreach ($nodeKey in $Graph.Keys) {
         $node = $Graph[$nodeKey]
         if ($node.NotFound) {
-            throw "Module not found in repository: $($node.Name) version $($node.Version). No alternative version available to satisfy the dependency."
+            throw "Module not found: $($node.Name) version $($node.Version). No alternative version available to satisfy the dependency."
         }
     }
 }
