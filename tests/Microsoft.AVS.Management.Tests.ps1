@@ -164,6 +164,7 @@ Describe "Set-ToolsRepo" {
             } -ModuleName Microsoft.AVS.Management
             Mock Get-PSDrive { [PSCustomObject]@{ Name = 'DS'; Root = 'DS:/' } } -ModuleName Microsoft.AVS.Management
             Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+            Mock Remove-Item { } -ModuleName Microsoft.AVS.Management
             Mock New-PSDrive { throw "PSDrive creation failed" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Name -eq 'DS' }
 
             $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
@@ -686,6 +687,7 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
             Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
+            Mock Remove-Item { } -ModuleName Microsoft.AVS.Management
             Mock Test-Path {
                 param($Path)
                 if ($Path -like '*windows64') {
