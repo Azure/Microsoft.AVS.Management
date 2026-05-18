@@ -594,6 +594,67 @@ Describe "Set-ToolsRepo" {
         }
     }
 
+    Context "Temp Cleanup Guard" {
+        It "Should remove temp directory when cleanup path passes safety guard" {
+            $tempRoot = [System.IO.Path]::GetTempPath()
+            $cleanupPath = Join-Path -Path $tempRoot -ChildPath "newtools_test_cleanup"
+
+            Mock Invoke-WebRequest {
+                [PSCustomObject]@{ StatusCode = 200 }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
+
+            Mock New-Item {
+                [PSCustomObject]@{ FullName = $cleanupPath }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
+
+            Mock Invoke-WebRequest { throw "Download failed" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
+
+            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
+            Mock Remove-Item { } -ModuleName Microsoft.AVS.Management
+            Mock Get-PSDrive { $null } -ModuleName Microsoft.AVS.Management
+            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+
+            $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
+
+            { Set-ToolsRepo -ToolsURL $secureUrl } |
+                Should -Throw -ExpectedMessage "*Failed to download tools file*Download failed*"
+
+            Should -Invoke Remove-Item -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                $Path -eq $cleanupPath -and $Recurse -and $Force
+            }
+        }
+
+        It "Should skip temp cleanup when cleanup path fails safety guard" {
+            $unsafeCleanupPath = "/tmp/newtools_test_cleanup_skip"
+
+            Mock Invoke-WebRequest {
+                [PSCustomObject]@{ StatusCode = 200 }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
+
+            Mock New-Item {
+                [PSCustomObject]@{ FullName = $unsafeCleanupPath }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
+
+            Mock Invoke-WebRequest { throw "Download failed" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
+
+            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
+            Mock Remove-Item { } -ModuleName Microsoft.AVS.Management
+            Mock Write-Warning { } -ModuleName Microsoft.AVS.Management
+            Mock Get-PSDrive { $null } -ModuleName Microsoft.AVS.Management
+            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+
+            $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
+
+            { Set-ToolsRepo -ToolsURL $secureUrl } |
+                Should -Throw -ExpectedMessage "*Failed to download tools file*Download failed*"
+
+            Should -Invoke Remove-Item -ModuleName Microsoft.AVS.Management -Times 0
+            Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                $Message -like "*Skipping temp cleanup because path did not match safety guard: $unsafeCleanupPath*"
+            }
+        }
+    }
+
     Context "File Download Validation" {
         It "Should throw when download fails" {
             # Mock successful HEAD request
