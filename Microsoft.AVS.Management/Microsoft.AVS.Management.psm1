@@ -923,10 +923,10 @@ function Set-ToolsRepo {
 
             Write-Information "`n=== Validation Summary ===" -InformationAction Continue
             if ($successfulDatastores.Count -gt 0) {
-                Write-Information "Datastores with metadata in sync: $($successfulDatastores -join ', ')" -InformationAction Continue
+                Write-Information "List of Datastores with metadata in sync: $($successfulDatastores -join ', ')" -InformationAction Continue
             }
             if ($failedDatastores.Count -gt 0) {
-                Write-Warning "Datastores with metadata out of sync or validation failure: $($failedDatastores -join ', ')"
+                Write-Warning "List of Datastores with metadata out of sync or validation failure: $($failedDatastores -join ', ')"
             }
 
             if ($failedDatastores.Count -gt 0) {
@@ -962,8 +962,11 @@ function Set-ToolsRepo {
 
         # Create temporary directory with error handling
         try {
-            $tmp_dir = New-Item -Path "./newtools_$(Get-Date -Format 'yyyyMMddHHmmss')" -ItemType Directory -ErrorAction Stop
-            Write-Verbose "Created temporary directory: $tmp_dir"
+            $uploadTempRoot = [System.IO.Path]::GetTempPath()
+            $tmpDirName = "newtools_$(Get-Date -Format 'yyyyMMddHHmmss')"
+            $tmpDirPath = Join-Path -Path $uploadTempRoot -ChildPath $tmpDirName
+            $tmp_dir = New-Item -Path $tmpDirPath -ItemType Directory -ErrorAction Stop
+            Write-Verbose "Created temporary directory: $($tmp_dir.FullName)"
         } catch {
             throw "Failed to create temporary directory: $_"
         }
@@ -1273,10 +1276,10 @@ function Set-ToolsRepo {
         # Summary report
         Write-Information "`n=== Summary ===" -InformationAction Continue
         if ($successfulDatastores.Count -gt 0) {
-            Write-Information "Successfully processed datastores: $($successfulDatastores -join ', ')" -InformationAction Continue
+            Write-Information "List of Successfully processed datastores: $($successfulDatastores -join ', ')" -InformationAction Continue
         }
         if ($failedDatastores.Count -gt 0) {
-            Write-Warning "Failed datastores: $($failedDatastores -join ', ')"
+            Write-Warning "List of Failed datastores: $($failedDatastores -join ', ')"
 
             foreach ($failedDs in $failedDatastores) {
                 $reason = $failedDatastoreReasons[$failedDs]
@@ -1300,8 +1303,21 @@ function Set-ToolsRepo {
         throw
     } finally {
         # Clean up temporary upload directory when present
-        if ($null -ne $tmp_dir -and (Test-Path -Path $tmp_dir.FullName)) {
-            Remove-Item -Path $tmp_dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+        $cleanupPath = if ($null -ne $tmp_dir) { $tmp_dir.FullName } else { $null }
+        $expectedTempRoot = [System.IO.Path]::GetTempPath()
+        $folderName = if (-not [string]::IsNullOrEmpty($cleanupPath)) { Split-Path -Path $cleanupPath -Leaf } else { "" }
+
+        $isExpectedName = $folderName -like 'newtools_*'
+        $isUnderTempRoot = (-not [string]::IsNullOrEmpty($cleanupPath)) -and
+            $cleanupPath.StartsWith($expectedTempRoot, [System.StringComparison]::OrdinalIgnoreCase)
+
+        if ((-not [string]::IsNullOrEmpty($cleanupPath)) -and
+            (Test-Path -Path $cleanupPath) -and
+            $isExpectedName -and
+            $isUnderTempRoot) {
+            Remove-Item -Path $cleanupPath -Recurse -Force -ErrorAction SilentlyContinue
+        } elseif (-not [string]::IsNullOrEmpty($cleanupPath)) {
+            Write-Warning "Skipping temp cleanup because path did not match safety guard: $cleanupPath"
         }
 
         # Ensure PSDrive is removed
