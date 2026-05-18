@@ -625,7 +625,8 @@ Describe "Set-ToolsRepo" {
         }
 
         It "Should skip temp cleanup when cleanup path fails safety guard" {
-            $unsafeCleanupPath = "/tmp/newtools_test_cleanup_skip"
+            $tempRoot = [System.IO.Path]::GetTempPath()
+            $unsafeCleanupPath = Join-Path -Path $tempRoot -ChildPath "badtools_test_cleanup_skip"
 
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
