@@ -1304,20 +1304,8 @@ function Set-ToolsRepo {
     } finally {
         # Clean up temporary upload directory when present
         $cleanupPath = if ($null -ne $tmp_dir) { $tmp_dir.FullName } else { $null }
-        $expectedTempRoot = [System.IO.Path]::GetTempPath()
-        $folderName = if (-not [string]::IsNullOrEmpty($cleanupPath)) { Split-Path -Path $cleanupPath -Leaf } else { "" }
-
-        $isExpectedName = $folderName -like 'newtools_*'
-        $isUnderTempRoot = (-not [string]::IsNullOrEmpty($cleanupPath)) -and
-            $cleanupPath.StartsWith($expectedTempRoot, [System.StringComparison]::OrdinalIgnoreCase)
-
-        if ((-not [string]::IsNullOrEmpty($cleanupPath)) -and
-            (Test-Path -Path $cleanupPath) -and
-            $isExpectedName -and
-            $isUnderTempRoot) {
+        if ((-not [string]::IsNullOrEmpty($cleanupPath)) -and (Test-Path -Path $cleanupPath)) {
             Remove-Item -Path $cleanupPath -Recurse -Force -ErrorAction SilentlyContinue
-        } elseif (-not [string]::IsNullOrEmpty($cleanupPath)) {
-            Write-Warning "Skipping temp cleanup because path did not match safety guard: $cleanupPath"
         }
 
         # Ensure PSDrive is removed

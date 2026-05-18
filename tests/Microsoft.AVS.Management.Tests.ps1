@@ -624,23 +624,26 @@ Describe "Set-ToolsRepo" {
             }
         }
 
-        It "Should skip temp cleanup when cleanup path fails safety guard" {
+        It "Should not remove temp directory when cleanup path does not exist" {
             $tempRoot = [System.IO.Path]::GetTempPath()
-            $unsafeCleanupPath = Join-Path -Path $tempRoot -ChildPath "badtools_test_cleanup_skip"
+            $cleanupPath = Join-Path -Path $tempRoot -ChildPath "newtools_test_cleanup_missing"
 
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
 
             Mock New-Item {
-                [PSCustomObject]@{ FullName = $unsafeCleanupPath }
+                [PSCustomObject]@{ FullName = $cleanupPath }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
 
             Mock Invoke-WebRequest { throw "Download failed" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
 
-            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
+            Mock Test-Path {
+                param($Path)
+                if ($Path -eq $cleanupPath) { return $false }
+                return $true
+            } -ModuleName Microsoft.AVS.Management
             Mock Remove-Item { } -ModuleName Microsoft.AVS.Management
-            Mock Write-Warning { } -ModuleName Microsoft.AVS.Management
             Mock Get-PSDrive { $null } -ModuleName Microsoft.AVS.Management
             Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
 
@@ -650,9 +653,6 @@ Describe "Set-ToolsRepo" {
                 Should -Throw -ExpectedMessage "*Failed to download tools file*Download failed*"
 
             Should -Invoke Remove-Item -ModuleName Microsoft.AVS.Management -Times 0
-            Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                $Message -like "*Skipping temp cleanup because path did not match safety guard: $unsafeCleanupPath*"
-            }
         }
     }
 
