@@ -664,7 +664,6 @@ function Set-ToolsRepo {
     $new_folder = 'GuestStore'
     $archive_path = '/vmware/apps/vmtools/windows64/'
     $normalizedArchivePath = if ($null -ne $archive_path) { $archive_path.Trim('/','\') } else { '' }
-    $tmp_dir = $null
     $successfulDatastores = @()
     $failedDatastores = @()
 
@@ -960,18 +959,8 @@ function Set-ToolsRepo {
             throw "Unable to access the provided URL: $_"
         }
 
-        # Create temporary directory with error handling
-        try {
-            $uploadTempRoot = [System.IO.Path]::GetTempPath()
-            $tmpDirName = "newtools_$(Get-Date -Format 'yyyyMMddHHmmss')"
-            $tmpDirPath = Join-Path -Path $uploadTempRoot -ChildPath $tmpDirName
-            $tmp_dir = New-Item -Path $tmpDirPath -ItemType Directory -ErrorAction Stop
-            Write-Verbose "Created temporary directory: $($tmp_dir.FullName)"
-        } catch {
-            throw "Failed to create temporary directory: $_"
-        }
-
-        $tools_file = Join-Path -Path $tmp_dir.FullName -ChildPath "tools.zip"
+        # Use current working directory (managed by agent)
+        $tools_file = "./tools.zip"
 
         # Download the tools file
         try {
@@ -996,13 +985,13 @@ function Set-ToolsRepo {
         # Extract the archive
         try {
             Write-Information "Extracting tools archive..." -InformationAction Continue
-            Expand-Archive -Path $tools_file -DestinationPath $tmp_dir -Force -ErrorAction Stop
+            Expand-Archive -Path $tools_file -DestinationPath "." -Force -ErrorAction Stop
         } catch {
             throw "Failed to extract tools archive: $_"
         }
 
         # Locate windows64 directory in extracted archive
-        $windows64_path = Join-Path -Path $tmp_dir.FullName -ChildPath $normalizedArchivePath
+        $windows64_path = Join-Path -Path "." -ChildPath $normalizedArchivePath
 
         if (-not (Test-Path -Path $windows64_path)) {
             throw "windows64 directory not found in extracted archive at: $windows64_path"
@@ -1302,12 +1291,6 @@ function Set-ToolsRepo {
         Write-Error "Set-ToolsRepo failed: $_"
         throw
     } finally {
-        # Clean up temporary upload directory when present
-        $cleanupPath = if ($null -ne $tmp_dir) { $tmp_dir.FullName } else { $null }
-        if ((-not [string]::IsNullOrEmpty($cleanupPath)) -and (Test-Path -Path $cleanupPath)) {
-            Remove-Item -Path $cleanupPath -Recurse -Force -ErrorAction SilentlyContinue
-        }
-
         # Ensure PSDrive is removed
         if (Get-PSDrive -Name DS -ErrorAction SilentlyContinue) {
             Remove-PSDrive -Name DS -Force -ErrorAction SilentlyContinue
