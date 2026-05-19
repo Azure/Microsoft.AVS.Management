@@ -90,7 +90,7 @@ Describe "Set-ToolsRepo" {
             } -ModuleName Microsoft.AVS.Management
             Mock New-Item {
                 [PSCustomObject]@{
-                    FullName = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "avs-validate-test")
+                    FullName = (Join-Path -Path $TestDrive -ChildPath "avs-validate-test")
                 }
             } -ModuleName Microsoft.AVS.Management
             Mock Copy-DatastoreItem { } -ModuleName Microsoft.AVS.Management
@@ -115,16 +115,18 @@ Describe "Set-ToolsRepo" {
     }
 
     Context "Error Handling" {
-        It "Should wrap original error in descriptive message" {
+        It "Should wrap download failure in descriptive message" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item { throw "Permission denied" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
+            Mock Invoke-WebRequest {
+                throw "Permission denied"
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
 
             $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
 
             { Set-ToolsRepo -ToolsURL $secureUrl } |
-                Should -Throw -ExpectedMessage "*Failed to create temporary directory*Permission denied*"
+                Should -Throw -ExpectedMessage "*Failed to download tools file*Permission denied*"
         }
 
         It "Should re-throw after catching to propagate error" {
@@ -142,9 +144,6 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
@@ -153,7 +152,7 @@ Describe "Set-ToolsRepo" {
                 param($Path, $Filter, [switch]$Directory, [switch]$File, [switch]$Recurse)
                 [PSCustomObject]@{
                     Name = "vmtools-$IncomingVersion"
-                    FullName = "/tmp/newtools_test/vmware/apps/vmtools/windows64/vmtools-$IncomingVersion"
+                    FullName = "$TestDrive/vmware/apps/vmtools/windows64/vmtools-$IncomingVersion"
                 }
             } -ModuleName Microsoft.AVS.Management
             Mock Get-Datastore {
@@ -543,9 +542,6 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
             Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
             Mock Invoke-WebRequest { throw "404 Not Found" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             $secureUrl = ConvertTo-TestSecureString "https://example.com/nonexistent.zip"
@@ -561,9 +557,6 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test_403" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
             Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
             Mock Invoke-WebRequest {
                 throw "URL returned status code: 403"
@@ -577,85 +570,6 @@ Describe "Set-ToolsRepo" {
         }
     }
 
-    Context "Temporary Directory Creation" {
-        It "Should throw when temporary directory cannot be created" {
-            # Tests that temp directory creation failure is caught and wrapped
-            Mock Invoke-WebRequest {
-                [PSCustomObject]@{ StatusCode = 200 }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item { throw "Permission denied" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
-            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
-
-            $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
-            { Set-ToolsRepo -ToolsURL $secureUrl } |
-                Should -Throw -ExpectedMessage "*Failed to create temporary directory*"
-
-            Should -Invoke Invoke-WebRequest -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' } -Times 1
-        }
-    }
-
-    Context "Temp Cleanup Guard" {
-        It "Should remove temp directory when cleanup path passes safety guard" {
-            $tempRoot = [System.IO.Path]::GetTempPath()
-            $cleanupPath = Join-Path -Path $tempRoot -ChildPath "newtools_test_cleanup"
-
-            Mock Invoke-WebRequest {
-                [PSCustomObject]@{ StatusCode = 200 }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = $cleanupPath }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
-
-            Mock Invoke-WebRequest { throw "Download failed" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
-
-            Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
-            Mock Remove-Item { } -ModuleName Microsoft.AVS.Management
-            Mock Get-PSDrive { $null } -ModuleName Microsoft.AVS.Management
-            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
-
-            $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
-
-            { Set-ToolsRepo -ToolsURL $secureUrl } |
-                Should -Throw -ExpectedMessage "*Failed to download tools file*Download failed*"
-
-            Should -Invoke Remove-Item -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                $Path -eq $cleanupPath -and $Recurse -and $Force
-            }
-        }
-
-        It "Should not remove temp directory when cleanup path does not exist" {
-            $tempRoot = [System.IO.Path]::GetTempPath()
-            $cleanupPath = Join-Path -Path $tempRoot -ChildPath "newtools_test_cleanup_missing"
-
-            Mock Invoke-WebRequest {
-                [PSCustomObject]@{ StatusCode = 200 }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = $cleanupPath }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
-
-            Mock Invoke-WebRequest { throw "Download failed" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
-
-            Mock Test-Path {
-                param($Path)
-                if ($Path -eq $cleanupPath) { return $false }
-                return $true
-            } -ModuleName Microsoft.AVS.Management
-            Mock Remove-Item { } -ModuleName Microsoft.AVS.Management
-            Mock Get-PSDrive { $null } -ModuleName Microsoft.AVS.Management
-            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
-
-            $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
-
-            { Set-ToolsRepo -ToolsURL $secureUrl } |
-                Should -Throw -ExpectedMessage "*Failed to download tools file*Download failed*"
-
-            Should -Invoke Remove-Item -ModuleName Microsoft.AVS.Management -Times 0
-        }
-    }
-
     Context "File Download Validation" {
         It "Should throw when download fails" {
             # Mock successful HEAD request
@@ -663,12 +577,7 @@ Describe "Set-ToolsRepo" {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
 
-            # Mock successful temp directory creation
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
-
-            # Mock file and cleanup operations
+            # Mock download/file preconditions
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
             Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
@@ -688,12 +597,7 @@ Describe "Set-ToolsRepo" {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
 
-            # Mock successful temp directory creation
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
-
-            # Mock file and cleanup operations
+            # Mock download/file preconditions
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
@@ -713,10 +617,6 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
 
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
@@ -743,9 +643,6 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
             Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
@@ -771,9 +668,6 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
             Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
@@ -798,9 +692,6 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
             Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
@@ -834,9 +725,6 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
@@ -860,9 +748,6 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test"; Name = "newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' -and $Path -like '*newtools*' }
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
@@ -872,7 +757,7 @@ Describe "Set-ToolsRepo" {
                 param($Path, $Filter, [switch]$Directory, [switch]$File, [switch]$Recurse)
                 [PSCustomObject]@{
                     Name = "vmtools-12.3.0"
-                    FullName = "/tmp/newtools_test/vmware/apps/vmtools/windows64/vmtools-12.3.0"
+                    FullName = "$TestDrive/vmware/apps/vmtools/windows64/vmtools-12.3.0"
                 }
             } -ModuleName Microsoft.AVS.Management
             Mock Get-Datastore { @() } -ModuleName Microsoft.AVS.Management
@@ -890,9 +775,6 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test"; Name = "newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' -and $Path -like '*newtools*' }
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
@@ -902,7 +784,7 @@ Describe "Set-ToolsRepo" {
                 param($Path, $Filter, [switch]$Directory, [switch]$File, [switch]$Recurse)
                 [PSCustomObject]@{
                     Name = "vmtools-12.3.0"
-                    FullName = "/tmp/newtools_test/vmware/apps/vmtools/windows64/vmtools-12.3.0"
+                    FullName = "$TestDrive/vmware/apps/vmtools/windows64/vmtools-12.3.0"
                 }
             } -ModuleName Microsoft.AVS.Management
             Mock Get-Datastore { throw "Connection error" } -ModuleName Microsoft.AVS.Management
@@ -943,10 +825,6 @@ Describe "Set-ToolsRepo" {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
 
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
-
             Mock Invoke-WebRequest { throw "Stop here" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
 
             $testUrl = "https://example.com/tools.zip?token=secret123"
@@ -959,7 +837,6 @@ Describe "Set-ToolsRepo" {
                 $Uri -eq $testUrl -and $OutFile
             }
 
-            Should -Invoke New-Item -ModuleName Microsoft.AVS.Management -Times 1
             Should -Invoke Remove-PSDrive -ModuleName Microsoft.AVS.Management -Times 0
         }
     }
@@ -1025,10 +902,6 @@ Describe "Set-ToolsRepo" {
 
                         return $null
                     } -ModuleName Microsoft.AVS.Management
-
-                    Mock New-Item {
-                        [PSCustomObject]@{ FullName = $script:tempRoot; Name = 'newtools_test' }
-                    } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' -and $Path -like '*newtools*' }
 
                     Mock New-Item {
                         [PSCustomObject]@{ FullName = $Path; Name = (Split-Path -Path $Path -Leaf) }
