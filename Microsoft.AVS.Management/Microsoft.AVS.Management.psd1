@@ -12,7 +12,7 @@
     RootModule = 'Microsoft.AVS.Management.psm1'
     
     # Version number of this module.
-    ModuleVersion = '9.0.1'
+    ModuleVersion = '10.0.0'
     
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -73,24 +73,16 @@
     # NestedModules = @()
     
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
+    # Storage / vSAN cmdlets (Set-VMStoragePolicy, Set-LocationStoragePolicy, Set-ClusterDefaultStoragePolicy,
+    # Get-StoragePolicies, Set-vSANCompressDedupe, New-AVSStoragePolicy, Remove-AVSStoragePolicy,
+    # Set-AVSVSANClusterUNMAPTRIM, Get-AVSVSANClusterUNMAPTRIM, Get-vSANDataInTransitEncryptionStatus,
+    # Set-vSANDataInTransitEncryption, Get-UnassociatedvSANObjectsWithPolicy,
+    # Update-StoragePolicyofUnassociatedvSANObjects, Remove-AvsUnassociatedObject) were moved to
+    # the Microsoft.AVS.Storage package as of v10.0.0.
     FunctionsToExport = @(
-        'Set-VMStoragePolicy'
-        'Set-LocationStoragePolicy'
-        'Set-ClusterDefaultStoragePolicy'
-        'Get-StoragePolicies'
         'Set-ToolsRepo'
-        'Set-vSANCompressDedupe'
-        'New-AVSStoragePolicy'
-        'Remove-AVSStoragePolicy'
         'Set-CustomDRS'
-        'Set-AVSVSANClusterUNMAPTRIM'
-        'Get-AVSVSANClusterUNMAPTRIM'
         'Remove-CustomRole'
-        'Get-vSANDataInTransitEncryptionStatus'
-        'Set-vSANDataInTransitEncryption'
-        'Get-UnassociatedvSANObjectsWithPolicy'
-        'Update-StoragePolicyofUnassociatedvSANObjects'
-        'Remove-AvsUnassociatedObject'
         'Get-EsxtopData'
     )
 
