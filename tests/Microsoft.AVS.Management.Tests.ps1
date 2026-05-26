@@ -375,3 +375,52 @@ Describe "Set-ToolsRepo" {
         }
     }
 }
+
+Describe "New-AVSStoragePolicy" {
+    Context "Parameter Validation" {
+        It "Should have Name as a mandatory parameter" {
+            $command = Get-Command New-AVSStoragePolicy
+            $param = $command.Parameters['Name']
+            $param.Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have VMEncryption parameter with ValidateSet None, PreIO, PostIO" {
+            $command = Get-Command New-AVSStoragePolicy
+            $param = $command.Parameters['VMEncryption']
+            $validateSetAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }
+            $validateSetAttr | Should -Not -BeNullOrEmpty
+            $validateSetAttr.ValidValues | Should -Contain "None"
+            $validateSetAttr.ValidValues | Should -Contain "PreIO"
+            $validateSetAttr.ValidValues | Should -Contain "PostIO"
+        }
+
+        It "Should have VMEncryption as an optional parameter" {
+            $command = Get-Command New-AVSStoragePolicy
+            $param = $command.Parameters['VMEncryption']
+            $mandatoryAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }
+            $mandatoryAttr.Mandatory | Should -Contain $false
+        }
+
+        It "Should have vSANFailuresToTolerate parameter with correct ValidateSet" {
+            $command = Get-Command New-AVSStoragePolicy
+            $param = $command.Parameters['vSANFailuresToTolerate']
+            $validateSetAttr = $param.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }
+            $validateSetAttr | Should -Not -BeNullOrEmpty
+            $validateSetAttr.ValidValues | Should -Contain "R1FTT1"
+            $validateSetAttr.ValidValues | Should -Contain "R5FTT1"
+            $validateSetAttr.ValidValues | Should -Contain "R6FTT2"
+        }
+
+        It "Should have Overwrite as a switch parameter" {
+            $command = Get-Command New-AVSStoragePolicy
+            $param = $command.Parameters['Overwrite']
+            $param.ParameterType.Name | Should -Be 'SwitchParameter'
+        }
+
+        It "Should have NoCompression as a switch parameter" {
+            $command = Get-Command New-AVSStoragePolicy
+            $param = $command.Parameters['NoCompression']
+            $param.ParameterType.Name | Should -Be 'SwitchParameter'
+        }
+    }
+}
