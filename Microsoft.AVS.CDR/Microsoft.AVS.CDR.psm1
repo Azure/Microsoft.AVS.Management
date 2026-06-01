@@ -495,7 +495,7 @@ function Resolve-DiamondDependencies {
     foreach ($nodeKey in $Graph.Keys) {
         $node = $Graph[$nodeKey]
         if ($node.NotFound) {
-            throw "Module not found in repository: $($node.Name) version $($node.Version). No alternative version available to satisfy the dependency."
+            throw "Module not found: $($node.Name) version $($node.Version). No alternative version available to satisfy the dependency."
         }
     }
 }
@@ -668,7 +668,10 @@ function Install-PSResourcePinned {
         [PSCredential]$Credential,
         
         [Parameter(Mandatory = $false)]
-        [switch]$Prerelease
+        [switch]$Prerelease,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$Force
     )
     
     # Load redirect map
@@ -708,15 +711,18 @@ function Install-PSResourcePinned {
         $modName = $node.Name
         $modVersion = $node.Version
         
-        $installed = Get-PSResource -Name $modName -ErrorAction SilentlyContinue | 
-            Where-Object {
-                if (-not $_) { return $false }
-                $installedVersion = $_.Version.ToString()
-                if ($_.Prerelease) {
-                    $installedVersion = "$installedVersion-$($_.Prerelease)"
+        $installed = $null
+        if (-not $Force) {
+            $installed = Get-PSResource -Name $modName -ErrorAction SilentlyContinue | 
+                Where-Object {
+                    if (-not $_) { return $false }
+                    $installedVersion = $_.Version.ToString()
+                    if ($_.Prerelease) {
+                        $installedVersion = "$installedVersion-$($_.Prerelease)"
+                    }
+                    $installedVersion -eq $modVersion
                 }
-                $installedVersion -eq $modVersion
-            }
+        }
         
         if (-not $installed) {
             Write-Verbose "Installing: $modName version $modVersion"
@@ -734,6 +740,9 @@ function Install-PSResourcePinned {
             if ($Credential) {
                 $installParams['Credential'] = $Credential
             }
+            if ($Force) {
+                $installParams['Reinstall'] = $true
+            }
             
             Install-PSResource @installParams
         }
@@ -750,10 +759,14 @@ function Install-PSResourcePinned {
 function Save-PSResourcePinned {
     <#
     .SYNOPSIS
-        Downloads a module and dependencies as NuGet packages with pinned versions.
+        Downloads a module and its dependencies with pinned versions.
+        Saves as expanded module folders by default; pass -AsNupkg to save as NuGet packages.
         
     .EXAMPLE
         Save-PSResourcePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0" -Path "./packages"
+
+    .EXAMPLE
+        Save-PSResourcePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0" -Path "./packages" -AsNupkg
     #>
     [CmdletBinding()]
     param(
@@ -776,7 +789,7 @@ function Save-PSResourcePinned {
         [PSCredential]$Credential,
         
         [Parameter(Mandatory = $false)]
-        [switch]$AsNupkg = $true,
+        [switch]$AsNupkg,
         
         [Parameter(Mandatory = $false)]
         [switch]$Prerelease
@@ -828,8 +841,15 @@ function Save-PSResourcePinned {
         $modName = $node.Name
         $modVersion = $node.Version
         
-        $expectedFileName = "$modName.$modVersion.nupkg"
-        $expectedPath = Join-Path $resolvedPath.Path $expectedFileName
+        # Existing-output detection depends on output format:
+        #   -AsNupkg     -> $Path/$modName.$modVersion.nupkg
+        #   (default)    -> $Path/$modName/$modVersion (expanded module folder)
+        if ($AsNupkg) {
+            $expectedPath = Join-Path $resolvedPath.Path "$modName.$modVersion.nupkg"
+        }
+        else {
+            $expectedPath = Join-Path $resolvedPath.Path $modName $modVersion
+        }
         
         if (-not (Test-Path $expectedPath)) {
             Write-Verbose "Saving: $modName version $modVersion"
@@ -1073,7 +1093,10 @@ function Install-PSResourceDependencies {
         [string]$Repository,
         
         [Parameter(Mandatory = $false)]
-        [PSCredential]$Credential
+        [PSCredential]$Credential,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$Force
     )
     
     $findParams = @{
@@ -1099,8 +1122,11 @@ function Install-PSResourceDependencies {
     Write-Verbose "Installing $($resolvedDependencies.Count) resolved dependency(ies)"
     
     foreach ($dependency in $resolvedDependencies) {
-        $installed = Get-PSResource -Name $dependency.Name -ErrorAction SilentlyContinue | 
-            Where-Object { $_.Version.ToString() -eq $dependency.Version }
+        $installed = $null
+        if (-not $Force) {
+            $installed = Get-PSResource -Name $dependency.Name -ErrorAction SilentlyContinue | 
+                Where-Object { $_.Version.ToString() -eq $dependency.Version }
+        }
         
         if (-not $installed) {
             Write-Host "Installing dependency: $($dependency.Name) version $($dependency.Version)"
@@ -1117,6 +1143,9 @@ function Install-PSResourceDependencies {
             }
             if ($Credential) {
                 $installParams['Credential'] = $Credential
+            }
+            if ($Force) {
+                $installParams['Reinstall'] = $true
             }
             
             Install-PSResource @installParams

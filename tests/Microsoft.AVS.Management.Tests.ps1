@@ -90,7 +90,7 @@ Describe "Set-ToolsRepo" {
             } -ModuleName Microsoft.AVS.Management
             Mock New-Item {
                 [PSCustomObject]@{
-                    FullName = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "avs-validate-test")
+                    FullName = (Join-Path -Path $TestDrive -ChildPath "avs-validate-test")
                 }
             } -ModuleName Microsoft.AVS.Management
             Mock Copy-DatastoreItem { } -ModuleName Microsoft.AVS.Management
@@ -115,16 +115,18 @@ Describe "Set-ToolsRepo" {
     }
 
     Context "Error Handling" {
-        It "Should wrap original error in descriptive message" {
+        It "Should wrap download failure in descriptive message" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item { throw "Permission denied" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
+            Mock Invoke-WebRequest {
+                throw "Permission denied"
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
 
             $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
 
             { Set-ToolsRepo -ToolsURL $secureUrl } |
-                Should -Throw -ExpectedMessage "*Failed to create temporary directory*Permission denied*"
+                Should -Throw -ExpectedMessage "*Failed to download tools file*Permission denied*"
         }
 
         It "Should re-throw after catching to propagate error" {
@@ -142,31 +144,32 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
             Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
             Mock Get-ChildItem {
                 param($Path, $Filter, [switch]$Directory, [switch]$File, [switch]$Recurse)
-                [PSCustomObject]@{ Name = "vmtools-$IncomingVersion" }
+                [PSCustomObject]@{
+                    Name = "vmtools-$IncomingVersion"
+                    FullName = "$TestDrive/vmware/apps/vmtools/windows64/vmtools-$IncomingVersion"
+                }
             } -ModuleName Microsoft.AVS.Management
             Mock Get-Datastore {
                 [PSCustomObject]@{
                     Name = "vsanDatastore"
-                    extensionData = [PSCustomObject]@{ Summary = [PSCustomObject]@{ Type = 'vsan' } }
+                    ExtensionData = [PSCustomObject]@{ Summary = [PSCustomObject]@{ Type = 'vsan' } }
                 }
             } -ModuleName Microsoft.AVS.Management
-            Mock Get-PSDrive { $true } -ModuleName Microsoft.AVS.Management
+            Mock Get-PSDrive { [PSCustomObject]@{ Name = 'DS'; Root = 'DS:/' } } -ModuleName Microsoft.AVS.Management
             Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+            Mock Remove-Item { } -ModuleName Microsoft.AVS.Management
             Mock New-PSDrive { throw "PSDrive creation failed" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Name -eq 'DS' }
 
             $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
 
             # Verify error is thrown and cleanup still happens
-            { Set-ToolsRepo -ToolsURL $secureUrl } | Should -Throw -ExpectedMessage "*Failed to process any datastores successfully*"
+            { Set-ToolsRepo -ToolsURL $secureUrl } | Should -Throw -ExpectedMessage "*All datastores failed to process*"
 
             # Verify cleanup was attempted despite the error
             Should -Invoke Remove-PSDrive -ModuleName Microsoft.AVS.Management -ParameterFilter { $Name -eq 'DS' }
@@ -399,7 +402,7 @@ Describe "Set-ToolsRepo" {
             Should -Not -Invoke Copy-DatastoreItem -ModuleName Microsoft.AVS.Management
         }
 
-        It "Should fail when metadata.json files are missing" {
+        It "Should fail when top-level metadata.json is missing" {
             Mock Get-Datastore { @([PSCustomObject]@{ Name = "vsanDatastore"; extensionData = @{ Summary = @{ Type = 'vsan' } } }) } -ModuleName Microsoft.AVS.Management
             Mock Get-PSDrive { $null } -ModuleName Microsoft.AVS.Management
             Mock New-PSDrive { $true } -ModuleName Microsoft.AVS.Management
@@ -539,9 +542,6 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
             Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
             Mock Invoke-WebRequest { throw "404 Not Found" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             $secureUrl = ConvertTo-TestSecureString "https://example.com/nonexistent.zip"
@@ -557,9 +557,6 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test_403" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
             Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
             Mock Invoke-WebRequest {
                 throw "URL returned status code: 403"
@@ -573,23 +570,6 @@ Describe "Set-ToolsRepo" {
         }
     }
 
-    Context "Temporary Directory Creation" {
-        It "Should throw when temporary directory cannot be created" {
-            # Tests that temp directory creation failure is caught and wrapped
-            Mock Invoke-WebRequest {
-                [PSCustomObject]@{ StatusCode = 200 }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item { throw "Permission denied" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
-            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
-
-            $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
-            { Set-ToolsRepo -ToolsURL $secureUrl } |
-                Should -Throw -ExpectedMessage "*Failed to create temporary directory*"
-
-            Should -Invoke Invoke-WebRequest -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' } -Times 1
-        }
-    }
-
     Context "File Download Validation" {
         It "Should throw when download fails" {
             # Mock successful HEAD request
@@ -597,12 +577,7 @@ Describe "Set-ToolsRepo" {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
 
-            # Mock successful temp directory creation
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
-
-            # Mock file and cleanup operations
+            # Mock download/file preconditions
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
             Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
@@ -622,12 +597,7 @@ Describe "Set-ToolsRepo" {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
 
-            # Mock successful temp directory creation
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
-
-            # Mock file and cleanup operations
+            # Mock download/file preconditions
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
@@ -647,10 +617,6 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
 
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
@@ -673,13 +639,92 @@ Describe "Set-ToolsRepo" {
     }
 
     Context "VMtools Directory Validation" {
+        It "Should throw when windows64 directory not found in archive" {
+            Mock Invoke-WebRequest {
+                [PSCustomObject]@{ StatusCode = 200 }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
+            Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
+            Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
+            Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
+            Mock Remove-Item { } -ModuleName Microsoft.AVS.Management
+            Mock Test-Path {
+                param($Path)
+                if ($Path -like '*windows64') {
+                    return $false
+                }
+                return $true
+            } -ModuleName Microsoft.AVS.Management
+            Mock Get-ChildItem { @() } -ModuleName Microsoft.AVS.Management
+
+            $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
+            { Set-ToolsRepo -ToolsURL $secureUrl } |
+                Should -Throw -ExpectedMessage "*windows64 directory not found*"
+
+            Should -Invoke Expand-Archive -ModuleName Microsoft.AVS.Management -Times 1
+            Should -Invoke Get-ChildItem -ModuleName Microsoft.AVS.Management -Times 0
+        }
+
+        It "Should throw when windows64 metadata.json is missing" {
+            Mock Invoke-WebRequest {
+                [PSCustomObject]@{ StatusCode = 200 }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
+            Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
+            Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
+            Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
+            Mock Test-Path {
+                param($Path)
+                if ($Path -like '*windows64/metadata.json' -or $Path -like '*windows64\metadata.json') {
+                    return $false
+                }
+                return $true
+            } -ModuleName Microsoft.AVS.Management
+            Mock Get-ChildItem { @() } -ModuleName Microsoft.AVS.Management
+
+            $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
+            { Set-ToolsRepo -ToolsURL $secureUrl } |
+                Should -Throw -ExpectedMessage "*metadata.json not found in windows64 directory*"
+
+            Should -Invoke Expand-Archive -ModuleName Microsoft.AVS.Management -Times 1
+            Should -Invoke Get-ChildItem -ModuleName Microsoft.AVS.Management -Times 0
+        }
+
+        It "Should throw when vmtools metadata.json is missing" {
+            Mock Invoke-WebRequest {
+                [PSCustomObject]@{ StatusCode = 200 }
+            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
+            Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
+            Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
+            Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
+            Mock Get-ChildItem {
+                param($Path, $Filter, [switch]$Directory, [switch]$File, [switch]$Recurse)
+                if ($Directory -and $Path -like '*windows64*') {
+                    return [PSCustomObject]@{
+                        Name     = "vmtools-12.4.0"
+                        FullName = "$Path/vmtools-12.4.0"
+                    }
+                }
+                return $null
+            } -ModuleName Microsoft.AVS.Management
+            Mock Test-Path {
+                param($Path)
+                if ($Path -like '*vmtools-12.4.0/metadata.json' -or $Path -like '*vmtools-12.4.0\metadata.json') {
+                    return $false
+                }
+                return $true
+            } -ModuleName Microsoft.AVS.Management
+
+            $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
+            { Set-ToolsRepo -ToolsURL $secureUrl } |
+                Should -Throw -ExpectedMessage "*metadata.json not found inside vmtools folder*"
+
+            Should -Invoke Expand-Archive -ModuleName Microsoft.AVS.Management -Times 1
+            Should -Invoke Get-ChildItem -ModuleName Microsoft.AVS.Management -Times 1
+        }
+
         It "Should throw when vmtools directory not found in archive" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
@@ -691,7 +736,7 @@ Describe "Set-ToolsRepo" {
 
             $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
             { Set-ToolsRepo -ToolsURL $secureUrl } |
-                Should -Throw -ExpectedMessage "*Unable to find vmtools directory*"
+                Should -Throw -ExpectedMessage "*No vmtools folder found inside windows64*"
 
             Should -Invoke Expand-Archive -ModuleName Microsoft.AVS.Management -Times 1
             Should -Invoke Get-ChildItem -ModuleName Microsoft.AVS.Management -Times 1
@@ -703,9 +748,6 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test"; Name = "newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' -and $Path -like '*newtools*' }
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
@@ -713,9 +755,12 @@ Describe "Set-ToolsRepo" {
             Mock Join-Path { "$Path/$ChildPath" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like 'DS:*' }
             Mock Get-ChildItem {
                 param($Path, $Filter, [switch]$Directory, [switch]$File, [switch]$Recurse)
-                [PSCustomObject]@{ Name = "vmtools-12.3.0" }
+                [PSCustomObject]@{
+                    Name = "vmtools-12.3.0"
+                    FullName = "$TestDrive/vmware/apps/vmtools/windows64/vmtools-12.3.0"
+                }
             } -ModuleName Microsoft.AVS.Management
-            Mock Get-Datastore { $null } -ModuleName Microsoft.AVS.Management
+            Mock Get-Datastore { @() } -ModuleName Microsoft.AVS.Management
 
             $secureUrl = ConvertTo-TestSecureString "https://example.com/tools.zip"
             { Set-ToolsRepo -ToolsURL $secureUrl } |
@@ -730,9 +775,6 @@ Describe "Set-ToolsRepo" {
             Mock Invoke-WebRequest {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test"; Name = "newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' -and $Path -like '*newtools*' }
             Mock Invoke-WebRequest { } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
             Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
             Mock Get-Item { [PSCustomObject]@{ Length = 1024 } } -ModuleName Microsoft.AVS.Management
@@ -740,7 +782,10 @@ Describe "Set-ToolsRepo" {
             Mock Join-Path { "$Path/$ChildPath" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like 'DS:*' }
             Mock Get-ChildItem {
                 param($Path, $Filter, [switch]$Directory, [switch]$File, [switch]$Recurse)
-                [PSCustomObject]@{ Name = "vmtools-12.3.0" }
+                [PSCustomObject]@{
+                    Name = "vmtools-12.3.0"
+                    FullName = "$TestDrive/vmware/apps/vmtools/windows64/vmtools-12.3.0"
+                }
             } -ModuleName Microsoft.AVS.Management
             Mock Get-Datastore { throw "Connection error" } -ModuleName Microsoft.AVS.Management
 
@@ -780,10 +825,6 @@ Describe "Set-ToolsRepo" {
                 [PSCustomObject]@{ StatusCode = 200 }
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Method -eq 'Head' }
 
-            Mock New-Item {
-                [PSCustomObject]@{ FullName = "/tmp/newtools_test" }
-            } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' }
-
             Mock Invoke-WebRequest { throw "Stop here" } -ModuleName Microsoft.AVS.Management -ParameterFilter { $OutFile }
 
             $testUrl = "https://example.com/tools.zip?token=secret123"
@@ -796,7 +837,6 @@ Describe "Set-ToolsRepo" {
                 $Uri -eq $testUrl -and $OutFile
             }
 
-            Should -Invoke New-Item -ModuleName Microsoft.AVS.Management -Times 1
             Should -Invoke Remove-PSDrive -ModuleName Microsoft.AVS.Management -Times 0
         }
     }
@@ -864,10 +904,6 @@ Describe "Set-ToolsRepo" {
                     } -ModuleName Microsoft.AVS.Management
 
                     Mock New-Item {
-                        [PSCustomObject]@{ FullName = $script:tempRoot; Name = 'newtools_test' }
-                    } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' -and $Path -like '*newtools*' }
-
-                    Mock New-Item {
                         [PSCustomObject]@{ FullName = $Path; Name = (Split-Path -Path $Path -Leaf) }
                     } -ModuleName Microsoft.AVS.Management -ParameterFilter { $ItemType -eq 'Directory' -and $Path -like 'DS:/*' }
 
@@ -880,7 +916,7 @@ Describe "Set-ToolsRepo" {
                             "$script:tempRoot/tools.zip" { return $true }
                             $script:destPath { return $true }
                             $script:versionDestPath { return $script:versionAlreadyExists }
-                            $script:topLevelSourceDir { return $false }
+                            $script:topLevelSourceDir { return $true }
                             default { return $true }
                         }
                     } -ModuleName Microsoft.AVS.Management
@@ -1017,7 +1053,12 @@ Describe "Set-ToolsRepo" {
                 { Set-ToolsRepo -ToolsURL $secureUrl } | Should -Not -Throw
 
                 Should -Invoke Copy-DatastoreItem -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It -ParameterFilter {
-                    $Destination -like '*metadata.json'
+                    ($Item -like '*windows64/metadata.json' -or $Item -like '*windows64\metadata.json') -and
+                    ($Destination -like '*GuestStore/vmware/apps/vmtools/windows64/metadata.json' -or $Destination -like '*GuestStore\vmware\apps\vmtools\windows64\metadata.json')
+                }
+                Should -Invoke Copy-DatastoreItem -ModuleName Microsoft.AVS.Management -Times 0 -Exactly -Scope It -ParameterFilter {
+                    ($Item -like '*vmtools-12.4.0*metadata.json') -and
+                    ($Destination -like '*GuestStore/vmware/apps/vmtools/windows64/metadata.json' -or $Destination -like '*GuestStore\vmware\apps\vmtools\windows64\metadata.json')
                 }
                 Should -Invoke Expand-Archive -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It
                 Should -Invoke New-PSDrive -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It
@@ -1208,646 +1249,6 @@ Describe "Get-EsxtopData" {
             $cmd = Get-Command Get-EsxtopData
             $cmdletBindingAttr = $cmd.ScriptBlock.Attributes | Where-Object { $_ -is [System.Management.Automation.CmdletBindingAttribute] }
             $cmdletBindingAttr | Should -Not -BeNullOrEmpty
-        }
-    }
-}
-
-Describe "Set-StoragePolicyOnVM" {
-    BeforeAll {
-        # Use local stubs so tests are not blocked by PowerCLI type binding.
-        if (-not ('VMware.VimAutomation.ViCore.Types.V1.ErrorHandling.InvalidVmConfig' -as [type])) {
-            Add-Type @"
-namespace VMware.VimAutomation.ViCore.Types.V1.ErrorHandling {
-    public class InvalidVmConfig : System.Exception {
-        public InvalidVmConfig(string message) : base(message) {}
-    }
-}
-"@
-        }
-
-        function global:Get-SpbmEntityConfiguration {
-            param($VM)
-            $null
-        }
-
-        function global:Set-VM {
-            param($VM, $StoragePolicy, [switch]$Confirm, $ErrorAction)
-            $null
-        }
-    }
-
-    if (-not (Get-Module Microsoft.AVS.Management)) {
-        Import-Module (Join-Path $PSScriptRoot ".." "Microsoft.AVS.Management" "Microsoft.AVS.Management.psd1") -Force
-    }
-
-    InModuleScope 'Microsoft.AVS.Management' {
-        Context "Unsupported Current Policy Check" {
-            It "Should write error when VM current policy is not in supported vSAN policy list" {
-                $vm = [PSCustomObject]@{ Name = 'TestVM' }
-                $currentPolicy = [PSCustomObject]@{ Name = 'OldPolicy' }
-                $targetPolicy = [PSCustomObject]@{ Name = 'NewPolicy' }
-                $supportedPolicies = @($false)
-
-                Mock Get-SpbmEntityConfiguration {
-                    [PSCustomObject]@{ StoragePolicy = $currentPolicy }
-                } -ModuleName Microsoft.AVS.Management
-                Mock Write-Error { } -ModuleName Microsoft.AVS.Management
-                Mock Set-VM { } -ModuleName Microsoft.AVS.Management
-
-                Set-StoragePolicyOnVM -VM $vm -VSANStoragePolicies $supportedPolicies -StoragePolicy $targetPolicy
-
-                Should -Invoke Write-Error -ModuleName Microsoft.AVS.Management -ParameterFilter {
-                    $Message -like "*Modifying storage policy on TestVM is not supported*"
-                }
-            }
-        }
-
-        Context "Success Path" {
-            It "Should call Set-VM and write success output when policy update succeeds" {
-                $vm = [PSCustomObject]@{ Name = 'TestVM' }
-                $currentPolicy = [PSCustomObject]@{ Name = 'CurrentPolicy' }
-                $targetPolicy = [PSCustomObject]@{ Name = 'NewPolicy' }
-                $supportedPolicies = @($true)
-
-                Mock Get-SpbmEntityConfiguration {
-                    [PSCustomObject]@{ StoragePolicy = $currentPolicy }
-                } -ModuleName Microsoft.AVS.Management
-                Mock Set-VM { } -ModuleName Microsoft.AVS.Management
-                Mock Write-Output { } -ModuleName Microsoft.AVS.Management
-                Mock Write-Error { } -ModuleName Microsoft.AVS.Management
-
-                Set-StoragePolicyOnVM -VM $vm -VSANStoragePolicies $supportedPolicies -StoragePolicy $targetPolicy
-
-                Should -Invoke Set-VM -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
-                    $VM.Name -eq 'TestVM' -and $StoragePolicy.Name -eq 'NewPolicy' -and $Confirm -eq $false
-                }
-                Should -Invoke Write-Output -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
-                    $InputObject -like "*Successfully set the storage policy on VM TestVM to NewPolicy*"
-                }
-                Should -Not -Invoke Write-Error -ModuleName Microsoft.AVS.Management
-            }
-        }
-
-        Context "Compatibility Failure Path" {
-            It "Should write compatibility error when Set-VM throws InvalidVmConfig" {
-                $vm = [PSCustomObject]@{ Name = 'TestVM' }
-                $currentPolicy = [PSCustomObject]@{ Name = 'CurrentPolicy' }
-                $targetPolicy = [PSCustomObject]@{ Name = 'NewPolicy' }
-                $supportedPolicies = @($true)
-                $script:capturedWriteErrorMessage = $null
-
-                Mock Get-SpbmEntityConfiguration {
-                    [PSCustomObject]@{ StoragePolicy = $currentPolicy }
-                } -ModuleName Microsoft.AVS.Management
-                Mock Set-VM {
-                    $exceptionArgs = @(
-                        'errId',
-                        [VMware.VimAutomation.Sdk.Types.V1.ErrorHandling.VimException.ErrorCategory]0,
-                        'Compatibility failure',
-                        [VMware.VimAutomation.Sdk.Types.V1.ErrorHandling.VimException.VimExceptionSeverity]0,
-                        $null,
-                        $null,
-                        $null,
-                        $null,
-                        $null,
-                        $null,
-                        $null
-                    )
-                    throw (New-Object 'VMware.VimAutomation.ViCore.Types.V1.ErrorHandling.InvalidVmConfig' -ArgumentList $exceptionArgs)
-                } -ModuleName Microsoft.AVS.Management
-                Mock Write-Error {
-                    param($Message)
-                    $script:capturedWriteErrorMessage = $Message
-                } -ModuleName Microsoft.AVS.Management
-                Mock Write-Output { } -ModuleName Microsoft.AVS.Management
-
-                Set-StoragePolicyOnVM -VM $vm -VSANStoragePolicies $supportedPolicies -StoragePolicy $targetPolicy
-
-                $script:capturedWriteErrorMessage | Should -BeLike '*The selected storage policy NewPolicy is not compatible with TestVM*may need more hosts*Compatibility failure*'
-                Should -Not -Invoke Write-Output -ModuleName Microsoft.AVS.Management
-            }
-        }
-
-        Context "Generic Failure Path" {
-            It "Should write generic error when Set-VM throws a normal exception" {
-                $vm = [PSCustomObject]@{ Name = 'TestVM' }
-                $currentPolicy = [PSCustomObject]@{ Name = 'CurrentPolicy' }
-                $targetPolicy = [PSCustomObject]@{ Name = 'NewPolicy' }
-                $supportedPolicies = @($true)
-                $script:capturedGenericWriteErrorMessage = $null
-
-                Mock Get-SpbmEntityConfiguration {
-                    [PSCustomObject]@{ StoragePolicy = $currentPolicy }
-                } -ModuleName Microsoft.AVS.Management
-                Mock Set-VM {
-                    throw 'Network timeout'
-                } -ModuleName Microsoft.AVS.Management
-                Mock Write-Error {
-                    param($Message)
-                    $script:capturedGenericWriteErrorMessage = $Message
-                } -ModuleName Microsoft.AVS.Management
-                Mock Write-Output { } -ModuleName Microsoft.AVS.Management
-
-                Set-StoragePolicyOnVM -VM $vm -VSANStoragePolicies $supportedPolicies -StoragePolicy $targetPolicy
-
-                $script:capturedGenericWriteErrorMessage | Should -BeLike '*Was not able to set the storage policy on TestVM*Network timeout*'
-                Should -Not -Invoke Write-Output -ModuleName Microsoft.AVS.Management
-            }
-        }
-    }
-}
-
-Describe "Remove-AvsUnassociatedObject" {
-    BeforeAll {
-        # Stub Get-VsanView — PowerCLI cmdlet not present outside a datacenter environment
-        if (-not (Get-Command Get-VsanView -ErrorAction SilentlyContinue)) {
-            function global:Get-VsanView { param($Id) $null }
-        }
-        # Always override Get-View with an untyped stub so PowerCLI's typed parameter
-        # binding does not reject PSCustomObject mocks before Pester can intercept.
-        function global:Get-View {
-            param($VIObject, $Id, $Property, $Filter)
-            $null
-        }
-    }
-
-    InModuleScope 'Microsoft.AVS.Management' {
-        Context "UUID Not Found" {
-            It "Should write warning and not attempt deletion when UUID is absent from cluster" {
-                $script:deleteWasCalled = $false
-
-                $fakeCluster = [PSCustomObject]@{
-                    Name = 'TestCluster'
-                    ExtensionData = [PSCustomObject]@{
-                        MoRef = [PSCustomObject]@{ Type = 'ClusterComputeResource'; Value = 'domain-c1' }
-                    }
-                }
-                $fakeHost = [PSCustomObject]@{
-                    ConnectionState = 'Connected'
-                    ExtensionData = [PSCustomObject]@{
-                        ConfigManager = [PSCustomObject]@{
-                            VsanInternalSystem = [PSCustomObject]@{ Type = 'HostVsanInternalSystem'; Value = 'vsanIntSys-1' }
-                        }
-                    }
-                }
-                $fakeVsanIntSys = New-Object psobject
-                Add-Member -InputObject $fakeVsanIntSys -MemberType ScriptMethod -Name DeleteVsanObjects -Value {
-                    param($uuids, $force)
-                    $script:deleteWasCalled = $true
-                } -Force
-
-                $fakeObjSys = New-Object psobject
-                Add-Member -InputObject $fakeObjSys -MemberType ScriptMethod -Name VsanQueryObjectIdentities -Value {
-                    param($clusterMo, $a, $b, $c, $d, $e)
-                    [PSCustomObject]@{ Identities = @() }
-                } -Force
-
-                Mock Get-Cluster { $fakeCluster } -ModuleName Microsoft.AVS.Management
-                Mock Get-MgmtResourcePoolVMs { [PSCustomObject]@{ Names = @(); MoRefs = @(); Count = 0 } } -ModuleName Microsoft.AVS.Management
-                Mock Get-VMHost { $fakeHost } -ModuleName Microsoft.AVS.Management
-                Mock Get-View { $fakeVsanIntSys } -ModuleName Microsoft.AVS.Management
-                Mock Get-VsanView { $fakeObjSys } -ModuleName Microsoft.AVS.Management
-                Mock Write-Warning { } -ModuleName Microsoft.AVS.Management
-
-                Remove-AvsUnassociatedObject -Uuid 'aaaabbbb-cccc-dddd-eeee-ffff00001111' -ClusterName 'TestCluster'
-
-                Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -ParameterFilter {
-                    $Message -like "*aaaabbbb-cccc-dddd-eeee-ffff00001111*not found*"
-                }
-                $script:deleteWasCalled | Should -Be $false
-            }
-        }
-
-        Context "Cluster Not Found" {
-            It "Should throw when Get-Cluster cannot find the cluster" {
-                Mock Get-Cluster { throw "Cluster 'BadCluster' not found." } -ModuleName Microsoft.AVS.Management
-
-                { Remove-AvsUnassociatedObject -Uuid 'aaaabbbb-cccc-dddd-eeee-ffff00001111' -ClusterName 'BadCluster' } |
-                    Should -Throw -ExpectedMessage "*BadCluster*"
-            }
-        }
-
-        Context "Safety Check: Management Object" {
-            BeforeEach {
-                $script:mgmtDeleteWasCalled = $false
-
-                $script:mgmtFakeCluster = [PSCustomObject]@{
-                    Name = 'TestCluster'
-                    ExtensionData = [PSCustomObject]@{
-                        MoRef = [PSCustomObject]@{ Type = 'ClusterComputeResource'; Value = 'domain-c1' }
-                    }
-                }
-                $script:mgmtFakeHost = [PSCustomObject]@{
-                    ConnectionState = 'Connected'
-                    ExtensionData = [PSCustomObject]@{
-                        ConfigManager = [PSCustomObject]@{
-                            VsanInternalSystem = [PSCustomObject]@{ Type = 'HostVsanInternalSystem'; Value = 'vsanIntSys-1' }
-                        }
-                    }
-                }
-                $script:mgmtFakeVsanIntSys = New-Object psobject
-                Add-Member -InputObject $script:mgmtFakeVsanIntSys -MemberType ScriptMethod -Name GetVsanObjExtAttrs -Value {
-                    param($uuid) '{}'
-                } -Force
-                Add-Member -InputObject $script:mgmtFakeVsanIntSys -MemberType ScriptMethod -Name DeleteVsanObjects -Value {
-                    param($uuids, $force)
-                    $script:mgmtDeleteWasCalled = $true
-                } -Force
-
-                Mock Get-Cluster { $script:mgmtFakeCluster } -ModuleName Microsoft.AVS.Management
-                Mock Get-VMHost { $script:mgmtFakeHost } -ModuleName Microsoft.AVS.Management
-                Mock Get-View { $script:mgmtFakeVsanIntSys } -ModuleName Microsoft.AVS.Management
-                Mock Get-HealthFromExt {
-                    [PSCustomObject]@{ IsAbsent = $false; IsDegraded = $false; HealthState = 'Healthy' }
-                } -ModuleName Microsoft.AVS.Management
-                Mock Write-Warning { } -ModuleName Microsoft.AVS.Management
-            }
-
-            It "Should skip and warn InMgmt=True when object name matches a management VM name" {
-                $fakeObjSys = New-Object psobject
-                Add-Member -InputObject $fakeObjSys -MemberType ScriptMethod -Name VsanQueryObjectIdentities -Value {
-                    param($clusterMo, $a, $b, $c, $d, $e)
-                    [PSCustomObject]@{
-                        Identities = @(
-                            [PSCustomObject]@{
-                                Uuid = 'aaaabbbb-cccc-dddd-eeee-ffff00001111'
-                                Name = 'cloud-admin-vm'
-                                Owner = $null; Content = $null; Type = $null; Description = $null
-                            }
-                        )
-                    }
-                } -Force
-
-                Mock Get-MgmtResourcePoolVMs {
-                    [PSCustomObject]@{ Names = @('cloud-admin-vm'); MoRefs = @(); Count = 1 }
-                } -ModuleName Microsoft.AVS.Management
-                Mock Get-VsanView { $fakeObjSys } -ModuleName Microsoft.AVS.Management
-
-                Remove-AvsUnassociatedObject -Uuid 'aaaabbbb-cccc-dddd-eeee-ffff00001111' -ClusterName 'TestCluster'
-
-                Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -ParameterFilter {
-                    $Message -like "*InMgmt=True*"
-                }
-                $script:mgmtDeleteWasCalled | Should -Be $false
-            }
-
-            It "Should skip and warn InMgmt=True when object owner MoRef matches a management VM MoRef" {
-                $fakeObjSys = New-Object psobject
-                Add-Member -InputObject $fakeObjSys -MemberType ScriptMethod -Name VsanQueryObjectIdentities -Value {
-                    param($clusterMo, $a, $b, $c, $d, $e)
-                    [PSCustomObject]@{
-                        Identities = @(
-                            [PSCustomObject]@{
-                                Uuid = 'aaaabbbb-cccc-dddd-eeee-ffff00001111'
-                                Name = 'orphan-object-01'
-                                Owner = 'vm-9876'; Content = $null; Type = $null; Description = $null
-                            }
-                        )
-                    }
-                } -Force
-
-                Mock Get-MgmtResourcePoolVMs {
-                    [PSCustomObject]@{ Names = @(); MoRefs = @('vm-9876'); Count = 1 }
-                } -ModuleName Microsoft.AVS.Management
-                Mock Get-VsanView { $fakeObjSys } -ModuleName Microsoft.AVS.Management
-
-                Remove-AvsUnassociatedObject -Uuid 'aaaabbbb-cccc-dddd-eeee-ffff00001111' -ClusterName 'TestCluster'
-
-                Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -ParameterFilter {
-                    $Message -like "*InMgmt=True*"
-                }
-                $script:mgmtDeleteWasCalled | Should -Be $false
-            }
-        }
-
-        Context "Safety Check: System-Like Object" {
-            It "Should skip and warn SystemLike=True when object matches exclude pattern" {
-                $script:systemLikeDeleteWasCalled = $false
-
-                $fakeCluster = [PSCustomObject]@{
-                    Name = 'TestCluster'
-                    ExtensionData = [PSCustomObject]@{
-                        MoRef = [PSCustomObject]@{ Type = 'ClusterComputeResource'; Value = 'domain-c1' }
-                    }
-                }
-                $fakeHost = [PSCustomObject]@{
-                    ConnectionState = 'Connected'
-                    ExtensionData = [PSCustomObject]@{
-                        ConfigManager = [PSCustomObject]@{
-                            VsanInternalSystem = [PSCustomObject]@{ Type = 'HostVsanInternalSystem'; Value = 'vsanIntSys-1' }
-                        }
-                    }
-                }
-
-                $fakeVsanIntSys = New-Object psobject
-                Add-Member -InputObject $fakeVsanIntSys -MemberType ScriptMethod -Name GetVsanObjExtAttrs -Value {
-                    param($uuid) '{}'
-                } -Force
-                Add-Member -InputObject $fakeVsanIntSys -MemberType ScriptMethod -Name DeleteVsanObjects -Value {
-                    param($uuids, $force)
-                    $script:systemLikeDeleteWasCalled = $true
-                } -Force
-
-                $fakeObjSys = New-Object psobject
-                Add-Member -InputObject $fakeObjSys -MemberType ScriptMethod -Name VsanQueryObjectIdentities -Value {
-                    param($clusterMo, $a, $b, $c, $d, $e)
-                    [PSCustomObject]@{
-                        Identities = @(
-                            [PSCustomObject]@{
-                                Uuid = 'aaaabbbb-cccc-dddd-eeee-ffff00001111'
-                                Name = 'vsan-internal-obj'
-                                Owner = 'owner-1'; Content = $null; Type = $null; Description = 'normal-object'
-                            }
-                        )
-                    }
-                } -Force
-
-                Mock Get-Cluster { $fakeCluster } -ModuleName Microsoft.AVS.Management
-                Mock Get-MgmtResourcePoolVMs {
-                    [PSCustomObject]@{ Names = @(); MoRefs = @(); Count = 0 }
-                } -ModuleName Microsoft.AVS.Management
-                Mock Get-VMHost { $fakeHost } -ModuleName Microsoft.AVS.Management
-                Mock Get-View { $fakeVsanIntSys } -ModuleName Microsoft.AVS.Management
-                Mock Get-VsanView { $fakeObjSys } -ModuleName Microsoft.AVS.Management
-                Mock Get-HealthFromExt {
-                    [PSCustomObject]@{ IsAbsent = $false; IsDegraded = $false; HealthState = 'Healthy' }
-                } -ModuleName Microsoft.AVS.Management
-                Mock Write-Warning { } -ModuleName Microsoft.AVS.Management
-
-                Remove-AvsUnassociatedObject -Uuid 'aaaabbbb-cccc-dddd-eeee-ffff00001111' -ClusterName 'TestCluster'
-
-                Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -ParameterFilter {
-                    $Message -like '*SystemLike=True*'
-                }
-                $script:systemLikeDeleteWasCalled | Should -Be $false
-            }
-        }
-
-        Context "Safety Check: Unhealthy Object" {
-            BeforeEach {
-                $script:unhealthyDeleteWasCalled = $false
-
-                $script:unhealthyFakeCluster = [PSCustomObject]@{
-                    Name = 'TestCluster'
-                    ExtensionData = [PSCustomObject]@{
-                        MoRef = [PSCustomObject]@{ Type = 'ClusterComputeResource'; Value = 'domain-c1' }
-                    }
-                }
-                $script:unhealthyFakeHost = [PSCustomObject]@{
-                    ConnectionState = 'Connected'
-                    ExtensionData = [PSCustomObject]@{
-                        ConfigManager = [PSCustomObject]@{
-                            VsanInternalSystem = [PSCustomObject]@{ Type = 'HostVsanInternalSystem'; Value = 'vsanIntSys-1' }
-                        }
-                    }
-                }
-
-                $script:unhealthyFakeVsanIntSys = New-Object psobject
-                Add-Member -InputObject $script:unhealthyFakeVsanIntSys -MemberType ScriptMethod -Name GetVsanObjExtAttrs -Value {
-                    param($uuid) '{}'
-                } -Force
-                Add-Member -InputObject $script:unhealthyFakeVsanIntSys -MemberType ScriptMethod -Name DeleteVsanObjects -Value {
-                    param($uuids, $force)
-                    $script:unhealthyDeleteWasCalled = $true
-                } -Force
-
-                $script:unhealthyObjSys = New-Object psobject
-                Add-Member -InputObject $script:unhealthyObjSys -MemberType ScriptMethod -Name VsanQueryObjectIdentities -Value {
-                    param($clusterMo, $a, $b, $c, $d, $e)
-                    [PSCustomObject]@{
-                        Identities = @(
-                            [PSCustomObject]@{
-                                Uuid = 'aaaabbbb-cccc-dddd-eeee-ffff00001111'
-                                Name = 'user-data-object-01'
-                                Owner = 'owner-1'; Content = $null; Type = $null; Description = 'payload'
-                            }
-                        )
-                    }
-                } -Force
-
-                Mock Get-Cluster { $script:unhealthyFakeCluster } -ModuleName Microsoft.AVS.Management
-                Mock Get-MgmtResourcePoolVMs {
-                    [PSCustomObject]@{ Names = @(); MoRefs = @(); Count = 0 }
-                } -ModuleName Microsoft.AVS.Management
-                Mock Get-VMHost { $script:unhealthyFakeHost } -ModuleName Microsoft.AVS.Management
-                Mock Get-View { $script:unhealthyFakeVsanIntSys } -ModuleName Microsoft.AVS.Management
-                Mock Get-VsanView { $script:unhealthyObjSys } -ModuleName Microsoft.AVS.Management
-                Mock Write-Warning { } -ModuleName Microsoft.AVS.Management
-            }
-
-            It "Should skip and warn when object health is Absent" {
-                Mock Get-HealthFromExt {
-                    [PSCustomObject]@{ IsAbsent = $true; IsDegraded = $false; HealthState = 'Absent' }
-                } -ModuleName Microsoft.AVS.Management
-
-                Remove-AvsUnassociatedObject -Uuid 'aaaabbbb-cccc-dddd-eeee-ffff00001111' -ClusterName 'TestCluster'
-
-                Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -ParameterFilter {
-                    $Message -like '*Health=Absent*'
-                }
-                $script:unhealthyDeleteWasCalled | Should -Be $false
-            }
-
-            It "Should skip and warn when object health is Degraded" {
-                Mock Get-HealthFromExt {
-                    [PSCustomObject]@{ IsAbsent = $false; IsDegraded = $true; HealthState = 'Degraded' }
-                } -ModuleName Microsoft.AVS.Management
-
-                Remove-AvsUnassociatedObject -Uuid 'aaaabbbb-cccc-dddd-eeee-ffff00001111' -ClusterName 'TestCluster'
-
-                Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -ParameterFilter {
-                    $Message -like '*Health=Degraded*'
-                }
-                $script:unhealthyDeleteWasCalled | Should -Be $false
-            }
-        }
-
-        Context "Happy Path (Successful Deletion)" {
-            It "Should delete object and write success output when all safety checks pass" {
-                $script:happyPathDeleteCallCount = 0
-
-                $fakeCluster = [PSCustomObject]@{
-                    Name = 'TestCluster'
-                    ExtensionData = [PSCustomObject]@{
-                        MoRef = [PSCustomObject]@{ Type = 'ClusterComputeResource'; Value = 'domain-c1' }
-                    }
-                }
-                $fakeHost = [PSCustomObject]@{
-                    ConnectionState = 'Connected'
-                    ExtensionData = [PSCustomObject]@{
-                        ConfigManager = [PSCustomObject]@{
-                            VsanInternalSystem = [PSCustomObject]@{ Type = 'HostVsanInternalSystem'; Value = 'vsanIntSys-1' }
-                        }
-                    }
-                }
-
-                $fakeVsanIntSys = New-Object psobject
-                Add-Member -InputObject $fakeVsanIntSys -MemberType ScriptMethod -Name GetVsanObjExtAttrs -Value {
-                    param($uuid) '{}'
-                } -Force
-                Add-Member -InputObject $fakeVsanIntSys -MemberType ScriptMethod -Name DeleteVsanObjects -Value {
-                    param($uuids, $force)
-                    $script:happyPathDeleteCallCount += 1
-                } -Force
-
-                $fakeObjSys = New-Object psobject
-                Add-Member -InputObject $fakeObjSys -MemberType ScriptMethod -Name VsanQueryObjectIdentities -Value {
-                    param($clusterMo, $a, $b, $c, $d, $e)
-                    [PSCustomObject]@{
-                        Identities = @(
-                            [PSCustomObject]@{
-                                Uuid = 'aaaabbbb-cccc-dddd-eeee-ffff00001111'
-                                Name = 'user-data-object-01'
-                                Owner = 'owner-1'; Content = $null; Type = $null; Description = 'payload'
-                            }
-                        )
-                    }
-                } -Force
-
-                Mock Get-Cluster { $fakeCluster } -ModuleName Microsoft.AVS.Management
-                Mock Get-MgmtResourcePoolVMs { [PSCustomObject]@{ Names = @(); MoRefs = @(); Count = 0 } } -ModuleName Microsoft.AVS.Management
-                Mock Get-VMHost { $fakeHost } -ModuleName Microsoft.AVS.Management
-                Mock Get-View { $fakeVsanIntSys } -ModuleName Microsoft.AVS.Management
-                Mock Get-VsanView { $fakeObjSys } -ModuleName Microsoft.AVS.Management
-                Mock Get-HealthFromExt {
-                    [PSCustomObject]@{ IsAbsent = $false; IsDegraded = $false; HealthState = 'Healthy' }
-                } -ModuleName Microsoft.AVS.Management
-                Mock Write-Host { } -ModuleName Microsoft.AVS.Management
-                Mock Write-Warning { } -ModuleName Microsoft.AVS.Management
-
-                Remove-AvsUnassociatedObject -Uuid 'aaaabbbb-cccc-dddd-eeee-ffff00001111' -ClusterName 'TestCluster'
-
-                $script:happyPathDeleteCallCount | Should -Be 1
-                Should -Invoke Write-Host -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
-                    $Object -like '*Deleted aaaabbbb-cccc-dddd-eeee-ffff00001111*'
-                }
-                Should -Not -Invoke Write-Warning -ModuleName Microsoft.AVS.Management
-            }
-        }
-
-        Context "Deletion Failure Handling" {
-            It "Should warn and continue when DeleteVsanObjects throws" {
-                $script:deleteFailureCallCount = 0
-
-                $fakeCluster = [PSCustomObject]@{
-                    Name = 'TestCluster'
-                    ExtensionData = [PSCustomObject]@{
-                        MoRef = [PSCustomObject]@{ Type = 'ClusterComputeResource'; Value = 'domain-c1' }
-                    }
-                }
-                $fakeHost = [PSCustomObject]@{
-                    ConnectionState = 'Connected'
-                    ExtensionData = [PSCustomObject]@{
-                        ConfigManager = [PSCustomObject]@{
-                            VsanInternalSystem = [PSCustomObject]@{ Type = 'HostVsanInternalSystem'; Value = 'vsanIntSys-1' }
-                        }
-                    }
-                }
-
-                $fakeVsanIntSys = New-Object psobject
-                Add-Member -InputObject $fakeVsanIntSys -MemberType ScriptMethod -Name GetVsanObjExtAttrs -Value {
-                    param($uuid) '{}'
-                } -Force
-                Add-Member -InputObject $fakeVsanIntSys -MemberType ScriptMethod -Name DeleteVsanObjects -Value {
-                    param($uuids, $force)
-                    $script:deleteFailureCallCount += 1
-                    throw 'delete api failed'
-                } -Force
-
-                $fakeObjSys = New-Object psobject
-                Add-Member -InputObject $fakeObjSys -MemberType ScriptMethod -Name VsanQueryObjectIdentities -Value {
-                    param($clusterMo, $a, $b, $c, $d, $e)
-                    [PSCustomObject]@{
-                        Identities = @(
-                            [PSCustomObject]@{
-                                Uuid = 'aaaabbbb-cccc-dddd-eeee-ffff00001111'
-                                Name = 'user-data-object-01'
-                                Owner = 'owner-1'; Content = $null; Type = $null; Description = 'payload'
-                            }
-                        )
-                    }
-                } -Force
-
-                Mock Get-Cluster { $fakeCluster } -ModuleName Microsoft.AVS.Management
-                Mock Get-MgmtResourcePoolVMs { [PSCustomObject]@{ Names = @(); MoRefs = @(); Count = 0 } } -ModuleName Microsoft.AVS.Management
-                Mock Get-VMHost { $fakeHost } -ModuleName Microsoft.AVS.Management
-                Mock Get-View { $fakeVsanIntSys } -ModuleName Microsoft.AVS.Management
-                Mock Get-VsanView { $fakeObjSys } -ModuleName Microsoft.AVS.Management
-                Mock Get-HealthFromExt {
-                    [PSCustomObject]@{ IsAbsent = $false; IsDegraded = $false; HealthState = 'Healthy' }
-                } -ModuleName Microsoft.AVS.Management
-                Mock Write-Warning { } -ModuleName Microsoft.AVS.Management
-
-                { Remove-AvsUnassociatedObject -Uuid 'aaaabbbb-cccc-dddd-eeee-ffff00001111' -ClusterName 'TestCluster' } | Should -Not -Throw
-
-                $script:deleteFailureCallCount | Should -Be 1
-                Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
-                    $Message -like '*Failed to delete aaaabbbb-cccc-dddd-eeee-ffff00001111*delete api failed*'
-                }
-            }
-        }
-
-        Context "Extended Attributes Parse Failure" {
-            It "Should continue safety checks and delete when ext JSON parsing fails" {
-                $script:extParseDeleteCallCount = 0
-
-                $fakeCluster = [PSCustomObject]@{
-                    Name = 'TestCluster'
-                    ExtensionData = [PSCustomObject]@{
-                        MoRef = [PSCustomObject]@{ Type = 'ClusterComputeResource'; Value = 'domain-c1' }
-                    }
-                }
-                $fakeHost = [PSCustomObject]@{
-                    ConnectionState = 'Connected'
-                    ExtensionData = [PSCustomObject]@{
-                        ConfigManager = [PSCustomObject]@{
-                            VsanInternalSystem = [PSCustomObject]@{ Type = 'HostVsanInternalSystem'; Value = 'vsanIntSys-1' }
-                        }
-                    }
-                }
-
-                $fakeVsanIntSys = New-Object psobject
-                Add-Member -InputObject $fakeVsanIntSys -MemberType ScriptMethod -Name GetVsanObjExtAttrs -Value {
-                    param($uuid) 'not-json'
-                } -Force
-                Add-Member -InputObject $fakeVsanIntSys -MemberType ScriptMethod -Name DeleteVsanObjects -Value {
-                    param($uuids, $force)
-                    $script:extParseDeleteCallCount += 1
-                } -Force
-
-                $fakeObjSys = New-Object psobject
-                Add-Member -InputObject $fakeObjSys -MemberType ScriptMethod -Name VsanQueryObjectIdentities -Value {
-                    param($clusterMo, $a, $b, $c, $d, $e)
-                    [PSCustomObject]@{
-                        Identities = @(
-                            [PSCustomObject]@{
-                                Uuid = 'aaaabbbb-cccc-dddd-eeee-ffff00001111'
-                                Name = 'user-data-object-01'
-                                Owner = 'owner-1'; Content = $null; Type = $null; Description = 'payload'
-                            }
-                        )
-                    }
-                } -Force
-
-                Mock Get-Cluster { $fakeCluster } -ModuleName Microsoft.AVS.Management
-                Mock Get-MgmtResourcePoolVMs { [PSCustomObject]@{ Names = @(); MoRefs = @(); Count = 0 } } -ModuleName Microsoft.AVS.Management
-                Mock Get-VMHost { $fakeHost } -ModuleName Microsoft.AVS.Management
-                Mock Get-View { $fakeVsanIntSys } -ModuleName Microsoft.AVS.Management
-                Mock Get-VsanView { $fakeObjSys } -ModuleName Microsoft.AVS.Management
-                Mock Get-HealthFromExt {
-                    [PSCustomObject]@{ IsAbsent = $false; IsDegraded = $false; HealthState = 'Healthy' }
-                } -ModuleName Microsoft.AVS.Management
-                Mock Write-Host { } -ModuleName Microsoft.AVS.Management
-                Mock Write-Warning { } -ModuleName Microsoft.AVS.Management
-
-                { Remove-AvsUnassociatedObject -Uuid 'aaaabbbb-cccc-dddd-eeee-ffff00001111' -ClusterName 'TestCluster' } | Should -Not -Throw
-
-                $script:extParseDeleteCallCount | Should -Be 1
-                Should -Invoke Get-HealthFromExt -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
-                    $null -eq $Ext
-                }
-                Should -Not -Invoke Write-Warning -ModuleName Microsoft.AVS.Management
-            }
         }
     }
 }
