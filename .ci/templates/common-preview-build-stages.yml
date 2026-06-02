@@ -33,12 +33,10 @@ stages:
 
     - pwsh: |
         dotnet tool update -g powershell `
-        --version $(PS_VERSION) `
-          --add-source $(consumptionFeedUrl)
+          --version $(PS_VERSION)
         dotnet tool install AVS.ScriptingMetadata.Shuttle `
           --tool-path shuttle `
-          --version $(shuttleVersion) `
-          --add-source $(consumptionFeedUrl)
+          --version $(shuttleVersion)
       displayName: Prepare tools
 
     - pwsh: |

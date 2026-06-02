@@ -19,8 +19,9 @@ resources:
 extends:
   template: v1/1ES.Official.PipelineTemplate.yml@1esPipelines
   parameters:
-    settings:
-      skipBuildTagsForGitHubPullRequests: true
+  settings:
+    networkIsolationPolicy: Permissive,CFSClean
+    skipBuildTagsForGitHubPullRequests: true
     featureFlags:
       autoBaseline: false
     sdl:
