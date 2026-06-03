@@ -1058,29 +1058,101 @@ function Set-VCLoginBanner {
         $escapedTitle = $BannerTitle -replace "'", "'\\''"
         $escapedMessage = $BannerMessage -replace "'", "'\\''"
         $consentFlag = if ($EnableConsent) { "true" } else { "false" }
+        $consentFlagYN = if ($EnableConsent) { "Y" } else { "N" }
+
+        # Reusable command runner for future banner command fallback flows
+        $InvokeBannerCommand = {
+            param(
+                [string]$Command,
+                [string]$StepName
+            )
+
+            $cmdResult = Invoke-SSHCommand -SSHSession $SshSession -Command $Command -ErrorAction Stop
+            if ($cmdResult.ExitStatus -eq 0) {
+                Write-Host "$StepName succeeded."
+                return $true
+            }
+
+            $errorText = $cmdResult.Error -join ' '
+            Write-Warning "$StepName failed: $errorText"
+            return $false
+        }
 
         # Step 1: Set the banner title and message content (Layer 1)
         $setContentCmd = "/opt/vmware/bin/sso-config.sh -set_logon_banner -title '$escapedTitle' -content '$escapedMessage'"
-        Write-Host "Setting login banner content..."
-        $result = Invoke-SSHCommand -SSHSession $SshSession -Command $setContentCmd -ErrorAction Stop
-        if ($result.ExitStatus -ne 0) {
-            throw "Failed to set login banner content: $($result.Error -join ' ')"
+        Write-Host "Setting login banner content using inline content format..."
+        $setContentSucceeded = & $InvokeBannerCommand -Command $setContentCmd -StepName "Set login banner content (inline)"
+        if (-not $setContentSucceeded) {
+            $bannerTempDir = "/tmp/avs-login-banner-{0}" -f ([guid]::NewGuid().ToString('N'))
+            $bannerFilePath = "$bannerTempDir/message.txt"
+            Write-Host "Inline content format failed. Preparing banner file for fallback format..."
+            $createBannerDirCmd = "/bin/sh -c ""mkdir -p '$bannerTempDir'"""
+            $createDirSucceeded = & $InvokeBannerCommand -Command $createBannerDirCmd -StepName "Create temp directory for fallback"
+
+            $createdTempDir = $null
+            if ($createDirSucceeded) {
+                $createdTempDir = $bannerTempDir
+
+                $createBannerFileCmd = "/bin/sh -c ""printf '%s' '$escapedMessage' > '$bannerFilePath'"""
+                $createFileSucceeded = & $InvokeBannerCommand -Command $createBannerFileCmd -StepName "Create banner file for fallback"
+
+                if ($createFileSucceeded) {
+                    $setContentCmdFallback = "/opt/vmware/bin/sso-config.sh -set_logon_banner -title '$escapedTitle' '$bannerFilePath'"
+                    Write-Host "Retrying login banner content using file format..."
+                    $setContentSucceeded = & $InvokeBannerCommand -Command $setContentCmdFallback -StepName "Set login banner content (file)"
+                    if ($setContentSucceeded) {
+                        Write-Host "Fallback content format (banner file) worked on this VCSA."
+                    }
+                }
+            }
+
+            # Simple strong cleanup guardrail: delete only if created and delete path are exactly same
+            $deleteTempDir = $bannerTempDir
+            if (
+                -not [string]::IsNullOrEmpty($createdTempDir) -and
+                -not [string]::IsNullOrEmpty($deleteTempDir) -and
+                $createdTempDir -eq $deleteTempDir
+            ) {
+                $cleanupBannerDirCmd = "/bin/sh -c ""rm -rf -- '$deleteTempDir'"""
+                $cleanupSucceeded = & $InvokeBannerCommand -Command $cleanupBannerDirCmd -StepName "Cleanup temporary banner directory"
+                if ($cleanupSucceeded) {
+                    Write-Host "Temporary banner directory was cleaned up."
+                } else {
+                    Write-Warning "Temporary banner directory cleanup failed (non-blocking): $deleteTempDir"
+                }
+            } else {
+                Write-Warning "Cleanup guardrail failed. Skipping delete for safety."
+            }
+        }
+
+        if (-not $setContentSucceeded) {
+            throw "Failed to set login banner content using supported formats."
         }
 
         # Step 2: Enable the consent checkbox setting
         $setConsentCmd = "/opt/vmware/bin/sso-config.sh -set_logon_banner -enable_checkbox $consentFlag"
         Write-Host "Setting consent checkbox to $consentFlag..."
-        $result = Invoke-SSHCommand -SSHSession $SshSession -Command $setConsentCmd -ErrorAction Stop
-        if ($result.ExitStatus -ne 0) {
-            throw "Failed to set consent checkbox: $($result.Error -join ' ')"
+        $setConsentSucceeded = & $InvokeBannerCommand -Command $setConsentCmd -StepName "Set consent checkbox ($consentFlag)"
+        if (-not $setConsentSucceeded) {
+            $setConsentCmdLegacy = "/opt/vmware/bin/sso-config.sh -set_logon_banner -enable_checkbox $consentFlagYN"
+            Write-Host "Retrying consent checkbox with legacy Y/N format ($consentFlagYN)..."
+            $setConsentSucceeded = & $InvokeBannerCommand -Command $setConsentCmdLegacy -StepName "Set consent checkbox ($consentFlagYN)"
+            if ($setConsentSucceeded) {
+                Write-Host "Legacy checkbox format (Y/N) worked on this VCSA."
+            }
+        }
+
+        if (-not $setConsentSucceeded) {
+            throw "Failed to set consent checkbox using supported formats."
         }
 
         # Step 3: Enable the login banner toggle (Layer 2 — the activation switch)
         $enableCmd = "/opt/vmware/bin/sso-config.sh -set_logon_banner -enable true"
         Write-Host "Enabling login banner display (Layer 2 toggle)..."
-        $result = Invoke-SSHCommand -SSHSession $SshSession -Command $enableCmd -ErrorAction Stop
-        if ($result.ExitStatus -ne 0) {
-            throw "Failed to enable login banner toggle: $($result.Error -join ' ')"
+        $enableSucceeded = & $InvokeBannerCommand -Command $enableCmd -StepName "Enable login banner toggle (-enable true)"
+        if (-not $enableSucceeded) {
+            Write-Warning "Enable command style (-enable true) did not work on this VCSA variant."
+            throw "Failed to enable login banner toggle using supported formats."
         }
 
         Write-Host "vCenter login banner configured and enabled successfully."
@@ -1118,10 +1190,20 @@ function Get-VCLoginBanner {
         }
 
         $getCmd = "/opt/vmware/bin/sso-config.sh -get_logon_banner"
+        $printCmd = "/opt/vmware/bin/sso-config.sh -print_logon_banner"
         Write-Host "Retrieving login banner configuration..."
+
         $result = Invoke-SSHCommand -SSHSession $SshSession -Command $getCmd -ErrorAction Stop
         if ($result.ExitStatus -ne 0) {
-            throw "Failed to retrieve login banner configuration: $($result.Error -join ' ')"
+            Write-Warning "Primary read command (-get_logon_banner) failed. Retrying with -print_logon_banner..."
+            $result = Invoke-SSHCommand -SSHSession $SshSession -Command $printCmd -ErrorAction Stop
+            if ($result.ExitStatus -eq 0) {
+                Write-Host "Fallback read command (-print_logon_banner) worked on this VCSA."
+            }
+        }
+
+        if ($result.ExitStatus -ne 0) {
+            throw "Failed to retrieve login banner configuration using supported formats: $($result.Error -join ' ')"
         }
 
         $bannerOutput = $result.Output -join "`n"
@@ -1160,10 +1242,20 @@ function Remove-VCLoginBanner {
         }
 
         $disableCmd = "/opt/vmware/bin/sso-config.sh -set_logon_banner -enable false"
+        $disableCmdFallback = "/opt/vmware/bin/sso-config.sh -disable_logon_banner"
         Write-Host "Disabling login banner display..."
+
         $result = Invoke-SSHCommand -SSHSession $SshSession -Command $disableCmd -ErrorAction Stop
         if ($result.ExitStatus -ne 0) {
-            throw "Failed to disable login banner: $($result.Error -join ' ')"
+            Write-Warning "Primary disable command (-set_logon_banner -enable false) failed. Retrying with -disable_logon_banner..."
+            $result = Invoke-SSHCommand -SSHSession $SshSession -Command $disableCmdFallback -ErrorAction Stop
+            if ($result.ExitStatus -eq 0) {
+                Write-Host "Fallback disable command (-disable_logon_banner) worked on this VCSA."
+            }
+        }
+
+        if ($result.ExitStatus -ne 0) {
+            throw "Failed to disable login banner using supported formats: $($result.Error -join ' ')"
         }
 
         Write-Host "vCenter login banner has been disabled successfully."
