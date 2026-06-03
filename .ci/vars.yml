@@ -24,3 +24,4 @@ variables:
   consumptionFeedUrl: 'https://pkgs.dev.azure.com/avs-oss/Public/_packaging/PS-Consumption/nuget/v3/index.json'
   previewFeedUrl: 'https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v3/index.json'
   PS_VERSION: '7.6.1'
+  AZURE_ARTIFACTS_FEED: 'https://pkgs.dev.azure.com/avs-oss/Public/_packaging/PS-Consumption/nuget/v3/index.json'
