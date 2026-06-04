@@ -1151,8 +1151,28 @@ function Set-VCLoginBanner {
         Write-Host "Enabling login banner display (Layer 2 toggle)..."
         $enableSucceeded = & $InvokeBannerCommand -Command $enableCmd -StepName "Enable login banner toggle (-enable true)"
         if (-not $enableSucceeded) {
-            Write-Warning "Enable command style (-enable true) did not work on this VCSA variant."
-            throw "Failed to enable login banner toggle using supported formats."
+            Write-Warning "Enable command style (-enable true) did not work on this VCSA variant. Verifying banner state..."
+
+            $getCmd = "/opt/vmware/bin/sso-config.sh -get_logon_banner"
+            $printCmd = "/opt/vmware/bin/sso-config.sh -print_logon_banner"
+
+            $checkResult = Invoke-SSHCommand -SSHSession $SshSession -Command $getCmd -ErrorAction Stop
+            if ($checkResult.ExitStatus -ne 0) {
+                Write-Warning "Primary read command (-get_logon_banner) failed. Retrying with -print_logon_banner..."
+                $checkResult = Invoke-SSHCommand -SSHSession $SshSession -Command $printCmd -ErrorAction Stop
+            }
+
+            if ($checkResult.ExitStatus -ne 0) {
+                throw "Failed to verify banner state: $($checkResult.Error -join ' ')"
+            }
+
+            $bannerOutput = $checkResult.Output -join "`n"
+            if ($bannerOutput -match "Checkbox enabled\s*:\s*true") {
+                Write-Host "Banner is already enabled on this VCSA variant (no -enable command needed)."
+                $enableSucceeded = $true
+            } else {
+                throw "Banner is not enabled and -enable command is not supported on this VCSA."
+            }
         }
 
         Write-Host "vCenter login banner configured and enabled successfully."
