@@ -18,12 +18,29 @@ AVSAttribute applied to a commandlet function indicates:
 - default timeout for the commandlet, maximum: 3h.
 - whether a commandlet is intended to be only for automation or is visible to all customers.
 AVS SDDC in Building state prevents other changes from being made to the SDDC until the function completes/fails.
+
+Defined via Add-Type (compiled C#) rather than the PowerShell `class` keyword so the
+resulting type is registered in the AppDomain and resolvable from any module scope —
+including dot-sourced .ps1 files inside consumer modules whose attribute-bind happens
+after Microsoft.AVS.Management's ScriptsToProcess has already run in a different
+SessionState (e.g., when Microsoft.AVS.CDR.Import-ModulePinned imports Management
+from inside its own module function). PowerShell `class` types are scoped to the
+declaring SessionState's type table and are not visible to dot-sourced consumers in
+that scenario.
 #>
-class AVSAttribute : Attribute {
-    [bool]$UpdatesSDDC = $false
-    [TimeSpan]$Timeout
-    [bool]$AutomationOnly = $false
-    AVSAttribute($timeoutMinutes) { $this.Timeout = New-TimeSpan -Minutes $timeoutMinutes }
+if (-not ('AVSAttribute' -as [type])) {
+    Add-Type -ErrorAction Stop -TypeDefinition @"
+using System;
+[AttributeUsage(AttributeTargets.All, AllowMultiple = false)]
+public sealed class AVSAttribute : Attribute {
+    public bool UpdatesSDDC { get; set; }
+    public bool AutomationOnly { get; set; }
+    public TimeSpan Timeout { get; private set; }
+    public AVSAttribute(double timeoutMinutes) {
+        this.Timeout = TimeSpan.FromMinutes(timeoutMinutes);
+    }
+}
+"@
 }
 
 <#

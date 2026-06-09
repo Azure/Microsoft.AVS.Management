@@ -72,13 +72,7 @@
     # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
     # NestedModules = @()
     
-    # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-    # Storage / vSAN cmdlets (Set-VMStoragePolicy, Set-LocationStoragePolicy, Set-ClusterDefaultStoragePolicy,
-    # Get-StoragePolicies, Set-vSANCompressDedupe, New-AVSStoragePolicy, Remove-AVSStoragePolicy,
-    # Set-AVSVSANClusterUNMAPTRIM, Get-AVSVSANClusterUNMAPTRIM, Get-vSANDataInTransitEncryptionStatus,
-    # Set-vSANDataInTransitEncryption, Get-UnassociatedvSANObjectsWithPolicy,
-    # Update-StoragePolicyofUnassociatedvSANObjects, Remove-AvsUnassociatedObject) were moved to
-    # the Microsoft.AVS.Storage package as of v10.0.0.
+    # Functions to export from this module
     FunctionsToExport = @(
         'Set-ToolsRepo'
         'Set-CustomDRS'
