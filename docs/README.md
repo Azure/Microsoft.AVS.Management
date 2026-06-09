@@ -137,6 +137,31 @@ Import-ModulePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0"
 
 CDR automatically loads the appropriate redirect map from its `maps/` directory based on the `Microsoft.AVS.Management` version in your dependency chain. You can also supply a custom redirect map via `-RedirectMapPath`.
 
+#### Transitional Guidance: Avoiding the `Import-ModulePinned` `AVSAttribute` Scope Bug
+
+Packages that still depend on `Microsoft.AVS.Management` **9 or earlier** are affected by a PowerShell scope-loss bug when imported via `Import-ModulePinned` and `Import-PSResourceDependencies`. The symptom is a parse-time error inside a dot-sourced script file in the consumer module:
+
+```
+Cannot find the type for custom attribute 'AVSAttribute'.
+Make sure that the assembly that contains this type is loaded.
+```
+
+Root cause: in those versions `AVSAttribute` is defined as a PowerShell `class` in `Classes.ps1` (run via `ScriptsToProcess`). When CDR's pinned-import functions call `Import-Module` from inside their own function body, that class registers into CDR's SessionState type table and is not visible to consumer scripts that dot-source `[AVSAttribute]`-decorated functions from sub-files. Functions decorated inline in the consumer's `.psm1` are unaffected; only dot-sourced files break.
+
+**Fix going forward**: starting with `Microsoft.AVS.Management` 10.0.250, `AVSAttribute` is defined via `Add-Type` and lives in the AppDomain — the bug cannot occur. Take the dependency to 10.0.250+ when possible.
+
+**Transitional pattern** for consumers that cannot yet upgrade to 10.0.250+: replace `Import-ModulePinned` / `Import-PSResourceDependencies` with `Find-PSResourcesPinned` + a caller-driven top-level `Import-Module` loop. Because the imports run at top-level scope (not inside a CDR function), `ScriptsToProcess` registers the PS-class into the runspace where consumers can resolve it. `Find-PSResourcesPinned` already returns dependencies in topological order, so a plain sequential `foreach` is sufficient — no extra ordering logic is required.
+
+```powershell
+# Transitional pattern (works regardless of Management version)
+$resolved = Find-PSResourcesPinned -Name 'VMware.VCDA.AVS' -RequiredVersion '1.0.5'
+foreach ($r in $resolved) {
+    Import-Module -Name $r.Name -RequiredVersion $r.Version -Global -DisableNameChecking -ErrorAction Stop
+}
+```
+
+Once the consumer's `Microsoft.AVS.Management` dependency is at 10.0.250 or later, `Import-ModulePinned` and `Import-PSResourceDependencies` can be used directly again — both code paths produce correct results, and the transitional pattern can be removed.
+
 ### 2.3 Versioning
 
 Follow [semver guidelines](https://semver.org/) when publishing. Supported version suffixes:
