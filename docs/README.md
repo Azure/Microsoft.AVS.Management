@@ -500,7 +500,7 @@ The final QA cycle before requesting AVS review:
 
 1. Publish the package with `-dev` version suffix.
 2. Get on a Linux jumpbox connected to your SDDC VNet.
-3. Spin up a PowerShell container based on Azure Linux 3.0 distroless/minimal: `mcr.microsoft.com/azurelinux/distroless/minimal:3.0` with PowerShell 7.6 installed.
+3. Spin up Azure Linux 3.0: `mcr.microsoft.com/dotnet/sdk:10.0-azurelinux3.0`.
 4. In the container:
    - Install `Microsoft.AVS.CDR` and use `Install-PSResourceDependencies` to install your package's dependencies with pinned versions — this verifies all dependencies are correctly declared and avoids transitive version conflicts.
    - Set up the context.
@@ -513,6 +513,10 @@ Install-PSResource -Name Microsoft.AVS.CDR -TrustRepository
 Install-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
 Import-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
 ```
+
+> NOTE:
+> The real agent's PowerShell container is based on Azure Linux 3.0 distroless/minimal: `mcr.microsoft.com/azurelinux/distroless/minimal:3.0` with PowerShell 7.6 and CDR installed - and nothing else. 
+> IMPORTANT: *Do not use OS executables* in your scripts as they won't be available.
 
 ### 8.3 CI Testing
 
