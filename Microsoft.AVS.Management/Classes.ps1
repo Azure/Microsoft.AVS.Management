@@ -47,7 +47,7 @@ public sealed class AVSAttribute : Attribute {
 SecureFolder class provides a way to create a folder protected from CloudAdmins.
 #>
 if (-not ('AVSSecureFolder' -as [type])) {
-    Add-Type -ErrorAction Stop -TypeDefinition @"
+    Add-Type -ErrorAction Stop -TypeDefinition @'
 using System;
 using System.Collections.ObjectModel;
 using System.Management.Automation;
@@ -120,5 +120,5 @@ return $folder
         return result.Count > 0 ? result[0].BaseObject : null;
     }
 }
-"@
+'@
 }

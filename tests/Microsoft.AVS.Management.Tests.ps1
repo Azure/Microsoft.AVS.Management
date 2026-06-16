@@ -1265,16 +1265,20 @@ Describe "Classes.ps1 - Cross-SessionState Type Visibility" {
 
     It "AVSAttribute and AVSSecureFolder resolve from a separate module scope" {
         $classesPath = (Resolve-Path (Join-Path $PSScriptRoot '..' 'Microsoft.AVS.Management' 'Classes.ps1')).Path
+        $cdrPath     = (Resolve-Path (Join-Path $PSScriptRoot '..' 'Microsoft.AVS.CDR'        'Microsoft.AVS.CDR.psd1')).Path
 
-        # Escape single quotes in path for embedding in a single-quoted here-string
-        $escapedPath = $classesPath -replace "'", "''"
+        # Escape single quotes in paths for embedding in a here-string
+        $escapedClassesPath = $classesPath -replace "'", "''"
+        $escapedCdrPath     = $cdrPath     -replace "'", "''"
 
         # Script runs in a fresh pwsh process: no AppDomain contamination from BeforeAll's Import-Module.
-        # Step 1 – load Classes.ps1 inside a module's SessionState (simulates CDR's Import-ModulePinned).
-        # Step 2 – resolve both types from a *different* module's function scope.
+        # Step 1 – import the real CDR module.
+        # Step 2 – dot-source Classes.ps1 inside CDR's module SessionState (mirrors ScriptsToProcess behavior).
+        # Step 3 – verify both types are visible from a separate module's function scope.
         $script = @"
-`$loaderModule = New-Module -Name 'SimulatedCDR' -ScriptBlock ([scriptblock]::Create(". '$escapedPath'"))
-Import-Module `$loaderModule -Force
+Import-Module '$escapedCdrPath' -Force
+
+& (Get-Module Microsoft.AVS.CDR) { param(`$p) . `$p } -p '$escapedClassesPath'
 
 `$consumerModule = New-Module -Name 'SimulatedManagement' -ScriptBlock {
     function Test-TypeVisibility {
