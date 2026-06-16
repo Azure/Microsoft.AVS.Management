@@ -1263,7 +1263,7 @@ Describe "Classes.ps1 - Cross-SessionState Type Visibility" {
     process's AppDomain can mask a regression.
     #>
 
-    It "AVSAttribute and AVSSecureFolder resolve from a separate module scope" {
+    It "Vendor module dot-sourcing a .ps1 that references [AVSAttribute] and [AVSSecureFolder] imports successfully" {
         $cdrPath = (Resolve-Path (Join-Path $PSScriptRoot '..' 'Microsoft.AVS.CDR' 'Microsoft.AVS.CDR.psd1')).Path
         $managementManifestPath = (Resolve-Path (Join-Path $PSScriptRoot '..' 'Microsoft.AVS.Management' 'Microsoft.AVS.Management.psd1')).Path
         $managementVersion = [string](Import-PowerShellDataFile $managementManifestPath).ModuleVersion
@@ -1277,30 +1277,65 @@ Describe "Classes.ps1 - Cross-SessionState Type Visibility" {
             return
         }
 
-        # Escape single quotes for embedding in a script passed to pwsh -Command
         $escapedCdrPath = $cdrPath -replace "'", "''"
         $escapedManagementVersion = $managementVersion -replace "'", "''"
 
-        # Subprocess keeps the AppDomain clean so a pre-loaded Add-Type in this process can't mask
-        # a regression. CDR's Import-ModulePinned does the real work; we just observe type visibility.
+        # Reproduce the exact production shape that triggered the original bug:
+        # CDR's Import-ModulePinned imports Management (Classes.ps1 runs in CDR's SessionState),
+        # then a *vendor* module gets imported whose .psm1 dot-sources a .ps1 containing function
+        # definitions decorated with [AVSAttribute(...)] and a body referencing [AVSSecureFolder].
+        # With the old PowerShell `class` keyword, the parser fails to bind [AVSAttribute] when
+        # dot-sourcing into the vendor's SessionState. With Add-Type, the AppDomain-registered
+        # types resolve fine. Subprocess keeps the AppDomain clean to avoid masking a regression.
         $script = @"
 `$ErrorActionPreference = 'Stop'
-Import-Module '$escapedCdrPath' -Force
-Import-ModulePinned -Name 'Microsoft.AVS.Management' -RequiredVersion '$escapedManagementVersion' -Force
 
-`$consumer = New-Module -Name 'TypeVisibilityConsumer' -ScriptBlock {
-    function Test-TypeVisibility {
-        `$missing = @('AVSAttribute', 'AVSSecureFolder') | Where-Object { -not (`$_ -as [type]) }
-        if (`$missing) { throw "Types not visible in consumer module scope: `$(`$missing -join ', ')" }
-        'ok'
-    }
+`$vendorRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("avs-vendor-consumer-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path `$vendorRoot -Force | Out-Null
+
+try {
+    `$vendorImpl = Join-Path `$vendorRoot 'Vendor.Impl.ps1'
+    `$vendorPsm1 = Join-Path `$vendorRoot 'Vendor.psm1'
+    `$vendorPsd1 = Join-Path `$vendorRoot 'Vendor.psd1'
+
+    Set-Content -Path `$vendorImpl -Encoding utf8 -Value @'
+function Invoke-VendorAction {
+    [CmdletBinding()]
+    [AVSAttribute(5, UpdatesSDDC = `$false)]
+    param()
+
+    # Body references AVSSecureFolder to exercise type binding from a dot-sourced .ps1
+    [void][AVSSecureFolder]
+    'invoked'
 }
-Import-Module `$consumer -Force
-& (Get-Module TypeVisibilityConsumer) { Test-TypeVisibility }
+'@
+
+    Set-Content -Path `$vendorPsm1 -Encoding utf8 -Value '. (Join-Path `$PSScriptRoot ''Vendor.Impl.ps1'')'
+
+    New-ModuleManifest -Path `$vendorPsd1 -RootModule 'Vendor.psm1' -ModuleVersion '1.0.0' ``
+        -Guid ([guid]::NewGuid()) -FunctionsToExport @('Invoke-VendorAction') ``
+        -CmdletsToExport @() -AliasesToExport @() -VariablesToExport @()
+
+    Import-Module '$escapedCdrPath' -Force
+    Import-ModulePinned -Name 'Microsoft.AVS.Management' -RequiredVersion '$escapedManagementVersion' -Force
+
+    # Dot-source-with-AVSAttribute happens here. Fails at parse time under the old `class` design.
+    Import-Module `$vendorPsd1 -Force
+
+    `$cmd = Get-Command Invoke-VendorAction -ErrorAction Stop
+    `$attr = `$cmd.ScriptBlock.Attributes | Where-Object { `$_.GetType().Name -eq 'AVSAttribute' } | Select-Object -First 1
+    if (-not `$attr) { throw 'AVSAttribute was not bound on Invoke-VendorAction' }
+    if (`$attr.Timeout.TotalMinutes -ne 5) { throw "Expected timeout 5, got `$(`$attr.Timeout.TotalMinutes)" }
+
+    'ok'
+}
+finally {
+    Remove-Item -Path `$vendorRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
 "@
         $output = pwsh -NoProfile -NonInteractive -Command $script 2>&1
         $LASTEXITCODE | Should -Be 0 -Because (
-            "Add-Type registers types in the AppDomain — they must be visible from any module scope. " +
+            "Add-Type registers types in the AppDomain so dot-sourced .ps1 files in vendor module SessionStates can parse [AVSAttribute] and [AVSSecureFolder]. " +
             "stderr: $($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })"
         )
         $output | Should -Contain 'ok'
