@@ -46,60 +46,79 @@ public sealed class AVSAttribute : Attribute {
 <#
 SecureFolder class provides a way to create a folder protected from CloudAdmins.
 #>
-class AVSSecureFolder {
-    hidden static [string]$vendors = "AVS-vendor-folders"
-    <#
-        Applies propagating permissions to specified objects.
-    #>
-    hidden static ApplyPermissions($objects) {
-        $admin = Get-VIRole -Name "Admin" -ErrorAction Stop
-        $readOnly = Get-VIRole -Name "ReadOnly" -ErrorAction Stop
-        $scripting = Get-VIAccount -Id "scripting" -Domain "vsphere.local" -ErrorAction Stop
-        $group = Get-VIAccount -Group -Id "CloudAdmins" -Domain "vsphere.local" -ErrorAction Stop
-        $objects | New-VIPermission -Principal $scripting -Role $admin -Propagate $true
-        $objects | New-VIPermission -Principal $group -Role $readOnly -Propagate $true
-        if ($objects.Folder -ne [AVSSecureFolder]::Root()) {
-            $external = `
-                $objects | Get-VIPermission `
-                | Where-Object { -not $_.Principal.StartsWith("VSPHERE.LOCAL") } `
-                | ForEach-Object { Get-VIAccount -Group:$_.IsGroup -Domain $_.Principal.Split("\")[0] -Id $_.Principal.Split("\")[1]}
-            foreach ($x in $external) {
-                $objects | New-VIPermission -Principal $x -Role $readOnly -Propagate $true
-            }
-        }
+if (-not ('AVSSecureFolder' -as [type])) {
+    Add-Type -ErrorAction Stop -TypeDefinition @'
+using System;
+using System.Collections.ObjectModel;
+using System.Management.Automation;
+
+public sealed class AVSSecureFolder {
+    private static readonly string vendors = "AVS-vendor-folders";
+
+    private static Collection<PSObject> Invoke(string script, params object[] args) {
+        return ScriptBlock.Create(script).Invoke(args);
     }
 
-    <#
-        Returns vendors root folder or $null in case of any error.
-    #>
-    static [VMware.VimAutomation.ViCore.Types.V1.Inventory.Folder] Root() {
-        $location = Get-Folder -Location ((Get-Datacenter)[0]) -Name "vm"
-        $root = Get-Folder -Name ([AVSSecureFolder]::vendors) -NoRecursion -Location $location -ErrorAction SilentlyContinue
-        if ($null -eq $root) {
-            $root = New-Folder -Location $location -Name ([AVSSecureFolder]::vendors) -ErrorAction Stop
-            [AVSSecureFolder]::ApplyPermissions($root)
+    public static void ApplyPermissions(object objects) {
+        Invoke(@"
+param($objects)
+$admin = Get-VIRole -Name ""Admin"" -ErrorAction Stop
+$readOnly = Get-VIRole -Name ""ReadOnly"" -ErrorAction Stop
+$scripting = Get-VIAccount -Id ""scripting"" -Domain ""vsphere.local"" -ErrorAction Stop
+$group = Get-VIAccount -Group -Id ""CloudAdmins"" -Domain ""vsphere.local"" -ErrorAction Stop
+$objects | New-VIPermission -Principal $scripting -Role $admin -Propagate $true
+$objects | New-VIPermission -Principal $group -Role $readOnly -Propagate $true
+if ($objects.Folder -ne [AVSSecureFolder]::Root()) {
+    $external = $objects | Get-VIPermission |
+        Where-Object { -not $_.Principal.StartsWith(""VSPHERE.LOCAL"") } |
+        ForEach-Object {
+            $parts = $_.Principal -split '\\', 2
+            Get-VIAccount -Group:$_.IsGroup -Domain $parts[0] -Id $parts[1]
         }
-        return $root
+
+    foreach ($x in $external) {
+        $objects | New-VIPermission -Principal $x -Role $readOnly -Propagate $true
+    }
+}
+", objects);
     }
 
-    <#
-        Secure all objects in the specified folder.
-    #>
-    static Secure([VMware.VimAutomation.ViCore.Types.V1.Inventory.Folder]$folder) {
-        $objects = @(Get-VM -Location $folder) + @(Get-VApp -Location $folder)
-        [AVSSecureFolder]::ApplyPermissions($objects)
+    public static object Root() {
+        var result = Invoke(@"
+param($vendors)
+$location = Get-Folder -Location ((Get-Datacenter)[0]) -Name ""vm""
+$root = Get-Folder -Name $vendors -NoRecursion -Location $location -ErrorAction SilentlyContinue
+if ($null -eq $root) {
+    $root = New-Folder -Location $location -Name $vendors -ErrorAction Stop
+    [AVSSecureFolder]::ApplyPermissions($root)
+}
+return $root
+", vendors);
+
+        return result.Count > 0 ? result[0].BaseObject : null;
     }
 
-    <#
-        Creates a subfolder or returns existing one given the name.
-        Returns $null in case of any error.
-    #>
-    static [VMware.VimAutomation.ViCore.Types.V1.Inventory.Folder] GetOrCreate([string]$name) {
-        $root = [AVSSecureFolder]::Root()
-        $folder = Get-Folder -Location $root -Name $name -NoRecursion -ErrorAction SilentlyContinue
-        if ($null -eq $folder) {
-            $folder = New-Folder -Location $root -Name $name -ErrorAction Stop
-        }
-        return $folder
+    public static void Secure(object folder) {
+        Invoke(@"
+param($folder)
+$objects = @(Get-VM -Location $folder) + @(Get-VApp -Location $folder)
+[AVSSecureFolder]::ApplyPermissions($objects)
+", folder);
     }
+
+    public static object GetOrCreate(string name) {
+        var result = Invoke(@"
+param($name)
+$root = [AVSSecureFolder]::Root()
+$folder = Get-Folder -Location $root -Name $name -NoRecursion -ErrorAction SilentlyContinue
+if ($null -eq $folder) {
+    $folder = New-Folder -Location $root -Name $name -ErrorAction Stop
+}
+return $folder
+", name);
+
+        return result.Count > 0 ? result[0].BaseObject : null;
+    }
+}
+'@
 }
