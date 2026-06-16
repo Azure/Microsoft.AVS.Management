@@ -1264,31 +1264,124 @@ Describe "Classes.ps1 - Cross-SessionState Type Visibility" {
     #>
 
     It "AVSAttribute and AVSSecureFolder resolve from a separate module scope" {
-        $classesPath = (Resolve-Path (Join-Path $PSScriptRoot '..' 'Microsoft.AVS.Management' 'Classes.ps1')).Path
-        $cdrPath     = (Resolve-Path (Join-Path $PSScriptRoot '..' 'Microsoft.AVS.CDR'        'Microsoft.AVS.CDR.psd1')).Path
+        $cdrPath = (Resolve-Path (Join-Path $PSScriptRoot '..' 'Microsoft.AVS.CDR' 'Microsoft.AVS.CDR.psd1')).Path
+        $managementManifestPath = (Resolve-Path (Join-Path $PSScriptRoot '..' 'Microsoft.AVS.Management' 'Microsoft.AVS.Management.psd1')).Path
+        $managementSourcePath = Split-Path -Path $managementManifestPath -Parent
 
-        # Escape single quotes in paths for embedding in a here-string
-        $escapedClassesPath = $classesPath -replace "'", "''"
-        $escapedCdrPath     = $cdrPath     -replace "'", "''"
+        $managementManifest = Import-PowerShellDataFile $managementManifestPath
+        $managementVersion = [string]$managementManifest.ModuleVersion
+        $requiredModules = @(
+            $managementManifest.RequiredModules | ForEach-Object {
+                [PSCustomObject]@{
+                    Name = $_.ModuleName
+                    Version = [string]($(if ($_.RequiredVersion) { $_.RequiredVersion } else { $_.ModuleVersion }))
+                }
+            }
+        )
+
+        # Escape single quotes for embedding in a script passed to pwsh -Command
+        $escapedCdrPath = $cdrPath -replace "'", "''"
+        $escapedManagementSourcePath = $managementSourcePath -replace "'", "''"
+        $escapedManagementVersion = $managementVersion -replace "'", "''"
+        $escapedRequiredModulesJson = (($requiredModules | ConvertTo-Json -Compress) -replace "'", "''")
 
         # Script runs in a fresh pwsh process: no AppDomain contamination from BeforeAll's Import-Module.
-        # Step 1 – import the real CDR module.
-        # Step 2 – dot-source Classes.ps1 inside CDR's module SessionState (mirrors ScriptsToProcess behavior).
-        # Step 3 – verify both types are visible from a separate module's function scope.
+        # It imports Management using CDR's real Import-ModulePinned path, with local stub dependency
+        # modules in a temporary PSModulePath to keep the test self-contained.
         $script = @"
-Import-Module '$escapedCdrPath' -Force
+`$ErrorActionPreference = 'Stop'
 
-& (Get-Module Microsoft.AVS.CDR) { param(`$p) . `$p } -p '$escapedClassesPath'
+function New-StubModule {
+    param(
+        [Parameter(Mandatory = `$true)][string]`$Name,
+        [Parameter(Mandatory = `$true)][string]`$Version,
+        [Parameter(Mandatory = `$true)][string]`$Root
+    )
 
-`$consumerModule = New-Module -Name 'SimulatedManagement' -ScriptBlock {
-    function Test-TypeVisibility {
-        `$missing = @('AVSAttribute', 'AVSSecureFolder') | Where-Object { -not (`$_ -as [type]) }
-        if (`$missing) { throw "Types not visible in consumer module scope: `$(`$missing -join ', ')" }
-        'ok'
-    }
+    `$moduleVersionPath = Join-Path (Join-Path `$Root `$Name) `$Version
+    New-Item -ItemType Directory -Path `$moduleVersionPath -Force | Out-Null
+
+    `$psm1Path = Join-Path `$moduleVersionPath ("`$Name.psm1")
+    `$psd1Path = Join-Path `$moduleVersionPath ("`$Name.psd1")
+
+    Set-Content -Path `$psm1Path -Value '' -Encoding utf8
+    New-ModuleManifest -Path `$psd1Path -RootModule ("`$Name.psm1") -ModuleVersion `$Version -Guid ([guid]::NewGuid()) -FunctionsToExport @() -CmdletsToExport @() -AliasesToExport @() -VariablesToExport @() | Out-Null
 }
-Import-Module `$consumerModule -Force
-& (Get-Module SimulatedManagement) { Test-TypeVisibility }
+
+`$tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("avs-cdr-pinned-import-test-" + [guid]::NewGuid().ToString('N'))
+`$moduleRoot = Join-Path `$tempRoot 'Modules'
+`$originalModulePath = `$env:PSModulePath
+
+try {
+    New-Item -ItemType Directory -Path `$moduleRoot -Force | Out-Null
+
+    `$managementVersionPath = Join-Path (Join-Path `$moduleRoot 'Microsoft.AVS.Management') '$escapedManagementVersion'
+    New-Item -ItemType Directory -Path `$managementVersionPath -Force | Out-Null
+    Copy-Item -Path (Join-Path '$escapedManagementSourcePath' '*') -Destination `$managementVersionPath -Recurse -Force
+
+    `$requiredModules = ConvertFrom-Json -InputObject '$escapedRequiredModulesJson'
+    foreach (`$dep in `$requiredModules) {
+        New-StubModule -Name `$dep.Name -Version `$dep.Version -Root `$moduleRoot
+    }
+
+    `$env:PSModulePath = "`${moduleRoot}`$([System.IO.Path]::PathSeparator)`${originalModulePath}"
+
+    Import-Module '$escapedCdrPath' -Force
+
+    function global:Get-PSResource {
+        param(
+            [Parameter(Mandatory = `$false)][string]`$Name,
+            [Parameter(Mandatory = `$false)][string]`$Version
+        )
+
+        `$managementName = 'Microsoft.AVS.Management'
+        `$managementVersion = '$escapedManagementVersion'
+
+        if (`$Name -ieq `$managementName -and (`$Version -eq `$managementVersion -or [string]::IsNullOrWhiteSpace(`$Version))) {
+            `$deps = @(`$requiredModules | ForEach-Object {
+                [PSCustomObject]@{ Name = `$_.Name; VersionRange = `$_.Version }
+            })
+
+            return [PSCustomObject]@{
+                Name = `$managementName
+                Version = [version]`$managementVersion
+                Dependencies = `$deps
+                InstalledLocation = `$moduleRoot
+            }
+        }
+
+        foreach (`$dep in `$requiredModules) {
+            if (`$Name -ieq `$dep.Name -and (`$Version -eq `$dep.Version -or [string]::IsNullOrWhiteSpace(`$Version))) {
+                return [PSCustomObject]@{
+                    Name = `$dep.Name
+                    Version = [version]`$dep.Version
+                    Dependencies = @()
+                    InstalledLocation = `$moduleRoot
+                }
+            }
+        }
+
+        return @()
+    }
+
+    Import-ModulePinned -Name 'Microsoft.AVS.Management' -RequiredVersion '$escapedManagementVersion' -Force
+
+    `$consumerModule = New-Module -Name 'TypeVisibilityConsumer' -ScriptBlock {
+        function Test-TypeVisibility {
+            `$missing = @('AVSAttribute', 'AVSSecureFolder') | Where-Object { -not (`$_ -as [type]) }
+            if (`$missing) { throw "Types not visible in consumer module scope: `$(`$missing -join ', ')" }
+            'ok'
+        }
+    }
+
+    Import-Module `$consumerModule -Force
+    & (Get-Module TypeVisibilityConsumer) { Test-TypeVisibility }
+}
+finally {
+    Remove-Item -Path Function:\Get-PSResource -ErrorAction SilentlyContinue
+    `$env:PSModulePath = `$originalModulePath
+    Remove-Item -Path `$tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
 "@
         $output = pwsh -NoProfile -NonInteractive -Command $script 2>&1
         $LASTEXITCODE | Should -Be 0 -Because (
