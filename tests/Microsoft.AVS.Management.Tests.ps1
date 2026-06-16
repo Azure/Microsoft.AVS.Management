@@ -1,14 +1,8 @@
 BeforeAll {
-    # Define the AVSAttribute class that Management module functions use
-    # This is a minimal definition matching what's in Microsoft.AVS.Management/Classes.ps1
-    if (-not ('AVSAttribute' -as [type])) {
-        class AVSAttribute : Attribute {
-            [bool]$UpdatesSDDC = $false
-            [TimeSpan]$Timeout
-            [bool]$AutomationOnly = $false
-            AVSAttribute([int]$timeoutMinutes) { $this.Timeout = New-TimeSpan -Minutes $timeoutMinutes }
-        }
-    }
+    # AVSAttribute and AVSSecureFolder are loaded from Classes.ps1 via
+    # ScriptsToProcess when Import-Module runs below. Do not pre-define them
+    # with the PowerShell 'class' keyword — that would prevent Add-Type from
+    # running (its if (-not ...) guard) and defeat cross-SessionState visibility.
 
     # Define stub functions for VMware cmdlets so Pester can mock them
     # These are only created when the real cmdlets are not available (e.g. no PowerCLI installed)
@@ -1250,5 +1244,53 @@ Describe "Get-EsxtopData" {
             $cmdletBindingAttr = $cmd.ScriptBlock.Attributes | Where-Object { $_ -is [System.Management.Automation.CmdletBindingAttribute] }
             $cmdletBindingAttr | Should -Not -BeNullOrEmpty
         }
+    }
+}
+
+Describe "Classes.ps1 - Cross-SessionState Type Visibility" {
+    <#
+    Validates that AVSAttribute and AVSSecureFolder (both defined via Add-Type in Classes.ps1)
+    are visible from a module SessionState that is different from the one in which Classes.ps1 was
+    loaded. This is the exact scenario that broke with the old PowerShell 'class' keyword:
+
+    When CDR's Import-ModulePinned calls Import-Module Microsoft.AVS.Management from inside a
+    module function, ScriptsToProcess (Classes.ps1) runs in CDR's module SessionState. Any module
+    that then dot-sources a .ps1 referencing [AVSAttribute] or [AVSSecureFolder] from its own
+    SessionState would fail with 'Unable to find type' if those types were defined via 'class'.
+    Add-Type registers types in the process AppDomain, making them visible everywhere.
+
+    The test uses a subprocess (fresh pwsh) so that no prior Add-Type call in the current
+    process's AppDomain can mask a regression.
+    #>
+
+    It "AVSAttribute and AVSSecureFolder resolve from a separate module scope" {
+        $classesPath = (Resolve-Path (Join-Path $PSScriptRoot '..' 'Microsoft.AVS.Management' 'Classes.ps1')).Path
+
+        # Escape single quotes in path for embedding in a single-quoted here-string
+        $escapedPath = $classesPath -replace "'", "''"
+
+        # Script runs in a fresh pwsh process: no AppDomain contamination from BeforeAll's Import-Module.
+        # Step 1 – load Classes.ps1 inside a module's SessionState (simulates CDR's Import-ModulePinned).
+        # Step 2 – resolve both types from a *different* module's function scope.
+        $script = @"
+`$loaderModule = New-Module -Name 'SimulatedCDR' -ScriptBlock ([scriptblock]::Create(". '$escapedPath'"))
+Import-Module `$loaderModule -Force
+
+`$consumerModule = New-Module -Name 'SimulatedManagement' -ScriptBlock {
+    function Test-TypeVisibility {
+        `$missing = @('AVSAttribute', 'AVSSecureFolder') | Where-Object { -not (`$_ -as [type]) }
+        if (`$missing) { throw "Types not visible in consumer module scope: `$(`$missing -join ', ')" }
+        'ok'
+    }
+}
+Import-Module `$consumerModule -Force
+& (Get-Module SimulatedManagement) { Test-TypeVisibility }
+"@
+        $output = pwsh -NoProfile -NonInteractive -Command $script 2>&1
+        $LASTEXITCODE | Should -Be 0 -Because (
+            "Add-Type registers types in the AppDomain — they must be visible from any module scope. " +
+            "stderr: $($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })"
+        )
+        $output | Should -Contain 'ok'
     }
 }
