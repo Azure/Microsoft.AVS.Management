@@ -1323,34 +1323,21 @@ function Import-ModulePinned {
         [switch]$PassThru
     )
     
-    # Load redirect map
+    # Resolve the full dependency list (pinned versions, topological order)
+    $findParams = @{
+        Name = $Name
+        RequiredVersion = $RequiredVersion
+    }
     if ($RedirectMapPath) {
-        if (-not (Test-Path $RedirectMapPath)) {
-            throw "Redirect map file not found: $RedirectMapPath"
-        }
-        Write-Verbose "Loading redirect map from: $RedirectMapPath"
-        $redirectMap = Get-Content $RedirectMapPath -Raw | ConvertFrom-Json -AsHashtable
-    }
-    else {
-        Write-Verbose "Using default redirect map"
-        $redirectMap = $script:defaultRedirectMap
+        $findParams['RedirectMapPath'] = $RedirectMapPath
     }
     
-    $redirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $Name -Version $RequiredVersion
+    $resolvedModules = @(Get-PSResourcesPinned @findParams)
     
-    Write-Verbose "Building dependency graph for $Name version $RequiredVersion"
-    $dependencyGraph = @{}
-    
-    Build-InstalledDependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion `
-        -Graph $dependencyGraph -RedirectMap $redirectMap
-    
-    Resolve-DiamondDependencies -Graph $dependencyGraph
-    
-    Write-Verbose "Dependency graph contains $($dependencyGraph.Count) modules:"
-    
-    foreach ($nodeKey in $dependencyGraph.Keys | Sort-Object) {
-        $node = $dependencyGraph[$nodeKey]
-        Write-Verbose "  $nodeKey"
+    Write-Verbose "Import order ($($resolvedModules.Count) modules):"
+    for ($i = 0; $i -lt $resolvedModules.Count; $i++) {
+        $node = $resolvedModules[$i]
+        Write-Verbose "  $($i + 1). $($node.Name)@$($node.Version)"
         Write-Verbose "    Location: $($node.InstalledLocation)"
         if ($node.Dependencies.Count -gt 0) {
             Write-Verbose "    Dependencies:"
@@ -1363,22 +1350,14 @@ function Import-ModulePinned {
         }
     }
     
-    # Compute topological order
-    Write-Verbose "Computing topological order"
-    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
-    
-    Write-Verbose "Import order ($($topologicalOrder.Count) modules):"
-    for ($i = 0; $i -lt $topologicalOrder.Count; $i++) {
-        Write-Verbose "  $($i + 1). $($topologicalOrder[$i])"
-    }
     Write-Verbose "Pre-loading all modules in topological order"
     
     $importedModules = @{}
     
-    foreach ($moduleKey in $topologicalOrder) {
-        $node = $dependencyGraph[$moduleKey]
+    foreach ($node in $resolvedModules) {
         $modName = $node.Name
         $modVersion = $node.Version
+        $moduleKey = "${modName}@${modVersion}"
         
         $loadedModule = Get-Module -Name $modName | Where-Object { $_.Version.ToString() -eq $modVersion }
         
@@ -1425,6 +1404,75 @@ function Import-ModulePinned {
     if ($PassThru) {
         return $mainModule
     }
+}
+
+function Get-PSResourcesPinned {
+    <#
+    .SYNOPSIS
+        Resolves an installed module and all of its installed dependencies with pinned versions.
+        Returns results in topological order (dependencies first).
+        Installed-module counterpart to Find-PSResourcesPinned.
+        
+    .EXAMPLE
+        Get-PSResourcesPinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0"
+        
+    .OUTPUTS
+        Array of objects with Name, Version, InstalledLocation, and Dependencies properties.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$RequiredVersion,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$RedirectMapPath
+    )
+    
+    # Load redirect map
+    if ($RedirectMapPath) {
+        if (-not (Test-Path $RedirectMapPath)) {
+            throw "Redirect map file not found: $RedirectMapPath"
+        }
+        Write-Verbose "Loading redirect map from: $RedirectMapPath"
+        $redirectMap = Get-Content $RedirectMapPath -Raw | ConvertFrom-Json -AsHashtable
+    }
+    else {
+        Write-Verbose "Using default redirect map"
+        $redirectMap = $script:defaultRedirectMap
+    }
+    
+    $redirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $Name -Version $RequiredVersion
+    
+    Write-Verbose "Building dependency graph for $Name version $RequiredVersion"
+    $dependencyGraph = @{}
+    
+    Build-InstalledDependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion `
+        -Graph $dependencyGraph -RedirectMap $redirectMap
+    
+    Resolve-DiamondDependencies -Graph $dependencyGraph
+    
+    Write-Verbose "Computing topological order"
+    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
+    
+    $resolvedModules = [System.Collections.ArrayList]@()
+    
+    foreach ($moduleKey in $topologicalOrder) {
+        $node = $dependencyGraph[$moduleKey]
+        
+        [void]$resolvedModules.Add([PSCustomObject]@{
+            Name = $node.Name
+            Version = $node.Version
+            InstalledLocation = $node.InstalledLocation
+            Dependencies = $node.Dependencies
+        })
+    }
+    
+    Write-Verbose "Found $($resolvedModules.Count) module(s) (including main module and all dependencies)"
+    
+    return $resolvedModules.ToArray()
 }
 
 function Find-PSResourcesPinned {

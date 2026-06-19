@@ -34,7 +34,8 @@
         'Import-PSResourceDependencies'
         'Find-PSResourceDependencies'
         'Save-PSResourcePinned'
-        'Find-PSResourcesPinned')
+        'Find-PSResourcesPinned'
+        'Get-PSResourcesPinned')
 
     CmdletsToExport = '*'
 
