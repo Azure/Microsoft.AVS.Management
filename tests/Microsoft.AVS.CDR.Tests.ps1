@@ -3207,6 +3207,183 @@ Describe "Find-PSResourcesPinned" {
     }
 }
 
+Describe "Get-PSResourcesPinned" {
+    BeforeAll {
+        $modulePath = Join-Path $PSScriptRoot ".." "Microsoft.AVS.CDR" "Microsoft.AVS.CDR.psd1"
+        Import-Module $modulePath -Force
+    }
+
+    Context "Parameter Validation" {
+        It "Should have Name parameter as mandatory" {
+            $command = Get-Command Get-PSResourcesPinned
+            $nameParam = $command.Parameters['Name']
+            $nameParam.Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have RequiredVersion parameter as mandatory" {
+            $command = Get-Command Get-PSResourcesPinned
+            $versionParam = $command.Parameters['RequiredVersion']
+            $versionParam.Attributes.Mandatory | Should -Contain $true
+        }
+
+        It "Should have RedirectMapPath parameter" {
+            $command = Get-Command Get-PSResourcesPinned
+            $command.Parameters.ContainsKey('RedirectMapPath') | Should -BeTrue
+        }
+
+        It "Should be an exported command" {
+            $command = Get-Command Get-PSResourcesPinned -ErrorAction SilentlyContinue
+            $command | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    Context "Redirect Map Validation" {
+        It "Should throw when redirect map file doesn't exist" {
+            $nonExistentMapPath = Join-Path $TestDrive "non-existent-map.json"
+
+            InModuleScope Microsoft.AVS.CDR {
+                param($mapPath)
+
+                Mock Get-PSResource { }
+
+                {
+                    Get-PSResourcesPinned -Name "TestModule" -RequiredVersion "1.0.0" `
+                        -RedirectMapPath $mapPath -ErrorAction Stop
+                } | Should -Throw -ExpectedMessage "*not found*"
+            } -ArgumentList $nonExistentMapPath
+        }
+    }
+
+    Context "Module Not Found" {
+        It "Should throw when main module is not installed" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Get-PSResource { $null }
+
+                {
+                    Get-PSResourcesPinned -Name "NonExistentModule" -RequiredVersion "1.0.0" -ErrorAction Stop
+                } | Should -Throw -ExpectedMessage "*not found*"
+            }
+        }
+    }
+
+    Context "Module Without Dependencies" {
+        It "Should return only the main module when it has no dependencies" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Get-PSResource {
+                    [PSCustomObject]@{
+                        Name = "SimpleModule"
+                        Version = [version]"2.0.0"
+                        InstalledLocation = "/fake/path/to/modules"
+                        Dependencies = @()
+                    }
+                }
+
+                $result = Get-PSResourcesPinned -Name "SimpleModule" -RequiredVersion "2.0.0"
+
+                $result | Should -Not -BeNullOrEmpty
+                $result.Count | Should -Be 1
+                $result[0].Name | Should -Be "SimpleModule"
+                $result[0].Version | Should -Be "2.0.0"
+                $result[0].InstalledLocation | Should -Not -BeNullOrEmpty
+            }
+        }
+    }
+
+    Context "Module With Dependencies" {
+        It "Should resolve and return all dependencies" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Get-PSResource {
+                    param($Name, $Version)
+
+                    switch ($Name) {
+                        "ParentModule" {
+                            [PSCustomObject]@{
+                                Name = "ParentModule"
+                                Version = [version]"1.0.0"
+                                InstalledLocation = "/fake/modules"
+                                Dependencies = @(
+                                    [PSCustomObject]@{ Name = "ChildDep"; VersionRange = "2.0.0" }
+                                )
+                            }
+                        }
+                        "ChildDep" {
+                            [PSCustomObject]@{
+                                Name = "ChildDep"
+                                Version = [version]"2.0.0"
+                                InstalledLocation = "/fake/modules"
+                                Dependencies = @()
+                            }
+                        }
+                    }
+                }
+
+                $result = Get-PSResourcesPinned -Name "ParentModule" -RequiredVersion "1.0.0"
+
+                $result | Should -Not -BeNullOrEmpty
+                $result.Count | Should -Be 2
+
+                $parentModule = $result | Where-Object { $_.Name -eq "ParentModule" }
+                $childDep = $result | Where-Object { $_.Name -eq "ChildDep" }
+
+                $parentModule | Should -Not -BeNullOrEmpty
+                $childDep | Should -Not -BeNullOrEmpty
+                $childDep.Version | Should -Be "2.0.0"
+            }
+        }
+
+        It "Should return dependencies before dependents (topological order)" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Get-PSResource {
+                    param($Name, $Version)
+
+                    switch ($Name) {
+                        "RootModule" {
+                            [PSCustomObject]@{
+                                Name = "RootModule"
+                                Version = [version]"1.0.0"
+                                InstalledLocation = "/fake/modules"
+                                Dependencies = @(
+                                    [PSCustomObject]@{ Name = "Level1Dep"; VersionRange = "1.0.0" }
+                                )
+                            }
+                        }
+                        "Level1Dep" {
+                            [PSCustomObject]@{
+                                Name = "Level1Dep"
+                                Version = [version]"1.0.0"
+                                InstalledLocation = "/fake/modules"
+                                Dependencies = @(
+                                    [PSCustomObject]@{ Name = "Level2Dep"; VersionRange = "1.0.0" }
+                                )
+                            }
+                        }
+                        "Level2Dep" {
+                            [PSCustomObject]@{
+                                Name = "Level2Dep"
+                                Version = [version]"1.0.0"
+                                InstalledLocation = "/fake/modules"
+                                Dependencies = @()
+                            }
+                        }
+                    }
+                }
+
+                $result = Get-PSResourcesPinned -Name "RootModule" -RequiredVersion "1.0.0"
+
+                $result.Count | Should -Be 3
+
+                $names = $result | ForEach-Object { $_.Name }
+                $level2Index = [array]::IndexOf($names, "Level2Dep")
+                $level1Index = [array]::IndexOf($names, "Level1Dep")
+                $rootIndex = [array]::IndexOf($names, "RootModule")
+
+                $level2Index | Should -BeLessThan $level1Index
+                $level1Index | Should -BeLessThan $rootIndex
+            }
+        }
+    }
+}
+
 Describe "Get-ManifestModuleDependencies" {
     BeforeAll {
         $modulePath = Join-Path $PSScriptRoot ".." "Microsoft.AVS.CDR" "Microsoft.AVS.CDR.psd1"
