@@ -8,7 +8,7 @@
     RootModule = 'Microsoft.AVS.NFS.psm1'
 
     # Version number of this module.
-    ModuleVersion = '1.0.0'
+    ModuleVersion = '1.0.1'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -48,7 +48,7 @@
 
     # Modules that must be imported into the global environment prior to importing this module
     RequiredModules = @(
-        @{ ModuleName = "Microsoft.AVS.Management"; RequiredVersion = "8.0.201" }
+        @{ ModuleName = "Microsoft.AVS.Management"; RequiredVersion = "10.0.252" }
     )
 
     # Assemblies that must be loaded prior to importing this module
