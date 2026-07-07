@@ -149,3 +149,52 @@ Function Limit-WildcardsandCodeInjectionCharacters {
     }
 
 }
+
+function Normalize-VCBannerText {
+    <#
+        .DESCRIPTION
+            This function normalizes vCenter login banner text by replacing smart quotes,
+            cleaning unsupported characters, and preserving paragraph line breaks.
+        .PARAMETER String
+            Banner text to normalize.
+        .EXAMPLE
+            Normalize-VCBannerText -String "Welcome to \"AVS\""
+            Returns normalized text that is safe to pass to banner commands.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $String
+    )
+    begin {
+        # Normalize smart single and double quotes to ASCII quotes.
+        $String = $String.Replace([char]0x2018, "'").Replace([char]0x2019, "'")
+        $String = $String.Replace([char]0x201C, '"').Replace([char]0x201D, '"')
+
+        # Normalize non-breaking space to regular space.
+        $String = $String.Replace([char]0x00A0, ' ')
+
+        # Remove shell-sensitive special characters.
+        $String = $String.Replace("&", "").Replace("$", "")
+        $String = $String.Replace([char]0x0060, "")
+        $String = $String.Replace("(", "").Replace(")", "")
+        $String = $String.Replace("<", "").Replace(">", "")
+
+        # Remove emojis and unsupported symbols, while preserving letters, numbers,
+        # punctuation, spaces, and new lines.
+        $String = $String -replace '[^\p{L}\p{N}\p{P}\p{Zs}\r\n]', ''
+
+        # Collapse repeated spaces and tabs per line, preserving line breaks.
+        $lines = $String -split "(\r?\n)"
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -notmatch '^\r?\n$') {
+                $lines[$i] = ($lines[$i] -replace '[ \t]{2,}', ' ').TrimEnd()
+            }
+        }
+        $String = $lines -join ''
+    }
+    process {
+        return $String
+    }
+}

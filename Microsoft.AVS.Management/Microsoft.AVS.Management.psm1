@@ -1042,6 +1042,8 @@ function Set-VCLoginBanner {
     begin {
         $BannerTitle = Limit-WildcardsandCodeInjectionCharacters -String $BannerTitle
         $BannerMessage = Limit-WildcardsandCodeInjectionCharacters -String $BannerMessage
+        $BannerTitle = Normalize-VCBannerText -String $BannerTitle
+        $BannerMessage = Normalize-VCBannerText -String $BannerMessage
     }
     process {
         # Obtain the pre-established SSH session to vCenter
