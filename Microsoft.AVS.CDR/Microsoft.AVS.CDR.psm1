@@ -503,11 +503,17 @@ function Resolve-DiamondDependencies {
 <#
 .SYNOPSIS
     Returns module keys in topological order (dependencies first). Warns on cycles.
+    Traversal is anchored on -RootKeys (in given order) then a sorted pass over the
+    rest, so the order is deterministic and follows each node's reported dependency
+    order (matching native Import-Module's RequiredModules array-order walk).
 #>
 function Get-TopologicalOrder {
     param(
         [Parameter(Mandatory = $true)]
-        [hashtable]$Graph
+        [hashtable]$Graph,
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$RootKeys
     )
     
     $visited = @{}
@@ -539,8 +545,17 @@ function Get-TopologicalOrder {
         $visited[$NodeKey] = $true
         [void]$order.Add($NodeKey)
     }
-    # Visit all nodes
-    foreach ($nodeKey in $Graph.Keys) {
+
+    # Anchor on the declared roots (in order), then a deterministic sorted pass over the rest.
+    if ($RootKeys) {
+        foreach ($rootKey in $RootKeys) {
+            if ($Graph.ContainsKey($rootKey)) {
+                Visit -NodeKey $rootKey
+            }
+        }
+    }
+
+    foreach ($nodeKey in ($Graph.Keys | Sort-Object)) {
         Visit -NodeKey $nodeKey
     }
     
@@ -698,7 +713,7 @@ function Install-PSResourcePinned {
     Resolve-DiamondDependencies -Graph $dependencyGraph
     
     Write-Verbose "Computing topological order"
-    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
+    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph -RootKeys @("${Name}@${RequiredVersion}"))
     
     Write-Verbose "Install order ($($topologicalOrder.Count) modules):"
     for ($i = 0; $i -lt $topologicalOrder.Count; $i++) {
@@ -828,7 +843,7 @@ function Save-PSResourcePinned {
     Resolve-DiamondDependencies -Graph $dependencyGraph
     
     Write-Verbose "Computing topological order"
-    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
+    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph -RootKeys @("${Name}@${RequiredVersion}"))
     
     Write-Verbose "Save order ($($topologicalOrder.Count) modules):"
     for ($i = 0; $i -lt $topologicalOrder.Count; $i++) {
@@ -1034,6 +1049,7 @@ function Find-PSResourceDependencies {
     Write-Verbose "Found $($moduleDependencies.Count) module dependency(ies) in manifest"
     
     $dependencyGraph = @{}
+    $rootKeys = [System.Collections.ArrayList]@()
     
     foreach ($depEntry in $moduleDependencies) {
         $moduleName = $depEntry.Name
@@ -1043,13 +1059,15 @@ function Find-PSResourceDependencies {
         $redirectResult = Find-DependencyRedirect -DependencyName $moduleName -DependencyVersion $moduleVersion `
             -RedirectMap $mergedRedirectMap -Indent ""
         
+        [void]$rootKeys.Add("$($redirectResult.ResolvedName)@$($redirectResult.ResolvedVersion)")
+        
         Build-RemoteDependencyGraph -ModuleName $redirectResult.ResolvedName -ModuleVersion $redirectResult.ResolvedVersion `
             -Graph $dependencyGraph -RedirectMap $mergedRedirectMap -Repository $Repository -Credential $Credential -Prerelease:$Prerelease
     }
     
     Resolve-DiamondDependencies -Graph $dependencyGraph
     
-    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
+    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph -RootKeys $rootKeys.ToArray())
     
     $resolvedDependencies = [System.Collections.ArrayList]@()
     
@@ -1222,6 +1240,7 @@ function Import-PSResourceDependencies {
     Write-Verbose "Found $($moduleDependencies.Count) module dependency(ies) in manifest"
     
     $dependencyGraph = @{}
+    $rootKeys = [System.Collections.ArrayList]@()
     
     foreach ($depEntry in $moduleDependencies) {
         $moduleName = $depEntry.Name
@@ -1231,6 +1250,8 @@ function Import-PSResourceDependencies {
         $redirectResult = Find-DependencyRedirect -DependencyName $moduleName -DependencyVersion $moduleVersion `
             -RedirectMap $mergedRedirectMap -Indent ""
         
+        [void]$rootKeys.Add("$($redirectResult.ResolvedName)@$($redirectResult.ResolvedVersion)")
+        
         Build-InstalledDependencyGraph -ModuleName $redirectResult.ResolvedName -ModuleVersion $redirectResult.ResolvedVersion `
             -Graph $dependencyGraph -RedirectMap $mergedRedirectMap
     }
@@ -1239,7 +1260,7 @@ function Import-PSResourceDependencies {
     
     # Compute topological order
     Write-Verbose "Computing topological order"
-    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
+    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph -RootKeys $rootKeys.ToArray())
     
     Write-Verbose "Import order ($($topologicalOrder.Count) modules):"
     for ($i = 0; $i -lt $topologicalOrder.Count; $i++) {
@@ -1455,7 +1476,7 @@ function Get-PSResourcesPinned {
     Resolve-DiamondDependencies -Graph $dependencyGraph
     
     Write-Verbose "Computing topological order"
-    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
+    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph -RootKeys @("${Name}@${RequiredVersion}"))
     
     $resolvedModules = [System.Collections.ArrayList]@()
     
@@ -1531,7 +1552,7 @@ function Find-PSResourcesPinned {
     Resolve-DiamondDependencies -Graph $dependencyGraph
     
     Write-Verbose "Computing topological order"
-    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph)
+    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph -RootKeys @("${Name}@${RequiredVersion}"))
     
     $resolvedModules = [System.Collections.ArrayList]@()
     
