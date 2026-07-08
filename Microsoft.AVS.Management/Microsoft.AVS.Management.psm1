@@ -1184,6 +1184,36 @@ function Set-VCLoginBanner {
         else {
             Write-Host "vCenter login banner configured and enabled successfully."
         }
+
+        # Step 4: Optional page-source verification (non-blocking)
+        Write-Host "Checking login page source for banner content (non-blocking)..."
+        $curlCmd = "/usr/bin/curl -k -s -L https://localhost/ui/login"
+        $curlResult = Invoke-SSHCommand -SSHSession $SshSession -Command $curlCmd -ErrorAction SilentlyContinue
+
+        if ($curlResult.ExitStatus -eq 0) {
+            $pageSource = $curlResult.Output -join [Environment]::NewLine
+            $titleFound = $false
+            $messageFound = $false
+
+            if (-not [string]::IsNullOrWhiteSpace($BannerTitle)) {
+                $titleFound = $pageSource -match [regex]::Escape($BannerTitle)
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace($BannerMessage)) {
+                $messageToken = if ($BannerMessage.Length -gt 25) { $BannerMessage.Substring(0, 25) } else { $BannerMessage }
+                $messageFound = $pageSource -match [regex]::Escape($messageToken)
+            }
+
+            if ($titleFound -or $messageFound) {
+                Write-Host "Login page source check passed: banner text detected in page content."
+            }
+            else {
+                Write-Warning "Login page source check did not find banner text, but banner configuration commands succeeded. Please refresh the login page (or clear browser cache) and verify the banner in the UI."
+            }
+        }
+        else {
+            Write-Warning "Login page source check skipped: failed to fetch /ui/login via curl."
+        }
     }
 }
 
