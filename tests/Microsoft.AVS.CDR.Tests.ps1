@@ -1255,6 +1255,77 @@ Describe "Topological Dependency Loading" {
         }
     }
 
+    Context "Pinned import ordering scenario" {
+        # Covers the ~50% pinned-import failure of Microsoft.AVS.Management.Internal 1.1.490.
+        # AzTable depends on Az.Storage/Az.Resources only via a versionless '#Requires' in its
+        # source, so the graph records AzTable as a leaf (no edge). The root lists the Az modules
+        # before AzTable; anchoring on the root must keep that reported order so the pinned Az
+        # versions load before AzTable's #Requires can autoload higher ones. This is the same
+        # scenario the integration repro exercised end to end.
+
+        It "Should order a graph-leaf (source-level #Requires) module after its reported dependencies" {
+            InModuleScope Microsoft.AVS.CDR {
+                # AzTable has no edge to the Az modules, yet must still come after them.
+                $graph = @{
+                    "Root@1.0.0"         = [DependencyGraphNode]::new("Root", "1.0.0", @("Az.Storage@8.0.0", "Az.Resources@7.7.0", "AzTable@2.1.0"), $false, $null, $null)
+                    "Az.Storage@8.0.0"   = [DependencyGraphNode]::new("Az.Storage", "8.0.0", @("Az.Accounts@4.0.1"), $false, $null, $null)
+                    "Az.Resources@7.7.0" = [DependencyGraphNode]::new("Az.Resources", "7.7.0", @("Az.Accounts@4.0.1"), $false, $null, $null)
+                    "AzTable@2.1.0"      = [DependencyGraphNode]::new("AzTable", "2.1.0", @(), $false, $null, $null)
+                    "Az.Accounts@4.0.1"  = [DependencyGraphNode]::new("Az.Accounts", "4.0.1", @(), $false, $null, $null)
+                }
+
+                $result = @(Get-TopologicalOrder -Graph $graph -RootKeys @("Root@1.0.0"))
+
+                $result.IndexOf("Az.Storage@8.0.0") | Should -BeLessThan $result.IndexOf("AzTable@2.1.0")
+                $result.IndexOf("Az.Resources@7.7.0") | Should -BeLessThan $result.IndexOf("AzTable@2.1.0")
+            }
+        }
+
+        It "Should preserve the root's reported dependency order (deterministic)" {
+            InModuleScope Microsoft.AVS.CDR {
+                $graph = @{
+                    "Root@1.0.0"         = [DependencyGraphNode]::new("Root", "1.0.0", @("Az.Storage@8.0.0", "Az.Resources@7.7.0", "AzTable@2.1.0"), $false, $null, $null)
+                    "Az.Storage@8.0.0"   = [DependencyGraphNode]::new("Az.Storage", "8.0.0", @("Az.Accounts@4.0.1"), $false, $null, $null)
+                    "Az.Resources@7.7.0" = [DependencyGraphNode]::new("Az.Resources", "7.7.0", @("Az.Accounts@4.0.1"), $false, $null, $null)
+                    "AzTable@2.1.0"      = [DependencyGraphNode]::new("AzTable", "2.1.0", @(), $false, $null, $null)
+                    "Az.Accounts@4.0.1"  = [DependencyGraphNode]::new("Az.Accounts", "4.0.1", @(), $false, $null, $null)
+                }
+
+                $result = @(Get-TopologicalOrder -Graph $graph -RootKeys @("Root@1.0.0"))
+
+                ($result -join ",") | Should -Be "Az.Accounts@4.0.1,Az.Storage@8.0.0,Az.Resources@7.7.0,AzTable@2.1.0,Root@1.0.0"
+            }
+        }
+
+        It "Should be deterministic regardless of graph key insertion order" {
+            InModuleScope Microsoft.AVS.CDR {
+                # Build the same logical graph twice, adding keys in opposite orders, to prove the
+                # result no longer depends on hashtable enumeration (the original ~50% failure).
+                $build = {
+                    param([string[]]$Order)
+                    $nodes = @{
+                        "Root@1.0.0"         = [DependencyGraphNode]::new("Root", "1.0.0", @("Az.Storage@8.0.0", "Az.Resources@7.7.0", "AzTable@2.1.0"), $false, $null, $null)
+                        "Az.Storage@8.0.0"   = [DependencyGraphNode]::new("Az.Storage", "8.0.0", @("Az.Accounts@4.0.1"), $false, $null, $null)
+                        "Az.Resources@7.7.0" = [DependencyGraphNode]::new("Az.Resources", "7.7.0", @("Az.Accounts@4.0.1"), $false, $null, $null)
+                        "AzTable@2.1.0"      = [DependencyGraphNode]::new("AzTable", "2.1.0", @(), $false, $null, $null)
+                        "Az.Accounts@4.0.1"  = [DependencyGraphNode]::new("Az.Accounts", "4.0.1", @(), $false, $null, $null)
+                    }
+                    $graph = @{}
+                    foreach ($k in $Order) { $graph[$k] = $nodes[$k] }
+                    $graph
+                }
+
+                $forward = @("Root@1.0.0", "Az.Storage@8.0.0", "Az.Resources@7.7.0", "AzTable@2.1.0", "Az.Accounts@4.0.1")
+                $reversed = @("Az.Accounts@4.0.1", "AzTable@2.1.0", "Az.Resources@7.7.0", "Az.Storage@8.0.0", "Root@1.0.0")
+
+                $orderA = @(Get-TopologicalOrder -Graph (& $build $forward) -RootKeys @("Root@1.0.0"))
+                $orderB = @(Get-TopologicalOrder -Graph (& $build $reversed) -RootKeys @("Root@1.0.0"))
+
+                ($orderA -join ",") | Should -Be ($orderB -join ",")
+            }
+        }
+    }
+
     Context "Compare-SemVer Function" {
         It "Should return 0 for equal versions" {
             InModuleScope Microsoft.AVS.CDR {
