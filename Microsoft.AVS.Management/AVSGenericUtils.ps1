@@ -177,7 +177,7 @@ function Normalize-VCBannerText {
 
         # Remove shell-sensitive special characters.
         $String = $String.Replace("&", "").Replace("$", "")
-        $String = $String.Replace([char]0x0060, "")
+        $String = $String.Replace([string][char]0x0060, "")
         $String = $String.Replace("(", "").Replace(")", "")
         $String = $String.Replace("<", "").Replace(">", "")
 
