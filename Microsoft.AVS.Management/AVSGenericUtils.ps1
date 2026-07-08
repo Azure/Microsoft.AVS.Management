@@ -183,7 +183,7 @@ function Normalize-VCBannerText {
 
         # Remove emojis and unsupported symbols, while preserving letters, numbers,
         # punctuation, spaces, and new lines.
-        $String = $String -replace '[^\p{L}\p{N}\p{P}\p{Zs}\r\n]', ''
+        $String = $String -replace '[^\p{L}\p{N}\p{P}\p{Zs}\t\r\n]', ''
 
         # Collapse repeated spaces and tabs per line, preserving line breaks.
         $lines = $String -split "(\r?\n)"

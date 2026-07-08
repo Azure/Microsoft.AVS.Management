@@ -2112,6 +2112,23 @@ Describe "Get-VCLoginBanner" {
             }
         }
     }
+
+    Context "Session Validation" {
+        It "Should throw when VC SSH session is missing" {
+            $originalSshSessions = $global:SSH_Sessions
+            try {
+                $global:SSH_Sessions = @{}
+                Mock Invoke-SSHCommand { } -ModuleName Microsoft.AVS.Management
+
+                { Get-VCLoginBanner } | Should -Throw "*SSH session to vCenter is not available*"
+
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+    }
 }
 Describe "Remove-VCLoginBanner" {
     Context "Fallback Path" {
@@ -2151,6 +2168,23 @@ Describe "Remove-VCLoginBanner" {
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
                     $Command -like "*-disable_logon_banner*"
                 }
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+    }
+
+    Context "Session Validation" {
+        It "Should throw when VC SSH session is missing" {
+            $originalSshSessions = $global:SSH_Sessions
+            try {
+                $global:SSH_Sessions = @{}
+                Mock Invoke-SSHCommand { } -ModuleName Microsoft.AVS.Management
+
+                { Remove-VCLoginBanner } | Should -Throw "*SSH session to vCenter is not available*"
+
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0
             }
             finally {
                 $global:SSH_Sessions = $originalSshSessions
