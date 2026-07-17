@@ -1161,17 +1161,20 @@ function Set-VCLoginBanner {
             $printCmd = "/opt/vmware/bin/sso-config.sh -print_logon_banner"
 
             $checkResult = Invoke-SSHCommand -SSHSession $SshSession -Command $getCmd -ErrorAction SilentlyContinue
-            if ($checkResult.ExitStatus -ne 0) {
-                Write-Warning "Primary read command (-get_logon_banner) failed. Retrying with -print_logon_banner..."
+            $checkOutput = $checkResult.Output -join [Environment]::NewLine
+
+            # Check if command failed OR returned help text (unsupported option)
+            if ($checkResult.ExitStatus -ne 0 -or $checkOutput -like "*usage:*") {
+                Write-Warning "Primary read command (-get_logon_banner) failed or unsupported. Retrying with -print_logon_banner..."
                 $checkResult = Invoke-SSHCommand -SSHSession $SshSession -Command $printCmd -ErrorAction SilentlyContinue
+                $checkOutput = $checkResult.Output -join [Environment]::NewLine
             }
 
             if ($checkResult.ExitStatus -ne 0) {
                 throw "Failed to verify banner state: both -get_logon_banner and -print_logon_banner failed."
             }
 
-            $bannerOutput = $checkResult.Output -join [Environment]::NewLine
-            $hasBannerContent = $bannerOutput -match "(?i)\btitle\s*:\s*\S" -or $bannerOutput -match "(?i)\bcontent\s*:\s*\S"
+            $hasBannerContent = $checkOutput -match "(?i)\btitle\s*:\s*\S" -or $checkOutput -match "(?i)\bcontent\s*:\s*\S"
 
             if ($hasBannerContent) {
                 Write-Host "Banner content found. Treating this as legacy behavior (content implies enabled on this VCSA variant)"
@@ -1303,8 +1306,11 @@ function Remove-VCLoginBanner {
         Write-Host "Disabling login banner display..."
 
         $result = Invoke-SSHCommand -SSHSession $SshSession -Command $disableCmd -ErrorAction Stop
-        if ($result.ExitStatus -ne 0) {
-            Write-Warning "Primary disable command (-set_logon_banner -enable false) failed. Retrying with -disable_logon_banner..."
+        $disableOutput = $result.Output -join [Environment]::NewLine
+
+        # Check if command failed OR returned help text (unsupported option)
+        if ($result.ExitStatus -ne 0 -or $disableOutput -like "*usage:*") {
+            Write-Warning "Primary disable command (-set_logon_banner -enable false) failed or unsupported. Retrying with -disable_logon_banner..."
             $result = Invoke-SSHCommand -SSHSession $SshSession -Command $disableCmdFallback -ErrorAction Stop
             if ($result.ExitStatus -eq 0) {
                 Write-Host "Fallback disable command (-disable_logon_banner) worked on this VCSA."
