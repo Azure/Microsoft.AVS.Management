@@ -1089,14 +1089,17 @@ function Set-VCLoginBanner {
             $bannerTempDir = "/tmp/avs-login-banner-{0}" -f ([guid]::NewGuid().ToString('N'))
             $bannerFilePath = "$bannerTempDir/message.txt"
             Write-Host "Inline content format failed. Preparing banner file for fallback format..."
-            $createBannerDirCmd = "/bin/sh -c ""mkdir -p '$bannerTempDir'"""
+            # Run the command directly through the remote login shell (single parse). Do NOT wrap
+            # in /bin/sh -c "...": nesting single-quote-escaped, user-controlled text inside an outer
+            # double-quoted string lets a literal or escaped double quote break out and inject commands.
+            $createBannerDirCmd = "mkdir -p '$bannerTempDir'"
             $createDirSucceeded = & $InvokeBannerCommand -Command $createBannerDirCmd -StepName "Create temp directory for fallback"
 
             $createdTempDir = $null
             if ($createDirSucceeded) {
                 $createdTempDir = $bannerTempDir
 
-                $createBannerFileCmd = "/bin/sh -c ""printf '%s' '$escapedMessage' > '$bannerFilePath'"""
+                $createBannerFileCmd = "printf '%s' '$escapedMessage' > '$bannerFilePath'"
                 $createFileSucceeded = & $InvokeBannerCommand -Command $createBannerFileCmd -StepName "Create banner file for fallback"
 
                 if ($createFileSucceeded) {
@@ -1116,7 +1119,7 @@ function Set-VCLoginBanner {
                 -not [string]::IsNullOrEmpty($deleteTempDir) -and
                 $createdTempDir -eq $deleteTempDir
             ) {
-                $cleanupBannerDirCmd = "/bin/sh -c ""rm -rf -- '$deleteTempDir'"""
+                $cleanupBannerDirCmd = "rm -rf -- '$deleteTempDir'"
                 $cleanupSucceeded = & $InvokeBannerCommand -Command $cleanupBannerDirCmd -StepName "Cleanup temporary banner directory"
                 if ($cleanupSucceeded) {
                     Write-Host "Temporary banner directory was cleaned up."

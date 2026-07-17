@@ -2056,6 +2056,96 @@ Describe "Set-VCLoginBanner" {
             }
         }
     }
+    Context "Command Injection Safety" {
+        # Regression guard for the fallback banner-file write. The value is user-controlled and
+        # is single-quote escaped for a single shell parse. Wrapping it in an outer
+        # /bin/sh -c "..." (double quotes) re-introduced a shell-injection break-out.
+        It "Should not wrap fallback commands in a nested double-quoted /bin/sh -c and must keep the message single-quoted" {
+            $originalSshSessions = $global:SSH_Sessions
+            $global:VCBannerCapturedCommands = [System.Collections.Generic.List[string]]::new()
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                # Let the real sanitizers (Limit-WildcardsandCodeInjectionCharacters + Normalize-VCBannerText) run.
+                Mock Invoke-SSHCommand {
+                    param($SSHSession, $Command)
+                    $global:VCBannerCapturedCommands.Add($Command)
+                    if ($Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*") {
+                        # Force the fallback (file) path.
+                        return [PSCustomObject]@{ ExitStatus = 1; Output = @(); Error = @("inline content format failed") }
+                    }
+                    return [PSCustomObject]@{ ExitStatus = 0; Output = @("ok"); Error = @() }
+                } -ModuleName Microsoft.AVS.Management
+
+                # Message contains both a single quote and a double quote.
+                {
+                    Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage 'it''s "AVS"' -EnableConsent $true
+                } | Should -Not -Throw
+
+                $fileCmd = $global:VCBannerCapturedCommands | Where-Object { $_ -like "*printf '%s'*" -and $_ -like "*message.txt*" } | Select-Object -First 1
+                $fileCmd | Should -Not -BeNullOrEmpty
+                # No nested double-quoted shell wrapper.
+                $global:VCBannerCapturedCommands | ForEach-Object { $_ | Should -Not -BeLike '*/bin/sh -c*' }
+                # The message must stay inside single quotes.
+                $fileCmd | Should -BeLike "*printf '%s' '*"
+                # The user's single quote must be POSIX single-quote escaped ('"'"').
+                $posix = "'" + '"' + "'" + '"' + "'"
+                $fileCmd | Should -BeLike "*it$($posix)s*"
+            }
+            finally {
+                Remove-Variable -Name VCBannerCapturedCommands -Scope Global -ErrorAction SilentlyContinue
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+
+        It "Should not execute injected commands when the fallback file-write runs in a real shell" -Skip:(-not ($IsLinux -or $IsMacOS)) {
+            $originalSshSessions = $global:SSH_Sessions
+            $global:VCBannerCapturedCommands = [System.Collections.Generic.List[string]]::new()
+            $marker = Join-Path ([System.IO.Path]::GetTempPath()) ("avs-banner-inj-{0}" -f ([guid]::NewGuid().ToString('N')))
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                Mock Invoke-SSHCommand {
+                    param($SSHSession, $Command)
+                    $global:VCBannerCapturedCommands.Add($Command)
+                    if ($Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*") {
+                        return [PSCustomObject]@{ ExitStatus = 1; Output = @(); Error = @("inline content format failed") }
+                    }
+                    return [PSCustomObject]@{ ExitStatus = 0; Output = @("ok"); Error = @() }
+                } -ModuleName Microsoft.AVS.Management
+
+                # Payload uses only characters that survive sanitization (double quote + newline
+                # + a plain command), attempting to break out and run `touch $marker`.
+                $payload = "Notice`"`ntouch $marker`nprintf `""
+                {
+                    Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage $payload -EnableConsent $true
+                } | Should -Not -Throw
+
+                $mkdirCmd = $global:VCBannerCapturedCommands | Where-Object { $_ -like "mkdir -p *" } | Select-Object -First 1
+                $fileCmd  = $global:VCBannerCapturedCommands | Where-Object { $_ -like "*printf '%s'*" -and $_ -like "*message.txt*" } | Select-Object -First 1
+                $mkdirCmd | Should -Not -BeNullOrEmpty
+                $fileCmd  | Should -Not -BeNullOrEmpty
+
+                # Reproduce exactly what the remote sshd does: run each captured command with a single shell parse.
+                & '/bin/sh' '-c' $mkdirCmd
+                & '/bin/sh' '-c' $fileCmd
+
+                # If the escaping is broken, the injected `touch $marker` would have run.
+                Test-Path -LiteralPath $marker | Should -BeFalse
+            }
+            finally {
+                Get-ChildItem -Path ([System.IO.Path]::GetTempPath()) -Filter 'avs-login-banner-*' -Directory -ErrorAction SilentlyContinue |
+                    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+                Remove-Variable -Name VCBannerCapturedCommands -Scope Global -ErrorAction SilentlyContinue
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+    }
 }
 Describe "Get-VCLoginBanner" {
     Context "Fallback Path" {
