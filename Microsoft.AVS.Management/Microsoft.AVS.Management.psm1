@@ -1249,21 +1249,23 @@ function Get-VCLoginBanner {
         Write-Host "Retrieving login banner configuration..."
 
         $result = Invoke-SSHCommand -SSHSession $SshSession -Command $getCmd -ErrorAction Stop
-        if ($result.ExitStatus -ne 0) {
-            Write-Warning "Primary read command (-get_logon_banner) failed. Retrying with -print_logon_banner..."
+        $bannerOutput = $result.Output -join "`n"
+
+        # Check if command failed OR returned help text (unsupported option)
+        if ($result.ExitStatus -ne 0 -or $bannerOutput -like "*usage:*") {
+            Write-Warning "Primary read command (-get_logon_banner) failed or unsupported. Retrying with -print_logon_banner..."
             $result = Invoke-SSHCommand -SSHSession $SshSession -Command $printCmd -ErrorAction Stop
+            $bannerOutput = $result.Output -join "`n"
             if ($result.ExitStatus -eq 0) {
                 Write-Host "Fallback read command (-print_logon_banner) worked on this VCSA."
             }
         }
 
         if ($result.ExitStatus -ne 0) {
-            throw "Failed to retrieve login banner configuration using supported formats: $($result.Error -join ' ')"
+            throw "Failed to retrieve login banner configuration: $($result.Error -join ' ')"
         }
 
-        $bannerOutput = $result.Output -join "`n"
         Write-Host $bannerOutput
-
         $NamedOutputs = @{ "LoginBannerConfig" = $bannerOutput }
         Set-Variable -Name NamedOutputs -Value $NamedOutputs -Scope Global
     }
