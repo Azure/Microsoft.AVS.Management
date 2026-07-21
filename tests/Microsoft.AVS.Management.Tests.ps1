@@ -1341,3 +1341,944 @@ finally {
         $output | Should -Contain 'ok'
     }
 }
+
+Describe "Normalize-VCBannerText" {
+    Context "Smart quote normalization" {
+        It "Should replace smart quotes with ASCII quotes" {
+            InModuleScope 'Microsoft.AVS.Management' {
+                $input = ([char]0x201C) + "Authorized Users Only" + ([char]0x201D) + " and " + ([char]0x2018) + "AVS" + ([char]0x2019)
+                $result = Normalize-VCBannerText -String $input
+
+                $result | Should -Be '"Authorized Users Only" and ''AVS'''
+            }
+        }
+    }
+
+    Context "Special character cleanup" {
+        It "Should remove unsafe symbols, keep line breaks, and normalize spaces" {
+            InModuleScope 'Microsoft.AVS.Management' {
+                $line1 = "Line1  with   spaces & `$ <tag> 😀"
+                $line2 = "Line2    with    tabs"
+                $input = $line1 + [Environment]::NewLine + $line2
+
+                $result = Normalize-VCBannerText -String $input
+                $expected = "Line1 with spaces tag" + [Environment]::NewLine + "Line2 with tabs"
+
+                $result | Should -Be $expected
+            }
+        }
+    }
+}
+
+Describe "Set-VCLoginBanner" {
+    Context "SSH Session Validation" {
+        It "Should throw when VC SSH session is unavailable" {
+            $originalSshSessions = $global:SSH_Sessions
+            try {
+                $global:SSH_Sessions = $null
+                Mock Invoke-SSHCommand {
+                    throw "Invoke-SSHCommand should not be called"
+                } -ModuleName Microsoft.AVS.Management
+                {
+                    Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
+                } | Should -Throw -ExpectedMessage "*SSH session to vCenter is not available*"
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+    }
+    Context "Happy Path" {
+        It "Should configure banner successfully using primary commands" {
+            $originalSshSessions = $global:SSH_Sessions
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                Mock Limit-WildcardsandCodeInjectionCharacters {
+                    param($String)
+                    return $String
+                } -ModuleName Microsoft.AVS.Management
+                Mock Invoke-SSHCommand {
+                    [PSCustomObject]@{
+                        ExitStatus = 0
+                        Output = @("ok")
+                        Error = @()
+                    }
+                } -ModuleName Microsoft.AVS.Management
+                {
+                    Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
+                } | Should -Not -Throw
+                Should -Invoke Limit-WildcardsandCodeInjectionCharacters -ModuleName Microsoft.AVS.Management -Times 2
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-enable_checkbox true*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-set_logon_banner -enable true*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
+                    $Command -like "*mkdir -p*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
+                    $Command -like "*-enable_checkbox Y*" -or $Command -like "*-enable_checkbox N*"
+                }
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+    }
+    Context "Fallback Path" {
+        It "Should use file fallback when inline banner content command fails" {
+            $originalSshSessions = $global:SSH_Sessions
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                Mock Limit-WildcardsandCodeInjectionCharacters {
+                    param($String)
+                    return $String
+                } -ModuleName Microsoft.AVS.Management
+                Mock Invoke-SSHCommand {
+                    param($SSHSession, $Command)
+                    if ($Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 1
+                            Output = @()
+                            Error = @("inline content format failed")
+                        }
+                    }
+                    return [PSCustomObject]@{
+                        ExitStatus = 0
+                        Output = @("ok")
+                        Error = @()
+                    }
+                } -ModuleName Microsoft.AVS.Management
+                {
+                    Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
+                } | Should -Not -Throw
+                Should -Invoke Limit-WildcardsandCodeInjectionCharacters -ModuleName Microsoft.AVS.Management -Times 2
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*mkdir -p*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*printf '%s'*" -and $Command -like "*>*message.txt*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-set_logon_banner -title*" -and
+                    $Command -like "*/message.txt*" -and
+                    $Command -notlike "*-content*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-enable_checkbox true*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-set_logon_banner -enable true*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*rm -rf --*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
+                    $Command -like "*-enable_checkbox Y*" -or $Command -like "*-enable_checkbox N*"
+                }
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+    }
+    Context "Consent Fallback Path" {
+        It "Should retry consent checkbox with Y/N when true/false format fails" {
+            $originalSshSessions = $global:SSH_Sessions
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                Mock Limit-WildcardsandCodeInjectionCharacters {
+                    param($String)
+                    return $String
+                } -ModuleName Microsoft.AVS.Management
+                Mock Invoke-SSHCommand {
+                    param($SSHSession, $Command)
+                    if ($Command -like "*-enable_checkbox true*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 1
+                            Output = @()
+                            Error = @("true/false consent format failed")
+                        }
+                    }
+                    return [PSCustomObject]@{
+                        ExitStatus = 0
+                        Output = @("ok")
+                        Error = @()
+                    }
+                } -ModuleName Microsoft.AVS.Management
+                {
+                    Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
+                } | Should -Not -Throw
+                Should -Invoke Limit-WildcardsandCodeInjectionCharacters -ModuleName Microsoft.AVS.Management -Times 2
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-enable_checkbox true*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-enable_checkbox Y*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-set_logon_banner -enable true*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
+                    $Command -like "*mkdir -p*"
+                }
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+    }
+    Context "Enable Failure Path" {
+        It "Should throw when final enable step fails and banner state cannot be verified" {
+            $originalSshSessions = $global:SSH_Sessions
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                Mock Limit-WildcardsandCodeInjectionCharacters {
+                    param($String)
+                    return $String
+                } -ModuleName Microsoft.AVS.Management
+                Mock Invoke-SSHCommand {
+                    param($SSHSession, $Command)
+                    if ($Command -like "*-set_logon_banner -enable true*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 1
+                            Output = @()
+                            Error = @("enable step failed")
+                        }
+                    }
+                    if ($Command -like "*-get_logon_banner*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 1
+                            Output = @()
+                            Error = @("get command not supported")
+                        }
+                    }
+                    if ($Command -like "*-print_logon_banner*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 1
+                            Output = @()
+                            Error = @("print command failed")
+                        }
+                    }
+                    return [PSCustomObject]@{
+                        ExitStatus = 0
+                        Output = @("ok")
+                        Error = @()
+                    }
+                } -ModuleName Microsoft.AVS.Management
+                {
+                    Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
+                } | Should -Throw -ExpectedMessage "*Failed to verify banner state*"
+                Should -Invoke Limit-WildcardsandCodeInjectionCharacters -ModuleName Microsoft.AVS.Management -Times 2
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-enable_checkbox true*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-set_logon_banner -enable true*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-get_logon_banner*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-print_logon_banner*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
+                    $Command -like "*-enable_checkbox Y*" -or $Command -like "*-enable_checkbox N*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
+                    $Command -like "*mkdir -p*"
+                }
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+    }
+    Context "Enable Verification Path" {
+        It "Should succeed when enable command fails but get command returns banner content (legacy fallback)" {
+            $originalSshSessions = $global:SSH_Sessions
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                Mock Limit-WildcardsandCodeInjectionCharacters {
+                    param($String)
+                    return $String
+                } -ModuleName Microsoft.AVS.Management
+                Mock Invoke-SSHCommand {
+                    param($SSHSession, $Command)
+                    if ($Command -like "*-set_logon_banner -enable true*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 1
+                            Output = @()
+                            Error = @("enable step failed")
+                        }
+                    }
+                    if ($Command -like "*-get_logon_banner*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 0
+                            Output = @(
+                                "Title: Notice",
+                                "Content: Authorized use only."
+                            )
+                            Error = @()
+                        }
+                    }
+                    return [PSCustomObject]@{
+                        ExitStatus = 0
+                        Output = @("ok")
+                        Error = @()
+                    }
+                } -ModuleName Microsoft.AVS.Management
+                {
+                    Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
+                } | Should -Not -Throw
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-set_logon_banner -enable true*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-get_logon_banner*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
+                    $Command -like "*-print_logon_banner*"
+                }
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+        It "Should succeed when enable and get commands fail but print command returns banner content (legacy fallback)" {
+            $originalSshSessions = $global:SSH_Sessions
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                Mock Limit-WildcardsandCodeInjectionCharacters {
+                    param($String)
+                    return $String
+                } -ModuleName Microsoft.AVS.Management
+                Mock Invoke-SSHCommand {
+                    param($SSHSession, $Command)
+                    if ($Command -like "*-set_logon_banner -enable true*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 1
+                            Output = @()
+                            Error = @("enable step failed")
+                        }
+                    }
+                    if ($Command -like "*-get_logon_banner*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 1
+                            Output = @()
+                            Error = @("get command not supported")
+                        }
+                    }
+                    if ($Command -like "*-print_logon_banner*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 0
+                            Output = @(
+                                "Title: Notice",
+                                "Content: Authorized use only."
+                            )
+                            Error = @()
+                        }
+                    }
+                    return [PSCustomObject]@{
+                        ExitStatus = 0
+                        Output = @("ok")
+                        Error = @()
+                    }
+                } -ModuleName Microsoft.AVS.Management
+                {
+                    Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
+                } | Should -Not -Throw
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-set_logon_banner -enable true*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-get_logon_banner*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-print_logon_banner*"
+                }
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+        It "Should throw when enable command fails and verification output has no banner content" {
+            $originalSshSessions = $global:SSH_Sessions
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                Mock Limit-WildcardsandCodeInjectionCharacters {
+                    param($String)
+                    return $String
+                } -ModuleName Microsoft.AVS.Management
+                Mock Invoke-SSHCommand {
+                    param($SSHSession, $Command)
+                    if ($Command -like "*-set_logon_banner -enable true*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 1
+                            Output = @()
+                            Error = @("enable step failed")
+                        }
+                    }
+                    if ($Command -like "*-get_logon_banner*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 0
+                            Output = @("No banner configured")
+                            Error = @()
+                        }
+                    }
+                    return [PSCustomObject]@{
+                        ExitStatus = 0
+                        Output = @("ok")
+                        Error = @()
+                    }
+                } -ModuleName Microsoft.AVS.Management
+                {
+                    Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
+                } | Should -Throw -ExpectedMessage "*Banner enable failed: toggle command failed and banner content is empty*"
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-set_logon_banner -enable true*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-get_logon_banner*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
+                    $Command -like "*-print_logon_banner*"
+                }
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+    }
+    Context "Cleanup Guardrail Path (Optional)" {
+        It "Should skip cleanup delete when fallback temp directory was not created" {
+            $originalSshSessions = $global:SSH_Sessions
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                Mock Limit-WildcardsandCodeInjectionCharacters {
+                    param($String)
+                    return $String
+                } -ModuleName Microsoft.AVS.Management
+                Mock Invoke-SSHCommand {
+                    param($SSHSession, $Command)
+                    if ($Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 1
+                            Output = @()
+                            Error = @("inline content failed")
+                        }
+                    }
+                    if ($Command -like "*mkdir -p*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 1
+                            Output = @()
+                            Error = @("mkdir failed")
+                        }
+                    }
+                    return [PSCustomObject]@{
+                        ExitStatus = 0
+                        Output = @("ok")
+                        Error = @()
+                    }
+                } -ModuleName Microsoft.AVS.Management
+                {
+                    Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
+                } | Should -Throw -ExpectedMessage "*Failed to set login banner content using supported formats*"
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*mkdir -p*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
+                    $Command -like "*rm -rf --*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
+                    $Command -like "*printf '%s'*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
+                    $Command -like "*-set_logon_banner -title*" -and $Command -like "*message.txt*"
+                }
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+    }
+    Context "Page Source Verification Path" {
+        It "Should verify banner text in login page source via curl and not throw on success" {
+            $originalSshSessions = $global:SSH_Sessions
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                Mock Limit-WildcardsandCodeInjectionCharacters {
+                    param($String)
+                    return $String
+                } -ModuleName Microsoft.AVS.Management
+                Mock Invoke-SSHCommand {
+                    param($SSHSession, $Command)
+                    if ($Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 0
+                            Output = @("ok")
+                            Error = @()
+                        }
+                    }
+                    if ($Command -like "*-enable_checkbox true*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 0
+                            Output = @("ok")
+                            Error = @()
+                        }
+                    }
+                    if ($Command -like "*-set_logon_banner -enable true*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 0
+                            Output = @("ok")
+                            Error = @()
+                        }
+                    }
+                    if ($Command -like "*/usr/bin/curl*" -and $Command -like "*-k*" -and $Command -like "*-s*" -and $Command -like "*-L*" -and $Command -like "*https://localhost/ui/login*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 0
+                            Output = @(
+                                "<html><body>",
+                                "<div>Notice</div>",
+                                "<div>Authorized use only.</div>",
+                                "</body></html>"
+                            )
+                            Error = @()
+                        }
+                    }
+                    return [PSCustomObject]@{
+                        ExitStatus = 0
+                        Output = @("ok")
+                        Error = @()
+                    }
+                } -ModuleName Microsoft.AVS.Management
+                {
+                    Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
+                } | Should -Not -Throw
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-enable_checkbox true*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-set_logon_banner -enable true*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*/usr/bin/curl*" -and $Command -like "*-k*" -and $Command -like "*-s*" -and $Command -like "*-L*" -and $Command -like "*https://localhost/ui/login*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
+                    $Command -like "*-get_logon_banner*" -or $Command -like "*-print_logon_banner*"
+                }
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+
+        It "Should warn when login page source does not contain banner text but not throw" {
+            $originalSshSessions = $global:SSH_Sessions
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                Mock Limit-WildcardsandCodeInjectionCharacters {
+                    param($String)
+                    return $String
+                } -ModuleName Microsoft.AVS.Management
+                Mock Write-Warning { } -ModuleName Microsoft.AVS.Management
+                Mock Invoke-SSHCommand {
+                    param($SSHSession, $Command)
+                    if ($Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 0
+                            Output = @("ok")
+                            Error = @()
+                        }
+                    }
+                    if ($Command -like "*-enable_checkbox true*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 0
+                            Output = @("ok")
+                            Error = @()
+                        }
+                    }
+                    if ($Command -like "*-set_logon_banner -enable true*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 0
+                            Output = @("ok")
+                            Error = @()
+                        }
+                    }
+                    if ($Command -like "*/usr/bin/curl*" -and $Command -like "*-k*" -and $Command -like "*-s*" -and $Command -like "*-L*" -and $Command -like "*https://localhost/ui/login*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 0
+                            Output = @(
+                                "<html><body>",
+                                "<div>No banner text here</div>",
+                                "</body></html>"
+                            )
+                            Error = @()
+                        }
+                    }
+                    return [PSCustomObject]@{
+                        ExitStatus = 0
+                        Output = @("ok")
+                        Error = @()
+                    }
+                } -ModuleName Microsoft.AVS.Management
+                {
+                    Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
+                } | Should -Not -Throw
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*/usr/bin/curl*" -and $Command -like "*https://localhost/ui/login*"
+                }
+                Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Message -like "*Login page source check did not find banner text*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
+                    $Command -like "*-get_logon_banner*" -or $Command -like "*-print_logon_banner*"
+                }
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+
+        It "Should warn and not throw when curl check fails" {
+            $originalSshSessions = $global:SSH_Sessions
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                Mock Limit-WildcardsandCodeInjectionCharacters {
+                    param($String)
+                    return $String
+                } -ModuleName Microsoft.AVS.Management
+                Mock Write-Warning { } -ModuleName Microsoft.AVS.Management
+                Mock Invoke-SSHCommand {
+                    param($SSHSession, $Command)
+                    if ($Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 0
+                            Output = @("ok")
+                            Error = @()
+                        }
+                    }
+                    if ($Command -like "*-enable_checkbox true*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 0
+                            Output = @("ok")
+                            Error = @()
+                        }
+                    }
+                    if ($Command -like "*-set_logon_banner -enable true*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 0
+                            Output = @("ok")
+                            Error = @()
+                        }
+                    }
+                    if ($Command -like "*/usr/bin/curl*" -and $Command -like "*-k*" -and $Command -like "*-s*" -and $Command -like "*-L*" -and $Command -like "*https://localhost/ui/login*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 1
+                            Output = @()
+                            Error = @("curl failed")
+                        }
+                    }
+                    return [PSCustomObject]@{
+                        ExitStatus = 0
+                        Output = @("ok")
+                        Error = @()
+                    }
+                } -ModuleName Microsoft.AVS.Management
+                {
+                    Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
+                } | Should -Not -Throw
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*/usr/bin/curl*" -and $Command -like "*https://localhost/ui/login*"
+                }
+                Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Message -like "*Login page source check skipped: failed to fetch /ui/login via curl.*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
+                    $Command -like "*-get_logon_banner*" -or $Command -like "*-print_logon_banner*"
+                }
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+    }
+    Context "Command Injection Safety" {
+        # Regression guard for the fallback banner-file write. The value is user-controlled and
+        # is single-quote escaped for a single shell parse. Wrapping it in an outer
+        # /bin/sh -c "..." (double quotes) re-introduced a shell-injection break-out.
+        It "Should not wrap fallback commands in a nested double-quoted /bin/sh -c and must keep the message single-quoted" {
+            $originalSshSessions = $global:SSH_Sessions
+            $global:VCBannerCapturedCommands = [System.Collections.Generic.List[string]]::new()
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                # Let the real sanitizers (Limit-WildcardsandCodeInjectionCharacters + Normalize-VCBannerText) run.
+                Mock Invoke-SSHCommand {
+                    param($SSHSession, $Command)
+                    $global:VCBannerCapturedCommands.Add($Command)
+                    if ($Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*") {
+                        # Force the fallback (file) path.
+                        return [PSCustomObject]@{ ExitStatus = 1; Output = @(); Error = @("inline content format failed") }
+                    }
+                    return [PSCustomObject]@{ ExitStatus = 0; Output = @("ok"); Error = @() }
+                } -ModuleName Microsoft.AVS.Management
+
+                # Message contains both a single quote and a double quote.
+                {
+                    Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage 'it''s "AVS"' -EnableConsent $true
+                } | Should -Not -Throw
+
+                $fileCmd = $global:VCBannerCapturedCommands | Where-Object { $_ -like "*printf '%s'*" -and $_ -like "*message.txt*" } | Select-Object -First 1
+                $fileCmd | Should -Not -BeNullOrEmpty
+                # No nested double-quoted shell wrapper.
+                $global:VCBannerCapturedCommands | ForEach-Object { $_ | Should -Not -BeLike '*/bin/sh -c*' }
+                # The message must stay inside single quotes.
+                $fileCmd | Should -BeLike "*printf '%s' '*"
+                # The user's single quote must be POSIX single-quote escaped ('"'"').
+                $posix = "'" + '"' + "'" + '"' + "'"
+                $fileCmd | Should -BeLike "*it$($posix)s*"
+            }
+            finally {
+                Remove-Variable -Name VCBannerCapturedCommands -Scope Global -ErrorAction SilentlyContinue
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+
+        It "Should not execute injected commands when the fallback file-write runs in a real shell" -Skip:(-not ($IsLinux -or $IsMacOS)) {
+            $originalSshSessions = $global:SSH_Sessions
+            $global:VCBannerCapturedCommands = [System.Collections.Generic.List[string]]::new()
+            $marker = Join-Path ([System.IO.Path]::GetTempPath()) ("avs-banner-inj-{0}" -f ([guid]::NewGuid().ToString('N')))
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                Mock Invoke-SSHCommand {
+                    param($SSHSession, $Command)
+                    $global:VCBannerCapturedCommands.Add($Command)
+                    if ($Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*") {
+                        return [PSCustomObject]@{ ExitStatus = 1; Output = @(); Error = @("inline content format failed") }
+                    }
+                    return [PSCustomObject]@{ ExitStatus = 0; Output = @("ok"); Error = @() }
+                } -ModuleName Microsoft.AVS.Management
+
+                # Payload uses only characters that survive sanitization (double quote + newline
+                # + a plain command), attempting to break out and run `touch $marker`.
+                $payload = "Notice`"`ntouch $marker`nprintf `""
+                {
+                    Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage $payload -EnableConsent $true
+                } | Should -Not -Throw
+
+                $mkdirCmd = $global:VCBannerCapturedCommands | Where-Object { $_ -like "mkdir -p *" } | Select-Object -First 1
+                $fileCmd  = $global:VCBannerCapturedCommands | Where-Object { $_ -like "*printf '%s'*" -and $_ -like "*message.txt*" } | Select-Object -First 1
+                $mkdirCmd | Should -Not -BeNullOrEmpty
+                $fileCmd  | Should -Not -BeNullOrEmpty
+
+                # Reproduce exactly what the remote sshd does: run each captured command with a single shell parse.
+                & '/bin/sh' '-c' $mkdirCmd
+                & '/bin/sh' '-c' $fileCmd
+
+                # If the escaping is broken, the injected `touch $marker` would have run.
+                Test-Path -LiteralPath $marker | Should -BeFalse
+            }
+            finally {
+                Get-ChildItem -Path ([System.IO.Path]::GetTempPath()) -Filter 'avs-login-banner-*' -Directory -ErrorAction SilentlyContinue |
+                    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+                Remove-Variable -Name VCBannerCapturedCommands -Scope Global -ErrorAction SilentlyContinue
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+    }
+}
+Describe "Get-VCLoginBanner" {
+    Context "Fallback Path" {
+        It "Should fallback to print command and set NamedOutputs when get command fails" {
+            $originalSshSessions = $global:SSH_Sessions
+            $originalNamedOutputs = $global:NamedOutputs
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                $global:NamedOutputs = @{}
+                Mock Invoke-SSHCommand {
+                    param($SSHSession, $Command)
+                    if ($Command -like "*-get_logon_banner*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 1
+                            Output = @()
+                            Error = @("get command not supported")
+                        }
+                    }
+                    if ($Command -like "*-print_logon_banner*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 0
+                            Output = @(
+                                "Title: Notice",
+                                "Message: Authorized use only.",
+                                "Checkbox: true",
+                                "Enabled: true"
+                            )
+                            Error = @()
+                        }
+                    }
+                    return [PSCustomObject]@{
+                        ExitStatus = 1
+                        Output = @()
+                        Error = @("unexpected command")
+                    }
+                } -ModuleName Microsoft.AVS.Management
+                { Get-VCLoginBanner } | Should -Not -Throw
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-get_logon_banner*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-print_logon_banner*"
+                }
+                $global:NamedOutputs | Should -Not -BeNullOrEmpty
+                $global:NamedOutputs.ContainsKey("LoginBannerConfig") | Should -BeTrue
+                $global:NamedOutputs["LoginBannerConfig"] | Should -BeLike "*Title: Notice*"
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+                $global:NamedOutputs = $originalNamedOutputs
+            }
+        }
+    }
+
+    Context "Session Validation" {
+        It "Should throw when VC SSH session is missing" {
+            $originalSshSessions = $global:SSH_Sessions
+            try {
+                $global:SSH_Sessions = @{}
+                Mock Invoke-SSHCommand { } -ModuleName Microsoft.AVS.Management
+
+                { Get-VCLoginBanner } | Should -Throw "*SSH session to vCenter is not available*"
+
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+    }
+}
+Describe "Remove-VCLoginBanner" {
+    Context "Fallback Path" {
+        It "Should retry with fallback disable command when primary disable command fails" {
+            $originalSshSessions = $global:SSH_Sessions
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                Mock Invoke-SSHCommand {
+                    param($SSHSession, $Command)
+                    if ($Command -like "*-set_logon_banner -enable false*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 1
+                            Output = @()
+                            Error = @("primary disable failed")
+                        }
+                    }
+                    if ($Command -like "*-disable_logon_banner*") {
+                        return [PSCustomObject]@{
+                            ExitStatus = 0
+                            Output = @("ok")
+                            Error = @()
+                        }
+                    }
+                    return [PSCustomObject]@{
+                        ExitStatus = 1
+                        Output = @()
+                        Error = @("unexpected command")
+                    }
+                } -ModuleName Microsoft.AVS.Management
+                { Remove-VCLoginBanner } | Should -Not -Throw
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-set_logon_banner -enable false*"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "*-disable_logon_banner*"
+                }
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+    }
+
+    Context "Session Validation" {
+        It "Should throw when VC SSH session is missing" {
+            $originalSshSessions = $global:SSH_Sessions
+            try {
+                $global:SSH_Sessions = @{}
+                Mock Invoke-SSHCommand { } -ModuleName Microsoft.AVS.Management
+
+                { Remove-VCLoginBanner } | Should -Throw "*SSH session to vCenter is not available*"
+
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+            }
+        }
+    }
+}
