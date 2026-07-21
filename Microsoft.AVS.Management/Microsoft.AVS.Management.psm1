@@ -1046,14 +1046,8 @@ function Set-VCLoginBanner {
         $BannerMessage = Normalize-VCBannerText -String $BannerMessage
     }
     process {
-        # Obtain the pre-established SSH session to vCenter
-        if ($null -eq $SSH_Sessions -or -not $SSH_Sessions.ContainsKey("VC")) {
-            throw "SSH session to vCenter is not available. Ensure `$SSH_Sessions['VC'] is pre-established by the AVS platform."
-        }
-        $SshSession = $SSH_Sessions["VC"].Value
-        if ($null -eq $SshSession) {
-            throw "Failed to initialize SSH session to vCenter."
-        }
+        $SshSession = Assert-VCSSHSession
+        Write-VCSSHPermissionDiagnostic -SshSession $SshSession
 
         # POSIX-safe escape for apostrophes inside single-quoted shell text
         $posixApostrophe = "'" + '"' + "'" + '"' + "'"
@@ -1241,14 +1235,8 @@ function Get-VCLoginBanner {
     param()
     begin {}
     process {
-        # Obtain the pre-established SSH session to vCenter
-        if ($null -eq $SSH_Sessions -or -not $SSH_Sessions.ContainsKey("VC")) {
-            throw "SSH session to vCenter is not available. Ensure `$SSH_Sessions['VC'] is pre-established by the AVS platform."
-        }
-        $SshSession = $SSH_Sessions["VC"].Value
-        if ($null -eq $SshSession) {
-            throw "Failed to initialize SSH session to vCenter."
-        }
+        $SshSession = Assert-VCSSHSession
+        Write-VCSSHPermissionDiagnostic -SshSession $SshSession
 
         $getCmd = "/opt/vmware/bin/sso-config.sh -get_logon_banner"
         $printCmd = "/opt/vmware/bin/sso-config.sh -print_logon_banner"
@@ -1295,14 +1283,8 @@ function Remove-VCLoginBanner {
     param()
     begin {}
     process {
-        # Obtain the pre-established SSH session to vCenter
-        if ($null -eq $SSH_Sessions -or -not $SSH_Sessions.ContainsKey("VC")) {
-            throw "SSH session to vCenter is not available. Ensure `$SSH_Sessions['VC'] is pre-established by the AVS platform."
-        }
-        $SshSession = $SSH_Sessions["VC"].Value
-        if ($null -eq $SshSession) {
-            throw "Failed to initialize SSH session to vCenter."
-        }
+        $SshSession = Assert-VCSSHSession
+        Write-VCSSHPermissionDiagnostic -SshSession $SshSession
 
         $disableCmd = "/opt/vmware/bin/sso-config.sh -set_logon_banner -enable false"
         $disableCmdFallback = "/opt/vmware/bin/sso-config.sh -disable_logon_banner"

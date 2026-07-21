@@ -198,3 +198,53 @@ function Normalize-VCBannerText {
         return $String
     }
 }
+
+function Assert-VCSSHSession {
+    [CmdletBinding()]
+    param()
+
+    if ($null -eq $SSH_Sessions -or -not $SSH_Sessions.ContainsKey("VC")) {
+        throw "SSH session to vCenter is not available. Ensure `$SSH_Sessions['VC'] is pre-established by the AVS platform."
+    }
+
+    $SshSession = $SSH_Sessions["VC"].Value
+    if ($null -eq $SshSession) {
+        throw "Failed to initialize SSH session to vCenter."
+    }
+
+    return $SshSession
+}
+
+function Write-VCSSHPermissionDiagnostic {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        $SshSession
+    )
+
+    try {
+        $probe = Invoke-SSHCommand -SSHSession $SshSession -Command "whoami; id; sudo -n -l 2>&1; echo SUDO_EXIT_CODE:`$?"
+        $lines = @($probe.Output | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+
+        $userName = if ($lines.Count -gt 0) { $lines[0].Trim() } else { "unknown" }
+
+        $idLine = $lines | Where-Object { $_ -match "^uid=" } | Select-Object -First 1
+        $isRoot = $false
+        if ($idLine -and $idLine -match "uid=0\(") {
+            $isRoot = $true
+        }
+
+        $hasPasswordlessSudo = $false
+        if ($lines -match "SUDO_EXIT_CODE:0") {
+            $hasPasswordlessSudo = $true
+        }
+        elseif ($lines -match "NOPASSWD") {
+            $hasPasswordlessSudo = $true
+        }
+
+        Write-Host ("VC SSH precheck: User={0}; IsRoot={1}; HasPasswordlessSudo={2}" -f $userName, $isRoot, $hasPasswordlessSudo)
+    }
+    catch {
+        Write-Warning ("VC SSH precheck could not run: {0}" -f $_.Exception.Message)
+    }
+}
