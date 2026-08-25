@@ -1002,3 +1002,93 @@ function Get-EsxtopData {
 
     Write-Host "Esxtop collection complete. $Iterations samples from $($vmHost.Name)."
 }
+
+function Deploy-MigrateAppliance {
+    <#
+    .SYNOPSIS
+        Deploys an Azure Migrate appliance for the SDDC.
+
+    .DESCRIPTION
+        Deploys an Azure Migrate appliance in the SDDC. This appliance can be used to discover and assess AVS workloads for migration to Azure Native.
+
+    .PARAMETER ProjectName
+        The name of the Azure Migrate project to associate with the appliance.
+
+    .PARAMETER ApplianceKey
+        The Azure Migrate appliance key to use for registration.
+
+    .PARAMETER NSXSegment
+        The NSX segment to deploy the Azure Migrate appliance on.
+
+    .NOTES
+        This function is a mock implementation and does not perform actual deployment. It simulates the deployment process and returns a success message along with the provided parameters.
+    #>
+
+    [CmdletBinding(PositionalBinding = $false)]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true, HelpMessage = "Azure Migrate project name")]
+        [ValidateNotNullOrEmpty()]
+        [string] $ProjectName,
+
+        [Parameter(Mandatory = $true, HelpMessage = "Azure Migrate appliance key")]
+        [ValidateNotNullOrEmpty()]
+        [string] $ApplianceKey,
+
+        [Parameter(Mandatory = $true, HelpMessage = "NSX segment to deploy Azure Migrate appliance.")]
+        [ValidateNotNullOrEmpty()]
+        [string] $NSXSegment
+    )
+
+    Write-Information "Mock deployment started for project '$ProjectName'."
+
+    $errorMessage = "Failed to create the Azure Migrate appliance for project '$ProjectName'."
+    $result = [PSCustomObject]@{
+        ProjectName = $ProjectName
+        ApplianceKey = $ApplianceKey
+        Status      = "Succeeded"
+        Message     = "Created Appliance Successfully. Please boot up the appliance created in vCenter and complete the configuration."
+    }
+
+    Write-Output ($result | ConvertTo-Json -Depth 10 -Compress)
+    Write-Error "Failed to reach portal.azure.com"
+    Write-Error "Failed to reach login.windows.net"
+    Write-Error $errorMessage
+}
+
+function Get-MigrateApplianceInfo{
+    <#
+    .SYNOPSIS
+        Gets the Status of the Azure Migrate appliance deployed in the SDDC.
+
+    .DESCRIPTION
+        Gets the status of the Azure Migrate appliance deployed in the SDDC.This information can be used to verify the appliance is deployed and running.
+
+    .PARAMETER NotPresent
+        If set to true, returns a mock response indicating that no appliance is deployed.
+
+    .NOTES
+        This function is a mock implementation and does not perform actual status checks. It simulates the retrieval of appliance information and returns a mock response.
+    #>
+
+    [CmdletBinding(PositionalBinding = $false)]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $false, HelpMessage = "Return a mock response with no deployed appliance")]
+        [bool] $NotPresent = $false
+    )
+
+    if ($NotPresent) {
+        Write-Output "{}"
+        return
+    }
+
+    $result = [PSCustomObject]@{
+        ApplianceName = "azmigrateappliance"
+        ProjectName   = "azmigrateProject"
+        Status        = "success"
+        ApplianceKey  = "gyusdfnhlsnegf"
+    }
+
+    Write-Output ($result | ConvertTo-Json -Depth 10 -Compress)
+}
