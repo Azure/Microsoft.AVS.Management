@@ -955,6 +955,11 @@ function Sync-VMHostStorage {
     .SYNOPSIS
      Rescans all host storage in cluster
 
+    .DESCRIPTION
+     Rescans HBAs and VMFS volumes on the hosts of a cluster in parallel. Every host is
+     attempted; if any host fails or does not finish in time the remaining hosts are still
+     rescanned and the command then fails, naming each host that did not complete.
+
     .PARAMETER ClusterName
      Cluster name
 
@@ -984,7 +989,84 @@ function Sync-ClusterVMHostStorage {
         throw "Cluster $ClusterName does not exist."
     }
 
-    $Cluster | Get-VMHost | Get-VMHostStorage -RescanAllHba -RescanVMFS | Out-Null
+    $VMHosts = @($Cluster | Get-VMHost)
+    if ($VMHosts.Count -eq 0) {
+        Write-Warning "Cluster $ClusterName has no hosts to rescan."
+        return
+    }
+
+    # Cap the parallel rescan below the cmdlet's 10 minute AVSAttribute budget so a wedged
+    # host cannot consume it all and there is still time to report which hosts are stuck.
+    $RescanTimeoutSeconds = 480
+
+    $Failures = Invoke-VMHostStorageRescanInternal -VMHosts $VMHosts -TimeoutSeconds $RescanTimeoutSeconds
+    $RescannedCount = $VMHosts.Count - $Failures.Count
+    Write-Host "Rescanned storage on $RescannedCount of $($VMHosts.Count) hosts in cluster $ClusterName."
+
+    # Every host is attempted before this point. A partial rescan is still a failed rescan:
+    # callers act on cluster-wide storage state, so report all bad hosts and fail the run.
+    if ($Failures.Count -gt 0) {
+        $Detail = ($Failures.Keys | Sort-Object | ForEach-Object { "$_ ($($Failures[$_]))" }) -join ', '
+        throw "Failed to rescan storage on $($Failures.Count) of $($VMHosts.Count) hosts in cluster ${ClusterName}: $Detail"
+    }
+}
+
+# Private helper function for rescanning host storage across hosts concurrently.
+# Returns a host name -> failure reason dictionary; empty means every host rescanned.
+function Invoke-VMHostStorageRescanInternal {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject[]]
+        $VMHosts,
+
+        [Parameter(Mandatory=$true)]
+        [Int32]
+        $TimeoutSeconds
+    )
+
+    $Failures = [System.Collections.Concurrent.ConcurrentDictionary[String, String]]::new()
+    $Rescanned = [System.Collections.Concurrent.ConcurrentBag[String]]::new()
+
+    # Resolve the storage systems here, in the caller's runspace. A parallel runspace has no
+    # vCenter connection and no PowerCLI loaded, but these views carry their own session, so
+    # the workers below only invoke methods on them and never call a PowerCLI cmdlet.
+    $Targets = [System.Collections.Generic.List[PSObject]]::new()
+    foreach ($VMHost in $VMHosts) {
+        try {
+            $Targets.Add([PSCustomObject]@{
+                Name = $VMHost.Name
+                StorageSystem = Get-View -Id $VMHost.ExtensionData.ConfigManager.StorageSystem -ErrorAction Stop
+            })
+        } catch {
+            $Failures[$VMHost.Name] = "failed to read storage system: $($_.Exception.Message)"
+        }
+    }
+
+    # ThrottleLimit bounds how many hosts rescan against vCenter at once; TimeoutSeconds
+    # bounds the whole pipeline, so one wedged host can no longer hold up the others.
+    $Targets | ForEach-Object -Parallel {
+        $Target = $_
+        $Succeeded = $using:Rescanned
+        $Failed = $using:Failures
+        try {
+            $Target.StorageSystem.RescanAllHba()
+            $Target.StorageSystem.RescanVmfs()
+            $Succeeded.Add($Target.Name)
+        } catch {
+            $Failed[$Target.Name] = $_.Exception.Message
+        }
+    } -ThrottleLimit 8 -TimeoutSeconds $TimeoutSeconds
+
+    # A host that reported neither success nor failure was still running when the pipeline
+    # timed out, so name it rather than letting it disappear from the report.
+    $RescannedNames = @($Rescanned)
+    foreach ($Target in $Targets) {
+        if ($RescannedNames -notcontains $Target.Name -and -not $Failures.ContainsKey($Target.Name)) {
+            $Failures[$Target.Name] = "rescan did not complete within $TimeoutSeconds seconds"
+        }
+    }
+
+    return $Failures
 }
 
 # Private helper function for removing iSCSI targets (both static and dynamic)

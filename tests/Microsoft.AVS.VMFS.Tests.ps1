@@ -3473,30 +3473,119 @@ Describe "Sync-VMHostStorage - Behavioral Tests" -Tag "Behavioral" {
 
 Describe "Sync-ClusterVMHostStorage - Behavioral Tests" -Tag "Behavioral" {
     BeforeAll {
-        $script:mockCluster = [PSCustomObject]@{ Name = "TestCluster" }
+        # The rescan runs in parallel runspaces. Neither a script:-scoped counter nor an
+        # InModuleScope mock survives a runspace boundary, so the fake storage system is a
+        # .NET type: its static collections are process-wide and every runspace shares them.
+        if (-not ('AVSTestStorageSystem' -as [type])) {
+            Add-Type -TypeDefinition @"
+using System;
+using System.Collections.Concurrent;
+using System.Threading;
+
+public class AVSTestStorageSystem {
+    public static ConcurrentBag<string> HbaRescans = new ConcurrentBag<string>();
+    public static ConcurrentBag<string> VmfsRescans = new ConcurrentBag<string>();
+    public static ConcurrentBag<int> Threads = new ConcurrentBag<int>();
+    public string HostName;
+    public bool ShouldFail;
+    public int DelayMilliseconds;
+    public AVSTestStorageSystem(string hostName) { HostName = hostName; }
+    public void RescanAllHba() {
+        Threads.Add(Thread.CurrentThread.ManagedThreadId);
+        if (DelayMilliseconds > 0) { Thread.Sleep(DelayMilliseconds); }
+        if (ShouldFail) { throw new InvalidOperationException("host " + HostName + " refused the rescan"); }
+        HbaRescans.Add(HostName);
+    }
+    public void RescanVmfs() { VmfsRescans.Add(HostName); }
+    public static void Reset() {
+        HbaRescans = new ConcurrentBag<string>();
+        VmfsRescans = new ConcurrentBag<string>();
+        Threads = new ConcurrentBag<int>();
+    }
+}
+"@
+        }
+
+        # Hosts whose storage system is the fake above. Get-View is stubbed to return what it
+        # is given, so ExtensionData.ConfigManager.StorageSystem stands in for the view.
+        function script:New-TestVMHost {
+            param([String]$Name, [Boolean]$ShouldFail = $false, [Int32]$DelayMilliseconds = 0)
+
+            $StorageSystem = [AVSTestStorageSystem]::new($Name)
+            $StorageSystem.ShouldFail = $ShouldFail
+            $StorageSystem.DelayMilliseconds = $DelayMilliseconds
+            [PSCustomObject]@{
+                Name = $Name
+                ExtensionData = [PSCustomObject]@{
+                    ConfigManager = [PSCustomObject]@{ StorageSystem = $StorageSystem }
+                }
+            }
+        }
+
+        function script:Invoke-SyncWithHosts {
+            param([PSObject[]]$VMHosts)
+
+            InModuleScope Microsoft.AVS.VMFS -ArgumentList @(, $VMHosts) -ScriptBlock {
+                param($VMHosts)
+
+                function script:Get-Cluster { param($Name, $ErrorAction) [PSCustomObject]@{ Name = $Name } }
+                function script:Get-VMHost { $VMHosts }
+                function script:Get-View { param($Id, $ErrorAction) $Id }
+
+                Sync-ClusterVMHostStorage -ClusterName "TestCluster"
+            }
+        }
+    }
+
+    BeforeEach {
+        [AVSTestStorageSystem]::Reset()
     }
 
     Context "Happy path" {
-        It "Should rescan storage on all hosts in cluster" {
-            InModuleScope Microsoft.AVS.VMFS -ArgumentList @($script:mockCluster) -ScriptBlock {
-                param($mockCluster)
+        It "Should rescan HBAs and VMFS on every host in the cluster" {
+            $VMHosts = @("host-01", "host-02", "host-03") | ForEach-Object { New-TestVMHost -Name $_ }
 
-                function script:Get-Cluster { param($Name, $ErrorAction) $mockCluster }
-                function script:Get-VMHost {
-                    @(
-                        [PSCustomObject]@{ Name = "host-01" },
-                        [PSCustomObject]@{ Name = "host-02" }
-                    )
-                }
-                function script:Get-VMHostStorage {
-                    param([switch]$RescanAllHba, [switch]$RescanVMFS)
-                    $script:rescanCount++
-                }
+            Invoke-SyncWithHosts -VMHosts $VMHosts
 
-                $script:rescanCount = 0
-                Sync-ClusterVMHostStorage -ClusterName "TestCluster"
-                $script:rescanCount | Should -BeGreaterOrEqual 1
+            (@([AVSTestStorageSystem]::HbaRescans) | Sort-Object) -join "," | Should -Be "host-01,host-02,host-03"
+            (@([AVSTestStorageSystem]::VmfsRescans) | Sort-Object) -join "," | Should -Be "host-01,host-02,host-03"
+        }
+
+        It "Should rescan hosts concurrently, off the calling thread" {
+            $VMHosts = @("host-01", "host-02", "host-03") | ForEach-Object {
+                New-TestVMHost -Name $_ -DelayMilliseconds 400
             }
+
+            Invoke-SyncWithHosts -VMHosts $VMHosts
+
+            $Threads = @([AVSTestStorageSystem]::Threads) | Sort-Object -Unique
+            $Threads.Count | Should -BeGreaterThan 1
+            $Threads | Should -Not -Contain ([System.Threading.Thread]::CurrentThread.ManagedThreadId)
+        }
+    }
+
+    Context "Partial failure" {
+        It "Should rescan the healthy hosts and then fail, naming the bad host" {
+            $VMHosts = @(
+                (New-TestVMHost -Name "host-01"),
+                (New-TestVMHost -Name "host-02" -ShouldFail $true),
+                (New-TestVMHost -Name "host-03")
+            )
+
+            { Invoke-SyncWithHosts -VMHosts $VMHosts } |
+                Should -Throw "*Failed to rescan storage on 1 of 3 hosts*host-02*"
+
+            (@([AVSTestStorageSystem]::HbaRescans) | Sort-Object) -join "," | Should -Be "host-01,host-03"
+        }
+    }
+
+    Context "Empty cluster" {
+        It "Should warn and rescan nothing when the cluster has no hosts" {
+            $Output = Invoke-SyncWithHosts -VMHosts @() 3>&1
+
+            @($Output | Where-Object { $_ -is [System.Management.Automation.WarningRecord] }) |
+                Should -Match "no hosts to rescan"
+            @([AVSTestStorageSystem]::HbaRescans).Count | Should -Be 0
         }
     }
 }
