@@ -1,21 +1,453 @@
 <# Private Function Import #>
 . $PSScriptRoot\AVSGenericUtils.ps1
 
+function Test-ToolsRepoUploadInput {
+    param(
+        [string]$SourceDatastoreName,
+        [string]$ToolsZipPath,
+        [string]$ExpectedHash
+    )
+
+    if ([string]::IsNullOrWhiteSpace($SourceDatastoreName) -or
+        [string]::IsNullOrWhiteSpace($ToolsZipPath) -or
+        [string]::IsNullOrWhiteSpace($ExpectedHash)) {
+        throw "SourceDatastoreName, ToolsZipPath, and ExpectedHash are required when -Validate is not specified."
+    }
+
+    if ($ExpectedHash -notmatch '^[A-Fa-f0-9]{64}$') {
+        throw "ExpectedHash must be a valid SHA-256 hash containing exactly 64 hexadecimal characters."
+    }
+
+    $toolsZipPathSegments = $ToolsZipPath -split '/'
+    $containsUnsafePathSegment = @($toolsZipPathSegments | Where-Object {
+            [string]::IsNullOrWhiteSpace($_) -or $_ -eq '.' -or $_ -eq '..'
+        }).Count -gt 0
+
+    if ([System.IO.Path]::IsPathRooted($ToolsZipPath) -or
+        $ToolsZipPath.StartsWith('/') -or
+        $ToolsZipPath -match '[\\:*?\[\]]' -or
+        $ToolsZipPath -notmatch '(?i)\.zip$' -or
+        $containsUnsafePathSegment) {
+        throw "ToolsZipPath must be a safe relative path to a zip file on the source datastore."
+    }
+}
+
+function Get-ToolsRepoVsanDatastore {
+    try {
+        $datastores = @(Get-Datastore -ErrorAction Stop | Where-Object { $_.ExtensionData.Summary.Type -eq 'vsan' })
+
+        if ($datastores.Count -eq 0) {
+            throw "No vSAN datastores found in the environment"
+        }
+
+        Write-Information "Found $($datastores.Count) vSAN datastore(s)" -InformationAction Continue
+        return $datastores
+    } catch {
+        throw "Failed to retrieve vSAN datastores: $_"
+    }
+}
+
+function ConvertTo-ToolsRepoVersionInfo {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Value
+    )
+
+    $versionIdentifierPattern = '\d+(?:\.\d+){1,3}(?:-\d+(?:\.\d+)*)?'
+    $plainVersionPattern = "^(?<Identifier>$versionIdentifierPattern)$"
+    $namedVersionPattern = "(?i)^(?:gueststore-vmtools|vmware-tools|vmtools)-(?<Identifier>$versionIdentifierPattern)(?:\.(?:tar\.gz|zip|tgz|tar|gz|exe|msi|vib))?$"
+    $candidate = [System.IO.Path]::GetFileName(($Value -replace '\\', '/'))
+
+    if ($candidate -match $plainVersionPattern -or $candidate -match $namedVersionPattern) {
+        $identifier = $Matches.Identifier
+        $identifierParts = $identifier -split '-', 2
+        $buildParts = @()
+
+        if ($identifierParts.Count -eq 2) {
+            $buildParts = @($identifierParts[1] -split '\.' | ForEach-Object { [long]$_ })
+        }
+
+        return [pscustomobject]@{
+            Identifier = $identifier
+            ReleaseParts = @($identifierParts[0] -split '\.' | ForEach-Object { [long]$_ })
+            BuildParts = $buildParts
+        }
+    }
+
+    return $null
+}
+
+function Compare-ToolsRepoVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Left,
+        [Parameter(Mandatory = $true)]
+        [string]$Right
+    )
+
+    $leftVersion = ConvertTo-ToolsRepoVersionInfo -Value $Left
+    $rightVersion = ConvertTo-ToolsRepoVersionInfo -Value $Right
+
+    if ($null -eq $leftVersion -or $null -eq $rightVersion) {
+        throw "Cannot compare invalid VMware Tools versions '$Left' and '$Right'."
+    }
+
+    $releasePartCount = [Math]::Max($leftVersion.ReleaseParts.Count, $rightVersion.ReleaseParts.Count)
+    for ($index = 0; $index -lt $releasePartCount; $index++) {
+        $leftPart = if ($index -lt $leftVersion.ReleaseParts.Count) { $leftVersion.ReleaseParts[$index] } else { 0 }
+        $rightPart = if ($index -lt $rightVersion.ReleaseParts.Count) { $rightVersion.ReleaseParts[$index] } else { 0 }
+
+        if ($leftPart -lt $rightPart) {
+            return -1
+        }
+        if ($leftPart -gt $rightPart) {
+            return 1
+        }
+    }
+
+    # A build is compared only when both values include one.
+    if ($leftVersion.BuildParts.Count -eq 0 -or $rightVersion.BuildParts.Count -eq 0) {
+        return 0
+    }
+
+    $partCount = [Math]::Max($leftVersion.BuildParts.Count, $rightVersion.BuildParts.Count)
+    for ($index = 0; $index -lt $partCount; $index++) {
+        $leftPart = if ($index -lt $leftVersion.BuildParts.Count) { $leftVersion.BuildParts[$index] } else { 0 }
+        $rightPart = if ($index -lt $rightVersion.BuildParts.Count) { $rightVersion.BuildParts[$index] } else { 0 }
+
+        if ($leftPart -lt $rightPart) {
+            return -1
+        }
+        if ($leftPart -gt $rightPart) {
+            return 1
+        }
+    }
+
+    return 0
+}
+
+function Get-ToolsRepoMetadataVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        $MetadataObject,
+
+        [Parameter(Mandatory = $true)]
+        [string]$LatestVersion
+    )
+
+    if ($null -eq $MetadataObject) {
+        return $null
+    }
+
+    $candidateVersions = @()
+
+    if ($MetadataObject.PSObject.Properties.Name -contains 'installer' -and $null -ne $MetadataObject.installer) {
+        $installerObject = $MetadataObject.installer
+
+        if ($installerObject.PSObject.Properties.Name -contains 'version') {
+            $installerVersion = ConvertTo-ToolsRepoVersionInfo -Value ([string]$installerObject.version)
+            if ($null -ne $installerVersion) {
+                $candidateVersions += $installerVersion.Identifier
+            }
+        }
+
+        if ($installerObject.PSObject.Properties.Name -contains 'file') {
+            $installerFile = ConvertTo-ToolsRepoVersionInfo -Value ([string]$installerObject.file)
+            if ($null -ne $installerFile) {
+                $candidateVersions += $installerFile.Identifier
+            }
+        }
+    }
+
+    if ($MetadataObject.PSObject.Properties.Name -contains 'vmtools') {
+        $vmtoolsField = ConvertTo-ToolsRepoVersionInfo -Value ([string]$MetadataObject.vmtools)
+        if ($null -ne $vmtoolsField) {
+            $candidateVersions += $vmtoolsField.Identifier
+        }
+    }
+
+    foreach ($property in $MetadataObject.PSObject.Properties) {
+        $nameCandidate = ConvertTo-ToolsRepoVersionInfo -Value ([string]$property.Name)
+        if ($null -ne $nameCandidate) {
+            $candidateVersions += $nameCandidate.Identifier
+        }
+
+        $valueCandidate = ConvertTo-ToolsRepoVersionInfo -Value ([string]$property.Value)
+        if ($null -ne $valueCandidate) {
+            $candidateVersions += $valueCandidate.Identifier
+        }
+    }
+
+    if ($candidateVersions.Count -gt 0) {
+        $uniqueCandidates = @($candidateVersions | Select-Object -Unique)
+        if ($uniqueCandidates -contains $LatestVersion) {
+            return $LatestVersion
+        }
+
+        foreach ($candidateVersion in $uniqueCandidates) {
+            if ((Compare-ToolsRepoVersion -Left $candidateVersion -Right $LatestVersion) -eq 0) {
+                # Return the selected folder version when metadata contains only its release.
+                return $LatestVersion
+            }
+        }
+
+        $highestCandidate = $uniqueCandidates[0]
+        foreach ($candidateVersion in $uniqueCandidates | Select-Object -Skip 1) {
+            if ((Compare-ToolsRepoVersion -Left $candidateVersion -Right $highestCandidate) -gt 0) {
+                $highestCandidate = $candidateVersion
+            }
+        }
+
+        return [string]$highestCandidate
+    }
+
+    return $null
+}
+
+function Get-ToolsRepoHighestVersionFolder {
+    param(
+        [Parameter(Mandatory = $true)]
+        [array]$Directories
+    )
+
+    $highestVersionFolder = $null
+    $highestVersionIdentifier = $null
+
+    foreach ($directory in $Directories) {
+        $versionInformation = ConvertTo-ToolsRepoVersionInfo -Value ([string]$directory.Name)
+        if ($null -eq $versionInformation -or $directory.Name -notmatch '^vmtools-') {
+            continue
+        }
+
+        if ($null -eq $highestVersionIdentifier -or
+            (Compare-ToolsRepoVersion -Left $versionInformation.Identifier -Right $highestVersionIdentifier) -gt 0) {
+            $highestVersionIdentifier = $versionInformation.Identifier
+            $highestVersionFolder = $directory
+        }
+    }
+
+    return $highestVersionFolder
+}
+
+function Get-ToolsRepoDestinationPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$GuestStoreFolder,
+        [Parameter(Mandatory = $true)]
+        [string]$ArchivePath,
+        [Parameter(Mandatory = $true)]
+        [string]$DriveName
+    )
+
+    return Join-Path -Path "${DriveName}:/$GuestStoreFolder" -ChildPath $ArchivePath
+}
+
+function Copy-ToolsRepoArchive {
+    param(
+        [Parameter(Mandatory = $true)]
+        $SourceDatastore,
+        [Parameter(Mandatory = $true)]
+        [string]$ToolsZipPath,
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedHash,
+        [Parameter(Mandatory = $true)]
+        [string]$LocalToolsFile,
+        [Parameter(Mandatory = $true)]
+        [string]$SourceDriveName
+    )
+
+    $sourceDriveCreated = $false
+
+    try {
+        if (Get-PSDrive -Name $SourceDriveName -ErrorAction SilentlyContinue) {
+            throw "Temporary source PSDrive name '$SourceDriveName' is already in use."
+        }
+
+        New-PSDrive -Location $SourceDatastore -Name $SourceDriveName -PSProvider VimDatastore -Root '\' -ErrorAction Stop | Out-Null
+        $sourceDriveCreated = $true
+
+        $sourceItemPath = "${SourceDriveName}:/$ToolsZipPath"
+        if (-not (Test-Path -Path $sourceItemPath -PathType Leaf)) {
+            throw "Tools zip file was not found on datastore '$($SourceDatastore.Name)' at path '$ToolsZipPath'."
+        }
+
+        Write-Information "Copying tools zip from datastore '$($SourceDatastore.Name)'..." -InformationAction Continue
+        Copy-DatastoreItem -Item $sourceItemPath -Destination $LocalToolsFile -Force -ErrorAction Stop | Out-Null
+
+        if (-not (Test-Path -LiteralPath $LocalToolsFile -PathType Leaf)) {
+            throw "Tools zip file was not copied to the local temporary directory."
+        }
+
+        $fileSize = (Get-Item -LiteralPath $LocalToolsFile -ErrorAction Stop).Length
+        if ($fileSize -eq 0) {
+            throw "Tools zip file is empty."
+        }
+
+        Write-Verbose "Copied tools file size: $($fileSize / 1MB) MB"
+        Write-Information "Verifying tools zip SHA-256 hash..." -InformationAction Continue
+
+        $actualHash = (Get-FileHash -LiteralPath $LocalToolsFile -Algorithm SHA256 -ErrorAction Stop).Hash
+        if (-not [string]::Equals($actualHash, $ExpectedHash, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "SHA-256 hash mismatch. Expected: $ExpectedHash. Actual: $actualHash."
+        }
+
+        Write-Information "Tools zip SHA-256 hash verified successfully." -InformationAction Continue
+    } catch {
+        throw "Failed to prepare tools zip from source datastore: $_"
+    } finally {
+        if ($sourceDriveCreated -and (Get-PSDrive -Name $SourceDriveName -ErrorAction SilentlyContinue)) {
+            Remove-PSDrive -Name $SourceDriveName -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Expand-ToolsRepoArchive {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$LocalToolsFile,
+        [Parameter(Mandatory = $true)]
+        [string]$TemporaryDirectory,
+        [Parameter(Mandatory = $true)]
+        [string]$ArchivePath
+    )
+
+    try {
+        Write-Information "Extracting tools archive..." -InformationAction Continue
+        Expand-Archive -LiteralPath $LocalToolsFile -DestinationPath $TemporaryDirectory -Force -ErrorAction Stop
+    } catch {
+        throw "Failed to extract tools archive: $_"
+    }
+
+    $windows64Path = Join-Path -Path $TemporaryDirectory -ChildPath $ArchivePath
+    if (-not (Test-Path -Path $windows64Path)) {
+        throw "windows64 directory not found in extracted archive at: $windows64Path"
+    }
+
+    Write-Information "windows64 directory located - will validate metadata.json files next" -InformationAction Continue
+
+    $topLevelMetadataPath = Join-Path -Path $windows64Path -ChildPath 'metadata.json'
+    if (-not (Test-Path -Path $topLevelMetadataPath)) {
+        throw "metadata.json not found in windows64 directory at: $topLevelMetadataPath"
+    }
+
+    Write-Information "metadata.json found in windows64 directory: $topLevelMetadataPath" -InformationAction Continue
+
+    $vmtoolsFolders = @(Get-ChildItem -Path $windows64Path -Directory | Where-Object {
+            $_.Name -match '^vmtools-\d+(?:\.\d+){1,3}(?:-\d+(?:\.\d+)*)?$'
+        })
+    if ($vmtoolsFolders.Count -eq 0) {
+        throw "No vmtools folder found inside windows64 at: $windows64Path"
+    }
+
+    $vmtoolsFolder = Get-ToolsRepoHighestVersionFolder -Directories $vmtoolsFolders
+    $vmtoolsFolderPath = $vmtoolsFolder.FullName
+    Write-Information "Found vmtools folder: $($vmtoolsFolder.Name) at $vmtoolsFolderPath" -InformationAction Continue
+
+    $versionMetadataPath = Join-Path -Path $vmtoolsFolderPath -ChildPath 'metadata.json'
+    if (-not (Test-Path -Path $versionMetadataPath)) {
+        throw "metadata.json not found inside vmtools folder at: $versionMetadataPath"
+    }
+
+    Write-Information "metadata.json found inside vmtools folder: $versionMetadataPath" -InformationAction Continue
+    Write-Information "Archive structure validation passed: required folders and metadata files were found. Proceeding to datastore operations." -InformationAction Continue
+
+    $toolsVersion = Split-Path -Path $vmtoolsFolderPath -Leaf
+    if ([string]::IsNullOrEmpty($toolsVersion) -or
+        $toolsVersion -notmatch '^vmtools-\d+(?:\.\d+){1,3}(?:-\d+(?:\.\d+)*)?$') {
+        throw "Invalid vmtools folder name detected at: $vmtoolsFolderPath"
+    }
+
+    Write-Information "Found tools version: $toolsVersion" -InformationAction Continue
+
+    return @{
+        TopLevelMetadataPath = $topLevelMetadataPath
+        VmtoolsFolderPath = $vmtoolsFolderPath
+        ToolsVersion = $toolsVersion
+        ToolsShortVersion = $toolsVersion -replace 'vmtools-', ''
+    }
+}
+
+function Invoke-ToolsRepoHostRepositoryConfiguration {
+    param(
+        [Parameter(Mandatory = $true)]
+        $Datastore,
+        [Parameter(Mandatory = $true)]
+        [string]$GuestStoreFolder
+    )
+
+    $datastoreName = $Datastore.Name
+    $repositoryUrl = $Datastore.ExtensionData.Summary.Url + $GuestStoreFolder
+
+    try {
+        $datastoreId = $Datastore.Id
+        $vmHosts = @(Get-VMHost -ErrorAction Stop | Where-Object {
+                $_.ExtensionData.Datastore.value -contains ($datastoreId.Split('-', 2)[1])
+            })
+
+        if ($vmHosts.Count -eq 0) {
+            throw "No hosts found for datastore $datastoreName"
+        }
+
+        Write-Information "Configuring $($vmHosts.Count) host(s) for datastore $datastoreName" -InformationAction Continue
+    } catch {
+        throw "Failed to retrieve hosts for datastore $datastoreName : $_"
+    }
+
+    $failedHosts = @()
+    foreach ($vmHost in $vmHosts) {
+        try {
+            $esxCli = Get-EsxCli -V2 -VMHost $vmHost -ErrorAction Stop
+            Write-Verbose "Setting GuestStore repository for host: $vmHost"
+
+            $arguments = $esxCli.system.settings.gueststore.repository.set.CreateArgs()
+            $arguments.url = $repositoryUrl
+            $result = $esxCli.system.settings.gueststore.repository.set.invoke($arguments)
+
+            if ($result -eq $false) {
+                throw "ESXCLI command returned false"
+            }
+
+            Write-Information "Successfully configured host: $vmHost" -InformationAction Continue
+        } catch {
+            Write-Warning "Failed to configure host $vmHost : $_"
+            $failedHosts += $vmHost.Name
+        }
+    }
+
+    if ($failedHosts.Count -gt 0) {
+        throw "Failed to configure hosts for datastore $datastoreName : $($failedHosts -join ', ')"
+    }
+}
+
 <#
     .SYNOPSIS
     Manages the Tools Repository on vSAN datastores for VMware Tools deployment.
 
     .DESCRIPTION
     This function creates a GuestStore folder on each cluster's vSAN datastore and configures
-    hosts to pull VMware Tools from their respective vSAN datastore. The 'gueststore-vmtools'
-    file is required.
+    hosts to pull VMware Tools from their respective vSAN datastore. The GuestStore version of the VMware Tools ZIP package is required.
 
     When -Validate is specified, only reads and validates metadata.json files without making changes.
-    When -Validate is NOT specified, uploads tools and configures hosts as normal.
+    When -Validate is NOT specified, first upload the VMware Tools GuestStore zip file to a
+    staging folder on one vSAN datastore by using the vCenter datastore browser. The function
+    copies the zip file to an isolated temporary directory and verifies its SHA-256 hash before
+    extraction. If the hash does not match, no GuestStore datastore or host configuration changes
+    are made. After successful verification, the function uploads the extracted tools to the
+    GuestStore repository on each vSAN datastore and configures the associated hosts.
 
-    .PARAMETER ToolsURL
-    A publicly available HTTP(S) URL to download the Tools zip file. Required when -Validate
-    is NOT specified. Must be HTTPS or HTTP.
+    .PARAMETER SourceDatastoreName
+    Exact name of the vSAN datastore containing the staged Tools zip file. Required when
+    -Validate is NOT specified.
+
+    .PARAMETER ToolsZipPath
+    Path to the staged Tools zip file, relative to the source datastore root. Required when
+    -Validate is NOT specified. Do not upload the zip file inside the managed GuestStore folder.
+    For example: AVS-ToolsRepo-Staging/gueststore-vmtools-13.0.5-0.24916190.zip.
+
+    .PARAMETER ExpectedHash
+    Trusted SHA-256 hash published for the exact staged Tools zip file. Required when -Validate
+    is NOT specified. The value must contain exactly 64 hexadecimal characters. The function
+    stops before extraction when the calculated hash does not match this value.
 
     .PARAMETER Validate
     Switch to enable validation-only mode. When set, the function reads metadata.json files
@@ -23,7 +455,7 @@
 
     .EXAMPLE
     # Upload tools to repositories
-    Set-ToolsRepo -ToolsURL "https://example.com/tools.zip"
+    Set-ToolsRepo -SourceDatastoreName "vsanDatastore" -ToolsZipPath "AVS-ToolsRepo-Staging/gueststore-vmtools-13.0.5-0.24916190.zip" -ExpectedHash "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"
 
     .EXAMPLE
     # Validate existing repositories (no upload)
@@ -31,162 +463,77 @@
 #>
 function Set-ToolsRepo {
     [CmdletBinding()]
-    [AVSAttribute(30, UpdatesSDDC = $false)]
+    [AVSAttribute(30, UpdatesSDDC = $true)]
     param(
         [Parameter(Mandatory = $false,
-            HelpMessage = 'A publicly available HTTP(S) URL to download the Tools zip file.')]
+            HelpMessage = 'Exact name of the vSAN datastore where the VMware Tools GuestStore ZIP was uploaded. Example: vsanDatastore.')]
         [ValidateNotNullOrEmpty()]
-        [SecureString]
-        $ToolsURL,
+        [string]
+        $SourceDatastoreName,
 
-        [Parameter(Mandatory = $false)]
-        [switch]$Validate
+        [Parameter(Mandatory = $false,
+            HelpMessage = 'Path to the uploaded ZIP, relative to the datastore root. Example: AVS-ToolsRepo-Staging/gueststore-vmtools-13.0.5-0.24916190.zip. Do not upload it inside the managed GuestStore folder.')]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ToolsZipPath,
+
+        [Parameter(Mandatory = $false,
+            HelpMessage = 'The 64-character SHA-256 value for the exact ZIP. In the Broadcom Support Portal, open the required VMware Tools release, find the matching gueststore-vmtools ZIP row, and copy its SHA2 value.')]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $ExpectedHash,
+
+        [Parameter(Mandatory = $false,
+            HelpMessage = 'Select this option to check existing GuestStore metadata only. It does not upload files or change host settings.')]
+        [switch]
+        $Validate
     )
 
     # Initialize variables
     $new_folder = 'GuestStore'
-    $archive_path = '/vmware/apps/vmtools/windows64/'
-    $normalizedArchivePath = if ($null -ne $archive_path) { $archive_path.Trim('/','\') } else { '' }
+    $normalizedArchivePath = 'vmware/apps/vmtools/windows64'
     $successfulDatastores = @()
     $failedDatastores = @()
+    $tempWorkDir = $null
+    $driveNameSuffix = [guid]::NewGuid().ToString('N').Substring(0, 8)
+    $srcPSDriveName = "AVSToolsSrc_$driveNameSuffix"
+    $destPSDriveName = "AVSToolsDs_$driveNameSuffix"
+    $destinationDriveCreated = $false
 
     # Main execution wrapped in try-catch-finally
     try {
         Write-Verbose "Starting Set-ToolsRepo"
 
-        # Check mutual exclusion: -Validate or -ToolsURL required
-        if (-not $Validate -and $null -eq $ToolsURL) {
-            throw "ToolsURL is required when -Validate is not specified."
+        # Source datastore details and a trusted hash are required for upload mode.
+        if (-not $Validate) {
+            Test-ToolsRepoUploadInput -SourceDatastoreName $SourceDatastoreName -ToolsZipPath $ToolsZipPath -ExpectedHash $ExpectedHash
         }
 
         if ($Validate) {
             Write-Information "Running in validation-only mode. No upload or configuration changes will be made." -InformationAction Continue
 
-            $GetMetadataVersion = {
-                param(
-                    [Parameter(Mandatory = $true)]
-                    $MetadataObject,
-
-                    [Parameter(Mandatory = $true)]
-                    [string]$LatestVersion
-                )
-
-                if ($null -eq $MetadataObject) {
-                    return $null
-                }
-
-                $versionPattern = '(?i)vmtools-(\d+(?:\.\d+){1,3})'
-                $installerFilePattern = '(?i)vmware-tools-(\d+(?:\.\d+){1,3})'
-                $plainVersionPattern = '^\d+(?:\.\d+){1,3}$'
-                $candidateVersions = @()
-
-                if ($MetadataObject.PSObject.Properties.Name -contains 'installer' -and $null -ne $MetadataObject.installer) {
-                    $installerObj = $MetadataObject.installer
-
-                    if ($installerObj.PSObject.Properties.Name -contains 'version') {
-                        $installerVersion = [string]$installerObj.version
-                        if ($installerVersion -match $plainVersionPattern) {
-                            $candidateVersions += $installerVersion
-                        }
-                        if ($installerVersion -match $versionPattern) {
-                            $candidateVersions += $Matches[1]
-                        }
-                    }
-
-                    if ($installerObj.PSObject.Properties.Name -contains 'file') {
-                        $installerFile = [string]$installerObj.file
-                        if ($installerFile -match $installerFilePattern) {
-                            $candidateVersions += $Matches[1]
-                        }
-                    }
-                }
-
-                if ($MetadataObject.PSObject.Properties.Name -contains 'vmtools') {
-                    $vmtoolsField = [string]$MetadataObject.vmtools
-                    if ($vmtoolsField -match $versionPattern) {
-                        $candidateVersions += $Matches[1]
-                    }
-                }
-
-                foreach ($prop in $MetadataObject.PSObject.Properties) {
-                    $nameCandidate = [string]$prop.Name
-                    if ($nameCandidate -match $versionPattern) {
-                        $candidateVersions += $Matches[1]
-                    }
-
-                    $valueCandidate = [string]$prop.Value
-                    if ($valueCandidate -match $versionPattern) {
-                        $candidateVersions += $Matches[1]
-                    }
-                }
-
-                if ($candidateVersions.Count -gt 0) {
-                    $uniqueCandidates = $candidateVersions | Select-Object -Unique
-                    if ($uniqueCandidates -contains $LatestVersion) {
-                        return $LatestVersion
-                    }
-
-                    $sortedCandidates = $uniqueCandidates |
-                        Sort-Object {
-                            try {
-                                [version]$_
-                            } catch {
-                                [version]'0.0'
-                            }
-                        } -Descending
-
-                    return [string]$sortedCandidates[0]
-                }
-
-                # Fallback: some metadata formats store only the tools version in a plain 'version' field.
-                if ($MetadataObject.PSObject.Properties.Name -contains 'version') {
-                    $versionField = [string]$MetadataObject.version
-                    if ($versionField -match $versionPattern) {
-                        return $Matches[1]
-                    }
-                    if ($versionField -match $plainVersionPattern -and $versionField -eq $LatestVersion) {
-                        return $versionField
-                    }
-                }
-
-                return $null
-            }
-
             # Get vSAN datastores with error handling
-            try {
-                $datastores = @(Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq 'vsan' })
-
-                if ($null -eq $datastores -or $datastores.Count -eq 0) {
-                    throw "No vSAN datastores found in the environment"
-                }
-
-                Write-Information "Found $($datastores.Count) vSAN datastore(s)" -InformationAction Continue
-            } catch {
-                throw "Failed to retrieve vSAN datastores: $_"
-            }
+            $datastores = @(Get-ToolsRepoVsanDatastore)
 
             foreach ($datastore in $datastores) {
                 $ds_name = $datastore.Name
                 $localMetadataTempDir = $null
+                $destinationDriveCreated = $false
                 Write-Information "Validating datastore: $ds_name" -InformationAction Continue
 
                 try {
-                    if (Get-PSDrive -Name DS -ErrorAction SilentlyContinue) {
-                        Remove-PSDrive -Name DS -Force -ErrorAction SilentlyContinue
+                    if (Get-PSDrive -Name $destPSDriveName -ErrorAction SilentlyContinue) {
+                        throw "Temporary destination PSDrive name '$destPSDriveName' is already in use."
                     }
 
                     try {
-                        New-PSDrive -Location $datastore -Name DS -PSProvider VimDatastore -Root '\' -ErrorAction Stop | Out-Null
+                        New-PSDrive -Location $datastore -Name $destPSDriveName -PSProvider VimDatastore -Root '\' -ErrorAction Stop | Out-Null
+                        $destinationDriveCreated = $true
                     } catch {
                         throw "Failed to create PSDrive for datastore $ds_name : $_"
                     }
 
-                    $baseDestPath = "DS:/$new_folder"
-                    $destPath = if ([string]::IsNullOrEmpty($normalizedArchivePath)) {
-                        $baseDestPath
-                    } else {
-                        Join-Path -Path $baseDestPath -ChildPath $normalizedArchivePath
-                    }
+                    $destPath = Get-ToolsRepoDestinationPath -GuestStoreFolder $new_folder -ArchivePath $normalizedArchivePath -DriveName $destPSDriveName
 
                     if (-not (Test-Path -Path $destPath)) {
                         throw "GuestStore tools path not found on $ds_name : $destPath"
@@ -195,29 +542,14 @@ function Set-ToolsRepo {
                     $existing_dirs = Get-ChildItem -Path $destPath -ErrorAction Stop |
                         Where-Object {
                             $_.PSIsContainer -and
-                            $_.Name -match '^vmtools-\d'
+                            $_.Name -match '^vmtools-\d+(?:\.\d+){1,3}(?:-\d+(?:\.\d+)*)?$'
                         }
 
                     if ($null -eq $existing_dirs -or $existing_dirs.Count -eq 0) {
                         throw "No vmtools-* version folders found on $ds_name under $destPath"
                     }
 
-                    $highestVersionFolder = $null
-                    $highestVersion = $null
-
-                    foreach ($existing_dir in $existing_dirs) {
-                        $ver = $existing_dir.Name -replace 'vmtools-', ''
-                        try {
-                            $parsedVersion = [version]$ver
-                        } catch {
-                            continue
-                        }
-
-                        if ($null -eq $highestVersion -or $parsedVersion -gt $highestVersion) {
-                            $highestVersion = $parsedVersion
-                            $highestVersionFolder = $existing_dir
-                        }
-                    }
+                    $highestVersionFolder = Get-ToolsRepoHighestVersionFolder -Directories @($existing_dirs)
 
                     if ($null -eq $highestVersionFolder) {
                         throw "No valid vmtools version folders could be parsed on $ds_name"
@@ -264,8 +596,8 @@ function Set-ToolsRepo {
                         throw "Failed to parse metadata.json content on $ds_name : $($_.Exception.Message)"
                     }
 
-                    $topLevelMetadataVersion = & $GetMetadataVersion -MetadataObject $topLevelMetadataObj -LatestVersion $latestDetectedVersion
-                    $versionFolderMetadataVersion = & $GetMetadataVersion -MetadataObject $versionMetadataObj -LatestVersion $latestDetectedVersion
+                    $topLevelMetadataVersion = Get-ToolsRepoMetadataVersion -MetadataObject $topLevelMetadataObj -LatestVersion $latestDetectedVersion
+                    $versionFolderMetadataVersion = Get-ToolsRepoMetadataVersion -MetadataObject $versionMetadataObj -LatestVersion $latestDetectedVersion
 
                     Write-Host "Datastore $ds_name top-level metadata version: $topLevelMetadataVersion"
                     Write-Host "Datastore $ds_name version-folder metadata version: $versionFolderMetadataVersion"
@@ -297,8 +629,9 @@ function Set-ToolsRepo {
                     if (-not [string]::IsNullOrEmpty($localMetadataTempDir) -and (Test-Path -Path $localMetadataTempDir)) {
                         Remove-Item -Path $localMetadataTempDir -Recurse -Force -ErrorAction SilentlyContinue
                     }
-                    if (Get-PSDrive -Name DS -ErrorAction SilentlyContinue) {
-                        Remove-PSDrive -Name DS -Force -ErrorAction SilentlyContinue
+                    if ($destinationDriveCreated -and (Get-PSDrive -Name $destPSDriveName -ErrorAction SilentlyContinue)) {
+                        Remove-PSDrive -Name $destPSDriveName -Force -ErrorAction SilentlyContinue
+                        $destinationDriveCreated = $false
                     }
                 }
             }
@@ -324,134 +657,58 @@ function Set-ToolsRepo {
 
         $failedDatastoreReasons = @{}
 
-        # Convert SecureString to plain text for use with web requests
-        $ToolsURLPlain = [System.Net.NetworkCredential]::new('', $ToolsURL).Password
+        # Retrieve vSAN datastores once for source lookup and destination processing.
+        $datastores = @(Get-ToolsRepoVsanDatastore)
 
-        # Validate URL pattern (must be HTTP or HTTPS)
-        if ($ToolsURLPlain -notmatch '^https?://') {
-            throw "ToolsURL must be a valid HTTP or HTTPS URL."
+        # Select one exact source datastore without wildcard matching.
+        $sourceDatastores = @($datastores | Where-Object {
+                [string]::Equals($_.Name, $SourceDatastoreName, [System.StringComparison]::OrdinalIgnoreCase)
+            })
+
+        if ($sourceDatastores.Count -eq 0) {
+            throw "Source vSAN datastore '$SourceDatastoreName' was not found."
         }
 
-        # Validate URL accessibility
+        if ($sourceDatastores.Count -gt 1) {
+            throw "Multiple vSAN datastores matched source name '$SourceDatastoreName'. Provide one unique datastore name."
+        }
+
+        $sourceDatastore = $sourceDatastores[0]
+
+        # Use an isolated local directory for the copied archive.
         try {
-            $webResponse = Invoke-WebRequest -Uri $ToolsURLPlain -Method Head -TimeoutSec 30 -ErrorAction Stop
-            if ($webResponse.StatusCode -ne 200) {
-                throw "URL returned status code: $($webResponse.StatusCode)"
-            }
+            $tempWorkDir = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("avs-toolsrepo-{0}" -f [guid]::NewGuid().ToString('N'))
+            New-Item -Path $tempWorkDir -ItemType Directory -ErrorAction Stop | Out-Null
+            $tools_file = Join-Path -Path $tempWorkDir -ChildPath 'tools.zip'
         } catch {
-            throw "Unable to access the provided URL: $_"
+            throw "Failed to create temporary work directory: $_"
         }
 
-        # Use current working directory (managed by agent)
-        $tools_file = "./tools.zip"
+        # Copy the archive from the source datastore and verify its integrity.
+        Copy-ToolsRepoArchive -SourceDatastore $sourceDatastore -ToolsZipPath $ToolsZipPath -ExpectedHash $ExpectedHash -LocalToolsFile $tools_file -SourceDriveName $srcPSDriveName
 
-        # Download the tools file
-        try {
-            Write-Information "Downloading tools..." -InformationAction Continue
-            Invoke-WebRequest -Uri $ToolsURLPlain -OutFile $tools_file -ErrorAction Stop
-
-            # Validate downloaded file
-            if (-not (Test-Path -Path $tools_file)) {
-                throw "Downloaded file not found at expected location"
-            }
-
-            $fileSize = (Get-Item $tools_file).Length
-            if ($fileSize -eq 0) {
-                throw "Downloaded file is empty"
-            }
-
-            Write-Verbose "Downloaded file size: $($fileSize / 1MB) MB"
-        } catch {
-            throw "Failed to download tools file: $_"
-        }
-
-        # Extract the archive
-        try {
-            Write-Information "Extracting tools archive..." -InformationAction Continue
-            Expand-Archive -Path $tools_file -DestinationPath "." -Force -ErrorAction Stop
-        } catch {
-            throw "Failed to extract tools archive: $_"
-        }
-
-        # Locate windows64 directory in extracted archive
-        $windows64_path = Join-Path -Path "." -ChildPath $normalizedArchivePath
-
-        if (-not (Test-Path -Path $windows64_path)) {
-            throw "windows64 directory not found in extracted archive at: $windows64_path"
-        }
-
-        Write-Information "windows64 directory located - will validate metadata.json files next" -InformationAction Continue
-
-        # Build the path to windows64/metadata.json
-        $windows64_top_metadata_path = Join-Path -Path $windows64_path -ChildPath "metadata.json"
-
-        # Check if metadata.json exists in windows64
-        if (-not (Test-Path -Path $windows64_top_metadata_path)) {
-            throw "metadata.json not found in windows64 directory at: $windows64_top_metadata_path"
-        }
-
-        Write-Information "metadata.json found in windows64 directory: $windows64_top_metadata_path" -InformationAction Continue
-
-        # Find the vmtools-xxx folder inside windows64
-        $vmtools_folders = Get-ChildItem -Path $windows64_path -Directory | Where-Object { $_.Name -like "vmtools-*" }
-
-        if ($null -eq $vmtools_folders -or $vmtools_folders.Count -eq 0) {
-            throw "No vmtools folder found inside windows64 at: $windows64_path"
-        }
-
-        $vmtools_folder_path = $vmtools_folders[0].FullName
-
-        Write-Information "Found vmtools folder: $($vmtools_folders[0].Name) at $vmtools_folder_path" -InformationAction Continue
-
-        # Check if metadata.json exists inside the vmtools-xxx folder
-        $vmtools_version_metadata_path = Join-Path -Path $vmtools_folder_path -ChildPath "metadata.json"
-
-        if (-not (Test-Path -Path $vmtools_version_metadata_path)) {
-            throw "metadata.json not found inside vmtools folder at: $vmtools_version_metadata_path"
-        }
-
-        Write-Information "metadata.json found inside vmtools folder: $vmtools_version_metadata_path" -InformationAction Continue
-
-        # Validation success gate: both required metadata files were found
-        Write-Information "Validation gate passed: windows64 metadata at $windows64_top_metadata_path and vmtools metadata at $vmtools_version_metadata_path. Proceeding to datastore operations." -InformationAction Continue
-
-        # Use the already validated vmtools folder from Step 3
-        $tools_version = Split-Path -Path $vmtools_folder_path -Leaf
-
-        if ([string]::IsNullOrEmpty($tools_version) -or $tools_version -notlike 'vmtools-*') {
-            throw "Invalid vmtools folder name detected at: $vmtools_folder_path"
-        }
-
-        $tools_short_version = $tools_version -replace 'vmtools-', ''
-        Write-Information "Found tools version: $tools_version" -InformationAction Continue
-
-        # Get vSAN datastores with error handling
-        try {
-            $datastores = @(Get-Datastore -ErrorAction Stop | Where-Object { $_.extensionData.Summary.Type -eq 'vsan' })
-
-            if ($null -eq $datastores -or $datastores.Count -eq 0) {
-                throw "No vSAN datastores found in the environment"
-            }
-
-            Write-Information "Found $($datastores.Count) vSAN datastore(s)" -InformationAction Continue
-        } catch {
-            throw "Failed to retrieve vSAN datastores: $_"
-        }
+        # Extract the archive and get the paths needed for datastore processing.
+        $archiveInformation = Expand-ToolsRepoArchive -LocalToolsFile $tools_file -TemporaryDirectory $tempWorkDir -ArchivePath $normalizedArchivePath
+        $windows64_top_metadata_path = $archiveInformation.TopLevelMetadataPath
+        $vmtools_folder_path = $archiveInformation.VmtoolsFolderPath
+        $tools_version = $archiveInformation.ToolsVersion
+        $tools_short_version = $archiveInformation.ToolsShortVersion
 
         # Process each datastore
         foreach ($datastore in $datastores) {
             $ds_name = $datastore.Name
+            $destinationDriveCreated = $false
             Write-Information "Processing datastore: $ds_name" -InformationAction Continue
 
             try {
-                # Ensure any existing PSDrive is removed
-                if (Get-PSDrive -Name DS -ErrorAction SilentlyContinue) {
-                    Remove-PSDrive -Name DS -Force -ErrorAction SilentlyContinue
+                if (Get-PSDrive -Name $destPSDriveName -ErrorAction SilentlyContinue) {
+                    throw "Temporary destination PSDrive name '$destPSDriveName' is already in use."
                 }
 
                 # Create PS drive with error handling
                 try {
-                    New-PSDrive -Location $datastore -Name DS -PSProvider VimDatastore -Root '\' -ErrorAction Stop | Out-Null
+                    New-PSDrive -Location $datastore -Name $destPSDriveName -PSProvider VimDatastore -Root '\' -ErrorAction Stop | Out-Null
+                    $destinationDriveCreated = $true
                 } catch {
                     throw "Failed to create PSDrive for datastore $ds_name : $_"
                 }
@@ -471,7 +728,7 @@ function Set-ToolsRepo {
                 # Create folder if it doesn't exist
                 if ($null -eq $folderObj) {
                     try {
-                        New-Item -ItemType Directory -Path "DS:/$new_folder" -ErrorAction Stop | Out-Null
+                        New-Item -ItemType Directory -Path "${destPSDriveName}:/$new_folder" -ErrorAction Stop | Out-Null
                         Write-Information "Created $new_folder directory on $ds_name" -InformationAction Continue
                     } catch {
                         throw "Failed to create $new_folder directory on $ds_name : $_"
@@ -487,12 +744,7 @@ function Set-ToolsRepo {
                 }
 
                 # Check existing tools versions to determine highest version
-                $baseDestPath = "DS:/$new_folder"
-                $destPath = if ([string]::IsNullOrEmpty($normalizedArchivePath)) {
-                    $baseDestPath
-                } else {
-                    Join-Path -Path $baseDestPath -ChildPath $normalizedArchivePath
-                }
+                $destPath = Get-ToolsRepoDestinationPath -GuestStoreFolder $new_folder -ArchivePath $normalizedArchivePath -DriveName $destPSDriveName
                 $highestExistingVersion = $null
                 $shouldUpdateTopLevelMetadata = $false
 
@@ -501,27 +753,26 @@ function Set-ToolsRepo {
                         $existing_dirs = Get-ChildItem -Path $destPath -ErrorAction Stop |
                             Where-Object {
                                 $_.PSIsContainer -and
-                                $_.Name -match '^vmtools-\d'
+                                $_.Name -match '^vmtools-\d+(?:\.\d+){1,3}(?:-\d+(?:\.\d+)*)?$'
                             }
 
-                        foreach ($existing_dir in $existing_dirs) {
-                            $ver = $existing_dir.Name -replace 'vmtools-', ''
-                            if ($null -eq $highestExistingVersion -or [version]$ver -gt [version]$highestExistingVersion) {
-                                $highestExistingVersion = $ver
-                            }
+                        $highestExistingVersionFolder = Get-ToolsRepoHighestVersionFolder -Directories @($existing_dirs)
+                        if ($null -ne $highestExistingVersionFolder) {
+                            $highestExistingVersion = $highestExistingVersionFolder.Name -replace 'vmtools-', ''
                         }
 
                         if ($highestExistingVersion) {
                             Write-Information "Current highest version on $ds_name is $highestExistingVersion" -InformationAction Continue
                         }
                     } catch {
-                        Write-Warning "Failed to check existing versions on $ds_name : $_"
+                        throw "Failed to check existing versions on $ds_name : $($_.Exception.Message)"
                     }
                 }
 
                 # Determine if we should update the top-level metadata.json
                 # Only update if new version is greater than the highest existing version
-                if ($null -eq $highestExistingVersion -or [version]$tools_short_version -gt [version]$highestExistingVersion) {
+                if ($null -eq $highestExistingVersion -or
+                    (Compare-ToolsRepoVersion -Left $tools_short_version -Right $highestExistingVersion) -gt 0) {
                     $shouldUpdateTopLevelMetadata = $true
                     Write-Information "New version ($tools_short_version) is greater than existing ($highestExistingVersion). Top-level metadata.json will be updated." -InformationAction Continue
                 } else {
@@ -543,10 +794,15 @@ function Set-ToolsRepo {
                     # Check if this version already exists on the datastore
                     $versionDestPath = Join-Path $destPath $tools_version
                     if (Test-Path -Path $versionDestPath) {
+                        $versionMetadataPath = Join-Path -Path $versionDestPath -ChildPath 'metadata.json'
+                        if (-not (Test-Path -Path $versionMetadataPath -PathType Leaf)) {
+                            throw "Version folder '$tools_version' already exists on datastore '$ds_name', but its required metadata.json is missing. Inspect the folder and, if it is incomplete, remove it and rerun Set-ToolsRepo."
+                        }
+
                         Write-Information "Version $tools_version already exists on $ds_name. Skipping copy." -InformationAction Continue
                     } else {
                         # Copy the vmtools-{version} folder itself (preserves folder structure)
-                        Copy-DatastoreItem -Item $sourceDir -Destination $destPath -Recurse -Force -ErrorAction Stop
+                        Copy-DatastoreItem -Item $sourceDir -Destination $destPath -Recurse -Force -ErrorAction Stop | Out-Null
 
                         # Verify metadata.json exists in the copied version folder
                         $versionMeta = Get-ChildItem -Path $versionDestPath -Filter metadata.json -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -555,77 +811,35 @@ function Set-ToolsRepo {
                         Write-Information "Successfully copied $tools_version to $ds_name" -InformationAction Continue
                     }
 
-                    # Ensure top-level GuestStore artifacts (for example, gueststore-vmtools) are present.
-                    # Keep metadata.json handling separate below so preserve/update rules stay unchanged.
-                    $topLevelSourceDir = Split-Path -Path $sourceDir -Parent
-                    if (-not [string]::IsNullOrEmpty($topLevelSourceDir) -and (Test-Path -Path $topLevelSourceDir)) {
-                        $topLevelFiles = Get-ChildItem -Path $topLevelSourceDir -File -ErrorAction SilentlyContinue |
-                            Where-Object { $_.Name -ne 'metadata.json' }
-                        foreach ($file in $topLevelFiles) {
-                            $destFilePath = Join-Path -Path $destPath -ChildPath $file.Name
-                            Copy-DatastoreItem -Item $file.FullName -Destination $destFilePath -Force -ErrorAction Stop
-                        }
-                        if ($topLevelFiles) {
-                            Write-Information "Ensured top-level GuestStore artifacts are present on $ds_name" -InformationAction Continue
-                        }
-                    }
-
-                    # Update top-level metadata.json only if new version is greater
+                    # Update top-level files only when the uploaded version is newer.
                     if ($shouldUpdateTopLevelMetadata) {
+                        # Copy any additional top-level files from windows64, if present.
+                        # Handle metadata.json separately below.
+                        $topLevelSourceDir = Split-Path -Path $sourceDir -Parent
+                        if (-not [string]::IsNullOrEmpty($topLevelSourceDir) -and (Test-Path -Path $topLevelSourceDir)) {
+                            $topLevelFiles = Get-ChildItem -Path $topLevelSourceDir -File -ErrorAction SilentlyContinue |
+                                Where-Object { $_.Name -ne 'metadata.json' }
+                            foreach ($file in $topLevelFiles) {
+                                $destFilePath = Join-Path -Path $destPath -ChildPath $file.Name
+                                Copy-DatastoreItem -Item $file.FullName -Destination $destFilePath -Force -ErrorAction Stop | Out-Null
+                            }
+                            if ($topLevelFiles) {
+                                Write-Information "Copied additional top-level files from windows64 to $ds_name" -InformationAction Continue
+                            }
+                        }
+
                         $topLevelMetadataPath = Join-Path $destPath "metadata.json"
-                        Copy-DatastoreItem -Item $windows64_top_metadata_path -Destination $topLevelMetadataPath -Force -ErrorAction Stop
+                        Copy-DatastoreItem -Item $windows64_top_metadata_path -Destination $topLevelMetadataPath -Force -ErrorAction Stop | Out-Null
                         Write-Information "Updated top-level metadata.json on $ds_name to version $tools_short_version" -InformationAction Continue
                     } else {
-                        Write-Information "Top-level metadata.json on $ds_name preserved (not overwritten)" -InformationAction Continue
+                        Write-Information "Top-level files on $ds_name preserved (not overwritten)" -InformationAction Continue
                     }
                 } catch {
                     throw "Failed to copy tools to $ds_name : $_"
                 }
 
-                # Configure hosts
-                $url = ($datastore.ExtensionData.Summary.Url) + "$new_folder"
-
-                # Get hosts with proper error handling
-                try {
-                    $ds_id = $datastore.Id
-                    $vmhosts = Get-VMHost -ErrorAction Stop | Where-Object {
-                        $_.ExtensionData.Datastore.value -contains ($ds_id.Split('-', 2)[1])
-                    }
-
-                    if ($null -eq $vmhosts -or $vmhosts.Count -eq 0) {
-                        throw "No hosts found for datastore $ds_name"
-                    }
-
-                    Write-Information "Configuring $($vmhosts.Count) host(s) for datastore $ds_name" -InformationAction Continue
-                } catch {
-                    throw "Failed to retrieve hosts for datastore $ds_name : $_"
-                }
-
-                # Configure each host
-                $failedHosts = @()
-                foreach ($vmhost in $vmhosts) {
-                    try {
-                        $esxcli = Get-EsxCli -V2 -VMHost $vmhost -ErrorAction Stop
-                        Write-Verbose "Setting GuestStore repository for host: $vmhost"
-
-                        $arguments = $esxcli.system.settings.gueststore.repository.set.CreateArgs()
-                        $arguments.url = $url
-                        $result = $esxcli.system.settings.gueststore.repository.set.invoke($arguments)
-
-                        if ($result -eq $false) {
-                            throw "ESXCLI command returned false"
-                        }
-
-                        Write-Information "Successfully configured host: $vmhost" -InformationAction Continue
-                    } catch {
-                        Write-Warning "Failed to configure host $vmhost : $_"
-                        $failedHosts += $vmhost.Name
-                    }
-                }
-
-                if ($failedHosts.Count -gt 0) {
-                    throw "Failed to configure hosts for datastore $ds_name : $($failedHosts -join ', ')"
-                }
+                # Configure all hosts associated with this datastore.
+                Invoke-ToolsRepoHostRepositoryConfiguration -Datastore $datastore -GuestStoreFolder $new_folder
 
                 $successfulDatastores += $ds_name
             } catch {
@@ -638,9 +852,10 @@ function Set-ToolsRepo {
                 $failedDatastores += $ds_name
                 $failedDatastoreReasons[$ds_name] = $failureMessage
             } finally {
-                # Always clean up PSDrive
-                if (Get-PSDrive -Name DS -ErrorAction SilentlyContinue) {
-                    Remove-PSDrive -Name DS -Force -ErrorAction SilentlyContinue
+                # Remove only the destination drive created by this invocation.
+                if ($destinationDriveCreated -and (Get-PSDrive -Name $destPSDriveName -ErrorAction SilentlyContinue)) {
+                    Remove-PSDrive -Name $destPSDriveName -Force -ErrorAction SilentlyContinue
+                    $destinationDriveCreated = $false
                 }
             }
         }
@@ -674,9 +889,12 @@ function Set-ToolsRepo {
         Write-Error "Set-ToolsRepo failed: $_"
         throw
     } finally {
-        # Ensure PSDrive is removed
-        if (Get-PSDrive -Name DS -ErrorAction SilentlyContinue) {
-            Remove-PSDrive -Name DS -Force -ErrorAction SilentlyContinue
+        # Remove only a destination drive created by this invocation.
+        if ($destinationDriveCreated -and (Get-PSDrive -Name $destPSDriveName -ErrorAction SilentlyContinue)) {
+            Remove-PSDrive -Name $destPSDriveName -Force -ErrorAction SilentlyContinue
+        }
+        if (-not [string]::IsNullOrWhiteSpace($tempWorkDir) -and (Test-Path -LiteralPath $tempWorkDir -ErrorAction SilentlyContinue)) {
+            Remove-Item -LiteralPath $tempWorkDir -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 }
