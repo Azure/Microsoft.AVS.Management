@@ -359,11 +359,30 @@ function Expand-ToolsRepoArchive {
 
     Write-Information "Found tools version: $toolsVersion" -InformationAction Continue
 
+    try {
+        $topLevelMetadataObject = Get-Content -LiteralPath $topLevelMetadataPath -Raw -ErrorAction Stop |
+            ConvertFrom-Json -ErrorAction Stop
+        $versionMetadataObject = Get-Content -LiteralPath $versionMetadataPath -Raw -ErrorAction Stop |
+            ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        throw "Failed to parse metadata.json in extracted archive: $($_.Exception.Message)"
+    }
+
+    $toolsShortVersion = $toolsVersion -replace 'vmtools-', ''
+    $topLevelMetadataVersion = Get-ToolsRepoMetadataVersion -MetadataObject $topLevelMetadataObject -LatestVersion $toolsShortVersion
+    $versionMetadataVersion = Get-ToolsRepoMetadataVersion -MetadataObject $versionMetadataObject -LatestVersion $toolsShortVersion
+
+    if ($topLevelMetadataVersion -ne $toolsShortVersion -or $versionMetadataVersion -ne $toolsShortVersion) {
+        throw "Archive metadata versions must match extracted VMware Tools version '$toolsShortVersion'. Top-level metadata version: '$topLevelMetadataVersion'. Version-folder metadata version: '$versionMetadataVersion'."
+    }
+
+    Write-Information "Archive metadata versions match extracted VMware Tools version: $toolsShortVersion" -InformationAction Continue
+
     return @{
         TopLevelMetadataPath = $topLevelMetadataPath
         VmtoolsFolderPath = $vmtoolsFolderPath
         ToolsVersion = $toolsVersion
-        ToolsShortVersion = $toolsVersion -replace 'vmtools-', ''
+        ToolsShortVersion = $toolsShortVersion
     }
 }
 
