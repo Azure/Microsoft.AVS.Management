@@ -25,3 +25,16 @@ variables:
   previewFeedUrl: 'https://pkgs.dev.azure.com/avs-oss/Public/_packaging/Unofficial-AVS-Automation-AdminTools/nuget/v3/index.json'
   PS_VERSION: '7.6.1'
   AZURE_ARTIFACTS_FEED: 'https://pkgs.dev.azure.com/avs-oss/Public/_packaging/PS-Consumption/nuget/v3/index.json'
+  # TEMPORARY - EXPIRES 2026-09-30. Do not treat this as the fix.
+  # Our SDL/compliance pool image avs-management-windows-2022-1es-image maps to the
+  # 1ES gallery image VanillaWindows2022-1ESPT, which 1ES started hard-failing on
+  # 2026-08-25 because .NET 6 is end of life. This flag is the grace period 1ES
+  # documents at https://aka.ms/1espt/vanillawindows2022 and it stops working on
+  # 2026-09-30, when VanillaWindows2022-1ESPT is delisted and CI breaks again.
+  # The real fix is a Windows 2025 image on avs-management-1es-hosted-pool. That
+  # image alias does not exist on the pool yet, and adding it is an ARM change in
+  # subscription f3841f54-1cbc-495c-9914-f6d57d1e6859 that the pool owner must make.
+  # Once the alias exists, point the three sourceAnalysisPool/pool image entries in
+  # validationBuild.yml, previewBuild.yml and templates/common-compliance-stages.yml
+  # at it and delete this variable.
+  1ESPT_ALLOWDEPRECATEDIMAGESUNTILSEP_30_2026: 'true'
