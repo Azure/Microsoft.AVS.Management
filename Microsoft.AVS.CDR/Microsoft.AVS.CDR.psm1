@@ -34,6 +34,56 @@ $script:moduleMapCache = @{
 
 <#
 .SYNOPSIS
+    Parses a version specification into its exactness and normalized concrete
+    version. Mirrors NuGet range notation: "[1.0, 1.0]" is exact (one concrete
+    version) while open-ended or unequal-endpoint ranges are not. Single source
+    of truth for both source-requirement and redirect-target exactness checks.
+
+.OUTPUTS
+    Hashtable with IsExact (bool) and Normalized (string).
+#>
+function Get-NormalizedVersionSpec {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Version
+    )
+
+    $isExact = $true
+    $normalized = $Version
+
+    # Version range like "[1.0, 1.0]", "[1.0, )", "(, 2.0]"
+    if ($Version -match '^(\[|\()([^,]*),\s*([^\]\)]*)(\]|\))$') {
+        $openBracket = $matches[1]
+        $minVer = $matches[2]
+        $maxVer = $matches[3]
+        $closeBracket = $matches[4]
+
+        if ($minVer -and $maxVer -and ($minVer -eq $maxVer) -and ($openBracket -eq '[') -and ($closeBracket -eq ']')) {
+            $normalized = $minVer  # exact: [1.0, 1.0]
+        }
+        elseif ($maxVer -and (-not $minVer)) {
+            $isExact = $false
+            $normalized = $maxVer  # open-ended: (, 2.0]
+        }
+        elseif ($minVer -and (-not $maxVer)) {
+            $isExact = $false
+            $normalized = $minVer  # open-ended: [1.0, )
+        }
+        else {
+            $isExact = $false
+            $normalized = $minVer
+        }
+    }
+
+    return @{
+        IsExact    = $isExact
+        Normalized = $normalized
+    }
+}
+
+<#
+.SYNOPSIS
     Finds and validates a redirect for a dependency version.
     
 .PARAMETER RedirectMap
@@ -41,7 +91,9 @@ $script:moduleMapCache = @{
     "Name@Version" -> "*" or "Name" -> "*" (retain version, normalize casing).
     A name-only entry is a broad redirect and will not move an exact-pinned
     dependency to a different version. A "Name@Version" entry is an explicit
-    opt-in override and may move that exact pin to the mapped version.
+    opt-in override and may move that exact pin, but only to a single concrete
+    version; a floating range or wildcard target is rejected so the pin is
+    never silently loosened.
     
 .OUTPUTS
     Hashtable with ResolvedVersion, ResolvedName, and IsRedirected.
@@ -86,32 +138,9 @@ function Find-DependencyRedirect {
         }
     }
     
-    $isExactVersion = $true
-    $normalizedDepVersion = $DependencyVersion
-    
-    # Version range like "[1.0, 1.0]", "[1.0, )", "(, 2.0]"
-    if ($DependencyVersion -match '^(\[|\()([^,]*),\s*([^\]\)]*)(\]|\))$') {
-        $openBracket = $matches[1]
-        $minVer = $matches[2]
-        $maxVer = $matches[3]
-        $closeBracket = $matches[4]
-        
-        if ($minVer -and $maxVer -and ($minVer -eq $maxVer) -and ($openBracket -eq '[') -and ($closeBracket -eq ']')) {
-            $normalizedDepVersion = $minVer  # exact: [1.0, 1.0]
-        }
-        elseif ($maxVer -and (-not $minVer)) {
-            $isExactVersion = $false
-            $normalizedDepVersion = $maxVer  # open-ended: (, 2.0]
-        }
-        elseif ($minVer -and (-not $maxVer)) {
-            $isExactVersion = $false
-            $normalizedDepVersion = $minVer  # open-ended: [1.0, )
-        }
-        else {
-            $isExactVersion = $false
-            $normalizedDepVersion = $minVer
-        }
-    }
+    $depSpec = Get-NormalizedVersionSpec -Version $DependencyVersion
+    $isExactVersion = $depSpec.IsExact
+    $normalizedDepVersion = $depSpec.Normalized
     
     # Check name@version first, then name-only fallback
     $depKeyPattern = "${DependencyName}@${normalizedDepVersion}"
@@ -159,6 +188,17 @@ function Find-DependencyRedirect {
         # for exact requirements while keeping the result exact.
         if ($isExactVersion -and $isNameOnlyMatch -and $resolvedVersion -ne $normalizedDepVersion) {
             throw "${Indent}Cannot redirect exact version dependency '$DependencyName' from version $normalizedDepVersion to $resolvedVersion. Exact version specifications must redirect to the same version or have no redirect."
+        }
+        
+        # An explicit name@version override may move an exact pin, but only to another
+        # single concrete version. A floating range or wildcard target would silently
+        # unpin the dependency, so reject it and normalize equal-endpoint ranges.
+        if ($isExactVersion -and (-not $isNameOnlyMatch) -and $resolvedVersion -ne $normalizedDepVersion) {
+            $targetSpec = Get-NormalizedVersionSpec -Version $resolvedVersion
+            if ((-not $targetSpec.IsExact) -or $resolvedVersion.Contains('*')) {
+                throw "${Indent}Cannot redirect exact version dependency '$DependencyName' from version $normalizedDepVersion to non-exact target '$resolvedVersion'. An explicit version override must target a single concrete version."
+            }
+            $resolvedVersion = $targetSpec.Normalized
         }
         
         if ($isNameOnlyMatch) {

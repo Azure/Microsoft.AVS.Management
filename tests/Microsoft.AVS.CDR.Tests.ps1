@@ -961,6 +961,42 @@ Describe "Find-DependencyRedirect" {
         }
     }
     
+    Context "Exact Version Specification - Explicit Override To Non-Exact Target (Should Throw)" {
+        # An explicit name@version key may move an exact pin, but only to a single
+        # concrete version. A floating range or wildcard target would silently unpin
+        # the dependency and must be rejected before it reaches install.
+        It "Should throw when explicit override targets an open-ended range" {
+            $redirectMap = @{ "TestModule@1.0.0" = "[2.0.0, )" }
+            { & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "1.0.0" -RedirectMap $redirectMap } |
+                Should -Throw "*must target a single concrete version*"
+        }
+        
+        It "Should throw when explicit override targets a bounded range" {
+            $redirectMap = @{ "TestModule@1.0.0" = "[2.0.0, 3.0.0]" }
+            { & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "1.0.0" -RedirectMap $redirectMap } |
+                Should -Throw "*must target a single concrete version*"
+        }
+        
+        It "Should throw when explicit override targets a wildcard version" {
+            $redirectMap = @{ "TestModule@1.0.0" = "2.*" }
+            { & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "1.0.0" -RedirectMap $redirectMap } |
+                Should -Throw "*must target a single concrete version*"
+        }
+        
+        It "Should throw when exact-range source override targets a floating range" {
+            $redirectMap = @{ "TestModule@1.0.0" = "(1.0.0, )" }
+            { & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "[1.0.0, 1.0.0]" -RedirectMap $redirectMap } |
+                Should -Throw "*must target a single concrete version*"
+        }
+        
+        It "Should allow explicit override targeting an equal-endpoint range, normalized to concrete" {
+            $redirectMap = @{ "TestModule@1.0.0" = "[2.0.0, 2.0.0]" }
+            $result = & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "1.0.0" -RedirectMap $redirectMap
+            $result.ResolvedVersion | Should -Be "2.0.0"
+            $result.IsRedirected | Should -Be $true
+        }
+    }
+    
     Context "Version-Specific Redirect (name@version)" {
         It "Should apply version-specific redirect" {
             $redirectMap = @{ "TestModule@1.0" = "1.1" }
@@ -1104,6 +1140,71 @@ Describe "Find-DependencyRedirect" {
             $result.ResolvedVersion | Should -Be "1.0"
             $result.ResolvedName | Should -Be "TestModule"
             $result.IsRedirected | Should -Be $false
+        }
+    }
+}
+
+Describe "Install-PSResourcePinned Exact-Pin Override Boundary" {
+    # Consumer-boundary coverage: an explicit override of an exact-pinned dependency
+    # must reach Install-PSResource with a single concrete version, and a floating
+    # override must fail during graph resolution before any install is attempted.
+    Context "Exact source dependency with explicit name@version override" {
+        It "Should install the concrete override target for an exact-pinned dependency" {
+            $redirectMapPath = Join-Path $TestDrive "exact-override-concrete.json"
+            @{ "PinnedDep@1.0.0" = "2.0.0" } | ConvertTo-Json | Set-Content $redirectMapPath
+
+            InModuleScope Microsoft.AVS.CDR {
+                param($mapPath)
+
+                Mock Find-PSResource {
+                    param($Name, $Version)
+                    if ($Name -eq "RootModule") {
+                        [PSCustomObject]@{
+                            Name = "RootModule"; Version = [version]"1.0.0"; Repository = "TestRepo"
+                            Dependencies = @([PSCustomObject]@{ Name = "PinnedDep"; VersionRange = "[1.0.0, 1.0.0]" })
+                        }
+                    }
+                    elseif ($Name -eq "PinnedDep" -and $Version -eq "2.0.0") {
+                        [PSCustomObject]@{
+                            Name = "PinnedDep"; Version = [version]"2.0.0"; Repository = "TestRepo"; Dependencies = @()
+                        }
+                    }
+                    else { $null }
+                }
+                Mock Get-PSResource { $null }
+                Mock Install-PSResource { }
+
+                Install-PSResourcePinned -Name "RootModule" -RequiredVersion "1.0.0" -RedirectMapPath $mapPath
+
+                Should -Invoke Install-PSResource -Times 1 -ParameterFilter { $Name -eq "PinnedDep" -and $Version -eq "2.0.0" }
+            } -ArgumentList $redirectMapPath
+        }
+
+        It "Should reject a floating override and never call Install-PSResource" {
+            $redirectMapPath = Join-Path $TestDrive "exact-override-floating.json"
+            @{ "PinnedDep@1.0.0" = "[2.0.0, )" } | ConvertTo-Json | Set-Content $redirectMapPath
+
+            InModuleScope Microsoft.AVS.CDR {
+                param($mapPath)
+
+                Mock Find-PSResource {
+                    param($Name, $Version)
+                    if ($Name -eq "RootModule") {
+                        [PSCustomObject]@{
+                            Name = "RootModule"; Version = [version]"1.0.0"; Repository = "TestRepo"
+                            Dependencies = @([PSCustomObject]@{ Name = "PinnedDep"; VersionRange = "[1.0.0, 1.0.0]" })
+                        }
+                    }
+                    else { $null }
+                }
+                Mock Get-PSResource { $null }
+                Mock Install-PSResource { }
+
+                { Install-PSResourcePinned -Name "RootModule" -RequiredVersion "1.0.0" -RedirectMapPath $mapPath } |
+                    Should -Throw "*must target a single concrete version*"
+
+                Should -Invoke Install-PSResource -Times 0
+            } -ArgumentList $redirectMapPath
         }
     }
 }
