@@ -997,6 +997,58 @@ Describe "Find-DependencyRedirect" {
         }
     }
     
+    Context "Override Target Validation" {
+        It "Should reject <Label> as an exact-pin override target" -ForEach @(
+            @{ Label = 'trailing-space open range'; Target = '[2.0.0, ) ' }
+            @{ Label = 'leading-space bounded range'; Target = ' [2.0.0, 3.0.0]' }
+            @{ Label = 'tab and newline padded upper range'; Target = "`t(, 2.0.0]`r`n" }
+            @{ Label = 'control-padded bounded range'; Target = "`n[2.0.0, 3.0.0]`t" }
+            @{ Label = 'leading-space wildcard'; Target = ' 2.*' }
+            @{ Label = 'control-padded wildcard'; Target = "`t2.*`n" }
+            @{ Label = 'padded retain token'; Target = ' * ' }
+            @{ Label = 'empty target'; Target = '' }
+            @{ Label = 'whitespace-only target'; Target = " `t`n" }
+            @{ Label = 'invalid version'; Target = 'not-a-version' }
+            @{ Label = 'signed numeric component'; Target = '2.+0.0' }
+            @{ Label = 'negative zero component'; Target = '2.0.-0' }
+            @{ Label = 'invalid four-part prerelease'; Target = '2.0.0.4-01' }
+            @{ Label = 'malformed range'; Target = '[2.0.0,,3.0.0]' }
+            @{ Label = 'nested brackets'; Target = '[[2.0.0]]' }
+        ) {
+            $redirectMap = @{ 'TestModule@1.0.0' = $Target }
+            { & $script:FindDependencyRedirect -DependencyName TestModule -DependencyVersion '1.0.0' -RedirectMap $redirectMap } |
+                Should -Throw '*must target a single concrete version*'
+        }
+
+        It "Should normalize <Label> to a concrete override" -ForEach @(
+            @{ Label = 'space-padded four-part version'; Target = ' 13.3.0.24145081 '; Expected = '13.3.0.24145081' }
+            @{ Label = 'control-padded prerelease'; Target = "`t2.0.0-preview.1`r`n"; Expected = '2.0.0-preview.1' }
+            @{ Label = 'four-part prerelease'; Target = '2.0.0.4-preview.1'; Expected = '2.0.0.4-preview.1' }
+            @{ Label = 'build metadata'; Target = '2.0.0+build.1'; Expected = '2.0.0+build.1' }
+            @{ Label = 'padded equal endpoints'; Target = " `t[2.0.0, 2.0.0]`r`n"; Expected = '2.0.0' }
+            @{ Label = 'single exact bracket'; Target = ' [2.0.0] '; Expected = '2.0.0' }
+            @{ Label = 'padded same version'; Target = " 1.0.0`t"; Expected = '1.0.0' }
+        ) {
+            $result = & $script:FindDependencyRedirect -DependencyName TestModule -DependencyVersion '1.0.0' -RedirectMap @{ 'TestModule@1.0.0' = $Target }
+            $result.ResolvedVersion | Should -BeExactly $Expected
+            $result.IsRedirected | Should -BeTrue
+        }
+
+        It "Should preserve source whitespace when there is no redirect" {
+            $source = " [1.0.0, )`t"
+            $result = & $script:FindDependencyRedirect -DependencyName TestModule -DependencyVersion $source -RedirectMap @{}
+            $result.ResolvedVersion | Should -BeExactly $source
+            $result.IsRedirected | Should -BeFalse
+        }
+
+        It "Should preserve a nonexact source's existing target handling" {
+            $target = " [2.0.0, )`t"
+            $result = & $script:FindDependencyRedirect -DependencyName TestModule -DependencyVersion '[1.0.0, )' -RedirectMap @{ 'TestModule@1.0.0' = $target }
+            $result.ResolvedVersion | Should -BeExactly $target
+            $result.IsRedirected | Should -BeTrue
+        }
+    }
+
     Context "Version-Specific Redirect (name@version)" {
         It "Should apply version-specific redirect" {
             $redirectMap = @{ "TestModule@1.0" = "1.1" }
@@ -1176,13 +1228,20 @@ Describe "Install-PSResourcePinned Exact-Pin Override Boundary" {
 
                 Install-PSResourcePinned -Name "RootModule" -RequiredVersion "1.0.0" -RedirectMapPath $mapPath
 
-                Should -Invoke Install-PSResource -Times 1 -ParameterFilter { $Name -eq "PinnedDep" -and $Version -eq "2.0.0" }
+                Should -Invoke Install-PSResource -Times 1 -Exactly -ParameterFilter { $Name -eq "PinnedDep" -and $Version -eq "2.0.0" -and $SkipDependencyCheck }
             } -ArgumentList $redirectMapPath
         }
 
-        It "Should reject a floating override and never call Install-PSResource" {
+        It "Should reject <Label> at both public boundaries without installing" -ForEach @(
+            @{ Label = 'an unpadded floating range'; Target = '[2.0.0, )' }
+            @{ Label = 'a trailing-space floating range'; Target = '[2.0.0, ) ' }
+            @{ Label = 'a leading-space bounded range'; Target = ' [2.0.0, 3.0.0]' }
+            @{ Label = 'a control-padded upper range'; Target = "`t(, 2.0.0]`r`n" }
+            @{ Label = 'a padded wildcard'; Target = ' 2.*' }
+            @{ Label = 'an invalid target'; Target = 'not-a-version' }
+        ) {
             $redirectMapPath = Join-Path $TestDrive "exact-override-floating.json"
-            @{ "PinnedDep@1.0.0" = "[2.0.0, )" } | ConvertTo-Json | Set-Content $redirectMapPath
+            @{ "PinnedDep@1.0.0" = $Target } | ConvertTo-Json | Set-Content $redirectMapPath
 
             InModuleScope Microsoft.AVS.CDR {
                 param($mapPath)
@@ -1195,15 +1254,22 @@ Describe "Install-PSResourcePinned Exact-Pin Override Boundary" {
                             Dependencies = @([PSCustomObject]@{ Name = "PinnedDep"; VersionRange = "[1.0.0, 1.0.0]" })
                         }
                     }
-                    else { $null }
+                    else {
+                        [PSCustomObject]@{
+                            Name = "PinnedDep"; Version = [version]"2.0.0"; Repository = "TestRepo"; Dependencies = @()
+                        }
+                    }
                 }
                 Mock Get-PSResource { $null }
                 Mock Install-PSResource { }
 
+                { Find-PSResourcesPinned -Name "RootModule" -RequiredVersion "1.0.0" -RedirectMapPath $mapPath } |
+                    Should -Throw "*must target a single concrete version*"
+
                 { Install-PSResourcePinned -Name "RootModule" -RequiredVersion "1.0.0" -RedirectMapPath $mapPath } |
                     Should -Throw "*must target a single concrete version*"
 
-                Should -Invoke Install-PSResource -Times 0
+                Should -Invoke Install-PSResource -Times 0 -Exactly
             } -ArgumentList $redirectMapPath
         }
     }

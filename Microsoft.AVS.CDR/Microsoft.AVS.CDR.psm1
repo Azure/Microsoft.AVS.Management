@@ -36,8 +36,8 @@ $script:moduleMapCache = @{
 .SYNOPSIS
     Parses a version specification into its exactness and normalized concrete
     version. Mirrors NuGet range notation: "[1.0, 1.0]" is exact (one concrete
-    version) while open-ended or unequal-endpoint ranges are not. Single source
-    of truth for both source-requirement and redirect-target exactness checks.
+    version) while open-ended or unequal-endpoint ranges are not. Preserves
+    legacy source classification; override targets also need concrete validation.
 
 .OUTPUTS
     Hashtable with IsExact (bool) and Normalized (string).
@@ -84,6 +84,29 @@ function Get-NormalizedVersionSpec {
 
 <#
 .SYNOPSIS
+    Validates concrete targets with built-in parsers, including four-part prereleases.
+#>
+function Test-ConcreteVersion {
+    param([string]$Version)
+
+    $numericVersion = $null
+    $semanticVersion = $null
+    if ([semver]::TryParse($Version, [ref]$semanticVersion)) {
+        return $true
+    }
+
+    # SemVer has no revision component; validate that separately from its suffix.
+    $suffixIndex = $Version.IndexOfAny([char[]]'-+')
+    $coreVersion = if ($suffixIndex -lt 0) { $Version } else { $Version.Substring(0, $suffixIndex) }
+    if (-not [version]::TryParse($coreVersion, [ref]$numericVersion)) {
+        return $false
+    }
+    return $suffixIndex -lt 0 -or ($numericVersion.Revision -ge 0 -and
+        [semver]::TryParse("$($numericVersion.ToString(3))$($Version.Substring($suffixIndex))", [ref]$semanticVersion))
+}
+
+<#
+.SYNOPSIS
     Finds and validates a redirect for a dependency version.
     
 .PARAMETER RedirectMap
@@ -92,8 +115,8 @@ function Get-NormalizedVersionSpec {
     A name-only entry is a broad redirect and will not move an exact-pinned
     dependency to a different version. A "Name@Version" entry is an explicit
     opt-in override and may move that exact pin, but only to a single concrete
-    version; a floating range or wildcard target is rejected so the pin is
-    never silently loosened.
+    version. Override targets are trimmed and validated; floating ranges,
+    wildcards and invalid versions are rejected so the pin is never loosened.
     
 .OUTPUTS
     Hashtable with ResolvedVersion, ResolvedName, and IsRedirected.
@@ -190,15 +213,18 @@ function Find-DependencyRedirect {
             throw "${Indent}Cannot redirect exact version dependency '$DependencyName' from version $normalizedDepVersion to $resolvedVersion. Exact version specifications must redirect to the same version or have no redirect."
         }
         
-        # An explicit name@version override may move an exact pin, but only to another
-        # single concrete version. A floating range or wildcard target would silently
-        # unpin the dependency, so reject it and normalize equal-endpoint ranges.
+        # Trim only targets: consumer-accepted padding must not bypass range checks.
         if ($isExactVersion -and (-not $isNameOnlyMatch) -and $resolvedVersion -ne $normalizedDepVersion) {
-            $targetSpec = Get-NormalizedVersionSpec -Version $resolvedVersion
-            if ((-not $targetSpec.IsExact) -or $resolvedVersion.Contains('*')) {
+            $targetSpec = Get-NormalizedVersionSpec -Version ([string]$resolvedVersion).Trim()
+            $targetVersion = $targetSpec.Normalized
+            # NuGet's [v] spelling also denotes a single exact version.
+            if ($targetSpec.IsExact -and $targetVersion.StartsWith('[') -and $targetVersion.EndsWith(']')) {
+                $targetVersion = $targetVersion.Substring(1, $targetVersion.Length - 2).Trim()
+            }
+            if ((-not $targetSpec.IsExact) -or (-not (Test-ConcreteVersion -Version $targetVersion))) {
                 throw "${Indent}Cannot redirect exact version dependency '$DependencyName' from version $normalizedDepVersion to non-exact target '$resolvedVersion'. An explicit version override must target a single concrete version."
             }
-            $resolvedVersion = $targetSpec.Normalized
+            $resolvedVersion = $targetVersion
         }
         
         if ($isNameOnlyMatch) {
