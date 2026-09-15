@@ -905,23 +905,59 @@ Describe "Find-DependencyRedirect" {
         }
     }
     
-    Context "Exact Version Specification - With Different Version Redirect (Should Throw)" {
-        It "Should throw when redirecting simple version to different version" {
-            $redirectMap = @{ "TestModule@1.0" = "2.0" }
-            { & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "1.0" -RedirectMap $redirectMap } |
-                Should -Throw "*Cannot redirect exact version dependency*"
-        }
-        
-        It "Should throw when redirecting exact range to different version" {
-            $redirectMap = @{ "TestModule@1.0" = "1.1" }
-            { & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "[1.0, 1.0]" -RedirectMap $redirectMap } |
-                Should -Throw "*Cannot redirect exact version dependency*"
-        }
-        
+    Context "Exact Version Specification - Broad Redirect On Exact Pin (Should Throw)" {
+        # Broad (name-only) redirects must not silently move an exact pin. Only an
+        # explicit name@version override may opt in (see override context below).
         It "Should throw when name-only redirect changes exact version" {
             $redirectMap = @{ "TestModule" = "2.0.0" }
             { & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "1.0.0" -RedirectMap $redirectMap } |
                 Should -Throw "*Cannot redirect exact version dependency*"
+        }
+        
+        It "Should throw when only a name-only redirect exists for exact Common 12" {
+            $redirectMap = @{ "VMware.VimAutomation.Common" = "13.3.0.24145081" }
+            { & $script:FindDependencyRedirect -DependencyName "VMware.VimAutomation.Common" -DependencyVersion "12.0.0.15939652" -RedirectMap $redirectMap } |
+                Should -Throw "*Cannot redirect exact version dependency*"
+        }
+    }
+    
+    Context "Exact Version Specification - Explicit Version-Specific Override (Allowed)" {
+        # An explicit name@<full-source-version> key is an intentional opt-in to move
+        # an exact pin. Exactness of the resulting requirement is preserved.
+        It "Should allow explicit override of exact simple version" {
+            $redirectMap = @{ "TestModule@1.0" = "2.0" }
+            $result = & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "1.0" -RedirectMap $redirectMap
+            $result.ResolvedVersion | Should -Be "2.0"
+            $result.ResolvedName | Should -Be "TestModule"
+            $result.IsRedirected | Should -Be $true
+        }
+        
+        It "Should allow explicit override of exact range" {
+            $redirectMap = @{ "TestModule@1.0" = "1.1" }
+            $result = & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "[1.0, 1.0]" -RedirectMap $redirectMap
+            $result.ResolvedVersion | Should -Be "1.1"
+            $result.ResolvedName | Should -Be "TestModule"
+            $result.IsRedirected | Should -Be $true
+        }
+        
+        It "Should redirect exact Common 12 to 13.3 with explicit version-specific key" {
+            $redirectMap = @{
+                "VMware.VimAutomation.Common@12.0.0.15939652" = "13.3.0.24145081"
+                "VMware.VimAutomation.Common"                 = "13.3.0.24145081"
+            }
+            $result = & $script:FindDependencyRedirect -DependencyName "VMware.VimAutomation.Common" -DependencyVersion "12.0.0.15939652" -RedirectMap $redirectMap
+            $result.ResolvedVersion | Should -Be "13.3.0.24145081"
+            $result.ResolvedName | Should -Be "VMware.VimAutomation.Common"
+            $result.IsRedirected | Should -Be $true
+        }
+        
+        It "Should not override an adjacent exact pin that has no version-specific key" {
+            $redirectMap = @{ "VMware.VimAutomation.Common@12.0.0.15939652" = "13.3.0.24145081" }
+            { & $script:FindDependencyRedirect -DependencyName "VMware.VimAutomation.Storage" -DependencyVersion "12.0.0.15939652" -RedirectMap $redirectMap } |
+                Should -Not -Throw
+            $result = & $script:FindDependencyRedirect -DependencyName "VMware.VimAutomation.Storage" -DependencyVersion "12.0.0.15939652" -RedirectMap $redirectMap
+            $result.ResolvedVersion | Should -Be "12.0.0.15939652"
+            $result.IsRedirected | Should -Be $false
         }
     }
     

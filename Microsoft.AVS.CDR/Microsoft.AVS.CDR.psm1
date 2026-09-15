@@ -39,6 +39,9 @@ $script:moduleMapCache = @{
 .PARAMETER RedirectMap
     Map entries: "Name@Version" -> "NewVersion", "Name" -> "Version",
     "Name@Version" -> "*" or "Name" -> "*" (retain version, normalize casing).
+    A name-only entry is a broad redirect and will not move an exact-pinned
+    dependency to a different version. A "Name@Version" entry is an explicit
+    opt-in override and may move that exact pin to the mapped version.
     
 .OUTPUTS
     Hashtable with ResolvedVersion, ResolvedName, and IsRedirected.
@@ -151,7 +154,10 @@ function Find-DependencyRedirect {
             }
         }
         
-        if ($isExactVersion -and $resolvedVersion -ne $normalizedDepVersion) {
+        # Only a broad (name-only) redirect is blocked from moving an exact pin. An
+        # explicit name@version key is an intentional opt-in, so it is honored even
+        # for exact requirements while keeping the result exact.
+        if ($isExactVersion -and $isNameOnlyMatch -and $resolvedVersion -ne $normalizedDepVersion) {
             throw "${Indent}Cannot redirect exact version dependency '$DependencyName' from version $normalizedDepVersion to $resolvedVersion. Exact version specifications must redirect to the same version or have no redirect."
         }
         
