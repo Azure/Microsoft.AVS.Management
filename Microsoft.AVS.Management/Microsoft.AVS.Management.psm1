@@ -23,6 +23,10 @@ function Test-ToolsRepoUploadInput {
             [string]::IsNullOrWhiteSpace($_) -or $_ -eq '.' -or $_ -eq '..'
         }).Count -gt 0
 
+    if ($toolsZipPathSegments[0] -eq 'GuestStore') {
+        throw "ToolsZipPath must not be inside the managed GuestStore folder. Upload the zip file to a separate staging folder."
+    }
+
     if ([System.IO.Path]::IsPathRooted($ToolsZipPath) -or
         $ToolsZipPath.StartsWith('/') -or
         $ToolsZipPath -match '[\\:*?\[\]]' -or
@@ -141,6 +145,7 @@ function Get-ToolsRepoMetadataVersion {
 
     $candidateVersions = @()
 
+    # Leaf metadata stores the active VMware Tools version in installer.version.
     if ($MetadataObject.PSObject.Properties.Name -contains 'installer' -and $null -ne $MetadataObject.installer) {
         $installerObject = $MetadataObject.installer
 
@@ -150,55 +155,28 @@ function Get-ToolsRepoMetadataVersion {
                 $candidateVersions += $installerVersion.Identifier
             }
         }
-
-        if ($installerObject.PSObject.Properties.Name -contains 'file') {
-            $installerFile = ConvertTo-ToolsRepoVersionInfo -Value ([string]$installerObject.file)
-            if ($null -ne $installerFile) {
-                $candidateVersions += $installerFile.Identifier
-            }
-        }
     }
 
+    # Collection metadata stores the active folder in vmtools. Ignore its
+    # schema version and historical vmtools-* entries.
     if ($MetadataObject.PSObject.Properties.Name -contains 'vmtools') {
-        $vmtoolsField = ConvertTo-ToolsRepoVersionInfo -Value ([string]$MetadataObject.vmtools)
+        $activeVmtoolsFolder = ([string]$MetadataObject.vmtools) -replace '[\\/]+$', ''
+        $vmtoolsField = ConvertTo-ToolsRepoVersionInfo -Value $activeVmtoolsFolder
         if ($null -ne $vmtoolsField) {
             $candidateVersions += $vmtoolsField.Identifier
         }
     }
 
-    foreach ($property in $MetadataObject.PSObject.Properties) {
-        $nameCandidate = ConvertTo-ToolsRepoVersionInfo -Value ([string]$property.Name)
-        if ($null -ne $nameCandidate) {
-            $candidateVersions += $nameCandidate.Identifier
-        }
-
-        $valueCandidate = ConvertTo-ToolsRepoVersionInfo -Value ([string]$property.Value)
-        if ($null -ne $valueCandidate) {
-            $candidateVersions += $valueCandidate.Identifier
-        }
-    }
-
     if ($candidateVersions.Count -gt 0) {
         $uniqueCandidates = @($candidateVersions | Select-Object -Unique)
-        if ($uniqueCandidates -contains $LatestVersion) {
-            return $LatestVersion
-        }
-
         foreach ($candidateVersion in $uniqueCandidates) {
-            if ((Compare-ToolsRepoVersion -Left $candidateVersion -Right $LatestVersion) -eq 0) {
-                # Return the selected folder version when metadata contains only its release.
-                return $LatestVersion
+            if ((Compare-ToolsRepoVersion -Left $candidateVersion -Right $LatestVersion) -ne 0) {
+                return $null
             }
         }
 
-        $highestCandidate = $uniqueCandidates[0]
-        foreach ($candidateVersion in $uniqueCandidates | Select-Object -Skip 1) {
-            if ((Compare-ToolsRepoVersion -Left $candidateVersion -Right $highestCandidate) -gt 0) {
-                $highestCandidate = $candidateVersion
-            }
-        }
-
-        return [string]$highestCandidate
+        # Return the selected folder version only when all metadata indicators agree.
+        return $LatestVersion
     }
 
     return $null
@@ -242,6 +220,46 @@ function Get-ToolsRepoDestinationPath {
     return Join-Path -Path "${DriveName}:/$GuestStoreFolder" -ChildPath $ArchivePath
 }
 
+function Remove-ToolsRepoPSDrive {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if (-not (Get-PSDrive -Name $Name -ErrorAction SilentlyContinue)) {
+        return
+    }
+
+    Remove-PSDrive -Name $Name -Force -ErrorAction SilentlyContinue
+    if (Get-PSDrive -Name $Name -ErrorAction SilentlyContinue) {
+        throw "Failed to remove temporary PSDrive '$Name'."
+    }
+}
+
+function Get-ToolsRepoCombinedFailureMessage {
+    param(
+        [AllowNull()]
+        [string]$OperationFailure,
+        [AllowNull()]
+        [string]$CleanupFailure
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($OperationFailure) -and
+        -not [string]::IsNullOrWhiteSpace($CleanupFailure)) {
+        return "$OperationFailure Additionally, cleanup failed: $CleanupFailure"
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($OperationFailure)) {
+        return $OperationFailure
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($CleanupFailure)) {
+        return "Cleanup failed: $CleanupFailure"
+    }
+
+    return $null
+}
+
 function Copy-ToolsRepoArchive {
     param(
         [Parameter(Mandatory = $true)]
@@ -257,6 +275,8 @@ function Copy-ToolsRepoArchive {
     )
 
     $sourceDriveCreated = $false
+    $operationFailure = $null
+    $cleanupFailure = $null
 
     try {
         if (Get-PSDrive -Name $SourceDriveName -ErrorAction SilentlyContinue) {
@@ -293,11 +313,20 @@ function Copy-ToolsRepoArchive {
 
         Write-Information "Tools zip SHA-256 hash verified successfully." -InformationAction Continue
     } catch {
-        throw "Failed to prepare tools zip from source datastore: $_"
+        $operationFailure = "Failed to prepare tools zip from source datastore: $($_.Exception.Message)"
     } finally {
-        if ($sourceDriveCreated -and (Get-PSDrive -Name $SourceDriveName -ErrorAction SilentlyContinue)) {
-            Remove-PSDrive -Name $SourceDriveName -Force -ErrorAction SilentlyContinue
+        if ($sourceDriveCreated) {
+            try {
+                Remove-ToolsRepoPSDrive -Name $SourceDriveName
+            } catch {
+                $cleanupFailure = $_.Exception.Message
+            }
         }
+    }
+
+    $failureMessage = Get-ToolsRepoCombinedFailureMessage -OperationFailure $operationFailure -CleanupFailure $cleanupFailure
+    if (-not [string]::IsNullOrWhiteSpace($failureMessage)) {
+        throw $failureMessage
     }
 }
 
@@ -413,6 +442,7 @@ function Invoke-ToolsRepoHostRepositoryConfiguration {
     }
 
     $failedHosts = @()
+    $failedHostReasons = @()
     foreach ($vmHost in $vmHosts) {
         try {
             $esxCli = Get-EsxCli -V2 -VMHost $vmHost -ErrorAction Stop
@@ -422,19 +452,25 @@ function Invoke-ToolsRepoHostRepositoryConfiguration {
             $arguments.url = $repositoryUrl
             $result = $esxCli.system.settings.gueststore.repository.set.invoke($arguments)
 
-            if ($result -eq $false) {
-                throw "ESXCLI command returned false"
+            if ($result -ne $true) {
+                throw "ESXCLI failed to configure the GuestStore repository"
             }
 
             Write-Information "Successfully configured host: $vmHost" -InformationAction Continue
         } catch {
-            Write-Warning "Failed to configure host $vmHost : $_"
+            $hostFailure = $_.Exception.Message
+            if ([string]::IsNullOrWhiteSpace($hostFailure)) {
+                $hostFailure = [string]$_
+            }
+
+            Write-Warning "Failed to configure host $vmHost : $hostFailure"
             $failedHosts += $vmHost.Name
+            $failedHostReasons += "'$($vmHost.Name)': $hostFailure"
         }
     }
 
     if ($failedHosts.Count -gt 0) {
-        throw "Failed to configure hosts for datastore $datastoreName : $($failedHosts -join ', ')"
+        throw "Failed to configure hosts for datastore $datastoreName : $($failedHosts -join ', '). Failure details: $($failedHostReasons -join '; '). Check the failed hosts for connectivity or ESXCLI issues, then rerun Set-ToolsRepo with the same parameters. Run Command will retry configuring the GuestStore repository on all hosts."
     }
 }
 
@@ -533,11 +569,14 @@ function Set-ToolsRepo {
 
             # Get vSAN datastores with error handling
             $datastores = @(Get-ToolsRepoVsanDatastore)
+            $validationFailureReasons = @{}
 
             foreach ($datastore in $datastores) {
                 $ds_name = $datastore.Name
                 $localMetadataTempDir = $null
                 $destinationDriveCreated = $false
+                $operationFailure = $null
+                $cleanupFailure = $null
                 Write-Information "Validating datastore: $ds_name" -InformationAction Continue
 
                 try {
@@ -597,13 +636,13 @@ function Set-ToolsRepo {
                     $localVersionMetadataPath = Join-Path -Path $localMetadataTempDir -ChildPath 'version-metadata.json'
 
                     try {
-                        Copy-DatastoreItem -Item $topLevelMetadataPath -Destination $localTopLevelMetadataPath -Force -ErrorAction Stop
+                        Copy-DatastoreItem -Item $topLevelMetadataPath -Destination $localTopLevelMetadataPath -Force -ErrorAction Stop | Out-Null
                     } catch {
                         throw "Failed to copy top-level metadata.json from $ds_name : $($_.Exception.Message)"
                     }
 
                     try {
-                        Copy-DatastoreItem -Item $versionMetadataPath -Destination $localVersionMetadataPath -Force -ErrorAction Stop
+                        Copy-DatastoreItem -Item $versionMetadataPath -Destination $localVersionMetadataPath -Force -ErrorAction Stop | Out-Null
                     } catch {
                         throw "Failed to copy version metadata.json from $ds_name : $($_.Exception.Message)"
                     }
@@ -624,10 +663,7 @@ function Set-ToolsRepo {
                     $topLevelInSync = (-not [string]::IsNullOrEmpty($topLevelMetadataVersion)) -and ($topLevelMetadataVersion -eq $latestDetectedVersion)
                     $versionFolderInSync = (-not [string]::IsNullOrEmpty($versionFolderMetadataVersion)) -and ($versionFolderMetadataVersion -eq $latestDetectedVersion)
 
-                    if ($topLevelInSync -and $versionFolderInSync) {
-                        Write-Host "Datastore $ds_name validation result: SUCCESS - metadata is in sync."
-                        $successfulDatastores += $ds_name
-                    } else {
+                    if (-not ($topLevelInSync -and $versionFolderInSync)) {
                         Write-Host "Datastore $ds_name validation result: FAILURE - metadata is not in sync."
                         if ([string]::IsNullOrEmpty($topLevelMetadataVersion)) {
                             Write-Warning "Unable to determine version from top-level metadata.json on $ds_name"
@@ -639,19 +675,35 @@ function Set-ToolsRepo {
                         } elseif (-not $versionFolderInSync) {
                             Write-Warning "version-folder metadata.json version ($versionFolderMetadataVersion) does not match latest detected version ($latestDetectedVersionFolder) on $ds_name"
                         }
-                        $failedDatastores += $ds_name
+                        $operationFailure = "Metadata validation failed because the metadata files are not in sync with version '$latestDetectedVersion'."
                     }
                 } catch {
-                    Write-Error "Validation failed for datastore $ds_name : $_"
-                    $failedDatastores += $ds_name
+                    $operationFailure = $_.Exception.Message
+                    if ([string]::IsNullOrWhiteSpace($operationFailure)) {
+                        $operationFailure = [string]$_
+                    }
                 } finally {
                     if (-not [string]::IsNullOrEmpty($localMetadataTempDir) -and (Test-Path -Path $localMetadataTempDir)) {
                         Remove-Item -Path $localMetadataTempDir -Recurse -Force -ErrorAction SilentlyContinue
                     }
-                    if ($destinationDriveCreated -and (Get-PSDrive -Name $destPSDriveName -ErrorAction SilentlyContinue)) {
-                        Remove-PSDrive -Name $destPSDriveName -Force -ErrorAction SilentlyContinue
-                        $destinationDriveCreated = $false
+                    if ($destinationDriveCreated) {
+                        try {
+                            Remove-ToolsRepoPSDrive -Name $destPSDriveName
+                        } catch {
+                            $cleanupFailure = $_.Exception.Message
+                        } finally {
+                            $destinationDriveCreated = $false
+                        }
                     }
+                }
+
+                $failureMessage = Get-ToolsRepoCombinedFailureMessage -OperationFailure $operationFailure -CleanupFailure $cleanupFailure
+                if (-not [string]::IsNullOrWhiteSpace($failureMessage)) {
+                    $failedDatastores += $ds_name
+                    $validationFailureReasons[$ds_name] = $failureMessage
+                } else {
+                    Write-Host "Datastore $ds_name validation result: SUCCESS - metadata is in sync."
+                    $successfulDatastores += $ds_name
                 }
             }
 
@@ -664,11 +716,20 @@ function Set-ToolsRepo {
             }
 
             if ($failedDatastores.Count -gt 0) {
+                $validationFailureDetails = @($failedDatastores | ForEach-Object {
+                        $reason = $validationFailureReasons[$_]
+                        if ([string]::IsNullOrWhiteSpace($reason)) {
+                            $reason = 'No detailed failure reason captured.'
+                        }
+
+                        "'$_': $reason"
+                    }) -join '; '
+
                 if ($failedDatastores.Count -eq @($datastores).Count) {
-                    throw "Validation failed for all datastores."
+                    throw "Validation failed for all datastores. Failure details: $validationFailureDetails"
                 }
 
-                throw "Validation failed for some datastores. Review failed datastore list above."
+                throw "Validation failed for some datastores. Failure details: $validationFailureDetails"
             }
 
             return
@@ -717,6 +778,8 @@ function Set-ToolsRepo {
         foreach ($datastore in $datastores) {
             $ds_name = $datastore.Name
             $destinationDriveCreated = $false
+            $operationFailure = $null
+            $cleanupFailure = $null
             Write-Information "Processing datastore: $ds_name" -InformationAction Continue
 
             try {
@@ -859,23 +922,31 @@ function Set-ToolsRepo {
 
                 # Configure all hosts associated with this datastore.
                 Invoke-ToolsRepoHostRepositoryConfiguration -Datastore $datastore -GuestStoreFolder $new_folder
-
-                $successfulDatastores += $ds_name
             } catch {
-                $failureMessage = $_.Exception.Message
-                if ([string]::IsNullOrWhiteSpace($failureMessage)) {
-                    $failureMessage = [string]$_
+                $operationFailure = $_.Exception.Message
+                if ([string]::IsNullOrWhiteSpace($operationFailure)) {
+                    $operationFailure = [string]$_
                 }
+            } finally {
+                # Remove only the destination drive created by this invocation.
+                if ($destinationDriveCreated) {
+                    try {
+                        Remove-ToolsRepoPSDrive -Name $destPSDriveName
+                    } catch {
+                        $cleanupFailure = $_.Exception.Message
+                    } finally {
+                        $destinationDriveCreated = $false
+                    }
+                }
+            }
 
+            $failureMessage = Get-ToolsRepoCombinedFailureMessage -OperationFailure $operationFailure -CleanupFailure $cleanupFailure
+            if (-not [string]::IsNullOrWhiteSpace($failureMessage)) {
                 Write-Warning "Error processing datastore $ds_name : $failureMessage"
                 $failedDatastores += $ds_name
                 $failedDatastoreReasons[$ds_name] = $failureMessage
-            } finally {
-                # Remove only the destination drive created by this invocation.
-                if ($destinationDriveCreated -and (Get-PSDrive -Name $destPSDriveName -ErrorAction SilentlyContinue)) {
-                    Remove-PSDrive -Name $destPSDriveName -Force -ErrorAction SilentlyContinue
-                    $destinationDriveCreated = $false
-                }
+            } else {
+                $successfulDatastores += $ds_name
             }
         }
 
@@ -884,6 +955,7 @@ function Set-ToolsRepo {
         if ($successfulDatastores.Count -gt 0) {
             Write-Information "List of Successfully processed datastores: $($successfulDatastores -join ', ')" -InformationAction Continue
         }
+        $failureDetails = @()
         if ($failedDatastores.Count -gt 0) {
             Write-Warning "List of Failed datastores: $($failedDatastores -join ', ')"
 
@@ -894,23 +966,30 @@ function Set-ToolsRepo {
                 }
 
                 Write-Warning "Failure reason for datastore $failedDs : $reason"
+                $failureDetails += "'$failedDs': $reason"
             }
         }
 
         if ($failedDatastores.Count -gt 0) {
+            $failureDetailsMessage = $failureDetails -join '; '
             if ($failedDatastores.Count -eq @($datastores).Count) {
-                throw "All datastores failed to process."
+                throw "All datastores failed to process. Failure details: $failureDetailsMessage"
             }
 
-            throw "Some datastores failed to process. Review successful datastore list, failed datastore list, and failure reasons above."
+            throw "Some datastores failed to process. Failure details: $failureDetailsMessage"
         }
     } catch {
-        Write-Error "Set-ToolsRepo failed: $_"
-        throw
+        throw "Set-ToolsRepo failed: $($_.Exception.Message)"
     } finally {
         # Remove only a destination drive created by this invocation.
-        if ($destinationDriveCreated -and (Get-PSDrive -Name $destPSDriveName -ErrorAction SilentlyContinue)) {
-            Remove-PSDrive -Name $destPSDriveName -Force -ErrorAction SilentlyContinue
+        if ($destinationDriveCreated) {
+            try {
+                Remove-ToolsRepoPSDrive -Name $destPSDriveName
+            } catch {
+                Write-Warning "Final cleanup failed for temporary PSDrive '$destPSDriveName': $($_.Exception.Message)"
+            } finally {
+                $destinationDriveCreated = $false
+            }
         }
         if (-not [string]::IsNullOrWhiteSpace($tempWorkDir) -and (Test-Path -LiteralPath $tempWorkDir -ErrorAction SilentlyContinue)) {
             Remove-Item -LiteralPath $tempWorkDir -Recurse -Force -ErrorAction SilentlyContinue

@@ -107,6 +107,12 @@ Describe "Set-ToolsRepo" {
                 ToolsZipPath = 'AVS-ToolsRepo-Staging/tools.tgz'
                 ExpectedHash = ('A' * 64)
                 ExpectedMessage = '*safe relative path to a zip file*'
+            },
+            @{
+                Case = 'managed GuestStore folder'
+                ToolsZipPath = 'GuestStore/tools.zip'
+                ExpectedHash = ('A' * 64)
+                ExpectedMessage = '*must not be inside the managed GuestStore folder*'
             }
         ) {
             param($ToolsZipPath, $ExpectedHash, $ExpectedMessage)
@@ -161,7 +167,9 @@ Describe "Set-ToolsRepo" {
                 [PSCustomObject]@{ Hash = ('B' * 64) }
             } -ModuleName Microsoft.AVS.Management
             Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
-            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+            Mock Remove-PSDrive {
+                $script:sourceDriveCreated = $false
+            } -ModuleName Microsoft.AVS.Management
             Mock Remove-Item { } -ModuleName Microsoft.AVS.Management
 
             {
@@ -174,12 +182,48 @@ Describe "Set-ToolsRepo" {
             Should -Invoke Remove-PSDrive -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
                 $Name -like 'AVSToolsSrc_*'
             }
+            Should -Invoke Get-PSDrive -ModuleName Microsoft.AVS.Management -Times 3 -Exactly -ParameterFilter {
+                $Name -like 'AVSToolsSrc_*'
+            }
             Should -Invoke Remove-Item -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
                 $LiteralPath -like '*avs-toolsrepo-*' -and $Recurse -and $Force
             }
             Should -Not -Invoke Expand-Archive -ModuleName Microsoft.AVS.Management
             Should -Not -Invoke New-PSDrive -ModuleName Microsoft.AVS.Management -ParameterFilter {
                 $Name -like 'AVSToolsDs_*'
+            }
+        }
+
+        if (-not (Get-Module Microsoft.AVS.Management)) {
+            Import-Module (Join-Path $PSScriptRoot ".." "Microsoft.AVS.Management" "Microsoft.AVS.Management.psd1") -Force
+        }
+
+        InModuleScope 'Microsoft.AVS.Management' {
+            It "Should report both source preparation and PSDrive cleanup failures" {
+                $script:sourceDriveExists = $false
+
+                Mock Get-PSDrive {
+                    if ($script:sourceDriveExists) {
+                        return [PSCustomObject]@{ Name = $Name }
+                    }
+
+                    return $null
+                } -ModuleName Microsoft.AVS.Management
+                Mock New-PSDrive {
+                    $script:sourceDriveExists = $true
+                } -ModuleName Microsoft.AVS.Management
+                Mock Test-Path { $true } -ModuleName Microsoft.AVS.Management
+                Mock Copy-DatastoreItem { throw 'Datastore copy failed' } -ModuleName Microsoft.AVS.Management
+                Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+
+                {
+                    Copy-ToolsRepoArchive `
+                        -SourceDatastore ([PSCustomObject]@{ Name = 'vsanDatastore' }) `
+                        -ToolsZipPath 'AVS-ToolsRepo-Staging/tools.zip' `
+                        -ExpectedHash ('A' * 64) `
+                        -LocalToolsFile (Join-Path $TestDrive 'tools.zip') `
+                        -SourceDriveName 'AVSToolsSrc_test'
+                } | Should -Throw -ExpectedMessage '*Datastore copy failed*Additionally, cleanup failed*Failed to remove temporary PSDrive*'
             }
         }
     }
@@ -202,7 +246,9 @@ Describe "Set-ToolsRepo" {
                 $script:destinationDriveCreated = $true
                 [PSCustomObject]@{ Name = $Name }
             } -ModuleName Microsoft.AVS.Management
-            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+            Mock Remove-PSDrive {
+                $script:destinationDriveCreated = $false
+            } -ModuleName Microsoft.AVS.Management
             Mock New-Item { [PSCustomObject]@{ FullName = $Path } } -ModuleName Microsoft.AVS.Management
             Mock Remove-Item { } -ModuleName Microsoft.AVS.Management
             Mock Write-Host { } -ModuleName Microsoft.AVS.Management
@@ -220,17 +266,21 @@ Describe "Set-ToolsRepo" {
                     [PSCustomObject]@{ Name = "vmtools-12.3.0"; PSIsContainer = $true }
                 )
             } -ModuleName Microsoft.AVS.Management
-            Mock Copy-DatastoreItem { } -ModuleName Microsoft.AVS.Management
+            Mock Copy-DatastoreItem {
+                [PSCustomObject]@{ Name = 'metadata.json'; Datastore = 'vsanDatastore' }
+            } -ModuleName Microsoft.AVS.Management
             Mock Get-Content {
                 param($Path, [switch]$Raw)
-                '{"version":"12.3.0","path":"vmtools-12.3.0"}'
+                '{"version":"1.0","type":"collection","vmtools":"vmtools-12.3.0/","vmtools-12.1.0":"vmtools-12.1.0/"}'
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*top-level-metadata.json" }
             Mock Get-Content {
                 param($Path, [switch]$Raw)
-                '{"version":"12.3.0","path":"vmtools-12.3.0"}'
+                '{"version":"1.0","type":"leaf","installer":{"file":"VMware-tools-12.3.0-22234872-x64.exe","version":"12.3.0"}}'
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*version-metadata.json" }
 
-            { Set-ToolsRepo -Validate } | Should -Not -Throw
+            $output = Set-ToolsRepo -Validate
+
+            $output | Should -BeNullOrEmpty
 
             Should -Invoke Write-Host -Times 1 -ModuleName Microsoft.AVS.Management -ParameterFilter {
                 $Object -like "*validation result: SUCCESS*"
@@ -264,7 +314,9 @@ Describe "Set-ToolsRepo" {
                 $script:destinationDriveCreated = $true
                 [PSCustomObject]@{ Name = $Name }
             } -ModuleName Microsoft.AVS.Management
-            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+            Mock Remove-PSDrive {
+                $script:destinationDriveCreated = $false
+            } -ModuleName Microsoft.AVS.Management
             Mock New-Item { [PSCustomObject]@{ FullName = $Path } } -ModuleName Microsoft.AVS.Management
             Mock Remove-Item { } -ModuleName Microsoft.AVS.Management
             Mock Write-Host { } -ModuleName Microsoft.AVS.Management
@@ -288,11 +340,11 @@ Describe "Set-ToolsRepo" {
             # Top-level and version metadata intentionally differ
             Mock Get-Content {
                 param($Path, [switch]$Raw)
-                '{"version":"12.3.0"}'
+                '{"version":"1.0","type":"collection","vmtools":"vmtools-12.3.0/","vmtools-12.1.0":"vmtools-12.1.0/"}'
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*top-level-metadata.json" }
             Mock Get-Content {
                 param($Path, [switch]$Raw)
-                '{"version":"12.2.0"}'
+                '{"version":"1.0","type":"leaf","installer":{"file":"VMware-tools-12.2.0-21223074-x64.exe","version":"12.2.0"}}'
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Path -like "*version-metadata.json" }
 
             # When all datastores fail validation, function throws
@@ -312,6 +364,39 @@ Describe "Set-ToolsRepo" {
             }
             Should -Invoke Remove-PSDrive -Times 1 -Exactly -ModuleName Microsoft.AVS.Management -ParameterFilter {
                 $Name -like 'AVSToolsDs_*'
+            }
+        }
+
+        It "Should report both validation and destination PSDrive cleanup failures" {
+            $script:destinationDriveExists = $false
+
+            Mock Get-Datastore {
+                @([PSCustomObject]@{
+                    Name = 'vsanDatastore'
+                    ExtensionData = @{ Summary = @{ Type = 'vsan' } }
+                })
+            } -ModuleName Microsoft.AVS.Management
+            Mock Get-PSDrive {
+                if ($script:destinationDriveExists) {
+                    return [PSCustomObject]@{ Name = $Name }
+                }
+
+                return $null
+            } -ModuleName Microsoft.AVS.Management
+            Mock New-PSDrive {
+                $script:destinationDriveExists = $true
+            } -ModuleName Microsoft.AVS.Management
+            Mock Join-Path { "$Path/$ChildPath" } -ModuleName Microsoft.AVS.Management
+            Mock Test-Path { $false } -ModuleName Microsoft.AVS.Management
+            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+            Mock Write-Error { } -ModuleName Microsoft.AVS.Management
+            Mock Write-Host { } -ModuleName Microsoft.AVS.Management
+
+            { Set-ToolsRepo -Validate } | Should -Throw -ExpectedMessage '*Validation failed for all datastores*vsanDatastore*GuestStore tools path not found*Additionally, cleanup failed*Failed to remove temporary PSDrive*'
+
+            Should -Not -Invoke Write-Error -ModuleName Microsoft.AVS.Management
+            Should -Not -Invoke Write-Host -ModuleName Microsoft.AVS.Management -ParameterFilter {
+                $Object -like '*validation result: SUCCESS*'
             }
         }
 
@@ -348,7 +433,9 @@ Describe "Set-ToolsRepo" {
             Mock Get-FileHash {
                 [PSCustomObject]@{ Hash = $expectedHash }
             } -ModuleName Microsoft.AVS.Management
-            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+            Mock Remove-PSDrive {
+                $script:sourceDriveCreated = $false
+            } -ModuleName Microsoft.AVS.Management
             Mock Remove-Item { } -ModuleName Microsoft.AVS.Management
             Mock Get-ChildItem { $null } -ModuleName Microsoft.AVS.Management
             Mock Expand-Archive { throw "Invalid archive" } -ModuleName Microsoft.AVS.Management
@@ -456,10 +543,14 @@ Describe "Set-ToolsRepo" {
                 }
 
                 if ($MissingItem -eq 'MetadataVersionMismatch' -and $LiteralPath -eq (Join-Path $versionFolderPath 'metadata.json')) {
-                    return '{"version":"12.3.0"}'
+                    return '{"version":"1.0","type":"leaf","installer":{"file":"VMware-tools-12.3.0-22234872-x64.exe","version":"12.3.0"}}'
                 }
 
-                return '{"version":"12.4.0"}'
+                if ($LiteralPath -eq (Join-Path $versionFolderPath 'metadata.json')) {
+                    return '{"version":"1.0","type":"leaf","installer":{"file":"VMware-tools-12.4.0-23259341-x64.exe","version":"12.4.0"}}'
+                }
+
+                return '{"version":"1.0","type":"collection","vmtools":"vmtools-12.4.0/","vmtools-12.3.0":"vmtools-12.3.0/"}'
             } -ModuleName Microsoft.AVS.Management
             Mock Get-ChildItem {
                 if ($MissingItem -eq 'VersionFolder') {
@@ -472,7 +563,9 @@ Describe "Set-ToolsRepo" {
                 })
             } -ModuleName Microsoft.AVS.Management -ParameterFilter { $Directory }
             Mock Get-VMHost { } -ModuleName Microsoft.AVS.Management
-            Mock Remove-PSDrive { } -ModuleName Microsoft.AVS.Management
+            Mock Remove-PSDrive {
+                $script:sourceDriveCreated = $false
+            } -ModuleName Microsoft.AVS.Management
             Mock Remove-Item { } -ModuleName Microsoft.AVS.Management
 
             {
@@ -583,6 +676,44 @@ Describe "Set-ToolsRepo" {
         }
 
         InModuleScope 'Microsoft.AVS.Management' {
+            It "Should validate metadata indicators: <Case>" -TestCases @(
+                @{
+                    Case = 'collection active version matches'
+                    MetadataJson = '{"version":"1.0","type":"collection","vmtools":"vmtools-13.0.5/","vmtools-12.5.4":"vmtools-12.5.4/"}'
+                    LatestVersion = '13.0.5'
+                    ExpectedResult = '13.0.5'
+                },
+                @{
+                    Case = 'leaf active version matches'
+                    MetadataJson = '{"version":"1.0","type":"leaf","installer":{"file":"VMware-tools-13.0.5-24915695-x64.exe","version":"13.0.5"}}'
+                    LatestVersion = '13.0.5'
+                    ExpectedResult = '13.0.5'
+                },
+                @{
+                    Case = 'active version does not match'
+                    MetadataJson = '{"version":"1.0","type":"collection","vmtools":"vmtools-12.5.4/","vmtools-13.0.5":"vmtools-13.0.5/"}'
+                    LatestVersion = '13.0.5'
+                    ExpectedResult = $null
+                },
+                @{
+                    Case = 'metadata has no recognized active-version field'
+                    MetadataJson = '{"version":"1.0","type":"collection","vmtools-12.5.4":"vmtools-12.5.4/"}'
+                    LatestVersion = '13.0.5'
+                    ExpectedResult = $null
+                }
+            ) {
+                param($MetadataJson, $LatestVersion, $ExpectedResult)
+
+                $metadataObject = $MetadataJson | ConvertFrom-Json
+
+                $actualResult = Get-ToolsRepoMetadataVersion -MetadataObject $metadataObject -LatestVersion $LatestVersion
+                if ($null -eq $ExpectedResult) {
+                    $actualResult | Should -BeNullOrEmpty
+                } else {
+                    $actualResult | Should -Be $ExpectedResult
+                }
+            }
+
             BeforeAll {
                 $script:originalTemp = $env:TEMP
                 $script:originalTmp = $env:TMP
@@ -601,7 +732,8 @@ Describe "Set-ToolsRepo" {
                         [Parameter(Mandatory = $true)][string]$HighestExistingVersion,
                         [Parameter(Mandatory = $true)][bool]$VersionAlreadyExists,
                         [bool]$VersionMetadataExists = $true,
-                        [bool]$IncludeFailingDatastore = $false
+                        [bool]$IncludeFailingDatastore = $false,
+                        [AllowNull()][object]$EsxCliResult = $true
                     )
 
                     $script:toolsVersion = "vmtools-$ToolsShortVersion"
@@ -614,13 +746,27 @@ Describe "Set-ToolsRepo" {
                     $script:versionAlreadyExists = $VersionAlreadyExists
                     $script:versionMetadataExists = $VersionMetadataExists
                     $script:includeFailingDatastore = $IncludeFailingDatastore
+                    $script:esxCliResult = $EsxCliResult
 
                     # Create a fake extracted archive with matching metadata files under $TestDrive.
                     [System.IO.Directory]::CreateDirectory($script:topLevelSourceDir) | Out-Null
                     [System.IO.Directory]::CreateDirectory($script:sourceDir) | Out-Null
-                    $script:metadataJson = @{ version = $ToolsShortVersion } | ConvertTo-Json -Compress
-                    [System.IO.File]::WriteAllText((Join-Path $script:topLevelSourceDir 'metadata.json'), $script:metadataJson)
-                    [System.IO.File]::WriteAllText((Join-Path $script:sourceDir 'metadata.json'), $script:metadataJson)
+                    $script:collectionMetadataJson = @{
+                        version = '1.0'
+                        type = 'collection'
+                        vmtools = "vmtools-$ToolsShortVersion/"
+                        'vmtools-12.1.0' = 'vmtools-12.1.0/'
+                    } | ConvertTo-Json -Compress
+                    $script:leafMetadataJson = @{
+                        version = '1.0'
+                        type = 'leaf'
+                        installer = @{
+                            file = "VMware-tools-$ToolsShortVersion-24915695-x64.exe"
+                            version = $ToolsShortVersion
+                        }
+                    } | ConvertTo-Json -Compress
+                    [System.IO.File]::WriteAllText((Join-Path $script:topLevelSourceDir 'metadata.json'), $script:collectionMetadataJson)
+                    [System.IO.File]::WriteAllText((Join-Path $script:sourceDir 'metadata.json'), $script:leafMetadataJson)
 
                     Mock New-Item {
                         [PSCustomObject]@{ FullName = $Path; Name = (Split-Path -Path $Path -Leaf) }
@@ -629,7 +775,14 @@ Describe "Set-ToolsRepo" {
                     Mock Get-Item { [PSCustomObject]@{ Length = 4096 } } -ModuleName Microsoft.AVS.Management
                     Mock Get-FileHash { [PSCustomObject]@{ Hash = ('A' * 64) } } -ModuleName Microsoft.AVS.Management
                     Mock Expand-Archive { } -ModuleName Microsoft.AVS.Management
-                    Mock Get-Content { $script:metadataJson } -ModuleName Microsoft.AVS.Management
+                    Mock Get-Content {
+                        $metadataPath = if ($LiteralPath) { $LiteralPath } else { $Path }
+                        if ($metadataPath -eq (Join-Path $script:topLevelSourceDir 'metadata.json')) {
+                            return $script:collectionMetadataJson
+                        }
+
+                        return $script:leafMetadataJson
+                    } -ModuleName Microsoft.AVS.Management
                     Mock Join-Path {
                         if ($Path -like 'AVSToolsDs_*') {
                             return $script:destPath
@@ -765,7 +918,7 @@ Describe "Set-ToolsRepo" {
 
                     $script:setObj = New-Object psobject
                     Add-Member -InputObject $script:setObj -MemberType ScriptMethod -Name CreateArgs -Value { return @{ url = $null } } -Force
-                    Add-Member -InputObject $script:setObj -MemberType ScriptMethod -Name invoke -Value { param($arguments) return $true } -Force
+                    Add-Member -InputObject $script:setObj -MemberType ScriptMethod -Name invoke -Value { param($arguments) return $script:esxCliResult } -Force
                     $script:esxcli = [PSCustomObject]@{
                         system = [PSCustomObject]@{
                             settings = [PSCustomObject]@{
@@ -894,7 +1047,7 @@ Describe "Set-ToolsRepo" {
                         -SourceDatastoreName 'vsanDatastore' `
                         -ToolsZipPath 'AVS-ToolsRepo-Staging/tools.zip' `
                         -ExpectedHash ('A' * 64)
-                } | Should -Throw -ExpectedMessage '*All datastores failed to process*'
+                } | Should -Throw -ExpectedMessage '*All datastores failed to process*vsanDatastore*ESXCLI unavailable*'
 
                 Should -Invoke Copy-DatastoreItem -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It -ParameterFilter {
                     $Destination -like '*windows64'
@@ -902,6 +1055,46 @@ Describe "Set-ToolsRepo" {
                 Should -Invoke Get-EsxCli -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It
                 Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -Scope It -ParameterFilter {
                     $Message -like '*esx1*' -and $Message -like '*ESXCLI unavailable*'
+                }
+                Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -Scope It -ParameterFilter {
+                    $Message -like '*Check the failed hosts for connectivity or ESXCLI issues*' -and
+                    $Message -like '*rerun Set-ToolsRepo with the same parameters*' -and
+                    $Message -like '*retry configuring the GuestStore repository on all hosts*'
+                }
+                Should -Invoke Remove-PSDrive -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It -ParameterFilter {
+                    $Name -like 'AVSToolsSrc_*'
+                }
+                Should -Invoke Remove-PSDrive -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It -ParameterFilter {
+                    $Name -like 'AVSToolsDs_*'
+                }
+            }
+
+            It "Should fail when ESXCLI returns <Case>" -TestCases @(
+                @{ Case = 'false'; EsxCliResult = $false },
+                @{ Case = 'null'; EsxCliResult = $null }
+            ) {
+                param($EsxCliResult)
+
+                Initialize-SetToolsRepoScenarioMocks `
+                    -ToolsShortVersion '12.3.0' `
+                    -HighestExistingVersion '12.4.0' `
+                    -VersionAlreadyExists $false `
+                    -EsxCliResult $EsxCliResult
+                Mock Write-Warning { } -ModuleName Microsoft.AVS.Management
+
+                {
+                    Set-ToolsRepo `
+                        -SourceDatastoreName 'vsanDatastore' `
+                        -ToolsZipPath 'AVS-ToolsRepo-Staging/tools.zip' `
+                        -ExpectedHash ('A' * 64)
+                } | Should -Throw -ExpectedMessage '*All datastores failed to process*'
+
+                Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -Scope It -ParameterFilter {
+                    $Message -like '*esx1*' -and
+                    $Message -like '*ESXCLI failed to configure the GuestStore repository*'
+                }
+                Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -Scope It -ParameterFilter {
+                    $Message -like '*rerun Set-ToolsRepo with the same parameters*'
                 }
                 Should -Invoke Remove-PSDrive -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It -ParameterFilter {
                     $Name -like 'AVSToolsSrc_*'
@@ -918,13 +1111,14 @@ Describe "Set-ToolsRepo" {
                     -VersionAlreadyExists $false `
                     -IncludeFailingDatastore $true
                 Mock Write-Warning { } -ModuleName Microsoft.AVS.Management
+                Mock Write-Error { } -ModuleName Microsoft.AVS.Management
 
                 {
                     Set-ToolsRepo `
                         -SourceDatastoreName 'vsanDatastore' `
                         -ToolsZipPath 'AVS-ToolsRepo-Staging/tools.zip' `
                         -ExpectedHash ('A' * 64)
-                } | Should -Throw -ExpectedMessage '*Some datastores failed to process*'
+                } | Should -Throw -ExpectedMessage '*Some datastores failed to process*vsanDatastore-fail*Datastore browser unavailable*'
 
                 Should -Invoke Copy-DatastoreItem -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -Scope It -ParameterFilter {
                     $Destination -like '*windows64'
@@ -938,6 +1132,37 @@ Describe "Set-ToolsRepo" {
                 }
                 Should -Invoke Remove-PSDrive -ModuleName Microsoft.AVS.Management -Times 2 -Exactly -Scope It -ParameterFilter {
                     $Name -like 'AVSToolsDs_*'
+                }
+                Should -Not -Invoke Write-Error -ModuleName Microsoft.AVS.Management -Scope It
+            }
+
+            It "Should report both datastore processing and destination PSDrive cleanup failures" {
+                Initialize-SetToolsRepoScenarioMocks `
+                    -ToolsShortVersion '12.3.0' `
+                    -HighestExistingVersion '12.4.0' `
+                    -VersionAlreadyExists $false
+                Mock Get-View { throw 'Datastore browser unavailable' } -ModuleName Microsoft.AVS.Management
+                Mock Remove-PSDrive {
+                    param($Name)
+
+                    if ($Name -like 'AVSToolsSrc_*') {
+                        $lookupKey = "SetToolsRepoTestDrive-$Name"
+                        [System.AppDomain]::CurrentDomain.SetData($lookupKey, $null)
+                    }
+                } -ModuleName Microsoft.AVS.Management
+                Mock Write-Warning { } -ModuleName Microsoft.AVS.Management
+
+                {
+                    Set-ToolsRepo `
+                        -SourceDatastoreName 'vsanDatastore' `
+                        -ToolsZipPath 'AVS-ToolsRepo-Staging/tools.zip' `
+                        -ExpectedHash ('A' * 64)
+                } | Should -Throw -ExpectedMessage '*All datastores failed to process*'
+
+                Should -Invoke Write-Warning -ModuleName Microsoft.AVS.Management -Scope It -ParameterFilter {
+                    $Message -like '*Datastore browser unavailable*' -and
+                    $Message -like '*Additionally, cleanup failed*' -and
+                    $Message -like '*Failed to remove temporary PSDrive*'
                 }
             }
 
