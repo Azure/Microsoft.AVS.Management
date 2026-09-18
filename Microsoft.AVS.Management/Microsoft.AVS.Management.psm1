@@ -1,6 +1,7 @@
 <# Private Function Import #>
 . $PSScriptRoot\AVSGenericUtils.ps1
 
+# Checks that the upload details and ZIP file path are valid.
 function Test-ToolsRepoUploadInput {
     param(
         [string]$SourceDatastoreName,
@@ -36,6 +37,7 @@ function Test-ToolsRepoUploadInput {
     }
 }
 
+# Gets all vSAN datastores in the environment.
 function Get-ToolsRepoVsanDatastore {
     try {
         $datastores = @(Get-Datastore -ErrorAction Stop | Where-Object { $_.ExtensionData.Summary.Type -eq 'vsan' })
@@ -51,6 +53,7 @@ function Get-ToolsRepoVsanDatastore {
     }
 }
 
+# Parse a VMware Tools name or path into version parts, or return $null if the format is invalid.
 function ConvertTo-ToolsRepoVersionInfo {
     param(
         [Parameter(Mandatory = $true)]
@@ -81,6 +84,7 @@ function ConvertTo-ToolsRepoVersionInfo {
     return $null
 }
 
+# Compares two VMware Tools versions and shows which one is newer.
 function Compare-ToolsRepoVersion {
     param(
         [Parameter(Mandatory = $true)]
@@ -130,6 +134,7 @@ function Compare-ToolsRepoVersion {
     return 0
 }
 
+# Return the expected version only when every recognized metadata version matches it.
 function Get-ToolsRepoMetadataVersion {
     param(
         [Parameter(Mandatory = $true)]
@@ -182,6 +187,7 @@ function Get-ToolsRepoMetadataVersion {
     return $null
 }
 
+# Finds the folder with the highest VMware Tools version.
 function Get-ToolsRepoHighestVersionFolder {
     param(
         [Parameter(Mandatory = $true)]
@@ -207,6 +213,7 @@ function Get-ToolsRepoHighestVersionFolder {
     return $highestVersionFolder
 }
 
+# Builds the destination path for the VMware Tools repository.
 function Get-ToolsRepoDestinationPath {
     param(
         [Parameter(Mandatory = $true)]
@@ -220,12 +227,14 @@ function Get-ToolsRepoDestinationPath {
     return Join-Path -Path "${DriveName}:/$GuestStoreFolder" -ChildPath $ArchivePath
 }
 
+# Removes the temporary PSDrive and confirms it was removed.
 function Remove-ToolsRepoPSDrive {
     param(
         [Parameter(Mandatory = $true)]
         [string]$Name
     )
 
+    # If the temporary datastore PSDrive exists, remove it and verify it was removed; otherwise, cleanup is already complete.
     if (-not (Get-PSDrive -Name $Name -ErrorAction SilentlyContinue)) {
         return
     }
@@ -236,6 +245,7 @@ function Remove-ToolsRepoPSDrive {
     }
 }
 
+# Combine operation and cleanup errors into one message without losing either failure.
 function Get-ToolsRepoCombinedFailureMessage {
     param(
         [AllowNull()]
@@ -260,6 +270,7 @@ function Get-ToolsRepoCombinedFailureMessage {
     return $null
 }
 
+# Copy the archive through a temporary PSDrive, verify its SHA-256 hash, and report cleanup failures.
 function Copy-ToolsRepoArchive {
     param(
         [Parameter(Mandatory = $true)]
@@ -324,12 +335,14 @@ function Copy-ToolsRepoArchive {
         }
     }
 
+    # Combine archive preparation and PSDrive cleanup errors so any failures are included in the final error message.
     $failureMessage = Get-ToolsRepoCombinedFailureMessage -OperationFailure $operationFailure -CleanupFailure $cleanupFailure
     if (-not [string]::IsNullOrWhiteSpace($failureMessage)) {
         throw $failureMessage
     }
 }
 
+# Extract the archive, validate its GuestStore structure and metadata, and return the upload details.
 function Expand-ToolsRepoArchive {
     param(
         [Parameter(Mandatory = $true)]
@@ -415,6 +428,7 @@ function Expand-ToolsRepoArchive {
     }
 }
 
+# Configure every host for the datastore and report all host failures together.
 function Invoke-ToolsRepoHostRepositoryConfiguration {
     param(
         [Parameter(Mandatory = $true)]
@@ -564,6 +578,7 @@ function Set-ToolsRepo {
             Test-ToolsRepoUploadInput -SourceDatastoreName $SourceDatastoreName -ToolsZipPath $ToolsZipPath -ExpectedHash $ExpectedHash
         }
 
+        # Exit after validating existing repositories so archive upload and host configuration are skipped.
         if ($Validate) {
             Write-Information "Running in validation-only mode. No upload or configuration changes will be made." -InformationAction Continue
 
@@ -851,8 +866,7 @@ function Set-ToolsRepo {
                     }
                 }
 
-                # Determine if we should update the top-level metadata.json
-                # Only update if new version is greater than the highest existing version
+                # Make the uploaded version active only if it is newer; older versions are stored without changing the active version.
                 if ($null -eq $highestExistingVersion -or
                     (Compare-ToolsRepoVersion -Left $tools_short_version -Right $highestExistingVersion) -gt 0) {
                     $shouldUpdateTopLevelMetadata = $true
@@ -876,6 +890,7 @@ function Set-ToolsRepo {
                     # Check if this version already exists on the datastore
                     $versionDestPath = Join-Path $destPath $tools_version
                     if (Test-Path -Path $versionDestPath) {
+                        # Stop if an existing version folder is missing metadata.json because the previous upload may be incomplete.
                         $versionMetadataPath = Join-Path -Path $versionDestPath -ChildPath 'metadata.json'
                         if (-not (Test-Path -Path $versionMetadataPath -PathType Leaf)) {
                             throw "Version folder '$tools_version' already exists on datastore '$ds_name', but its required metadata.json is missing. Inspect the folder and, if it is incomplete, remove it and rerun Set-ToolsRepo."
@@ -893,7 +908,7 @@ function Set-ToolsRepo {
                         Write-Information "Successfully copied $tools_version to $ds_name" -InformationAction Continue
                     }
 
-                    # Update top-level files only when the uploaded version is newer.
+                    # Update top-level files only when the uploaded version becomes the active version.
                     if ($shouldUpdateTopLevelMetadata) {
                         # Copy any additional top-level files from windows64, if present.
                         # Handle metadata.json separately below.
@@ -940,6 +955,7 @@ function Set-ToolsRepo {
                 }
             }
 
+            # Include both datastore processing and PSDrive cleanup errors in the final summary.
             $failureMessage = Get-ToolsRepoCombinedFailureMessage -OperationFailure $operationFailure -CleanupFailure $cleanupFailure
             if (-not [string]::IsNullOrWhiteSpace($failureMessage)) {
                 Write-Warning "Error processing datastore $ds_name : $failureMessage"
@@ -950,7 +966,7 @@ function Set-ToolsRepo {
             }
         }
 
-        # Summary report
+        # Process all datastores before reporting successes and failures.
         Write-Information "`n=== Summary ===" -InformationAction Continue
         if ($successfulDatastores.Count -gt 0) {
             Write-Information "List of Successfully processed datastores: $($successfulDatastores -join ', ')" -InformationAction Continue
@@ -981,7 +997,7 @@ function Set-ToolsRepo {
     } catch {
         throw "Set-ToolsRepo failed: $($_.Exception.Message)"
     } finally {
-        # Remove only a destination drive created by this invocation.
+        # Remove the temporary PSDrive and local working directory before exiting.
         if ($destinationDriveCreated) {
             try {
                 Remove-ToolsRepoPSDrive -Name $destPSDriveName
