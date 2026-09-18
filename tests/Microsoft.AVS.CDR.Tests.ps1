@@ -501,6 +501,38 @@ Describe "Get-MergedRedirectMap" {
         }
     }
 
+    Context "Shipped Management <ManagementVersion> map" -ForEach @(
+        @{ ManagementVersion = "9.0.228" }
+        @{ ManagementVersion = "10.0.251" }
+    ) {
+        It "Should redirect exact Common 12 to concrete 13.3 using the selected shipped map" {
+            InModuleScope Microsoft.AVS.CDR -ArgumentList $ManagementVersion {
+                param($managementVersion)
+
+                $redirectMap = Get-MergedRedirectMap -OuterMap @{} -Name "Microsoft.AVS.Management" -Version $managementVersion
+                $result = Find-DependencyRedirect -DependencyName "VMware.VimAutomation.Common" `
+                    -DependencyVersion "12.0.0.15939652" -RedirectMap $redirectMap
+
+                $result.ResolvedName | Should -BeExactly "VMware.VimAutomation.Common"
+                $result.ResolvedVersion | Should -BeExactly "13.3.0.24145081"
+                $result.IsRedirected | Should -BeTrue
+                (Get-NormalizedVersionSpec -Version $result.ResolvedVersion).IsExact | Should -BeTrue
+            }
+        }
+
+        It "Should reject another exact Common version without an explicit shipped exception" {
+            InModuleScope Microsoft.AVS.CDR -ArgumentList $ManagementVersion {
+                param($managementVersion)
+
+                $redirectMap = Get-MergedRedirectMap -OuterMap @{} -Name "Microsoft.AVS.Management" -Version $managementVersion
+                {
+                    Find-DependencyRedirect -DependencyName "VMware.VimAutomation.Common" `
+                        -DependencyVersion "12.0.0.15939653" -RedirectMap $redirectMap
+                } | Should -Throw "*Cannot redirect exact version dependency 'VMware.VimAutomation.Common' from version 12.0.0.15939653 to 13.3.0.24145081*"
+            }
+        }
+    }
+
     AfterAll {
         # Clean up any test map files
         if (Test-Path $script:mapsDir) {
