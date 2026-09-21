@@ -505,22 +505,17 @@ function Invoke-ToolsRepoHostRepositoryConfiguration {
     GuestStore repository on each vSAN datastore and configures the associated hosts.
 
     .PARAMETER SourceDatastoreName
-    Exact name of the vSAN datastore containing the staged Tools zip file. Required when
-    -Validate is NOT specified.
+    vSAN datastore containing the staged Tools ZIP.
 
     .PARAMETER ToolsZipPath
-    Path to the staged Tools zip file, relative to the source datastore root. Required when
-    -Validate is NOT specified. Do not upload the zip file inside the managed GuestStore folder.
+    Relative datastore path to the staged Tools ZIP. Do not upload the zip file inside the managed GuestStore folder.
     For example: AVS-ToolsRepo-Staging/gueststore-vmtools-13.0.5-0.24916190.zip.
 
     .PARAMETER ExpectedHash
-    Trusted SHA-256 hash published for the exact staged Tools zip file. Required when -Validate
-    is NOT specified. The value must contain exactly 64 hexadecimal characters. The function
-    stops before extraction when the calculated hash does not match this value.
+    SHA-256 hash of the staged Tools ZIP. The value must contain exactly 64 hexadecimal characters.
 
     .PARAMETER Validate
-    Switch to enable validation-only mode. When set, the function reads metadata.json files
-    to verify they are in sync, but makes no changes to the datastore or host configuration.
+    Validates existing metadata without making changes.
 
     .EXAMPLE
     # Upload tools to repositories
@@ -535,25 +530,25 @@ function Set-ToolsRepo {
     [AVSAttribute(30, UpdatesSDDC = $true)]
     param(
         [Parameter(Mandatory = $false,
-            HelpMessage = 'Exact name of the vSAN datastore where the VMware Tools GuestStore ZIP was uploaded. Example: vsanDatastore.')]
+            HelpMessage = 'vSAN datastore containing the staged Tools ZIP. Example: vsanDatastore.')]
         [ValidateNotNullOrEmpty()]
         [string]
         $SourceDatastoreName,
 
         [Parameter(Mandatory = $false,
-            HelpMessage = 'Path to the uploaded ZIP, relative to the datastore root. Example: AVS-ToolsRepo-Staging/gueststore-vmtools-13.0.5-0.24916190.zip. Do not upload it inside the managed GuestStore folder.')]
+            HelpMessage = 'Relative datastore path to the staged Tools ZIP. Example: AVS-ToolsRepo-Staging/gueststore-vmtools-13.0.5-0.24916190.zip.')]
         [ValidateNotNullOrEmpty()]
         [string]
         $ToolsZipPath,
 
         [Parameter(Mandatory = $false,
-            HelpMessage = 'The 64-character SHA-256 value for the exact ZIP. In the Broadcom Support Portal, open the required VMware Tools release, find the matching gueststore-vmtools ZIP row, and copy its SHA2 value.')]
+            HelpMessage = 'The 64-character SHA-256 hash of the staged Tools ZIP found on the Broadcom Support Portal.')]
         [ValidateNotNullOrEmpty()]
         [string]
         $ExpectedHash,
 
         [Parameter(Mandatory = $false,
-            HelpMessage = 'Select this option to check existing GuestStore metadata only. It does not upload files or change host settings.')]
+            HelpMessage = 'Validates existing metadata without making changes.')]
         [switch]
         $Validate
     )
