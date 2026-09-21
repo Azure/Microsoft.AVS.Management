@@ -717,13 +717,10 @@ function Set-CustomDRS {
     $spec.DrsConfig = New-Object VMware.Vim.ClusterDrsConfigInfo
     $spec.DrsConfig.VmotionRate = $drsChange
     $spec.DrsConfig.Enabled = $true
-    $spec.DrsConfig.Option = New-Object VMware.Vim.OptionValue[] (2)
+    $spec.DrsConfig.Option = New-Object VMware.Vim.OptionValue[] (1)
     $spec.DrsConfig.Option[0] = New-Object VMware.Vim.OptionValue
-    $spec.DrsConfig.Option[0].Value = '0'
-    $spec.DrsConfig.Option[0].Key = 'TryBalanceVmsPerHost'
-    $spec.DrsConfig.Option[1] = New-Object VMware.Vim.OptionValue
-    $spec.DrsConfig.Option[1].Value = '1'
-    $spec.DrsConfig.Option[1].Key = 'IsClusterManaged'
+    $spec.DrsConfig.Option[0].Value = '1'
+    $spec.DrsConfig.Option[0].Key = 'IsClusterManaged'
     $modify = $true
     # End DRS settings
 
