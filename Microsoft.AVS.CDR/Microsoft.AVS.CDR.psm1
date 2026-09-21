@@ -5,6 +5,7 @@ class DependencyGraphNode {
     [string]$Name
     [string]$Version
     [System.Collections.ArrayList]$Dependencies
+    [System.Collections.ArrayList]$Constraints
     [bool]$NotFound
     [string]$Repository
     [string]$InstalledLocation
@@ -20,9 +21,47 @@ class DependencyGraphNode {
         $this.Name = $Name
         $this.Version = $Version
         $this.Dependencies = [System.Collections.ArrayList]::new($Dependencies)
+        $this.Constraints = [System.Collections.ArrayList]::new()
         $this.NotFound = $NotFound
         $this.Repository = $Repository
         $this.InstalledLocation = $InstalledLocation
+    }
+}
+
+function Get-ConcreteVersionConstraint {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Version
+    )
+
+    return @{
+        OriginalSpec   = $Version
+        Minimum        = $Version
+        Maximum        = $Version
+        IncludeMinimum = $true
+        IncludeMaximum = $true
+        IsExact        = $true
+        IsHardPin      = $true
+        ConcretePin    = $Version
+    }
+}
+
+function Merge-DependencyConstraint {
+    param(
+        [Parameter(Mandatory = $true)]
+        [DependencyGraphNode]$Node,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Constraint
+    )
+
+    $duplicate = $Node.Constraints | Where-Object {
+        $_.OriginalSpec -eq $Constraint.OriginalSpec -and
+        $_.IsHardPin -eq $Constraint.IsHardPin -and
+        $_.ConcretePin -eq $Constraint.ConcretePin
+    }
+    if (-not $duplicate) {
+        [void]$Node.Constraints.Add($Constraint)
     }
 }
 
@@ -36,11 +75,10 @@ $script:moduleMapCache = @{
 .SYNOPSIS
     Parses a version specification into its exactness and normalized concrete
     version. Mirrors NuGet range notation: "[1.0, 1.0]" is exact (one concrete
-    version) while open-ended or unequal-endpoint ranges are not. Preserves
-    legacy source classification; override targets also need concrete validation.
+    version) while open-ended or unequal-endpoint ranges are not.
 
 .OUTPUTS
-    Hashtable with IsExact (bool) and Normalized (string).
+    Hashtable describing exactness and NuGet range bounds.
 #>
 function Get-NormalizedVersionSpec {
     param(
@@ -51,9 +89,19 @@ function Get-NormalizedVersionSpec {
 
     $isExact = $true
     $normalized = $Version
+    $minimum = $Version
+    $maximum = $Version
+    $includeMinimum = $true
+    $includeMaximum = $true
 
+    # NuGet singleton exact range: "[1.0]"
+    if ($Version -match '^\[\s*([^,\[\]]+?)\s*\]$') {
+        $normalized = $matches[1]
+        $minimum = $normalized
+        $maximum = $normalized
+    }
     # Version range like "[1.0, 1.0]", "[1.0, )", "(, 2.0]"
-    if ($Version -match '^(\[|\()([^,]*),\s*([^\]\)]*)(\]|\))$') {
+    elseif ($Version -match '^(\[|\()([^,]*),\s*([^\]\)]*)(\]|\))$') {
         $openBracket = $matches[1]
         $minVer = $matches[2]
         $maxVer = $matches[3]
@@ -61,48 +109,104 @@ function Get-NormalizedVersionSpec {
 
         if ($minVer -and $maxVer -and ($minVer -eq $maxVer) -and ($openBracket -eq '[') -and ($closeBracket -eq ']')) {
             $normalized = $minVer  # exact: [1.0, 1.0]
-        }
-        elseif ($maxVer -and (-not $minVer)) {
-            $isExact = $false
-            $normalized = $maxVer  # open-ended: (, 2.0]
-        }
-        elseif ($minVer -and (-not $maxVer)) {
-            $isExact = $false
-            $normalized = $minVer  # open-ended: [1.0, )
+            $minimum = $minVer
+            $maximum = $maxVer
         }
         else {
             $isExact = $false
             $normalized = $minVer
+            $minimum = $minVer
+            $maximum = $maxVer
+            $includeMinimum = $openBracket -eq '['
+            $includeMaximum = $closeBracket -eq ']'
         }
     }
 
     return @{
-        IsExact    = $isExact
-        Normalized = $normalized
+        IsExact        = $isExact
+        Normalized     = $normalized
+        Minimum        = $minimum
+        Maximum        = $maximum
+        IncludeMinimum = $includeMinimum
+        IncludeMaximum = $includeMaximum
     }
 }
 
-<#
-.SYNOPSIS
-    Validates concrete targets with built-in parsers, including four-part prereleases.
-#>
-function Test-ConcreteVersion {
-    param([string]$Version)
+function Test-VersionSatisfiesConstraint {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Version,
 
-    $numericVersion = $null
-    $semanticVersion = $null
-    if ([semver]::TryParse($Version, [ref]$semanticVersion)) {
-        return $true
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Constraint
+    )
+
+    if ($Constraint.IsHardPin -and $Constraint.ConcretePin) {
+        return Test-EquivalentConcreteVersion -Version1 $Version -Version2 $Constraint.ConcretePin
     }
 
-    # SemVer has no revision component; validate that separately from its suffix.
-    $suffixIndex = $Version.IndexOfAny([char[]]'-+')
-    $coreVersion = if ($suffixIndex -lt 0) { $Version } else { $Version.Substring(0, $suffixIndex) }
-    if (-not [version]::TryParse($coreVersion, [ref]$numericVersion)) {
+    if ($Constraint.Minimum) {
+        $minimumComparison = Compare-SemVer -Version1 $Version -Version2 $Constraint.Minimum
+        if ($minimumComparison -lt 0 -or ($minimumComparison -eq 0 -and (-not $Constraint.IncludeMinimum))) {
+            return $false
+        }
+    }
+
+    if ($Constraint.Maximum) {
+        $maximumComparison = Compare-SemVer -Version1 $Version -Version2 $Constraint.Maximum
+        if ($maximumComparison -gt 0 -or ($maximumComparison -eq 0 -and (-not $Constraint.IncludeMaximum))) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
+function Test-EquivalentConcreteVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Version1,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Version2
+    )
+
+    $parts1 = $Version1 -split '-', 2
+    $parts2 = $Version2 -split '-', 2
+    $prerelease1 = if ($parts1.Count -gt 1) { $parts1[1] } else { $null }
+    $prerelease2 = if ($parts2.Count -gt 1) { $parts2[1] } else { $null }
+
+    if (-not [string]::Equals($prerelease1, $prerelease2, [StringComparison]::OrdinalIgnoreCase)) {
         return $false
     }
-    return $suffixIndex -lt 0 -or ($numericVersion.Revision -ge 0 -and
-        [semver]::TryParse("$($numericVersion.ToString(3))$($Version.Substring($suffixIndex))", [ref]$semanticVersion))
+
+    try {
+        $version1Parts = @([version]$parts1[0]).Major, @([version]$parts1[0]).Minor,
+            @([version]$parts1[0]).Build, @([version]$parts1[0]).Revision
+        $version2Parts = @([version]$parts2[0]).Major, @([version]$parts2[0]).Minor,
+            @([version]$parts2[0]).Build, @([version]$parts2[0]).Revision
+
+        for ($index = 0; $index -lt 4; $index++) {
+            $left = if ($version1Parts[$index] -lt 0) { 0 } else { $version1Parts[$index] }
+            $right = if ($version2Parts[$index] -lt 0) { 0 } else { $version2Parts[$index] }
+            if ($left -ne $right) {
+                return $false
+            }
+        }
+        return $true
+    }
+    catch {
+        return [string]::Equals($parts1[0], $parts2[0], [StringComparison]::OrdinalIgnoreCase)
+    }
+}
+
+function Test-ConcreteVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Version
+    )
+
+    return $Version -match '^\d+(?:\.\d+){1,3}(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$'
 }
 
 <#
@@ -112,11 +216,6 @@ function Test-ConcreteVersion {
 .PARAMETER RedirectMap
     Map entries: "Name@Version" -> "NewVersion", "Name" -> "Version",
     "Name@Version" -> "*" or "Name" -> "*" (retain version, normalize casing).
-    A name-only entry is a broad redirect and will not move an exact-pinned
-    dependency to a different version. A "Name@Version" entry is an explicit
-    opt-in override and may move that exact pin, but only to a single concrete
-    version. Override targets are trimmed and validated; floating ranges,
-    wildcards and invalid versions are rejected so the pin is never loosened.
     
 .OUTPUTS
     Hashtable with ResolvedVersion, ResolvedName, and IsRedirected.
@@ -134,12 +233,18 @@ function Find-DependencyRedirect {
         [hashtable]$RedirectMap,
         
         [Parameter(Mandatory = $false)]
-        [string]$Indent = ""
+        [string]$Indent = "",
+
+        [Parameter(Mandatory = $false)]
+        [switch]$DependencyVersionIsRange
     )
     
     if ([string]::IsNullOrWhiteSpace($DependencyVersion)) {
         if ($RedirectMap.ContainsKey($DependencyName)) {
-            $depVersion = $RedirectMap[$DependencyName]
+            $depVersion = $RedirectMap[$DependencyName].Trim()
+            if ($depVersion -eq "*" -or (-not (Test-ConcreteVersion -Version $depVersion))) {
+                throw "${Indent}Redirect for unversioned dependency '$DependencyName' must specify a concrete version."
+            }
             Write-Verbose "${Indent}Resolved unversioned dependency: $DependencyName -> $depVersion (from redirect map)"
             
             $resolvedName = $DependencyName
@@ -154,6 +259,8 @@ function Find-DependencyRedirect {
                 ResolvedVersion = $depVersion
                 ResolvedName = $resolvedName
                 IsRedirected = $true
+                IsHardPin = $true
+                Constraint = Get-ConcreteVersionConstraint -Version $depVersion
             }
         }
         else {
@@ -164,6 +271,28 @@ function Find-DependencyRedirect {
     $depSpec = Get-NormalizedVersionSpec -Version $DependencyVersion
     $isExactVersion = $depSpec.IsExact
     $normalizedDepVersion = $depSpec.Normalized
+
+    # PSResource dependency VersionRange uses a bare version as an inclusive
+    # minimum. Top-level RequiredVersion values use the same spelling for an
+    # exact requirement, so callers must identify dependency-range metadata.
+    if ($DependencyVersionIsRange -and $DependencyVersion -notmatch '^(\[|\()') {
+        $isExactVersion = $false
+        $depSpec.Minimum = $DependencyVersion
+        $depSpec.Maximum = $null
+        $depSpec.IncludeMinimum = $true
+        $depSpec.IncludeMaximum = $false
+    }
+
+    $constraint = @{
+        OriginalSpec   = $DependencyVersion
+        Minimum        = $depSpec.Minimum
+        Maximum        = $depSpec.Maximum
+        IncludeMinimum = $depSpec.IncludeMinimum
+        IncludeMaximum = $depSpec.IncludeMaximum
+        IsExact        = $isExactVersion
+        IsHardPin      = $isExactVersion
+        ConcretePin    = $normalizedDepVersion
+    }
     
     # Check name@version first, then name-only fallback
     $depKeyPattern = "${DependencyName}@${normalizedDepVersion}"
@@ -184,10 +313,14 @@ function Find-DependencyRedirect {
     $isNameOnlyMatch = $null -eq $versionSpecificEntry -and $null -ne $nameOnlyEntry
     
     if ($matchedEntry) {
-        $resolvedVersion = $matchedEntry.Value
+        $resolvedVersion = $matchedEntry.Value.Trim()
         
         # "*" retains version but normalizes dependency name casing
         if ($resolvedVersion -eq "*") {
+            if ((-not $isExactVersion) -and
+                ((-not $constraint.Minimum) -or (-not $constraint.IncludeMinimum))) {
+                throw "${Indent}Cannot conservatively resolve dependency '$DependencyName' range '$DependencyVersion' without an inclusive minimum. Please add an explicit redirect mapping for this module."
+            }
             $resolvedVersion = $normalizedDepVersion
             
             if ($isNameOnlyMatch) {
@@ -203,29 +336,27 @@ function Find-DependencyRedirect {
                 ResolvedVersion = $resolvedVersion
                 ResolvedName = $resolvedName
                 IsRedirected = $true
+                IsHardPin = $isExactVersion
+                Constraint = $constraint
             }
         }
+
+        if (-not (Test-ConcreteVersion -Version $resolvedVersion)) {
+            throw "${Indent}Redirect target for '$DependencyName' must specify a concrete version; received '$resolvedVersion'."
+        }
         
-        # Only a broad (name-only) redirect is blocked from moving an exact pin. An
-        # explicit name@version key is an intentional opt-in, so it is honored even
-        # for exact requirements while keeping the result exact.
-        if ($isExactVersion -and $isNameOnlyMatch -and $resolvedVersion -ne $normalizedDepVersion) {
+        if ($isExactVersion -and
+            (-not (Test-EquivalentConcreteVersion -Version1 $resolvedVersion -Version2 $normalizedDepVersion))) {
             throw "${Indent}Cannot redirect exact version dependency '$DependencyName' from version $normalizedDepVersion to $resolvedVersion. Exact version specifications must redirect to the same version or have no redirect."
         }
-        
-        # Trim only targets: consumer-accepted padding must not bypass range checks.
-        if ($isExactVersion -and (-not $isNameOnlyMatch) -and $resolvedVersion -ne $normalizedDepVersion) {
-            $targetSpec = Get-NormalizedVersionSpec -Version ([string]$resolvedVersion).Trim()
-            $targetVersion = $targetSpec.Normalized
-            # NuGet's [v] spelling also denotes a single exact version.
-            if ($targetSpec.IsExact -and $targetVersion.StartsWith('[') -and $targetVersion.EndsWith(']')) {
-                $targetVersion = $targetVersion.Substring(1, $targetVersion.Length - 2).Trim()
-            }
-            if ((-not $targetSpec.IsExact) -or (-not (Test-ConcreteVersion -Version $targetVersion))) {
-                throw "${Indent}Cannot redirect exact version dependency '$DependencyName' from version $normalizedDepVersion to non-exact target '$resolvedVersion'. An explicit version override must target a single concrete version."
-            }
-            $resolvedVersion = $targetVersion
+
+        if ((-not $isExactVersion) -and
+            (-not (Test-VersionSatisfiesConstraint -Version $resolvedVersion -Constraint $constraint))) {
+            throw "${Indent}Redirect target '$resolvedVersion' does not satisfy dependency range '$DependencyVersion' for '$DependencyName'."
         }
+
+        $constraint.IsHardPin = $true
+        $constraint.ConcretePin = $resolvedVersion
         
         if ($isNameOnlyMatch) {
             $resolvedName = $matchedEntry.Key
@@ -240,15 +371,46 @@ function Find-DependencyRedirect {
             ResolvedVersion = $resolvedVersion
             ResolvedName = $resolvedName
             IsRedirected = $true
+            IsHardPin = $true
+            Constraint = $constraint
         }
     }
     else {
+        if ((-not $isExactVersion) -and
+            ((-not $constraint.Minimum) -or (-not $constraint.IncludeMinimum))) {
+            throw "${Indent}Cannot conservatively resolve dependency '$DependencyName' range '$DependencyVersion' without an inclusive minimum. Please add an explicit redirect mapping for this module."
+        }
+
+        $constraint.ConcretePin = $normalizedDepVersion
         return @{
             ResolvedVersion = $normalizedDepVersion
             ResolvedName = $DependencyName
             IsRedirected = $false
+            IsHardPin = $isExactVersion
+            Constraint = $constraint
         }
     }
+}
+
+function Resolve-ExactDependency {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RequiredVersion,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$RedirectMap
+    )
+
+    $specification = Get-NormalizedVersionSpec -Version $RequiredVersion
+    if (-not $specification.IsExact) {
+        throw "RequiredVersion must identify one exact version; '$RequiredVersion' is a range."
+    }
+
+    return Find-DependencyRedirect -DependencyName $Name -DependencyVersion $RequiredVersion `
+        -RedirectMap $RedirectMap
 }
 
 <#
@@ -349,18 +511,23 @@ function Build-RemoteDependencyGraph {
         [switch]$Prerelease,
         
         [Parameter(Mandatory = $false)]
-        [int]$Depth = 0
+        [int]$Depth = 0,
+
+        [Parameter(Mandatory = $false)]
+        [hashtable]$Constraint
     )
     
     $indent = "  " * $Depth
-    $moduleKey = "${ModuleName}@${ModuleVersion}"
-    
-    # Skip if already processed
-    if ($Graph.ContainsKey($moduleKey)) {
-        Write-Verbose "${indent}Already in graph: $moduleKey"
-        return
+    if (-not $Constraint) {
+        $Constraint = Get-ConcreteVersionConstraint -Version $ModuleVersion
     }
-    
+    $moduleKey = "${ModuleName}@${ModuleVersion}"
+    if ($Graph.ContainsKey($moduleKey)) {
+        Merge-DependencyConstraint -Node $Graph[$moduleKey] -Constraint $Constraint
+        Write-Verbose "${indent}Already in graph: $moduleKey"
+        return $moduleKey
+    }
+
     $findParams = @{
         Name = $ModuleName
         Version = $ModuleVersion
@@ -383,6 +550,24 @@ function Build-RemoteDependencyGraph {
         Write-Verbose "${indent}Module not found in repository: $ModuleName version $ModuleVersion (will validate after resolution)"
         $notFound = $true
     }
+
+    $actualVersion = if ($moduleInfo) {
+        $version = $moduleInfo.Version.ToString()
+        $prereleaseProperty = $moduleInfo.PSObject.Properties['Prerelease']
+        if ($prereleaseProperty -and $prereleaseProperty.Value) {
+            "$version-$($prereleaseProperty.Value)"
+        }
+        else {
+            $version
+        }
+    }
+    else {
+        $ModuleVersion
+    }
+
+    if ($moduleInfo -and (-not (Test-EquivalentConcreteVersion -Version1 $actualVersion -Version2 $ModuleVersion))) {
+        throw "Module '$ModuleName' resolved to version $actualVersion instead of concrete pin $ModuleVersion."
+    }
     
     Write-Verbose "${indent}Building graph for: $ModuleName version $ModuleVersion"
     
@@ -395,39 +580,42 @@ function Build-RemoteDependencyGraph {
         $null
     )
     $Graph[$moduleKey] = $graphNode
+    Merge-DependencyConstraint -Node $graphNode -Constraint $Constraint
     
     if ($notFound) {
-        return
+        return $moduleKey
     }
     
     $deps = $moduleInfo.Dependencies
     if (-not $deps -or $deps.Count -eq 0) {
         Write-Verbose "${indent}No dependencies for $ModuleName"
-        return
+        return $moduleKey
     }
     
     Write-Verbose "${indent}Found $($deps.Count) dependency(ies)"
+    $effectiveRedirectMap = Get-MergedRedirectMap -OuterMap $RedirectMap -Name $ModuleName -Version $ModuleVersion
     
     foreach ($dep in $deps) {
         $depName = $dep.Name
         $depVersion = $dep.VersionRange
         
         $redirectResult = Find-DependencyRedirect -DependencyName $depName -DependencyVersion $depVersion `
-            -RedirectMap $RedirectMap -Indent $indent
+            -RedirectMap $effectiveRedirectMap -Indent $indent -DependencyVersionIsRange
         
         $resolvedDepVersion = $redirectResult.ResolvedVersion
         $resolvedDepName = $redirectResult.ResolvedName
         
-        $depKey = "${resolvedDepName}@${resolvedDepVersion}"
+        $depKey = Build-RemoteDependencyGraph -ModuleName $resolvedDepName -ModuleVersion $resolvedDepVersion `
+            -Graph $Graph -RedirectMap $effectiveRedirectMap -Repository $Repository -Credential $Credential `
+            -Prerelease:$Prerelease -Depth ($Depth + 1) -Constraint $redirectResult.Constraint
         Write-Verbose "${indent}  Dependency: $depKey"
         
-        [void]$graphNode.Dependencies.Add($depKey)
-        
-        $depRedirectMap = Get-MergedRedirectMap -OuterMap $RedirectMap -Name $resolvedDepName -Version $resolvedDepVersion
-        
-        Build-RemoteDependencyGraph -ModuleName $resolvedDepName -ModuleVersion $resolvedDepVersion `
-            -Graph $Graph -RedirectMap $depRedirectMap -Repository $Repository -Credential $Credential -Prerelease:$Prerelease -Depth ($Depth + 1)
+        if (-not $graphNode.Dependencies.Contains($depKey)) {
+            [void]$graphNode.Dependencies.Add($depKey)
+        }
     }
+
+    return $moduleKey
 }
 
 <#
@@ -455,7 +643,17 @@ function Compare-SemVer {
     try {
         $v1Ver = [System.Version]$v1Base
         $v2Ver = [System.Version]$v2Base
-        $baseCompare = $v1Ver.CompareTo($v2Ver)
+        $v1Components = $v1Ver.Major, $v1Ver.Minor, $v1Ver.Build, $v1Ver.Revision
+        $v2Components = $v2Ver.Major, $v2Ver.Minor, $v2Ver.Build, $v2Ver.Revision
+        $baseCompare = 0
+        for ($componentIndex = 0; $componentIndex -lt 4; $componentIndex++) {
+            $component1 = if ($v1Components[$componentIndex] -lt 0) { 0 } else { $v1Components[$componentIndex] }
+            $component2 = if ($v2Components[$componentIndex] -lt 0) { 0 } else { $v2Components[$componentIndex] }
+            if ($component1 -ne $component2) {
+                $baseCompare = $component1.CompareTo($component2)
+                break
+            }
+        }
     }
     catch {
         $baseCompare = [string]::Compare($v1Base, $v2Base, [StringComparison]::OrdinalIgnoreCase)
@@ -476,8 +674,59 @@ function Compare-SemVer {
         return -1  # v1 is prerelease, v2 is release
     }
     
-    # Both have prerelease — lexicographic: alpha < beta < dev < rc
-    return [string]::Compare($v1Prerelease, $v2Prerelease, [StringComparison]::OrdinalIgnoreCase)
+    $identifiers1 = $v1Prerelease -split '\.'
+    $identifiers2 = $v2Prerelease -split '\.'
+    $identifierCount = [Math]::Max($identifiers1.Count, $identifiers2.Count)
+
+    for ($index = 0; $index -lt $identifierCount; $index++) {
+        if ($index -ge $identifiers1.Count) {
+            return -1
+        }
+        if ($index -ge $identifiers2.Count) {
+            return 1
+        }
+
+        $identifier1 = $identifiers1[$index]
+        $identifier2 = $identifiers2[$index]
+        $isNumeric1 = $identifier1 -match '^\d+$'
+        $isNumeric2 = $identifier2 -match '^\d+$'
+
+        if ($isNumeric1 -and $isNumeric2) {
+            $number1 = $identifier1.TrimStart('0')
+            $number2 = $identifier2.TrimStart('0')
+            if ($number1.Length -eq 0) {
+                $number1 = "0"
+            }
+            if ($number2.Length -eq 0) {
+                $number2 = "0"
+            }
+            if ($number1.Length -ne $number2.Length) {
+                return $number1.Length.CompareTo($number2.Length)
+            }
+            $numericComparison = [string]::Compare($number1, $number2, [StringComparison]::Ordinal)
+            if ($numericComparison -ne 0) {
+                return $numericComparison
+            }
+        }
+        elseif ($isNumeric1 -ne $isNumeric2) {
+            if ($isNumeric1) {
+                return -1
+            }
+            return 1
+        }
+        else {
+            $identifierComparison = [string]::Compare(
+                $identifier1,
+                $identifier2,
+                [StringComparison]::OrdinalIgnoreCase
+            )
+            if ($identifierComparison -ne 0) {
+                return $identifierComparison
+            }
+        }
+    }
+
+    return 0
 }
 
 <#
@@ -506,45 +755,89 @@ function Resolve-DiamondDependencies {
         }
     }
     
-    # Resolve conflicts — prefer found versions, then highest semver
+    $redirectedKeys = @{}
+
+    # Resolve conflicts by choosing the lowest found candidate satisfying every
+    # incoming constraint. Exact and redirect pins are hard requirements.
     foreach ($moduleName in $moduleVersions.Keys) {
         $versions = $moduleVersions[$moduleName]
         if ($versions.Count -gt 1) {
-            $sorted = $versions | Sort-Object -Property @{
-                Expression = {
-                    if ($_.NotFound) { "1" } else { "0" }
+            $constraints = [System.Collections.ArrayList]@()
+            foreach ($version in $versions) {
+                if ($version.Node.Constraints.Count -eq 0) {
+                    [void]$constraints.Add(@{
+                        OriginalSpec   = "[$($version.VersionString), )"
+                        Minimum        = $version.VersionString
+                        Maximum        = $null
+                        IncludeMinimum = $true
+                        IncludeMaximum = $false
+                        IsExact        = $false
+                        IsHardPin      = $false
+                        ConcretePin    = $version.VersionString
+                    })
                 }
-            }, @{
-                Expression = {
-                    $ver = $_.VersionString
-                    $parts = $ver -split '-', 2
-                    $base = $parts[0]
-                    $prerelease = if ($parts.Count -gt 1) { $parts[1] } else { $null }
-                    
-                    $verParts = $base -split '\.'
-                    $paddedBase = ($verParts | ForEach-Object { $_.PadLeft(10, '0') }) -join '.'
-                    
-                    # Release versions sort after prereleases
-                    $prereleaseKey = if ($null -eq $prerelease) { 'zzzzzzzzzz' } else { $prerelease }
-                    
-                    "$paddedBase|$prereleaseKey"
+                else {
+                    foreach ($constraint in $version.Node.Constraints) {
+                        [void]$constraints.Add($constraint)
+                    }
                 }
-                Descending = $true
             }
-            
-            $highest = $sorted[0]
-            $conflicts = $sorted | Select-Object -Skip 1
-            
-            $discardedNotFound = $conflicts | Where-Object { $_.NotFound }
-            if ($discardedNotFound) {
-                Write-Verbose "  Discarding unavailable version(s): $($discardedNotFound.VersionString -join ', ') (higher version available)"
+
+            $hardPins = [System.Collections.ArrayList]@()
+            foreach ($pin in @($constraints | Where-Object IsHardPin | Select-Object -ExpandProperty ConcretePin)) {
+                $equivalentPin = $hardPins | Where-Object {
+                    Test-EquivalentConcreteVersion -Version1 $_ -Version2 $pin
+                }
+                if (-not $equivalentPin) {
+                    [void]$hardPins.Add($pin)
+                }
             }
-            
-            Write-Warning "Diamond dependency detected for '$moduleName': versions $($versions.VersionString -join ', '). Using highest available: $($highest.VersionString)"
-            
+            if ($hardPins.Count -gt 1) {
+                throw "Conflicting hard pins for '$moduleName': $($hardPins -join ', ')."
+            }
+
+            $foundCandidates = @($versions | Where-Object { -not $_.NotFound })
+            if ($foundCandidates.Count -eq 0) {
+                throw "Module not found: $moduleName versions $($versions.VersionString -join ', '). No available version satisfies the dependency."
+            }
+
+            $selected = $null
+            foreach ($candidate in $foundCandidates) {
+                if ($hardPins.Count -eq 1 -and
+                    (-not (Test-EquivalentConcreteVersion -Version1 $candidate.VersionString -Version2 $hardPins[0]))) {
+                    continue
+                }
+
+                $satisfiesAll = $true
+                foreach ($constraint in $constraints) {
+                    if (-not (Test-VersionSatisfiesConstraint -Version $candidate.VersionString -Constraint $constraint)) {
+                        $satisfiesAll = $false
+                        break
+                    }
+                }
+
+                if ($satisfiesAll -and
+                    ($null -eq $selected -or
+                    (Compare-SemVer -Version1 $candidate.VersionString -Version2 $selected.VersionString) -lt 0)) {
+                    $selected = $candidate
+                }
+            }
+
+            if (-not $selected) {
+                throw "No version of '$moduleName' satisfies all dependency constraints: $($constraints.OriginalSpec -join ', ')."
+            }
+
+            $conflicts = $versions | Where-Object { $_.Key -ne $selected.Key }
+            Write-Warning "Diamond dependency detected for '$moduleName': versions $($versions.VersionString -join ', '). Using lowest compatible: $($selected.VersionString)"
+
+            foreach ($constraint in $constraints) {
+                Merge-DependencyConstraint -Node $selected.Node -Constraint $constraint
+            }
+
             foreach ($conflict in $conflicts) {
                 $oldKey = $conflict.Key
-                $newKey = $highest.Key
+                $newKey = $selected.Key
+                $redirectedKeys[$oldKey] = $newKey
                 
                 Write-Verbose "  Redirecting $oldKey -> $newKey"
                 
@@ -570,6 +863,26 @@ function Resolve-DiamondDependencies {
             throw "Module not found: $($node.Name) version $($node.Version). No alternative version available to satisfy the dependency."
         }
     }
+
+    return $redirectedKeys
+}
+
+function Resolve-GraphRootKey {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$RootKeys,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$RedirectedKeys
+    )
+
+    return @($RootKeys | ForEach-Object {
+        $resolvedKey = $_
+        while ($RedirectedKeys.ContainsKey($resolvedKey)) {
+            $resolvedKey = $RedirectedKeys[$resolvedKey]
+        }
+        $resolvedKey
+    })
 }
 
 <#
@@ -653,18 +966,23 @@ function Build-InstalledDependencyGraph {
         [hashtable]$RedirectMap,
         
         [Parameter(Mandatory = $false)]
-        [int]$Depth = 0
+        [int]$Depth = 0,
+
+        [Parameter(Mandatory = $false)]
+        [hashtable]$Constraint
     )
     
     $indent = "  " * $Depth
-    $moduleKey = "${ModuleName}@${ModuleVersion}"
-    
-    # Skip if already processed
-    if ($Graph.ContainsKey($moduleKey)) {
-        Write-Verbose "${indent}Already in graph: $moduleKey"
-        return
+    if (-not $Constraint) {
+        $Constraint = Get-ConcreteVersionConstraint -Version $ModuleVersion
     }
-    
+    $moduleKey = "${ModuleName}@${ModuleVersion}"
+    if ($Graph.ContainsKey($moduleKey)) {
+        Merge-DependencyConstraint -Node $Graph[$moduleKey] -Constraint $Constraint
+        Write-Verbose "${indent}Already in graph: $moduleKey"
+        return $moduleKey
+    }
+
     # Find the installed module
     $installedModule = Get-PSResource -Name $ModuleName -Version $ModuleVersion -ErrorAction SilentlyContinue | Select-Object -First 1
     
@@ -674,54 +992,77 @@ function Build-InstalledDependencyGraph {
         $notFound = $true
     }
     
-    $actualVersion = if ($installedModule) { $installedModule.Version.ToString() } else { $ModuleVersion }
-    Write-Verbose "${indent}Building graph for: $ModuleName version $actualVersion"
+    $actualVersion = if ($installedModule) {
+        $version = $installedModule.Version.ToString()
+        $prereleaseProperty = $installedModule.PSObject.Properties['Prerelease']
+        if ($prereleaseProperty -and $prereleaseProperty.Value) {
+            "$version-$($prereleaseProperty.Value)"
+        }
+        else {
+            $version
+        }
+    }
+    else {
+        $ModuleVersion
+    }
+
+    if ($installedModule -and (-not (Test-EquivalentConcreteVersion -Version1 $actualVersion -Version2 $ModuleVersion))) {
+        throw "Installed module '$ModuleName' resolved to version $actualVersion instead of concrete pin $ModuleVersion."
+    }
+    Write-Verbose "${indent}Building graph for: $ModuleName version $ModuleVersion"
     
     # InstalledLocation is the base modules folder; append ModuleName/Version
-    $moduleVersionPath = if ($installedModule) { Join-Path $installedModule.InstalledLocation $ModuleName $actualVersion } else { $null }
+    $moduleVersionPath = if ($installedModule) {
+        Join-Path $installedModule.InstalledLocation $ModuleName $installedModule.Version.ToString()
+    }
+    else {
+        $null
+    }
     
     $graphNode = [DependencyGraphNode]::new(
         $ModuleName,
-        $actualVersion,
+        $ModuleVersion,
         [System.Collections.ArrayList]@(),
         $notFound,
         $null,
         $moduleVersionPath
     )
     $Graph[$moduleKey] = $graphNode
+    Merge-DependencyConstraint -Node $graphNode -Constraint $Constraint
     
     if ($notFound) {
-        return
+        return $moduleKey
     }
     
     $deps = $installedModule.Dependencies
     if (-not $deps -or $deps.Count -eq 0) {
         Write-Verbose "${indent}No dependencies for $ModuleName"
-        return
+        return $moduleKey
     }
     
     Write-Verbose "${indent}Found $($deps.Count) dependency(ies)"
+    $effectiveRedirectMap = Get-MergedRedirectMap -OuterMap $RedirectMap -Name $ModuleName -Version $ModuleVersion
     
     foreach ($dep in $deps) {
         $depName = $dep.Name
         $depVersion = $dep.VersionRange
         
         $redirectResult = Find-DependencyRedirect -DependencyName $depName -DependencyVersion $depVersion `
-            -RedirectMap $RedirectMap -Indent $indent
+            -RedirectMap $effectiveRedirectMap -Indent $indent -DependencyVersionIsRange
         
         $resolvedDepVersion = $redirectResult.ResolvedVersion
         $resolvedDepName = $redirectResult.ResolvedName
         
-        $depKey = "${resolvedDepName}@${resolvedDepVersion}"
+        $depKey = Build-InstalledDependencyGraph -ModuleName $resolvedDepName -ModuleVersion $resolvedDepVersion `
+            -Graph $Graph -RedirectMap $effectiveRedirectMap -Depth ($Depth + 1) -Constraint $redirectResult.Constraint
         Write-Verbose "${indent}  Dependency: $depKey"
         
-        [void]$graphNode.Dependencies.Add($depKey)
-        
-        $depRedirectMap = Get-MergedRedirectMap -OuterMap $RedirectMap -Name $resolvedDepName -Version $resolvedDepVersion
-        
-        Build-InstalledDependencyGraph -ModuleName $resolvedDepName -ModuleVersion $resolvedDepVersion `
-            -Graph $Graph -RedirectMap $depRedirectMap -Depth ($Depth + 1)
+        if (-not $graphNode.Dependencies.Contains($depKey)) {
+            [void]$graphNode.Dependencies.Add($depKey)
+        }
     }
+
+    return $moduleKey
 }
 
 function Install-PSResourcePinned {
@@ -779,13 +1120,16 @@ function Install-PSResourcePinned {
     Write-Verbose "Building dependency graph for $Name version $RequiredVersion"
     $dependencyGraph = @{}
     
-    Build-RemoteDependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion `
-        -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential -Prerelease:$Prerelease
+    $root = Resolve-ExactDependency -Name $Name -RequiredVersion $RequiredVersion -RedirectMap $redirectMap
+    $rootKey = Build-RemoteDependencyGraph -ModuleName $root.ResolvedName -ModuleVersion $root.ResolvedVersion `
+        -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential `
+        -Prerelease:$Prerelease -Constraint $root.Constraint
     
-    Resolve-DiamondDependencies -Graph $dependencyGraph
+    $redirectedKeys = Resolve-DiamondDependencies -Graph $dependencyGraph
+    $rootKey = @(Resolve-GraphRootKey -RootKeys @($rootKey) -RedirectedKeys $redirectedKeys)[0]
     
     Write-Verbose "Computing topological order"
-    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph -RootKeys @("${Name}@${RequiredVersion}"))
+    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph -RootKeys @($rootKey))
     
     Write-Verbose "Install order ($($topologicalOrder.Count) modules):"
     for ($i = 0; $i -lt $topologicalOrder.Count; $i++) {
@@ -838,8 +1182,7 @@ function Install-PSResourcePinned {
         }
     }
     
-    $mainModuleKey = "${Name}@${RequiredVersion}"
-    $mainNode = $dependencyGraph[$mainModuleKey]
+    $mainNode = $dependencyGraph[$rootKey]
     Write-Host "Successfully installed $Name version $($mainNode.Version)"
 }
 
@@ -909,13 +1252,16 @@ function Save-PSResourcePinned {
     Write-Verbose "Building dependency graph for $Name version $RequiredVersion"
     $dependencyGraph = @{}
     
-    Build-RemoteDependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion `
-        -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential -Prerelease:$Prerelease
+    $root = Resolve-ExactDependency -Name $Name -RequiredVersion $RequiredVersion -RedirectMap $redirectMap
+    $rootKey = Build-RemoteDependencyGraph -ModuleName $root.ResolvedName -ModuleVersion $root.ResolvedVersion `
+        -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential `
+        -Prerelease:$Prerelease -Constraint $root.Constraint
     
-    Resolve-DiamondDependencies -Graph $dependencyGraph
+    $redirectedKeys = Resolve-DiamondDependencies -Graph $dependencyGraph
+    $rootKey = @(Resolve-GraphRootKey -RootKeys @($rootKey) -RedirectedKeys $redirectedKeys)[0]
     
     Write-Verbose "Computing topological order"
-    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph -RootKeys @("${Name}@${RequiredVersion}"))
+    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph -RootKeys @($rootKey))
     
     Write-Verbose "Save order ($($topologicalOrder.Count) modules):"
     for ($i = 0; $i -lt $topologicalOrder.Count; $i++) {
@@ -965,8 +1311,7 @@ function Save-PSResourcePinned {
         }
     }
     
-    $mainModuleKey = "${Name}@${RequiredVersion}"
-    $mainNode = $dependencyGraph[$mainModuleKey]
+    $mainNode = $dependencyGraph[$rootKey]
     Write-Host "Successfully saved $Name version $($mainNode.Version) and dependencies to $resolvedPath"
 }
 
@@ -977,7 +1322,7 @@ function Save-PSResourcePinned {
     with remote graphs and prevents "assembly already loaded" errors during pre-loading.
 
 .OUTPUTS
-    Array of @{ Name; Version } hashtables.
+    Array of @{ Name; Version; IsVersionRange } hashtables.
 #>
 function Get-ManifestModuleDependencies {
     param(
@@ -1005,16 +1350,18 @@ function Get-ManifestModuleDependencies {
                 throw "$Source entry has no module name: $($Entry | ConvertTo-Json -Compress)"
             }
             $version = $null
+            $isVersionRange = $false
             if ($Entry.ContainsKey('RequiredVersion')) {
                 $version = $Entry.RequiredVersion.ToString()
             }
             elseif ($Entry.ContainsKey('ModuleVersion')) {
                 $version = "[$($Entry.ModuleVersion), )"
+                $isVersionRange = $true
             }
             if (-not $version) {
                 throw "$Source entry '$name' has no version. All entries must specify a version (RequiredVersion or ModuleVersion)."
             }
-            return @{ Name = $name; Version = $version }
+            return @{ Name = $name; Version = $version; IsVersionRange = $isVersionRange }
         }
         else {
             throw "Unrecognized $Source format in manifest: $Entry. Expected string or hashtable."
@@ -1129,15 +1476,17 @@ function Find-PSResourceDependencies {
         
         $mergedRedirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $moduleName -Version ($moduleVersion ?? "")
         $redirectResult = Find-DependencyRedirect -DependencyName $moduleName -DependencyVersion $moduleVersion `
-            -RedirectMap $mergedRedirectMap -Indent ""
+            -RedirectMap $mergedRedirectMap -Indent "" -DependencyVersionIsRange:$depEntry.IsVersionRange
         
-        [void]$rootKeys.Add("$($redirectResult.ResolvedName)@$($redirectResult.ResolvedVersion)")
-        
-        Build-RemoteDependencyGraph -ModuleName $redirectResult.ResolvedName -ModuleVersion $redirectResult.ResolvedVersion `
-            -Graph $dependencyGraph -RedirectMap $mergedRedirectMap -Repository $Repository -Credential $Credential -Prerelease:$Prerelease
+        $rootKey = Build-RemoteDependencyGraph -ModuleName $redirectResult.ResolvedName -ModuleVersion $redirectResult.ResolvedVersion `
+            -Graph $dependencyGraph -RedirectMap $mergedRedirectMap -Repository $Repository -Credential $Credential `
+            -Prerelease:$Prerelease -Constraint $redirectResult.Constraint
+        [void]$rootKeys.Add($rootKey)
     }
     
-    Resolve-DiamondDependencies -Graph $dependencyGraph
+    $redirectedKeys = Resolve-DiamondDependencies -Graph $dependencyGraph
+    $resolvedRootKeys = @(Resolve-GraphRootKey -RootKeys $rootKeys.ToArray() -RedirectedKeys $redirectedKeys)
+    $rootKeys = [System.Collections.ArrayList]@($resolvedRootKeys)
     
     $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph -RootKeys $rootKeys.ToArray())
     
@@ -1320,15 +1669,16 @@ function Import-PSResourceDependencies {
         
         $mergedRedirectMap = Get-MergedRedirectMap -OuterMap $redirectMap -Name $moduleName -Version ($moduleVersion ?? "")
         $redirectResult = Find-DependencyRedirect -DependencyName $moduleName -DependencyVersion $moduleVersion `
-            -RedirectMap $mergedRedirectMap -Indent ""
+            -RedirectMap $mergedRedirectMap -Indent "" -DependencyVersionIsRange:$depEntry.IsVersionRange
         
-        [void]$rootKeys.Add("$($redirectResult.ResolvedName)@$($redirectResult.ResolvedVersion)")
-        
-        Build-InstalledDependencyGraph -ModuleName $redirectResult.ResolvedName -ModuleVersion $redirectResult.ResolvedVersion `
-            -Graph $dependencyGraph -RedirectMap $mergedRedirectMap
+        $rootKey = Build-InstalledDependencyGraph -ModuleName $redirectResult.ResolvedName -ModuleVersion $redirectResult.ResolvedVersion `
+            -Graph $dependencyGraph -RedirectMap $mergedRedirectMap -Constraint $redirectResult.Constraint
+        [void]$rootKeys.Add($rootKey)
     }
     
-    Resolve-DiamondDependencies -Graph $dependencyGraph
+    $redirectedKeys = Resolve-DiamondDependencies -Graph $dependencyGraph
+    $resolvedRootKeys = @(Resolve-GraphRootKey -RootKeys $rootKeys.ToArray() -RedirectedKeys $redirectedKeys)
+    $rootKeys = [System.Collections.ArrayList]@($resolvedRootKeys)
     
     # Compute topological order
     Write-Verbose "Computing topological order"
@@ -1347,8 +1697,16 @@ function Import-PSResourceDependencies {
         $node = $dependencyGraph[$moduleKey]
         $modName = $node.Name
         $modVersion = $node.Version
+        $isPrerelease = $modVersion -match '-'
         
-        $loadedModule = Get-Module -Name $modName | Where-Object { $_.Version.ToString() -eq $modVersion }
+        $loadedModule = Get-Module -Name $modName | Where-Object {
+            if ($isPrerelease) {
+                $_.ModuleBase -eq $node.InstalledLocation
+            }
+            else {
+                $_.Version.ToString() -eq $modVersion
+            }
+        }
         
         if ($loadedModule -and -not $Force) {
             Write-Verbose "Already loaded: $modName version $modVersion"
@@ -1358,11 +1716,13 @@ function Import-PSResourceDependencies {
         
         # -Global ensures modules persist after this function returns
         $importParams = @{
-            Name = $modName
-            RequiredVersion = $modVersion
+            Name = if ($isPrerelease) { $node.InstalledLocation } else { $modName }
             ErrorAction = 'Stop'
             DisableNameChecking = $true
             Global = $true
+        }
+        if (-not $isPrerelease) {
+            $importParams['RequiredVersion'] = $modVersion
         }
         
         if ($Force) {
@@ -1451,8 +1811,16 @@ function Import-ModulePinned {
         $modName = $node.Name
         $modVersion = $node.Version
         $moduleKey = "${modName}@${modVersion}"
+        $isPrerelease = $modVersion -match '-'
         
-        $loadedModule = Get-Module -Name $modName | Where-Object { $_.Version.ToString() -eq $modVersion }
+        $loadedModule = Get-Module -Name $modName | Where-Object {
+            if ($isPrerelease) {
+                $_.ModuleBase -eq $node.InstalledLocation
+            }
+            else {
+                $_.Version.ToString() -eq $modVersion
+            }
+        }
         
         if ($loadedModule -and -not $Force) {
             Write-Verbose "Already loaded: $modName version $modVersion"
@@ -1462,11 +1830,13 @@ function Import-ModulePinned {
         
         # -Global ensures modules persist after this function returns
         $importParams = @{
-            Name = $modName
-            RequiredVersion = $modVersion
+            Name = if ($isPrerelease) { $node.InstalledLocation } else { $modName }
             ErrorAction = 'Stop'
             DisableNameChecking = $true
             Global = $true
+        }
+        if (-not $isPrerelease) {
+            $importParams['RequiredVersion'] = $modVersion
         }
         
         if ($Force) {
@@ -1485,14 +1855,19 @@ function Import-ModulePinned {
     
     Write-Verbose "Returning main module"
     
-    $mainModuleKey = "${Name}@${RequiredVersion}"
+    $mainNode = $resolvedModules |
+        Where-Object { $_.Name -eq $Name } |
+        Select-Object -Last 1
+    $mainModuleKey = "${Name}@$($mainNode.Version)"
     $mainModule = $importedModules[$mainModuleKey]
     
     if (-not $mainModule) {
-        $mainModule = Get-Module -Name $Name | Where-Object { $_.Version.ToString() -eq $RequiredVersion }
+        $mainModule = Get-Module -Name $Name | Where-Object {
+            $_.Version.ToString() -eq $mainNode.Version
+        }
     }
     
-    Write-Verbose "Successfully imported $Name version $RequiredVersion (and $($importedModules.Count - 1) dependencies)"
+    Write-Verbose "Successfully imported $Name version $($mainNode.Version) (and $($importedModules.Count - 1) dependencies)"
     
     if ($PassThru) {
         return $mainModule
@@ -1542,13 +1917,15 @@ function Get-PSResourcesPinned {
     Write-Verbose "Building dependency graph for $Name version $RequiredVersion"
     $dependencyGraph = @{}
     
-    Build-InstalledDependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion `
-        -Graph $dependencyGraph -RedirectMap $redirectMap
+    $root = Resolve-ExactDependency -Name $Name -RequiredVersion $RequiredVersion -RedirectMap $redirectMap
+    $rootKey = Build-InstalledDependencyGraph -ModuleName $root.ResolvedName -ModuleVersion $root.ResolvedVersion `
+        -Graph $dependencyGraph -RedirectMap $redirectMap -Constraint $root.Constraint
     
-    Resolve-DiamondDependencies -Graph $dependencyGraph
+    $redirectedKeys = Resolve-DiamondDependencies -Graph $dependencyGraph
+    $rootKey = @(Resolve-GraphRootKey -RootKeys @($rootKey) -RedirectedKeys $redirectedKeys)[0]
     
     Write-Verbose "Computing topological order"
-    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph -RootKeys @("${Name}@${RequiredVersion}"))
+    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph -RootKeys @($rootKey))
     
     $resolvedModules = [System.Collections.ArrayList]@()
     
@@ -1618,13 +1995,16 @@ function Find-PSResourcesPinned {
     Write-Verbose "Building dependency graph for $Name version $RequiredVersion"
     $dependencyGraph = @{}
     
-    Build-RemoteDependencyGraph -ModuleName $Name -ModuleVersion $RequiredVersion `
-        -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential -Prerelease:$Prerelease
+    $root = Resolve-ExactDependency -Name $Name -RequiredVersion $RequiredVersion -RedirectMap $redirectMap
+    $rootKey = Build-RemoteDependencyGraph -ModuleName $root.ResolvedName -ModuleVersion $root.ResolvedVersion `
+        -Graph $dependencyGraph -RedirectMap $redirectMap -Repository $Repository -Credential $Credential `
+        -Prerelease:$Prerelease -Constraint $root.Constraint
     
-    Resolve-DiamondDependencies -Graph $dependencyGraph
+    $redirectedKeys = Resolve-DiamondDependencies -Graph $dependencyGraph
+    $rootKey = @(Resolve-GraphRootKey -RootKeys @($rootKey) -RedirectedKeys $redirectedKeys)[0]
     
     Write-Verbose "Computing topological order"
-    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph -RootKeys @("${Name}@${RequiredVersion}"))
+    $topologicalOrder = @(Get-TopologicalOrder -Graph $dependencyGraph -RootKeys @($rootKey))
     
     $resolvedModules = [System.Collections.ArrayList]@()
     
