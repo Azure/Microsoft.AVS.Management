@@ -206,7 +206,21 @@ function Test-ConcreteVersion {
         [string]$Version
     )
 
-    return $Version -match '^\d+(?:\.\d+){1,3}(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$'
+    $numericVersion = $null
+    $semanticVersion = $null
+    if ([semver]::TryParse($Version, [ref]$semanticVersion)) {
+        return $true
+    }
+
+    # SemVer has no revision component; validate that separately from its suffix.
+    $suffixIndex = $Version.IndexOfAny([char[]]'-+')
+    $coreVersion = if ($suffixIndex -lt 0) { $Version } else { $Version.Substring(0, $suffixIndex) }
+    if (-not [version]::TryParse($coreVersion, [ref]$numericVersion)) {
+        return $false
+    }
+
+    return $suffixIndex -lt 0 -or ($numericVersion.Revision -ge 0 -and
+        [semver]::TryParse("$($numericVersion.ToString(3))$($Version.Substring($suffixIndex))", [ref]$semanticVersion))
 }
 
 <#
@@ -405,7 +419,8 @@ function Resolve-ExactDependency {
     )
 
     $specification = Get-NormalizedVersionSpec -Version $RequiredVersion
-    if (-not $specification.IsExact) {
+    if ((-not $specification.IsExact) -or
+        (-not (Test-ConcreteVersion -Version $specification.Normalized))) {
         throw "RequiredVersion must identify one exact version; '$RequiredVersion' is a range."
     }
 
@@ -1013,7 +1028,7 @@ function Build-InstalledDependencyGraph {
     
     # InstalledLocation is the base modules folder; append ModuleName/Version
     $moduleVersionPath = if ($installedModule) {
-        Join-Path $installedModule.InstalledLocation $ModuleName $installedModule.Version.ToString()
+        Join-Path $installedModule.InstalledLocation $installedModule.Name $installedModule.Version.ToString()
     }
     else {
         $null

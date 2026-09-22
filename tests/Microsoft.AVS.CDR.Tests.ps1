@@ -1201,6 +1201,24 @@ Describe "Find-DependencyRedirect" {
                 -DependencyVersion "[1.0, 2.0]" -RedirectMap $redirectMap -DependencyVersionIsRange } |
                 Should -Throw "*must specify a concrete version*"
         }
+
+        It "Should accept parser-valid concrete redirect versions" -ForEach @(
+            "1.0.0+build.1"
+            "1.2.3.4-preview.1"
+        ) {
+            $redirectMap = @{ "TestModule" = $_ }
+            $result = & $script:FindDependencyRedirect -DependencyName "TestModule" `
+                -DependencyVersion "" -RedirectMap $redirectMap
+
+            $result.ResolvedVersion | Should -Be $_
+        }
+
+        It "Should reject invalid numeric prerelease identifiers" {
+            $redirectMap = @{ "TestModule" = "1.0.0-01" }
+            { & $script:FindDependencyRedirect -DependencyName "TestModule" `
+                -DependencyVersion "" -RedirectMap $redirectMap } |
+                Should -Throw "*must specify a concrete version*"
+        }
     }
     
     Context "Edge Cases" {
@@ -3082,6 +3100,27 @@ Describe "Build-InstalledDependencyGraph" {
             }
         }
 
+        It "Should use the installed module's canonical name in its Linux path" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Get-PSResource {
+                    [PSCustomObject]@{
+                        Name = "PreviewModule"
+                        Version = [version]"1.0.0"
+                        Prerelease = "preview"
+                        InstalledLocation = "/fake/path/to/modules"
+                        Dependencies = @()
+                    }
+                }
+
+                $graph = @{}
+                $key = Build-InstalledDependencyGraph -ModuleName "previewmodule" `
+                    -ModuleVersion "1.0.0-preview" -Graph $graph -RedirectMap @{}
+
+                $graph[$key].InstalledLocation |
+                    Should -BeExactly "/fake/path/to/modules/PreviewModule/1.0.0"
+            }
+        }
+
         It "Should pin an installed unredirected dependency to its declared minimum" {
             InModuleScope Microsoft.AVS.CDR {
                 Mock Get-PSResource {
@@ -3337,6 +3376,18 @@ Describe "Find-PSResourcesPinned" {
 
                 Should -Invoke Find-PSResource -Times 0 -Exactly
             }
+        }
+
+        It "Should reject a floating RequiredVersion before repository lookup" -ForEach @("*", "1.*") {
+            InModuleScope Microsoft.AVS.CDR {
+                param($RequiredVersion)
+                Mock Find-PSResource { throw "Repository lookup should not occur" }
+
+                { Find-PSResourcesPinned -Name "TestModule" -RequiredVersion $RequiredVersion } |
+                    Should -Throw "*RequiredVersion must identify one exact version*"
+
+                Should -Invoke Find-PSResource -Times 0 -Exactly
+            } -ArgumentList $_
         }
     }
 
