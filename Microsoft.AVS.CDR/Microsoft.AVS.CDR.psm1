@@ -1612,6 +1612,16 @@ function Install-PSResourceDependencies {
     Write-Host "Successfully installed all dependencies from manifest"
 }
 
+function Get-InstalledModuleManifestPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Node
+    )
+
+    $moduleName = Split-Path -Path (Split-Path -Path $Node.InstalledLocation -Parent) -Leaf
+    return Join-Path -Path $Node.InstalledLocation -ChildPath "$moduleName.psd1"
+}
+
 function Import-PSResourceDependencies {
     <#
     .SYNOPSIS
@@ -1731,7 +1741,7 @@ function Import-PSResourceDependencies {
         
         # -Global ensures modules persist after this function returns
         $importParams = @{
-            Name = if ($isPrerelease) { $node.InstalledLocation } else { $modName }
+            Name = if ($isPrerelease) { Get-InstalledModuleManifestPath -Node $node } else { $modName }
             ErrorAction = 'Stop'
             DisableNameChecking = $true
             Global = $true
@@ -1845,7 +1855,7 @@ function Import-ModulePinned {
         
         # -Global ensures modules persist after this function returns
         $importParams = @{
-            Name = if ($isPrerelease) { $node.InstalledLocation } else { $modName }
+            Name = if ($isPrerelease) { Get-InstalledModuleManifestPath -Node $node } else { $modName }
             ErrorAction = 'Stop'
             DisableNameChecking = $true
             Global = $true
