@@ -758,14 +758,24 @@ Describe "Import-ModulePinned" {
     Context "Prerelease Version Handling" {
         # Verify Import-ModulePinned can resolve and import an installed prerelease
         # module when the caller passes the full prerelease version string
-        # (e.g. "1.0.0-preview"). Mocks Get-PSResource / Get-Module / Import-Module
-        # so the test runs without touching real package feeds.
+        # (e.g. "1.0.0-preview") without touching real package feeds.
         It "Should import a module installed as prerelease when given the full prerelease version" {
             InModuleScope Microsoft.AVS.CDR {
                 $modName = "TestPrereleaseModule"
                 $baseVersion = "1.0.0"
                 $prereleaseSuffix = "preview"
                 $fullVersion = "$baseVersion-$prereleaseSuffix"
+                $modulesPath = Join-Path $TestDrive "modules"
+                $moduleVersionPath = Join-Path -Path (Join-Path -Path $modulesPath -ChildPath $modName) `
+                    -ChildPath $baseVersion
+                $moduleManifestPath = Join-Path -Path $moduleVersionPath -ChildPath "$modName.psd1"
+                $moduleScriptPath = Join-Path -Path $moduleVersionPath -ChildPath "$modName.psm1"
+
+                New-Item -ItemType Directory -Path $moduleVersionPath -Force | Out-Null
+                Set-Content -Path $moduleScriptPath -Value "function Get-PrereleaseTestValue { 42 }"
+                New-ModuleManifest -Path $moduleManifestPath -RootModule "$modName.psm1" `
+                    -ModuleVersion $baseVersion -Prerelease $prereleaseSuffix `
+                    -FunctionsToExport "Get-PrereleaseTestValue"
 
                 # Mimic real Get-PSResource: -Version "1.0.0-preview" matches the
                 # installed prerelease; -Version "1.0.0" (release) does not.
@@ -777,7 +787,7 @@ Describe "Import-ModulePinned" {
                             Name              = $modName
                             Version           = [version]$baseVersion
                             Prerelease        = $prereleaseSuffix
-                            InstalledLocation = "/tmp/modules"
+                            InstalledLocation = $modulesPath
                             Dependencies      = @()
                         }
                     }
@@ -785,15 +795,13 @@ Describe "Import-ModulePinned" {
                 }
 
                 Mock Get-Module { }
-                Mock Import-Module {
-                    param($Name, $RequiredVersion)
-                    [PSCustomObject]@{ Name = $modName; Version = [version]$baseVersion }
-                } -ParameterFilter { $Name -eq "/tmp/modules/$modName/$baseVersion" }
-
-                { Import-ModulePinned -Name $modName -RequiredVersion $fullVersion } | Should -Not -Throw
-
-                Should -Invoke Import-Module -Times 1 -ParameterFilter {
-                    $Name -eq "/tmp/modules/$modName/$baseVersion" -and $null -eq $RequiredVersion
+                try {
+                    $result = Import-ModulePinned -Name $modName -RequiredVersion $fullVersion -PassThru
+                    $result.Name | Should -Be $modName
+                    Get-PrereleaseTestValue | Should -Be 42
+                }
+                finally {
+                    Remove-Module -Name $modName -Force -ErrorAction SilentlyContinue
                 }
             }
         }
@@ -2476,6 +2484,55 @@ Describe "Import-PSResourceDependencies" {
         AfterEach {
             if (Test-Path $script:testManifestDir) {
                 Remove-Item $script:testManifestDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    Context "Prerelease Version Handling" {
+        It "Should import a prerelease dependency from its manifest path" {
+            InModuleScope Microsoft.AVS.CDR {
+                $modName = "TestPrereleaseDependency"
+                $baseVersion = "1.0.0"
+                $prereleaseSuffix = "preview"
+                $fullVersion = "$baseVersion-$prereleaseSuffix"
+                $modulesPath = Join-Path $TestDrive "dependency-modules"
+                $moduleVersionPath = Join-Path -Path (Join-Path -Path $modulesPath -ChildPath $modName) `
+                    -ChildPath $baseVersion
+                $moduleManifestPath = Join-Path -Path $moduleVersionPath -ChildPath "$modName.psd1"
+                $moduleScriptPath = Join-Path -Path $moduleVersionPath -ChildPath "$modName.psm1"
+                $rootManifestPath = Join-Path -Path $TestDrive -ChildPath "PrereleaseRoot.psd1"
+
+                New-Item -ItemType Directory -Path $moduleVersionPath -Force | Out-Null
+                Set-Content -Path $moduleScriptPath -Value "function Get-PrereleaseDependencyValue { 42 }"
+                New-ModuleManifest -Path $moduleManifestPath -RootModule "$modName.psm1" `
+                    -ModuleVersion $baseVersion -Prerelease $prereleaseSuffix `
+                    -FunctionsToExport "Get-PrereleaseDependencyValue"
+                @"
+@{
+    ModuleVersion = '1.0.0'
+    RequiredModules = @(
+        @{ ModuleName = '$modName'; RequiredVersion = '$fullVersion' }
+    )
+}
+"@ | Set-Content $rootManifestPath
+
+                Mock Get-PSResource {
+                    [PSCustomObject]@{
+                        Name              = $modName
+                        Version           = [version]$baseVersion
+                        Prerelease        = $prereleaseSuffix
+                        InstalledLocation = $modulesPath
+                        Dependencies      = @()
+                    }
+                }
+
+                try {
+                    Import-PSResourceDependencies -ManifestPath $rootManifestPath
+                    Get-PrereleaseDependencyValue | Should -Be 42
+                }
+                finally {
+                    Remove-Module -Name $modName -Force -ErrorAction SilentlyContinue
+                }
             }
         }
     }
