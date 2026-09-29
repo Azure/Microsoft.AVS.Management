@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 . (Join-Path -Path $PSScriptRoot -ChildPath 'Private/Authenticode.ps1')
+. (Join-Path -Path $PSScriptRoot -ChildPath 'Private/VerifiedInstall.ps1')
 
 class DependencyGraphNode {
     [string]$Name
