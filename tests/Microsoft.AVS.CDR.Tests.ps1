@@ -623,6 +623,13 @@ Describe "Import-ModulePinned" {
             $command = Get-Command Import-ModulePinned
             $command.Parameters.ContainsKey('RedirectMapPath') | Should -BeTrue
         }
+
+        It "Should have AuthenticodeCheck parameter as an optional switch" {
+            $command = Get-Command Import-ModulePinned
+            $command.Parameters.ContainsKey('AuthenticodeCheck') | Should -BeTrue
+            $command.Parameters['AuthenticodeCheck'].SwitchParameter | Should -BeTrue
+            $command.Parameters['AuthenticodeCheck'].Attributes.Mandatory | Should -Not -Contain $true
+        }
     }
 
     Context "Module Import" -Tag 'Integration' {
@@ -2644,6 +2651,13 @@ Describe "Import-PSResourceDependencies" {
                 Import-PSResourceDependencies -ManifestPath $script:testManifestPath `
                     -RedirectMapPath $nonExistentMapPath -ErrorAction Stop
             } | Should -Throw -ExpectedMessage "*not found*"
+        }
+
+        It "Should have AuthenticodeCheck parameter as an optional switch" {
+            $command = Get-Command Import-PSResourceDependencies
+            $command.Parameters.ContainsKey('AuthenticodeCheck') | Should -BeTrue
+            $command.Parameters['AuthenticodeCheck'].SwitchParameter | Should -BeTrue
+            $command.Parameters['AuthenticodeCheck'].Attributes.Mandatory | Should -Not -Contain $true
         }
 
         AfterEach {

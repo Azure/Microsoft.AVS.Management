@@ -2,6 +2,127 @@ BeforeAll {
     $modulePath = Join-Path $PSScriptRoot ".." "Microsoft.AVS.CDR" "Microsoft.AVS.CDR.psd1"
     Import-Module $modulePath -Force
     Import-Module OpenAuthenticode -Force
+
+    function New-TestCertificate {
+        $rsa = [System.Security.Cryptography.RSA]::Create(2048)
+        $request = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new(
+            "CN=Microsoft.AVS.CDR Tests",
+            $rsa,
+            [System.Security.Cryptography.HashAlgorithmName]::SHA256,
+            [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
+
+        $request.CertificateExtensions.Add(
+            [System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]::new($true, $false, 0, $true))
+        $request.CertificateExtensions.Add(
+            [System.Security.Cryptography.X509Certificates.X509SubjectKeyIdentifierExtension]::new($request.PublicKey, $false))
+
+        $request.CreateSelfSigned(
+            [datetimeoffset]::UtcNow.AddDays(-1),
+            [datetimeoffset]::UtcNow.AddDays(7))
+    }
+
+    function New-TrustStore {
+        param(
+            [Parameter(Mandatory = $true)]
+            [System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate
+        )
+
+        $trustStore = [System.Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
+        $trustStore.Add($Certificate) | Out-Null
+        $trustStore
+    }
+
+    function New-SignedPowerShellFile {
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$LiteralPath,
+
+            [Parameter(Mandatory = $true)]
+            [System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,
+
+            [Parameter(Mandatory = $true)]
+            [string]$Content
+        )
+
+        Set-Content -LiteralPath $LiteralPath -Value $Content
+        Set-OpenAuthenticodeSignature -LiteralPath $LiteralPath -Certificate $Certificate -ErrorAction Stop | Out-Null
+    }
+
+    function New-CdrFixtureModule {
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$ModulesRoot,
+
+            [Parameter(Mandatory = $true)]
+            [string]$Name,
+
+            [Parameter(Mandatory = $true)]
+            [string]$Version,
+
+            [Parameter(Mandatory = $false)]
+            [string]$Prerelease,
+
+            [Parameter(Mandatory = $false)]
+            [string]$SentinelVariableName,
+
+            [Parameter(Mandatory = $false)]
+            [string]$SentinelValue,
+
+            [Parameter(Mandatory = $false)]
+            [System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate
+        )
+
+        $moduleVersionPath = Join-Path -Path (Join-Path -Path $ModulesRoot -ChildPath $Name) -ChildPath $Version
+        $manifestPath = Join-Path -Path $moduleVersionPath -ChildPath "$Name.psd1"
+        $moduleScriptPath = Join-Path -Path $moduleVersionPath -ChildPath "$Name.psm1"
+
+        New-Item -ItemType Directory -Path $moduleVersionPath -Force | Out-Null
+
+        $moduleScript = if ($SentinelVariableName) {
+@"
+if (-not (Get-Variable -Name '$SentinelVariableName' -Scope Global -ErrorAction SilentlyContinue)) {
+    `$global:$SentinelVariableName = @()
+}
+`$global:$SentinelVariableName = @(`$global:$SentinelVariableName) + '$SentinelValue'
+"@
+        }
+        else {
+            '# fixture module'
+        }
+
+        if ($Certificate) {
+            New-SignedPowerShellFile -LiteralPath $moduleScriptPath -Certificate $Certificate -Content $moduleScript
+        }
+        else {
+            Set-Content -LiteralPath $moduleScriptPath -Value $moduleScript
+        }
+
+        $manifestParams = @{
+            Path = $manifestPath
+            RootModule = "$Name.psm1"
+            ModuleVersion = $Version
+            FunctionsToExport = @()
+            CmdletsToExport = @()
+            VariablesToExport = @()
+            AliasesToExport = @()
+        }
+        if ($Prerelease) {
+            $manifestParams['Prerelease'] = $Prerelease
+        }
+
+        New-ModuleManifest @manifestParams | Out-Null
+
+        if ($Certificate) {
+            Set-OpenAuthenticodeSignature -LiteralPath $manifestPath -Certificate $Certificate -ErrorAction Stop | Out-Null
+        }
+
+        [pscustomobject]@{
+            Name = $Name
+            Version = if ($Prerelease) { "$Version-$Prerelease" } else { $Version }
+            ModuleVersionPath = $moduleVersionPath
+            ManifestPath = $manifestPath
+        }
+    }
 }
 
 Describe "Assert-CdrFileSignature" {
@@ -215,54 +336,364 @@ Describe "Assert-CdrResolvedModuleSignatures" {
     }
 }
 
-Describe "OpenAuthenticode real signature fixtures" {
-    BeforeAll {
-        function New-TestCertificate {
-            $rsa = [System.Security.Cryptography.RSA]::Create(2048)
-            $request = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new(
-                "CN=Microsoft.AVS.CDR Tests",
-                $rsa,
-                [System.Security.Cryptography.HashAlgorithmName]::SHA256,
-                [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
+Describe "Import entry points with Authenticode checks" {
+    BeforeEach {
+        $script:originalPSModulePath = $env:PSModulePath
+    }
 
-            $request.CertificateExtensions.Add(
-                [System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]::new($true, $false, 0, $true))
-            $request.CertificateExtensions.Add(
-                [System.Security.Cryptography.X509Certificates.X509SubjectKeyIdentifierExtension]::new($request.PublicKey, $false))
-
-            $request.CreateSelfSigned(
-                [datetimeoffset]::UtcNow.AddDays(-1),
-                [datetimeoffset]::UtcNow.AddDays(7))
-        }
-
-        function New-TrustStore {
-            param(
-                [Parameter(Mandatory = $true)]
-                [System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate
-            )
-
-            $trustStore = [System.Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
-            $trustStore.Add($Certificate) | Out-Null
-            $trustStore
-        }
-
-        function New-SignedPowerShellFile {
-            param(
-                [Parameter(Mandatory = $true)]
-                [string]$LiteralPath,
-
-                [Parameter(Mandatory = $true)]
-                [System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,
-
-                [Parameter(Mandatory = $true)]
-                [string]$Content
-            )
-
-            Set-Content -LiteralPath $LiteralPath -Value $Content
-            Set-OpenAuthenticodeSignature -LiteralPath $LiteralPath -Certificate $Certificate -ErrorAction Stop | Out-Null
+    AfterEach {
+        $env:PSModulePath = $script:originalPSModulePath
+        Get-Variable -Name 'CdrImportSentinel' -Scope Global -ErrorAction SilentlyContinue | Remove-Variable -Scope Global -Force -ErrorAction SilentlyContinue
+        foreach ($moduleName in @(
+            'VerifiedStableModule'
+            'VerifiedPrereleaseModule'
+            'VerifiedDependencyModule'
+            'ShadowedCheckedModule'
+            'BadDependencyModule'
+            'LoadedModuleFixture'
+            'LoadedDependencyFixture'
+        )) {
+            Remove-Module -Name $moduleName -Force -ErrorAction SilentlyContinue
         }
     }
 
+    It "verifies an empty dependency manifest before returning in checked mode" {
+        $manifestPath = Join-Path $TestDrive 'EmptyManifest.psd1'
+@"
+@{
+    RootModule = 'EmptyManifest.psm1'
+    ModuleVersion = '1.0.0'
+}
+"@ | Set-Content -LiteralPath $manifestPath
+
+        InModuleScope Microsoft.AVS.CDR -ArgumentList $manifestPath {
+            param($manifestPath)
+
+            Mock Assert-CdrFileSignature { }
+            Mock Build-InstalledDependencyGraph { throw 'should not resolve dependencies' }
+            Mock Import-Module { throw 'should not import modules' }
+
+            $result = Import-PSResourceDependencies -ManifestPath $manifestPath -AuthenticodeCheck
+
+            $result | Should -BeNullOrEmpty
+            Should -Invoke Assert-CdrFileSignature -Times 1 -Exactly -ParameterFilter {
+                $LiteralPath -eq $manifestPath -and
+                $ModuleName -eq 'EmptyManifest' -and
+                $ModuleVersion -eq '1.0.0'
+            }
+            Should -Invoke Build-InstalledDependencyGraph -Times 0 -Exactly
+            Should -Invoke Import-Module -Times 0 -Exactly
+        }
+    }
+
+    It "preflights the full graph before importing any checked dependency" {
+        $certificate = New-TestCertificate
+        $modulesRoot = Join-Path $TestDrive 'modules'
+        $validDependency = New-CdrFixtureModule -ModulesRoot $modulesRoot `
+            -Name 'VerifiedDependencyModule' -Version '1.0.0' `
+            -SentinelVariableName 'CdrImportSentinel' -SentinelValue 'imported' `
+            -Certificate $certificate
+
+        InModuleScope Microsoft.AVS.CDR -ArgumentList $validDependency {
+            param($validDependency)
+
+            Mock Get-PSResourcesPinned {
+                @(
+                    [pscustomobject]@{
+                        Name = $validDependency.Name
+                        Version = $validDependency.Version
+                        InstalledLocation = $validDependency.ModuleVersionPath
+                        Dependencies = @()
+                    }
+                    [pscustomobject]@{
+                        Name = 'BadDependencyModule'
+                        Version = '2.0.0'
+                        InstalledLocation = '/bad/dependency/2.0.0'
+                        Dependencies = @()
+                    }
+                )
+            }
+
+            Mock Get-Module { @() }
+            Mock Assert-CdrResolvedModuleSignatures {
+                param([object[]]$Modules)
+                $Modules[0].Name | Should -Be $validDependency.Name
+                $Modules[1].Name | Should -Be 'BadDependencyModule'
+                throw "Module 'BadDependencyModule' version '2.0.0' failed signature verification."
+            }
+            Mock Import-Module {
+                Microsoft.PowerShell.Core\Import-Module -Name $Name -Global:$Global `
+                    -DisableNameChecking:$DisableNameChecking -Force:$Force -ErrorAction $ErrorAction
+            }
+
+            {
+                Import-ModulePinned -Name 'RootModule' -RequiredVersion '9.9.9' -AuthenticodeCheck
+            } | Should -Throw '*BadDependencyModule*failed signature verification*'
+
+            Should -Invoke Assert-CdrResolvedModuleSignatures -Times 1 -Exactly
+            Should -Invoke Import-Module -Times 0 -Exactly
+        }
+
+        $global:CdrImportSentinel | Should -BeNullOrEmpty
+    }
+
+    It "reuses a matching loaded module only when its ModuleBase matches the verified path" {
+        InModuleScope Microsoft.AVS.CDR {
+            $verifiedPath = '/verified/LoadedModuleFixture/1.2.3'
+            Mock Get-PSResourcesPinned {
+                @(
+                    [pscustomobject]@{
+                        Name = 'LoadedModuleFixture'
+                        Version = '1.2.3'
+                        InstalledLocation = $verifiedPath
+                        Dependencies = @()
+                    }
+                )
+            }
+            Mock Assert-CdrResolvedModuleSignatures { }
+            Mock Get-Module {
+                [pscustomobject]@{
+                    Name = 'LoadedModuleFixture'
+                    Version = [version]'1.2.3'
+                    ModuleBase = $verifiedPath
+                }
+            }
+            Mock Import-Module { throw 'should not import a matching loaded module' }
+
+            $result = Import-ModulePinned -Name 'LoadedModuleFixture' -RequiredVersion '1.2.3' -AuthenticodeCheck -PassThru
+
+            $result.Name | Should -Be 'LoadedModuleFixture'
+            $result.ModuleBase | Should -BeExactly $verifiedPath
+            Should -Invoke Assert-CdrResolvedModuleSignatures -Times 1 -Exactly
+            Should -Invoke Import-Module -Times 0 -Exactly
+        }
+    }
+
+    It "rejects a loaded stable module from a different path in checked mode" {
+        InModuleScope Microsoft.AVS.CDR {
+            Mock Get-PSResourcesPinned {
+                @(
+                    [pscustomobject]@{
+                        Name = 'LoadedModuleFixture'
+                        Version = '1.2.3'
+                        InstalledLocation = '/verified/LoadedModuleFixture/1.2.3'
+                        Dependencies = @()
+                    }
+                )
+            }
+            Mock Assert-CdrResolvedModuleSignatures { }
+            Mock Get-Module {
+                [pscustomobject]@{
+                    Name = 'LoadedModuleFixture'
+                    Version = [version]'1.2.3'
+                    ModuleBase = '/different/path/LoadedModuleFixture/1.2.3'
+                }
+            }
+            Mock Import-Module { throw 'should not import over a mismatched loaded module' }
+
+            {
+                Import-ModulePinned -Name 'LoadedModuleFixture' -RequiredVersion '1.2.3' -AuthenticodeCheck
+            } | Should -Throw '*LoadedModuleFixture*1.2.3*/different/path/LoadedModuleFixture/1.2.3*/verified/LoadedModuleFixture/1.2.3*fresh PowerShell process*'
+
+            Should -Invoke Assert-CdrResolvedModuleSignatures -Times 1 -Exactly
+            Should -Invoke Import-Module -Times 0 -Exactly
+        }
+    }
+
+    It "imports stable checked modules by exact manifest path without RequiredVersion" {
+        $stableModule = New-CdrFixtureModule -ModulesRoot (Join-Path $TestDrive 'stable-modules') `
+            -Name 'VerifiedStableModule' -Version '1.2.3'
+
+        InModuleScope Microsoft.AVS.CDR -ArgumentList $stableModule {
+            param($stableModule)
+
+            $installedLocation = $stableModule.ModuleVersionPath
+            $expectedManifestPath = $stableModule.ManifestPath
+
+            Mock Get-PSResourcesPinned {
+                @(
+                    [pscustomobject]@{
+                        Name = 'VerifiedStableModule'
+                        Version = '1.2.3'
+                        InstalledLocation = $installedLocation
+                        Dependencies = @()
+                    }
+                )
+            }
+            Mock Assert-CdrResolvedModuleSignatures { }
+            Mock Get-Module { @() }
+            Mock Import-Module {
+                [pscustomobject]@{
+                    Name = 'VerifiedStableModule'
+                    Version = [version]'1.2.3'
+                    ModuleBase = $installedLocation
+                }
+            }
+
+            $result = Import-ModulePinned -Name 'VerifiedStableModule' -RequiredVersion '1.2.3' -AuthenticodeCheck -PassThru
+
+            $result.ModuleBase | Should -BeExactly $installedLocation
+            Should -Invoke Import-Module -Times 1 -Exactly -ParameterFilter {
+                $Name -eq $expectedManifestPath -and
+                $ErrorAction -eq 'Stop' -and
+                $Global -eq $true -and
+                $DisableNameChecking -eq $true -and
+                -not $RequiredVersion
+            }
+        }
+    }
+
+    It "imports prerelease checked dependency graphs by exact manifest path" {
+        $manifestPath = Join-Path $TestDrive 'CheckedPrereleaseRoot.psd1'
+        $prereleaseModule = New-CdrFixtureModule -ModulesRoot (Join-Path $TestDrive 'prerelease-modules') `
+            -Name 'VerifiedPrereleaseModule' -Version '2.0.0' -Prerelease 'preview.1'
+@"
+@{
+    RootModule = 'CheckedPrereleaseRoot.psm1'
+    ModuleVersion = '1.0.0'
+    RequiredModules = @(
+        @{ ModuleName = 'VerifiedPrereleaseModule'; RequiredVersion = '2.0.0-preview.1' }
+    )
+}
+"@ | Set-Content -LiteralPath $manifestPath
+
+        InModuleScope Microsoft.AVS.CDR -ArgumentList $manifestPath, $prereleaseModule {
+            param($manifestPath, $prereleaseModule)
+
+            $installedLocation = $prereleaseModule.ModuleVersionPath
+            $expectedManifestPath = $prereleaseModule.ManifestPath
+
+            Mock Assert-CdrFileSignature { }
+            Mock Build-InstalledDependencyGraph {
+                param([string]$ModuleName, [string]$ModuleVersion, [hashtable]$Graph)
+                $moduleKey = "$ModuleName@$ModuleVersion"
+                $Graph[$moduleKey] = [DependencyGraphNode]::new(
+                    $ModuleName,
+                    $ModuleVersion,
+                    [System.Collections.ArrayList]@(),
+                    $false,
+                    $null,
+                    $installedLocation
+                )
+                $moduleKey
+            }
+            Mock Resolve-DiamondDependencies { @{} }
+            Mock Resolve-GraphRootKey { $RootKeys }
+            Mock Get-TopologicalOrder { $RootKeys }
+            Mock Assert-CdrResolvedModuleSignatures { }
+            Mock Get-Module { @() }
+            Mock Import-Module {
+                [pscustomobject]@{
+                    Name = 'VerifiedPrereleaseModule'
+                    Version = [version]'2.0.0'
+                    ModuleBase = $installedLocation
+                }
+            }
+
+            $result = Import-PSResourceDependencies -ManifestPath $manifestPath -AuthenticodeCheck -PassThru
+
+            $result | Should -HaveCount 1
+            $result[0].ModuleBase | Should -BeExactly $installedLocation
+            Should -Invoke Assert-CdrFileSignature -Times 1 -Exactly -ParameterFilter {
+                $LiteralPath -eq $manifestPath
+            }
+            Should -Invoke Import-Module -Times 1 -Exactly -ParameterFilter {
+                $Name -eq $expectedManifestPath -and
+                $ErrorAction -eq 'Stop' -and
+                $Global -eq $true -and
+                $DisableNameChecking -eq $true -and
+                -not $RequiredVersion
+            }
+        }
+    }
+
+    It "uses exact manifest paths in checked mode even when another module-path entry shadows the name" {
+        $verifiedRoot = Join-Path $TestDrive 'verified-modules'
+        $shadowRoot = Join-Path $TestDrive 'shadow-modules'
+        $verifiedModule = New-CdrFixtureModule -ModulesRoot $verifiedRoot `
+            -Name 'ShadowedCheckedModule' -Version '3.4.5' `
+            -SentinelVariableName 'CdrImportSentinel' -SentinelValue 'verified'
+        $shadowModule = New-CdrFixtureModule -ModulesRoot $shadowRoot `
+            -Name 'ShadowedCheckedModule' -Version '3.4.5' `
+            -SentinelVariableName 'CdrImportSentinel' -SentinelValue 'shadow'
+
+        $env:PSModulePath = "$shadowRoot$([IO.Path]::PathSeparator)$verifiedRoot$([IO.Path]::PathSeparator)$script:originalPSModulePath"
+
+        InModuleScope Microsoft.AVS.CDR -ArgumentList $verifiedModule {
+            param($verifiedModule)
+
+            Mock Get-PSResourcesPinned {
+                @(
+                    [pscustomobject]@{
+                        Name = $verifiedModule.Name
+                        Version = $verifiedModule.Version
+                        InstalledLocation = $verifiedModule.ModuleVersionPath
+                        Dependencies = @()
+                    }
+                )
+            }
+            Mock Assert-CdrResolvedModuleSignatures { }
+
+            $result = Import-ModulePinned -Name $verifiedModule.Name `
+                -RequiredVersion $verifiedModule.Version -AuthenticodeCheck -Force -PassThru
+
+            $result.ModuleBase | Should -BeExactly $verifiedModule.ModuleVersionPath
+        }
+
+        $global:CdrImportSentinel | Should -Be @('verified')
+        Get-Module -Name 'ShadowedCheckedModule' | Should -Not -BeNullOrEmpty
+        (Get-Module -Name 'ShadowedCheckedModule').ModuleBase | Should -BeExactly $verifiedModule.ModuleVersionPath
+        Test-Path -LiteralPath $shadowModule.ModuleVersionPath | Should -BeTrue
+    }
+
+    It "forces a checked re-import by exact manifest path" {
+        $forceModule = New-CdrFixtureModule -ModulesRoot (Join-Path $TestDrive 'force-modules') `
+            -Name 'LoadedDependencyFixture' -Version '1.2.3'
+
+        InModuleScope Microsoft.AVS.CDR -ArgumentList $forceModule {
+            param($forceModule)
+
+            $installedLocation = $forceModule.ModuleVersionPath
+            $expectedManifestPath = $forceModule.ManifestPath
+
+            Mock Get-PSResourcesPinned {
+                @(
+                    [pscustomobject]@{
+                        Name = 'LoadedDependencyFixture'
+                        Version = '1.2.3'
+                        InstalledLocation = $installedLocation
+                        Dependencies = @()
+                    }
+                )
+            }
+            Mock Assert-CdrResolvedModuleSignatures { }
+            Mock Get-Module {
+                [pscustomobject]@{
+                    Name = 'LoadedDependencyFixture'
+                    Version = [version]'1.2.3'
+                    ModuleBase = $installedLocation
+                }
+            }
+            Mock Import-Module {
+                [pscustomobject]@{
+                    Name = 'LoadedDependencyFixture'
+                    Version = [version]'1.2.3'
+                    ModuleBase = $installedLocation
+                }
+            }
+
+            $result = Import-ModulePinned -Name 'LoadedDependencyFixture' -RequiredVersion '1.2.3' `
+                -AuthenticodeCheck -Force -PassThru
+
+            $result.ModuleBase | Should -BeExactly $installedLocation
+            Should -Invoke Import-Module -Times 1 -Exactly -ParameterFilter {
+                $Name -eq $expectedManifestPath -and $Force -eq $true
+            }
+        }
+    }
+}
+
+Describe "OpenAuthenticode real signature fixtures" {
     It "verifies a signed PowerShell script with a disposable trust store" {
         $certificate = New-TestCertificate
         $trustStore = New-TrustStore -Certificate $certificate

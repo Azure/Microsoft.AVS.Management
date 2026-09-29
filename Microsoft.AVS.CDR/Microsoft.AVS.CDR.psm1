@@ -1694,6 +1694,126 @@ function Get-InstalledModuleManifestPath {
     return Join-Path -Path $Node.InstalledLocation -ChildPath "$moduleName.psd1"
 }
 
+function Resolve-CdrComparablePath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$LiteralPath
+    )
+
+    try {
+        $resolvedPath = Resolve-Path -LiteralPath $LiteralPath -ErrorAction Stop
+        $comparablePath = $resolvedPath.Path
+    }
+    catch {
+        $comparablePath = [System.IO.Path]::GetFullPath($LiteralPath)
+    }
+
+    return $comparablePath.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+}
+
+function Test-CdrVerifiedModuleBase {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ActualModuleBase,
+
+        [Parameter(Mandatory = $true)]
+        [string]$VerifiedModuleBase
+    )
+
+    return (
+        (Resolve-CdrComparablePath -LiteralPath $ActualModuleBase) -ceq
+        (Resolve-CdrComparablePath -LiteralPath $VerifiedModuleBase)
+    )
+}
+
+function Assert-CdrLoadedShortcutMatchesVerifiedLocation {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$LoadedModule,
+
+        [Parameter(Mandatory = $true)]
+        [object]$Node
+    )
+
+    if (-not (Test-CdrVerifiedModuleBase -ActualModuleBase $LoadedModule.ModuleBase -VerifiedModuleBase $Node.InstalledLocation)) {
+        throw "Checked import cannot reuse loaded module '$($Node.Name)' version '$($Node.Version)' from '$($LoadedModule.ModuleBase)' because the verified installed location is '$($Node.InstalledLocation)'. Start a fresh PowerShell process and retry with -AuthenticodeCheck."
+    }
+}
+
+function Import-CdrVerifiedModuleGraph {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$Nodes,
+
+        [Parameter(Mandatory = $true)]
+        [switch]$Force
+    )
+
+    Assert-CdrResolvedModuleSignatures -Modules $Nodes
+
+    $importedModules = @{}
+
+    foreach ($node in $Nodes) {
+        $moduleKey = "$($node.Name)@$($node.Version)"
+        $loadedShortcutCandidates = @(Get-Module -Name $node.Name | Where-Object {
+            if ($node.Version -match '-') {
+                $_.ModuleBase -eq $node.InstalledLocation
+            }
+            else {
+                $_.Version.ToString() -eq $node.Version
+            }
+        })
+
+        if ($loadedShortcutCandidates.Count -gt 0 -and -not $Force) {
+            foreach ($loadedShortcutCandidate in $loadedShortcutCandidates) {
+                Assert-CdrLoadedShortcutMatchesVerifiedLocation -LoadedModule $loadedShortcutCandidate -Node $node
+            }
+
+            Write-Verbose "Already loaded: $($node.Name) version $($node.Version)"
+            $importedModules[$moduleKey] = $loadedShortcutCandidates | Select-Object -First 1
+            continue
+        }
+
+        $manifestPath = Get-InstalledModuleManifestPath -Node $node
+        if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+            throw "Installed manifest not found for module '$($node.Name)' version '$($node.Version)' at '$manifestPath'."
+        }
+
+        $importParams = @{
+            Name = $manifestPath
+            ErrorAction = 'Stop'
+            DisableNameChecking = $true
+            Global = $true
+        }
+
+        if ($Force) {
+            $importParams['Force'] = $true
+        }
+
+        try {
+            Write-Verbose "Importing: $($node.Name) version $($node.Version)"
+            $imported = @(Import-Module @importParams -PassThru)
+        }
+        catch {
+            throw "Failed to import $($node.Name) version $($node.Version): $_"
+        }
+
+        $matchingModule = @($imported | Where-Object {
+            $_.Name -eq $node.Name -and
+            (Test-CdrVerifiedModuleBase -ActualModuleBase $_.ModuleBase -VerifiedModuleBase $node.InstalledLocation)
+        }) | Select-Object -First 1
+
+        if (-not $matchingModule) {
+            $actualModuleBase = @($imported | Select-Object -First 1).ModuleBase
+            throw "Checked import of module '$($node.Name)' version '$($node.Version)' returned ModuleBase '$actualModuleBase' instead of verified path '$($node.InstalledLocation)'. Start a fresh PowerShell process and retry with -AuthenticodeCheck."
+        }
+
+        $importedModules[$moduleKey] = $matchingModule
+    }
+
+    return $importedModules
+}
+
 function Import-PSResourceDependencies {
     <#
     .SYNOPSIS
@@ -1713,6 +1833,9 @@ function Import-PSResourceDependencies {
         
         [Parameter(Mandatory = $false)]
         [switch]$Force,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$AuthenticodeCheck,
         
         [Parameter(Mandatory = $false)]
         [switch]$PassThru
@@ -1732,6 +1855,12 @@ function Import-PSResourceDependencies {
     
     # Parse the manifest
     $manifest = Import-PowerShellDataFile -Path $resolvedPath
+    $manifestModuleName = [System.IO.Path]::GetFileNameWithoutExtension($resolvedPath.Path)
+    $manifestModuleVersion = if ($manifest.ModuleVersion) { $manifest.ModuleVersion.ToString() } else { "" }
+
+    if ($AuthenticodeCheck) {
+        Assert-CdrFileSignature -LiteralPath $resolvedPath.Path -ModuleName $manifestModuleName -ModuleVersion $manifestModuleVersion
+    }
     
     # Extract module dependencies from both RequiredModules and ModuleList
     $moduleDependencies = @(Get-ManifestModuleDependencies -Manifest $manifest)
@@ -1739,9 +1868,6 @@ function Import-PSResourceDependencies {
         Write-Verbose "No module dependencies found in manifest (RequiredModules or ModuleList)"
         return
     }
-    
-    $manifestModuleName = [System.IO.Path]::GetFileNameWithoutExtension($resolvedPath.Path)
-    $manifestModuleVersion = if ($manifest.ModuleVersion) { $manifest.ModuleVersion.ToString() } else { "" }
     
     if ($RedirectMapPath) {
         if (-not (Test-Path $RedirectMapPath)) {
@@ -1788,6 +1914,18 @@ function Import-PSResourceDependencies {
     
     Write-Verbose "Pre-loading all modules in topological order"
     
+    if ($AuthenticodeCheck) {
+        $importedModules = Import-CdrVerifiedModuleGraph -Nodes @($topologicalOrder | ForEach-Object { $dependencyGraph[$_] }) -Force:$Force
+
+        Write-Verbose "Successfully imported $($importedModules.Count) module(s) from manifest"
+
+        if ($PassThru) {
+            return $importedModules.Values
+        }
+
+        return
+    }
+
     $importedModules = @{}
     
     foreach ($moduleKey in $topologicalOrder) {
@@ -1865,6 +2003,9 @@ function Import-ModulePinned {
         
         [Parameter(Mandatory = $false)]
         [switch]$Force,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$AuthenticodeCheck,
         
         [Parameter(Mandatory = $false)]
         [string]$Prefix,
@@ -1901,6 +2042,32 @@ function Import-ModulePinned {
     }
     
     Write-Verbose "Pre-loading all modules in topological order"
+
+    if ($AuthenticodeCheck) {
+        $importedModules = Import-CdrVerifiedModuleGraph -Nodes $resolvedModules -Force:$Force
+
+        Write-Verbose "Returning main module"
+
+        $mainNode = $resolvedModules |
+            Where-Object { $_.Name -eq $Name } |
+            Select-Object -Last 1
+        $mainModuleKey = "${Name}@$($mainNode.Version)"
+        $mainModule = $importedModules[$mainModuleKey]
+
+        if (-not $mainModule) {
+            $mainModule = Get-Module -Name $Name | Where-Object {
+                $_.Version.ToString() -eq $mainNode.Version
+            } | Select-Object -First 1
+        }
+
+        Write-Verbose "Successfully imported $Name version $($mainNode.Version) (and $($importedModules.Count - 1) dependencies)"
+
+        if ($PassThru) {
+            return $mainModule
+        }
+
+        return
+    }
     
     $importedModules = @{}
     
