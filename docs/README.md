@@ -137,6 +137,51 @@ Import-ModulePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0"
 
 CDR automatically loads the appropriate redirect map from its `maps/` directory based on the `Microsoft.AVS.Management` version in your dependency chain. You can also supply a custom redirect map via `-RedirectMapPath`.
 
+CDR also supports **opt-in Linux Authenticode verification** for the four install/import entry points:
+
+| CDR Cmdlet | Optional verification switch |
+|------------|------------------------------|
+| `Install-PSResourcePinned` | `-AuthenticodeCheck` |
+| `Install-PSResourceDependencies` | `-AuthenticodeCheck` |
+| `Import-ModulePinned` | `-AuthenticodeCheck` |
+| `Import-PSResourceDependencies` | `-AuthenticodeCheck` |
+
+The switch is **off by default** everywhere. Existing callers do not verify signatures unless they explicitly pass `-AuthenticodeCheck`.
+
+#### Linux Authenticode verification contract
+
+- **Linux only.** This feature is intended for PowerShell 7.4+ on Linux. It does not add a Windows verification backend, does not claim Windows parity, and is **not** equivalent to native PowerShell `SignatureStatus.Valid`.
+- **Mandatory dependency.** `Microsoft.AVS.CDR` now has a required dependency on **OpenAuthenticode 0.6.3**. Provision that exact module version through the approved **Consumption** feed before importing or packaging CDR; there is no direct public-source fallback or on-demand runtime installer.
+- **Supported file coverage is exact and limited to OpenAuthenticode 0.6.3's released providers:** `.ps1`, `.psd1`, `.psm1`, `.psc1`, `.ps1xml`, `.dll`, `.exe`.
+- **Unsupported files are not verified.** That includes `README` files, JSON, native `.so` files, catalogs, arbitrary data files, and dynamically loaded external files outside the selected module graph.
+- **No revocation checking.** Verification relies on OpenAuthenticode's default host trust behavior. Trusted roots and intermediate certificates available to the Linux host matter; revocation status is not checked by CDR.
+- **Fresh session recommended.** Checked imports validate files currently on disk, but they cannot retroactively prove that a module already imported earlier in the process was safe. If you are adopting checked mode for execution, start a fresh PowerShell session first.
+- **Installed/loaded shortcuts stay verified.** In checked mode, CDR still honors exact-version installed-module and loaded-module shortcuts only after validating the actual on-disk files or matching loaded path. CDR does **not** blindly skip verification just because the module is already installed or already loaded.
+- **`-Force` never bypasses verification.** `-Force` can replace an exact-version destination or force a re-import, but the replacement graph must still verify successfully first.
+- **Fail closed staging/promotion.** Checked installs stage downloads, verify the complete selected graph, and only then promote into the destination module path. If verification fails, CDR does not publish partially checked modules into the destination. Rollback preserves prior exact-version destinations where possible and reports recovery paths if rollback itself fails.
+
+Examples with verification enabled:
+
+```powershell
+# Install declared dependencies with exact pins and signature checks enabled
+Install-PSResourceDependencies `
+    -ManifestPath "./MyModule/MyModule.psd1" `
+    -Repository 'Consumption' `
+    -AuthenticodeCheck
+
+# Install and import a pinned module with explicit Linux Authenticode checks
+Install-PSResourcePinned `
+    -Name "VMware.PowerCLI" `
+    -RequiredVersion "13.3.0" `
+    -Repository 'Consumption' `
+    -AuthenticodeCheck
+
+Import-ModulePinned `
+    -Name "VMware.PowerCLI" `
+    -RequiredVersion "13.3.0" `
+    -AuthenticodeCheck
+```
+
 #### Transitional Guidance: Avoiding the `Import-ModulePinned` `AVSAttribute` Scope Bug
 
 Packages that still depend on `Microsoft.AVS.Management` **9 or earlier** are affected by a PowerShell scope-loss bug when imported via `Import-ModulePinned` and `Import-PSResourceDependencies`. The symptom is a parse-time error inside a dot-sourced script file in the consumer module:

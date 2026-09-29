@@ -68,7 +68,7 @@ function Get-CdrLinuxModuleRoot {
     (Get-Item -LiteralPath $root -ErrorAction Stop).FullName
 }
 
-function Get-CdrResourceDestinationPaths {
+function Get-CdrResourceDestinationLayout {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -218,7 +218,7 @@ function Assert-CdrSavedModuleIdentity {
     $metadata
 }
 
-function Update-CdrMetadataInstalledLocation {
+function Write-CdrMetadataInstalledLocation {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -250,7 +250,7 @@ function Get-CdrDiscoveredInstalledResource {
     )
 
     $versionInfo = Split-CdrResourceVersion -Version $Resource.Version
-    @(Get-PSResource -Name $Resource.Name -ErrorAction SilentlyContinue) |
+    @(Get-InstalledPSResource -Name $Resource.Name -ErrorAction SilentlyContinue) |
         Where-Object {
             if (-not $_) {
                 return $false
@@ -277,7 +277,7 @@ function Invoke-CdrDirectoryMove {
     Move-Item -LiteralPath $LiteralPath -Destination $Destination -ErrorAction Stop
 }
 
-function Remove-CdrInstalledVersionDirectory {
+function Invoke-CdrInstalledVersionDirectoryRemoval {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -297,26 +297,14 @@ function Remove-CdrInstalledVersionDirectory {
             Remove-Item -LiteralPath $moduleRoot -Force -ErrorAction Stop
         }
     }
-
-    function Remove-CdrEmptyDirectory {
-        [CmdletBinding()]
-        param(
-            [Parameter(Mandatory = $true)]
-            [string]$LiteralPath
-        )
-
-        if (-not (Test-Path -LiteralPath $LiteralPath)) {
-            return
-        }
-
-        $entries = @(Get-ChildItem -LiteralPath $LiteralPath -Force -ErrorAction Stop)
-        if ($entries.Count -eq 0) {
-            Remove-Item -LiteralPath $LiteralPath -Force -ErrorAction Stop
-        }
-    }
 }
 
-function Install-CdrVerifiedResources {
+Set-Alias -Name Get-CdrResourceDestinationPaths -Value Get-CdrResourceDestinationLayout -Scope Script
+Set-Alias -Name Update-CdrMetadataInstalledLocation -Value Write-CdrMetadataInstalledLocation -Scope Script
+Set-Alias -Name Remove-CdrInstalledVersionDirectory -Value Invoke-CdrInstalledVersionDirectoryRemoval -Scope Script
+Set-Alias -Name Install-CdrVerifiedResources -Value Invoke-CdrVerifiedResourceInstallation -Scope Script
+
+function Invoke-CdrVerifiedResourceInstallation {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -399,8 +387,8 @@ function Install-CdrVerifiedResources {
         $cleanupPaths.Add($operationRoot) | Out-Null
 
         $preparedResources = foreach ($resource in $Resources) {
-            $destinationPaths = Get-CdrResourceDestinationPaths -ModulesRoot $modulesRoot -Resource $resource
-            $stagingPaths = Get-CdrResourceDestinationPaths -ModulesRoot $stagingModulesRoot -Resource $resource
+            $destinationPaths = Get-CdrResourceDestinationLayout -ModulesRoot $modulesRoot -Resource $resource
+            $stagingPaths = Get-CdrResourceDestinationLayout -ModulesRoot $stagingModulesRoot -Resource $resource
             $versionInfo = $destinationPaths.VersionInfo
 
             $useExistingDestination = (-not $Force) -and (Test-CdrExactResourceDirectory -VersionRoot $destinationPaths.VersionRoot)
@@ -459,7 +447,7 @@ function Install-CdrVerifiedResources {
         }
 
         foreach ($prepared in $preparedResources | Where-Object NeedsPromotion) {
-            Update-CdrMetadataInstalledLocation -MetadataPath (Join-Path $prepared.StageRoot 'PSGetModuleInfo.xml') `
+            Write-CdrMetadataInstalledLocation -MetadataPath (Join-Path $prepared.StageRoot 'PSGetModuleInfo.xml') `
                 -InstalledLocation $modulesRoot
         }
 
@@ -516,7 +504,7 @@ function Install-CdrVerifiedResources {
         foreach ($destination in @($promotedDestinations.ToArray()) | Sort-Object -Descending) {
             if (Test-Path -LiteralPath $destination) {
                 try {
-                    Remove-CdrInstalledVersionDirectory -LiteralPath $destination
+                    Invoke-CdrInstalledVersionDirectoryRemoval -LiteralPath $destination
                 }
                 catch {
                     $rollbackIssues.Add($destination) | Out-Null

@@ -1002,7 +1002,7 @@ function Build-InstalledDependencyGraph {
     }
 
     # Find the installed module
-    $installedModule = Get-PSResource -Name $ModuleName -Version $ModuleVersion -ErrorAction SilentlyContinue | Select-Object -First 1
+    $installedModule = Get-InstalledPSResource -Name $ModuleName -Version $ModuleVersion -ErrorAction SilentlyContinue | Select-Object -First 1
     
     $notFound = $false
     if (-not $installedModule) {
@@ -1181,7 +1181,7 @@ function Install-PSResourcePinned {
             $verifiedInstallParams['Credential'] = $Credential
         }
 
-        Install-CdrVerifiedResources @verifiedInstallParams
+        Invoke-CdrVerifiedResourceInstallation @verifiedInstallParams
     }
     else {
         # Install modules in topological order
@@ -1192,7 +1192,7 @@ function Install-PSResourcePinned {
             
             $installed = $null
             if (-not $Force) {
-                $installed = Get-PSResource -Name $modName -ErrorAction SilentlyContinue | 
+                $installed = Get-InstalledPSResource -Name $modName -ErrorAction SilentlyContinue | 
                     Where-Object {
                         if (-not $_) { return $false }
                         $installedVersion = $_.Version.ToString()
@@ -1643,13 +1643,13 @@ function Install-PSResourceDependencies {
             $verifiedInstallParams['Credential'] = $Credential
         }
 
-        Install-CdrVerifiedResources @verifiedInstallParams
+        Invoke-CdrVerifiedResourceInstallation @verifiedInstallParams
     }
     else {
         foreach ($dependency in $resolvedDependencies) {
             $installed = $null
             if (-not $Force) {
-                $installed = Get-PSResource -Name $dependency.Name -ErrorAction SilentlyContinue | 
+                $installed = Get-InstalledPSResource -Name $dependency.Name -ErrorAction SilentlyContinue | 
                     Where-Object { $_.Version.ToString() -eq $dependency.Version }
             }
             
@@ -1749,7 +1749,7 @@ function Import-CdrVerifiedModuleGraph {
         [switch]$Force
     )
 
-    Assert-CdrResolvedModuleSignatures -Modules $Nodes
+    Assert-CdrResolvedModuleSignatureGraph -Modules $Nodes
 
     $importedModules = @{}
 

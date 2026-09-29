@@ -163,7 +163,7 @@ function Assert-CdrModuleSignature {
     Write-Verbose "Verified $($filesToVerify.Count) supported file(s) for module '$ModuleName' version '$ModuleVersion' under '$ModuleDirectory'; ignored $unsupportedCount unsupported file(s)."
 }
 
-function Assert-CdrResolvedModuleSignatures {
+function Assert-CdrResolvedModuleSignatureGraph {
     <#
     .SYNOPSIS
         Verifies every resolved module directory in a dependency graph.
@@ -182,3 +182,5 @@ function Assert-CdrResolvedModuleSignatures {
             -ModuleName $module.Name -ModuleVersion $module.Version
     }
 }
+
+Set-Alias -Name Assert-CdrResolvedModuleSignatures -Value Assert-CdrResolvedModuleSignatureGraph -Scope Script

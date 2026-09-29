@@ -437,6 +437,86 @@ Describe "Import entry points with Authenticode checks" {
         $global:CdrImportSentinel | Should -BeNullOrEmpty
     }
 
+    It "fails a checked dependency import before execution when a representative signed graph includes an unsigned dependency" {
+        $certificate = New-TestCertificate
+        $modulesRoot = Join-Path $TestDrive 'offline-graph-modules'
+        $manifestPath = Join-Path $TestDrive 'CheckedOfflineGraph.psd1'
+        $signedDependency = New-CdrFixtureModule -ModulesRoot $modulesRoot `
+            -Name 'VerifiedDependencyModule' -Version '1.0.0' `
+            -SentinelVariableName 'CdrImportSentinel' -SentinelValue 'signed-imported' `
+            -Certificate $certificate
+        $unsignedDependency = New-CdrFixtureModule -ModulesRoot $modulesRoot `
+            -Name 'UnsignedDependencyModule' -Version '2.0.0' `
+            -SentinelVariableName 'CdrImportSentinel' -SentinelValue 'unsigned-imported'
+
+@"
+@{
+    RootModule = 'CheckedOfflineGraph.psm1'
+    ModuleVersion = '1.0.0'
+    RequiredModules = @(
+        @{ ModuleName = 'VerifiedDependencyModule'; RequiredVersion = '1.0.0' }
+        @{ ModuleName = 'UnsignedDependencyModule'; RequiredVersion = '2.0.0' }
+    )
+}
+"@ | Set-Content -LiteralPath $manifestPath
+        Set-OpenAuthenticodeSignature -LiteralPath $manifestPath -Certificate $certificate -ErrorAction Stop | Out-Null
+
+        InModuleScope Microsoft.AVS.CDR -ArgumentList $manifestPath, $signedDependency, $unsignedDependency {
+            param($manifestPath, $signedDependency, $unsignedDependency)
+
+            Mock Build-InstalledDependencyGraph {
+                param([string]$ModuleName, [string]$ModuleVersion, [hashtable]$Graph)
+
+                $installedLocation = switch ($ModuleName) {
+                    'VerifiedDependencyModule' { $signedDependency.ModuleVersionPath }
+                    'UnsignedDependencyModule' { $unsignedDependency.ModuleVersionPath }
+                    default { throw "Unexpected module '$ModuleName'" }
+                }
+
+                $moduleKey = "$ModuleName@$ModuleVersion"
+                $Graph[$moduleKey] = [DependencyGraphNode]::new(
+                    $ModuleName,
+                    $ModuleVersion,
+                    [System.Collections.ArrayList]@(),
+                    $false,
+                    $null,
+                    $installedLocation
+                )
+                $moduleKey
+            }
+            Mock Resolve-DiamondDependencies { @{} }
+            Mock Resolve-GraphRootKey { $RootKeys }
+            Mock Get-TopologicalOrder { $RootKeys }
+            Mock Get-Module { @() }
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' {
+                param([string]$LiteralPath)
+
+                if ($LiteralPath -like "*$([IO.Path]::DirectorySeparatorChar)UnsignedDependencyModule$([IO.Path]::DirectorySeparatorChar)*") {
+                    return @()
+                }
+
+                [pscustomobject]@{
+                    SignerCertificate = [pscustomobject]@{ Subject = 'CN=Fixture Signer' }
+                }
+            }
+            Mock Import-Module {
+                Microsoft.PowerShell.Core\Import-Module -Name $Name -Global:$Global `
+                    -DisableNameChecking:$DisableNameChecking -Force:$Force -ErrorAction $ErrorAction
+            }
+
+            {
+                Import-PSResourceDependencies -ManifestPath $manifestPath -AuthenticodeCheck
+            } | Should -Throw '*No Authenticode signature*UnsignedDependencyModule*'
+
+            Should -Invoke 'OpenAuthenticode\Get-OpenAuthenticodeSignature' -Times 1 -ParameterFilter {
+                $LiteralPath -eq $manifestPath
+            }
+            Should -Invoke Import-Module -Times 0 -Exactly
+        }
+
+        $global:CdrImportSentinel | Should -BeNullOrEmpty
+    }
+
     It "reuses a matching loaded module only when its ModuleBase matches the verified path" {
         InModuleScope Microsoft.AVS.CDR {
             $verifiedPath = '/verified/LoadedModuleFixture/1.2.3'
