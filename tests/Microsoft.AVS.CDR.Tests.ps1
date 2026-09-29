@@ -60,6 +60,13 @@ Describe "Install-PSResourcePinned" {
             $command = Get-Command Install-PSResourcePinned
             $command.Parameters.ContainsKey('RedirectMapPath') | Should -BeTrue
         }
+
+        It "Should have AuthenticodeCheck parameter as an optional switch" {
+            $command = Get-Command Install-PSResourcePinned
+            $command.Parameters.ContainsKey('AuthenticodeCheck') | Should -BeTrue
+            $command.Parameters['AuthenticodeCheck'].SwitchParameter | Should -BeTrue
+            $command.Parameters['AuthenticodeCheck'].Attributes.Mandatory | Should -Not -Contain $true
+        }
     }
 
     Context "Module Installation" -Tag 'Integration' {
@@ -235,6 +242,66 @@ Describe "Install-PSResourcePinned" {
                 Install-PSResourcePinned -Name "TestModule" -RequiredVersion "1.0.0-dev" -Prerelease
                 
                 # Install-PSResource should NOT be called because module is already installed
+                Should -Invoke Install-PSResource -Times 0
+            }
+        }
+
+        It "Should pass every resolved graph node to Install-CdrVerifiedResources when AuthenticodeCheck is enabled" {
+            $credential = [pscredential]::new(
+                'copilot',
+                (ConvertTo-SecureString 'secret' -AsPlainText -Force)
+            )
+
+            InModuleScope Microsoft.AVS.CDR -ArgumentList $credential {
+                param($credential)
+
+                Mock Resolve-ExactDependency {
+                    [pscustomobject]@{
+                        ResolvedName = 'Root.Module'
+                        ResolvedVersion = '3.2.4'
+                        Constraint = $null
+                    }
+                }
+                Mock Build-RemoteDependencyGraph {
+                    param($ModuleName, $ModuleVersion, $Graph)
+                    $Graph['Root.Module@3.2.4'] = [DependencyGraphNode]::new(
+                        'Root.Module', '3.2.4', @('Shared.Dependency@2.0.0', 'Leaf.Dependency@1.5.0'), $false, 'RootRepo', $null
+                    )
+                    $Graph['Shared.Dependency@2.0.0'] = [DependencyGraphNode]::new(
+                        'Shared.Dependency', '2.0.0', @(), $false, 'SharedRepo', $null
+                    )
+                    $Graph['Leaf.Dependency@1.5.0'] = [DependencyGraphNode]::new(
+                        'Leaf.Dependency', '1.5.0', @(), $false, 'LeafRepo', $null
+                    )
+                    return 'Root.Module@3.2.4'
+                }
+                Mock Resolve-DiamondDependencies { @{} }
+                Mock Resolve-GraphRootKey { param($RootKeys, $RedirectedKeys) $RootKeys }
+                Mock Get-TopologicalOrder { @('Shared.Dependency@2.0.0', 'Leaf.Dependency@1.5.0', 'Root.Module@3.2.4') }
+                Mock Install-CdrVerifiedResources { }
+                Mock Install-PSResource { throw 'unchecked install path should not run' }
+
+                Install-PSResourcePinned -Name 'Root.Module' -RequiredVersion '3.2.4' `
+                    -Scope AllUsers -Repository 'RequestedRepo' -Credential $credential `
+                    -Prerelease -Force -AuthenticodeCheck
+
+                Should -Invoke Install-CdrVerifiedResources -Times 1 -ParameterFilter {
+                    $Scope -eq 'AllUsers' -and
+                    $Prerelease -and
+                    $Force -and
+                    $Repository -eq 'RequestedRepo' -and
+                    $Credential -eq $credential -and
+                    $Resources.Count -eq 3 -and
+                    $Resources[0].Name -eq 'Shared.Dependency' -and
+                    $Resources[0].Version -eq '2.0.0' -and
+                    $Resources[0].Repository -eq 'SharedRepo' -and
+                    $Resources[1].Name -eq 'Leaf.Dependency' -and
+                    $Resources[1].Version -eq '1.5.0' -and
+                    $Resources[1].Repository -eq 'LeafRepo' -and
+                    $Resources[2].Name -eq 'Root.Module' -and
+                    $Resources[2].Version -eq '3.2.4' -and
+                    $Resources[2].Repository -eq 'RootRepo'
+                }
                 Should -Invoke Install-PSResource -Times 0
             }
         }
@@ -2282,6 +2349,13 @@ Describe "Install-PSResourceDependencies" {
             $validateSet.ValidValues | Should -Contain 'CurrentUser'
             $validateSet.ValidValues | Should -Contain 'AllUsers'
         }
+
+        It "Should have AuthenticodeCheck parameter as an optional switch" {
+            $command = Get-Command Install-PSResourceDependencies
+            $command.Parameters.ContainsKey('AuthenticodeCheck') | Should -BeTrue
+            $command.Parameters['AuthenticodeCheck'].SwitchParameter | Should -BeTrue
+            $command.Parameters['AuthenticodeCheck'].Attributes.Mandatory | Should -Not -Contain $true
+        }
     }
 
     Context "Manifest Validation" {
@@ -2317,6 +2391,39 @@ Describe "Install-PSResourceDependencies" {
             # Should not throw, just return silently
             { Install-PSResourceDependencies -ManifestPath $script:testManifestPath } | Should -Not -Throw
         }
+
+        It "Should reject an unsigned manifest before resolving even when it has no dependencies" {
+            New-Item -Path $script:testManifestDir -ItemType Directory -Force | Out-Null
+
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+
+            InModuleScope Microsoft.AVS.CDR -ArgumentList $script:testManifestPath {
+                param($manifestPath)
+
+                Mock Assert-CdrFileSignature { throw 'unsigned manifest' }
+                Mock Find-PSResourceDependencies { throw 'dependency resolution should not run' }
+                Mock Install-CdrVerifiedResources { throw 'verified install should not run' }
+
+                { Install-PSResourceDependencies -ManifestPath $manifestPath -AuthenticodeCheck } |
+                    Should -Throw '*unsigned manifest*'
+
+                Should -Invoke Assert-CdrFileSignature -Times 1 -ParameterFilter {
+                    $LiteralPath -eq $manifestPath -and
+                    $ModuleName -eq 'TestModule' -and
+                    $ModuleVersion -eq '1.0.0'
+                }
+                Should -Invoke Find-PSResourceDependencies -Times 0
+                Should -Invoke Install-CdrVerifiedResources -Times 0
+            }
+        }
     }
 
     Context "RequiredModules Processing" -Tag 'Integration' {
@@ -2338,6 +2445,64 @@ Describe "Install-PSResourceDependencies" {
 
         It "Should pass through Scope and Repository parameters" {
             Set-ItResult -Skipped -Because "Requires complex mocking of module resolution chain or integration environment"
+        }
+
+        It "Should pass every resolved dependency to Install-CdrVerifiedResources when AuthenticodeCheck is enabled" {
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = 'Shared.Dependency'; RequiredVersion = '2.0.0' }
+        @{ ModuleName = 'Leaf.Dependency'; RequiredVersion = '1.5.0' }
+    )
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+
+            $credential = [pscredential]::new(
+                'copilot',
+                (ConvertTo-SecureString 'secret' -AsPlainText -Force)
+            )
+
+            InModuleScope Microsoft.AVS.CDR -ArgumentList $script:testManifestPath, $credential {
+                param($manifestPath, $credential)
+
+                Mock Assert-CdrFileSignature { }
+                Mock Find-PSResourceDependencies {
+                    @(
+                        [pscustomobject]@{ Name = 'Shared.Dependency'; Version = '2.0.0'; Repository = 'SharedRepo'; IsRedirected = $false }
+                        [pscustomobject]@{ Name = 'Leaf.Dependency'; Version = '1.5.0'; Repository = 'LeafRepo'; IsRedirected = $false }
+                    )
+                }
+                Mock Install-CdrVerifiedResources { }
+                Mock Install-PSResource { throw 'unchecked install path should not run' }
+
+                Install-PSResourceDependencies -ManifestPath $manifestPath -Scope AllUsers `
+                    -Repository 'RequestedRepo' -Credential $credential -Force -AuthenticodeCheck
+
+                Should -Invoke Assert-CdrFileSignature -Times 1 -ParameterFilter {
+                    $LiteralPath -eq $manifestPath -and
+                    $ModuleName -eq 'TestModule' -and
+                    $ModuleVersion -eq '1.0.0'
+                }
+                Should -Invoke Install-CdrVerifiedResources -Times 1 -ParameterFilter {
+                    $Scope -eq 'AllUsers' -and
+                    $Force -and
+                    $Repository -eq 'RequestedRepo' -and
+                    $Credential -eq $credential -and
+                    $Resources.Count -eq 2 -and
+                    $Resources[0].Name -eq 'Shared.Dependency' -and
+                    $Resources[0].Version -eq '2.0.0' -and
+                    $Resources[0].Repository -eq 'SharedRepo' -and
+                    $Resources[1].Name -eq 'Leaf.Dependency' -and
+                    $Resources[1].Version -eq '1.5.0' -and
+                    $Resources[1].Repository -eq 'LeafRepo'
+                }
+                Should -Invoke Install-PSResource -Times 0
+            }
         }
 
         AfterEach {

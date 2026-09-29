@@ -1117,7 +1117,10 @@ function Install-PSResourcePinned {
         [switch]$Prerelease,
         
         [Parameter(Mandatory = $false)]
-        [switch]$Force
+        [switch]$Force,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$AuthenticodeCheck
     )
     
     # Load redirect map
@@ -1153,50 +1156,78 @@ function Install-PSResourcePinned {
     for ($i = 0; $i -lt $topologicalOrder.Count; $i++) {
         Write-Verbose "  $($i + 1). $($topologicalOrder[$i])"
     }
-    
-    # Install modules in topological order
-    foreach ($moduleKey in $topologicalOrder) {
-        $node = $dependencyGraph[$moduleKey]
-        $modName = $node.Name
-        $modVersion = $node.Version
-        
-        $installed = $null
-        if (-not $Force) {
-            $installed = Get-PSResource -Name $modName -ErrorAction SilentlyContinue | 
-                Where-Object {
-                    if (-not $_) { return $false }
-                    $installedVersion = $_.Version.ToString()
-                    if ($_.Prerelease) {
-                        $installedVersion = "$installedVersion-$($_.Prerelease)"
-                    }
-                    $installedVersion -eq $modVersion
-                }
+
+    if ($AuthenticodeCheck) {
+        $resources = foreach ($moduleKey in $topologicalOrder) {
+            $node = $dependencyGraph[$moduleKey]
+
+            [PSCustomObject]@{
+                Name = $node.Name
+                Version = $node.Version
+                Repository = $node.Repository
+            }
         }
-        
-        if (-not $installed) {
-            Write-Verbose "Installing: $modName version $modVersion"
-            $installParams = @{
-                Name = $modName
-                Version = $modVersion
-                Scope = $Scope
-                Prerelease = $Prerelease
-                TrustRepository = $true
-                SkipDependencyCheck = $true
-            }
-            if ($Repository) {
-                $installParams['Repository'] = $Repository
-            }
-            if ($Credential) {
-                $installParams['Credential'] = $Credential
-            }
-            if ($Force) {
-                $installParams['Reinstall'] = $true
+
+        $verifiedInstallParams = @{
+            Resources = @($resources)
+            Scope = $Scope
+            Prerelease = $Prerelease
+            Force = $Force
+        }
+        if ($Repository) {
+            $verifiedInstallParams['Repository'] = $Repository
+        }
+        if ($Credential) {
+            $verifiedInstallParams['Credential'] = $Credential
+        }
+
+        Install-CdrVerifiedResources @verifiedInstallParams
+    }
+    else {
+        # Install modules in topological order
+        foreach ($moduleKey in $topologicalOrder) {
+            $node = $dependencyGraph[$moduleKey]
+            $modName = $node.Name
+            $modVersion = $node.Version
+            
+            $installed = $null
+            if (-not $Force) {
+                $installed = Get-PSResource -Name $modName -ErrorAction SilentlyContinue | 
+                    Where-Object {
+                        if (-not $_) { return $false }
+                        $installedVersion = $_.Version.ToString()
+                        if ($_.Prerelease) {
+                            $installedVersion = "$installedVersion-$($_.Prerelease)"
+                        }
+                        $installedVersion -eq $modVersion
+                    }
             }
             
-            Install-PSResource @installParams
-        }
-        else {
-            Write-Verbose "Already installed: $modName version $modVersion"
+            if (-not $installed) {
+                Write-Verbose "Installing: $modName version $modVersion"
+                $installParams = @{
+                    Name = $modName
+                    Version = $modVersion
+                    Scope = $Scope
+                    Prerelease = $Prerelease
+                    TrustRepository = $true
+                    SkipDependencyCheck = $true
+                }
+                if ($Repository) {
+                    $installParams['Repository'] = $Repository
+                }
+                if ($Credential) {
+                    $installParams['Credential'] = $Credential
+                }
+                if ($Force) {
+                    $installParams['Reinstall'] = $true
+                }
+                
+                Install-PSResource @installParams
+            }
+            else {
+                Write-Verbose "Already installed: $modName version $modVersion"
+            }
         }
     }
     
@@ -1553,8 +1584,29 @@ function Install-PSResourceDependencies {
         [PSCredential]$Credential,
         
         [Parameter(Mandatory = $false)]
-        [switch]$Force
+        [switch]$Force,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$AuthenticodeCheck
     )
+
+    if ($AuthenticodeCheck) {
+        if (-not (Test-Path $ManifestPath)) {
+            throw "Manifest file not found: $ManifestPath"
+        }
+
+        $resolvedManifestPath = Resolve-Path $ManifestPath
+        if (-not $resolvedManifestPath.Path.EndsWith('.psd1')) {
+            throw "File must be a PowerShell module manifest (.psd1): $ManifestPath"
+        }
+
+        $manifest = Import-PowerShellDataFile -Path $resolvedManifestPath
+        $manifestModuleName = [System.IO.Path]::GetFileNameWithoutExtension($resolvedManifestPath.Path)
+        $manifestModuleVersion = if ($manifest.ModuleVersion) { $manifest.ModuleVersion.ToString() } else { "" }
+
+        Assert-CdrFileSignature -LiteralPath $resolvedManifestPath.Path `
+            -ModuleName $manifestModuleName -ModuleVersion $manifestModuleVersion
+    }
     
     $findParams = @{
         ManifestPath = $ManifestPath
@@ -1577,38 +1629,55 @@ function Install-PSResourceDependencies {
     }
     
     Write-Verbose "Installing $($resolvedDependencies.Count) resolved dependency(ies)"
-    
-    foreach ($dependency in $resolvedDependencies) {
-        $installed = $null
-        if (-not $Force) {
-            $installed = Get-PSResource -Name $dependency.Name -ErrorAction SilentlyContinue | 
-                Where-Object { $_.Version.ToString() -eq $dependency.Version }
+
+    if ($AuthenticodeCheck) {
+        $verifiedInstallParams = @{
+            Resources = @($resolvedDependencies)
+            Scope = $Scope
+            Force = $Force
         }
-        
-        if (-not $installed) {
-            Write-Host "Installing dependency: $($dependency.Name) version $($dependency.Version)"
-            
-            $installParams = @{
-                Name = $dependency.Name
-                Version = $dependency.Version
-                Scope = $Scope
-                TrustRepository = $true
-                SkipDependencyCheck = $true
-            }
-            if ($Repository) {
-                $installParams['Repository'] = $Repository
-            }
-            if ($Credential) {
-                $installParams['Credential'] = $Credential
-            }
-            if ($Force) {
-                $installParams['Reinstall'] = $true
+        if ($Repository) {
+            $verifiedInstallParams['Repository'] = $Repository
+        }
+        if ($Credential) {
+            $verifiedInstallParams['Credential'] = $Credential
+        }
+
+        Install-CdrVerifiedResources @verifiedInstallParams
+    }
+    else {
+        foreach ($dependency in $resolvedDependencies) {
+            $installed = $null
+            if (-not $Force) {
+                $installed = Get-PSResource -Name $dependency.Name -ErrorAction SilentlyContinue | 
+                    Where-Object { $_.Version.ToString() -eq $dependency.Version }
             }
             
-            Install-PSResource @installParams
-        }
-        else {
-            Write-Verbose "Already installed: $($dependency.Name) version $($dependency.Version)"
+            if (-not $installed) {
+                Write-Host "Installing dependency: $($dependency.Name) version $($dependency.Version)"
+                
+                $installParams = @{
+                    Name = $dependency.Name
+                    Version = $dependency.Version
+                    Scope = $Scope
+                    TrustRepository = $true
+                    SkipDependencyCheck = $true
+                }
+                if ($Repository) {
+                    $installParams['Repository'] = $Repository
+                }
+                if ($Credential) {
+                    $installParams['Credential'] = $Credential
+                }
+                if ($Force) {
+                    $installParams['Reinstall'] = $true
+                }
+                
+                Install-PSResource @installParams
+            }
+            else {
+                Write-Verbose "Already installed: $($dependency.Name) version $($dependency.Version)"
+            }
         }
     }
     
