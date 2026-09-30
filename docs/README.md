@@ -159,6 +159,7 @@ The switch is **off by default** everywhere. Existing callers do not verify sign
 - **Installed/loaded shortcuts stay verified.** In checked mode, CDR still honors exact-version installed-module and loaded-module shortcuts only after validating the actual on-disk files or matching loaded path. CDR does **not** blindly skip verification just because the module is already installed or already loaded.
 - **`-Force` never bypasses verification.** `-Force` can replace an exact-version destination or force a re-import, but the replacement graph must still verify successfully first.
 - **Fail closed staging/promotion.** Checked installs stage downloads, verify the complete selected graph, and only then promote into the destination module path. If verification fails, CDR does not publish partially checked modules into the destination. Rollback preserves prior exact-version destinations where possible and reports recovery paths if rollback itself fails.
+- **Single-writer installation.** CDR does not lock the destination module directory. Overlapping installs or other modifications to the same destination, including through native PowerShell cmdlets, are unsupported; callers must serialize them.
 
 Examples with verification enabled:
 

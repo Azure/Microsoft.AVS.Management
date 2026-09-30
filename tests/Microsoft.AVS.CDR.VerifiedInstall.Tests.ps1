@@ -422,22 +422,49 @@ Describe 'Install-CdrVerifiedResources' {
         }
     }
 
-    It 'acquires a per-destination lock and fails fast when another CDR operation holds it' {
-        $resources = @(New-TestResource -Name 'Locked.Module' -Version '3.2.4')
+    It 'installs without touching a destination lock file (existing: <HasLegacyLock>)' -ForEach @(
+        @{ HasLegacyLock = $false }
+        @{ HasLegacyLock = $true }
+    ) {
+        $resources = @(New-TestResource -Name 'Unlocked.Module' -Version '3.2.4')
 
-        InModuleScope Microsoft.AVS.CDR -ArgumentList $script:root, (, $resources) {
-            param($root, $resources)
+        InModuleScope Microsoft.AVS.CDR -ArgumentList $script:root, (, $resources), $HasLegacyLock {
+            param($root, $resources, $HasLegacyLock)
 
             Mock Get-CdrLinuxModuleRoot { $root }
-
             $lockPath = Join-Path $root '.microsoft.avs.cdr.install.lock'
-            $lockStream = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
-            try {
-                { Install-CdrVerifiedResources -Resources $resources -Scope CurrentUser } |
-                    Should -Throw '*lock*'
+            if ($HasLegacyLock) {
+                Set-Content -LiteralPath $lockPath -Value 'legacy lock contents' -NoNewline
             }
-            finally {
-                $lockStream.Dispose()
+
+            Mock Save-PSResource {
+                param($Name, $Version, $Path, $Repository)
+
+                Test-Path -LiteralPath $lockPath | Should -Be $HasLegacyLock
+                if ($HasLegacyLock) {
+                    Get-Content -LiteralPath $lockPath -Raw | Should -BeExactly 'legacy lock contents'
+                }
+                New-TestModuleLayout -BasePath $Path -ModuleName $Name -BaseVersion $Version `
+                    -Repository $Repository -InstalledLocation $Path | Out-Null
+            }
+            Mock Assert-CdrModuleSignature { param($ModuleDirectory, $ModuleName, $ModuleVersion) }
+            Mock Get-PSResource {
+                [pscustomobject]@{
+                    Name = 'Unlocked.Module'
+                    Version = [version]'3.2.4'
+                    Repository = 'TestRepo'
+                    InstalledLocation = $root
+                    Prerelease = $null
+                }
+            }
+
+            Install-CdrVerifiedResources -Resources $resources -Scope CurrentUser
+
+            Test-Path -LiteralPath (Join-Path $root 'Unlocked.Module/3.2.4/Unlocked.Module.psd1') |
+                Should -BeTrue
+            Test-Path -LiteralPath $lockPath | Should -Be $HasLegacyLock
+            if ($HasLegacyLock) {
+                Get-Content -LiteralPath $lockPath -Raw | Should -BeExactly 'legacy lock contents'
             }
         }
     }

@@ -353,8 +353,6 @@ function Invoke-CdrVerifiedResourceInstallation {
     }
 
     $operationId = [guid]::NewGuid().ToString('N')
-    $lockPath = Join-Path -Path $modulesRoot -ChildPath '.microsoft.avs.cdr.install.lock'
-    $lockStream = $null
     $operationRoot = $null
     $promotedDestinations = [System.Collections.Generic.List[string]]::new()
     $backupMoves = [System.Collections.Generic.List[object]]::new()
@@ -363,21 +361,6 @@ function Invoke-CdrVerifiedResourceInstallation {
     $preparedResources = @()
 
     try {
-        try {
-            $lockStream = [System.IO.File]::Open(
-                $lockPath,
-                [System.IO.FileMode]::OpenOrCreate,
-                [System.IO.FileAccess]::ReadWrite,
-                [System.IO.FileShare]::None)
-            $lockPayload = [System.Text.Encoding]::UTF8.GetBytes("pid=$PID`nop=$operationId")
-            $lockStream.SetLength(0)
-            $lockStream.Write($lockPayload, 0, $lockPayload.Length)
-            $lockStream.Flush()
-        }
-        catch {
-            throw "Failed to acquire checked-install lock for '$modulesRoot': $($_.Exception.Message)"
-        }
-
         $modulesRootParent = Split-Path -Path $modulesRoot -Parent
         $operationRoot = Join-Path -Path $modulesRootParent -ChildPath ".microsoft.avs.cdr/$operationId"
         $stagingModulesRoot = Join-Path -Path $operationRoot -ChildPath 'staging'
@@ -547,14 +530,6 @@ function Invoke-CdrVerifiedResourceInstallation {
         throw
     }
     finally {
-        if ($lockStream) {
-            $lockStream.Dispose()
-        }
-
-        if ($lockPath -and -not $preserveRecoveryEvidence -and (Test-Path -LiteralPath $lockPath)) {
-            Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
-        }
-
         if (-not $preserveRecoveryEvidence) {
             foreach ($cleanupPath in ($cleanupPaths | Sort-Object -Descending)) {
                 if (Test-Path -LiteralPath $cleanupPath) {
