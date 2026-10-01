@@ -168,6 +168,10 @@ To avoid breakages when AVS deprecates specific package versions, API consumers 
 
 For example, if the current version of `Microsoft.AVS.VMFS` is `1.0.151`, API calls should use `Microsoft.AVS.VMFS@1.*`.
 
+### 2.4 Upcoming Authenticode Signing Requirement
+
+[RFC 2 - Require Authenticode signing for AVS Run Command packages](../RFCs/RFC-authenticode.md) proposes mandatory signing of released Microsoft and vendor packages, including their resolved dependencies. Package authors should prepare signed releases and identify unsigned dependencies. The proposed rollout includes non-blocking package-ingestion audit mode to flag signing-policy violations for remediation before enforcement. The RFC describes the proposed scope, Linux verification constraints, and staged migration; it does **not** enable enforcement or set a cutoff date. AVS will communicate the final trust policy and transition dates before enforcement.
+
 ---
 
 ## 3. Function Conventions
