@@ -44,6 +44,7 @@ BeforeAll {
         )
 
         $isPrerelease = if ($Prerelease) { 'true' } else { 'false' }
+        $metadataVersion = if ($Prerelease) { "$BaseVersion-$Prerelease" } else { $BaseVersion }
         $metadataPrereleaseLine = if ($Prerelease) { "      <S N=`"Prerelease`">$Prerelease</S>" } else { '' }
         $metadataPrereleaseValue = if ($Prerelease) { 'True' } else { 'False' }
 
@@ -56,7 +57,7 @@ BeforeAll {
     </TN>
     <MS>
       <S N="Name">$ModuleName</S>
-      <S N="Version">$BaseVersion</S>
+      <S N="Version">$metadataVersion</S>
       <Obj N="Type" RefId="1">
         <TN RefId="1">
           <T>Microsoft.PowerShell.PSResourceGet.UtilClasses.ResourceType</T>
@@ -208,9 +209,138 @@ $prereleaseBlock
         $moduleVersionDirectory
     }
 
+    function New-TestPrereleaseModuleLayout {
+        param(
+            [string]$BasePath,
+            [string]$PrereleaseEntry,
+            [string]$MetadataPrerelease,
+            [string]$NormalizedVersion
+        )
+
+        $versionRoot = New-TestModuleLayout -BasePath $BasePath -ModuleName 'Microsoft.AVS.Management' `
+            -BaseVersion '8.0.201' -Prerelease $MetadataPrerelease -NormalizedVersion $NormalizedVersion
+        Set-Content -LiteralPath (Join-Path $versionRoot 'Microsoft.AVS.Management.psd1') -Value @"
+@{
+    RootModule = ''
+    ModuleVersion = '8.0.201'
+    GUID = '11111111-1111-1111-1111-111111111111'
+    PrivateData = @{
+        PSData = @{
+            $PrereleaseEntry
+        }
+    }
+}
+"@
+
+        $metadataPath = Join-Path $versionRoot 'PSGetModuleInfo.xml'
+        $metadata = $null
+        $readError = $null
+        [Microsoft.PowerShell.PSResourceGet.UtilClasses.PSResourceInfo]::TryRead(
+            $metadataPath, [ref]$metadata, [ref]$readError) | Should -BeTrue
+        $writeError = $null
+        $metadata.TryWrite($metadataPath, [ref]$writeError) | Should -BeTrue
+        $versionRoot
+    }
+
     Set-Item -Path function:global:New-TestMetadataXml -Value ${function:New-TestMetadataXml}
     Set-Item -Path function:global:New-ModuleManifestContent -Value ${function:New-ModuleManifestContent}
     Set-Item -Path function:global:New-TestModuleLayout -Value ${function:New-TestModuleLayout}
+    Set-Item -Path function:global:New-TestPrereleaseModuleLayout -Value ${function:New-TestPrereleaseModuleLayout}
+}
+
+Describe 'Checked prerelease identity (reused installed copy: <Reuse>)' -ForEach @(
+    @{ Reuse = $true }
+    @{ Reuse = $false }
+) {
+    BeforeEach {
+        $script:prereleaseRoot = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $prereleaseRoot -Force
+    }
+
+    It 'accepts <Label> without changing manifest bytes' -ForEach @(
+        @{ Label = 'missing stable label'; Entry = ''; Version = '8.0.201'; Prerelease = $null }
+        @{ Label = 'null stable label'; Entry = 'Prerelease = $null'; Version = '8.0.201'; Prerelease = $null }
+        @{ Label = 'explicit empty stable label'; Entry = "Prerelease = ''"; Version = '8.0.201'; Prerelease = '' }
+        @{ Label = 'matching nonempty label'; Entry = "Prerelease = 'beta'"; Version = '8.0.201-beta'; Prerelease = 'beta' }
+    ) {
+        $nativeDiscovery = Get-Command Microsoft.PowerShell.PSResourceGet\Get-InstalledPSResource -CommandType Cmdlet
+        InModuleScope Microsoft.AVS.CDR -Parameters @{
+            Root = $prereleaseRoot; Reuse = $Reuse; Entry = $Entry; Version = $Version
+            ExpectedPrerelease = $Prerelease; NativeDiscovery = $nativeDiscovery
+        } {
+            param($Root, $Reuse, $Entry, $Version, $ExpectedPrerelease, $NativeDiscovery)
+
+            $resource = [pscustomobject]@{ Name = 'Microsoft.AVS.Management'; Version = $Version; Repository = 'TestRepo' }
+            $fixture = @{}
+            if ($Reuse) {
+                $versionRoot = New-TestPrereleaseModuleLayout -BasePath $Root -PrereleaseEntry $Entry `
+                    -MetadataPrerelease $ExpectedPrerelease -NormalizedVersion $Version
+                $fixture.Hash = (Get-FileHash -LiteralPath (Join-Path $versionRoot 'Microsoft.AVS.Management.psd1')).Hash
+            }
+            Mock Get-CdrLinuxModuleRoot { $Root }
+            Mock Save-PSResource {
+                $versionRoot = New-TestPrereleaseModuleLayout -BasePath $Path -PrereleaseEntry $Entry `
+                    -MetadataPrerelease $ExpectedPrerelease -NormalizedVersion $Version
+                $fixture.Hash = (Get-FileHash -LiteralPath (Join-Path $versionRoot 'Microsoft.AVS.Management.psd1')).Hash
+            }
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' { [pscustomobject]@{ SignerCertificate = 'trusted' } }
+            Mock Get-InstalledPSResource {
+                & $NativeDiscovery -Name $Name -Path $Root -ErrorAction Stop
+            }
+
+            Install-CdrVerifiedResources -Resources @($resource) -Scope CurrentUser -Athenticode Check
+
+            $versionRoot = Join-Path $Root 'Microsoft.AVS.Management/8.0.201'
+            $manifestPath = Join-Path $versionRoot 'Microsoft.AVS.Management.psd1'
+            (Get-FileHash -LiteralPath $manifestPath).Hash | Should -BeExactly $fixture.Hash
+            $manifest = Import-PowerShellDataFile -Path $manifestPath
+            $manifest.PrivateData.PSData.ContainsKey('Prerelease') | Should -Be ([bool]$Entry)
+            $manifest.PrivateData.PSData['Prerelease'] | Should -BeExactly $ExpectedPrerelease
+            $metadata = Get-CdrMetadataInfo -MetadataPath (Join-Path $versionRoot 'PSGetModuleInfo.xml')
+            $metadata.Name | Should -BeExactly 'Microsoft.AVS.Management'
+            $metadata.Version.ToString() | Should -BeExactly '8.0.201'
+            $metadata.InstalledLocation | Should -BeExactly $Root
+            $metadata.Repository | Should -BeExactly 'TestRepo'
+            $metadata.AdditionalMetadata['NormalizedVersion'] | Should -BeExactly $Version
+            Should -Invoke 'OpenAuthenticode\Get-OpenAuthenticodeSignature' -Times 2 -Exactly
+            Should -Invoke Save-PSResource -Times $(if ($Reuse) { 0 } else { 1 }) -Exactly
+        }
+    }
+
+    It 'rejects <Label> before signatures or promotion' -ForEach @(
+        @{ Label = 'nonempty label for stable version'; Entry = "Prerelease = 'beta'"; Version = '8.0.201' }
+        @{ Label = 'whitespace label for stable version'; Entry = "Prerelease = ' '"; Version = '8.0.201' }
+        @{ Label = 'false label for stable version'; Entry = 'Prerelease = $false'; Version = '8.0.201' }
+        @{ Label = 'zero label for stable version'; Entry = 'Prerelease = 0'; Version = '8.0.201' }
+        @{ Label = 'empty label for prerelease version'; Entry = "Prerelease = ''"; Version = '8.0.201-beta' }
+        @{ Label = 'null label for prerelease version'; Entry = 'Prerelease = $null'; Version = '8.0.201-beta' }
+        @{ Label = 'missing label for prerelease version'; Entry = ''; Version = '8.0.201-beta' }
+        @{ Label = 'different prerelease label'; Entry = "Prerelease = 'rc'"; Version = '8.0.201-beta' }
+    ) {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{
+            Root = $prereleaseRoot; Reuse = $Reuse; Entry = $Entry; Version = $Version
+        } {
+            param($Root, $Reuse, $Entry, $Version)
+
+            $resource = [pscustomobject]@{ Name = 'Microsoft.AVS.Management'; Version = $Version; Repository = 'TestRepo' }
+            if ($Reuse) {
+                $null = New-TestPrereleaseModuleLayout -BasePath $Root -PrereleaseEntry $Entry -NormalizedVersion $Version
+            }
+            Mock Get-CdrLinuxModuleRoot { $Root }
+            Mock Save-PSResource {
+                $null = New-TestPrereleaseModuleLayout -BasePath $Path -PrereleaseEntry $Entry -NormalizedVersion $Version
+            }
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' { throw 'must not verify mismatched identity' }
+            Mock Invoke-CdrDirectoryMove { throw 'must not promote mismatched identity' }
+
+            { Install-CdrVerifiedResources -Resources @($resource) -Scope CurrentUser -Athenticode Check } |
+                Should -Throw "*Microsoft.AVS.Management*version '$Version'*prerelease*does not match expected prerelease*"
+
+            Should -Invoke 'OpenAuthenticode\Get-OpenAuthenticodeSignature' -Times 0
+            Should -Invoke Invoke-CdrDirectoryMove -Times 0
+            Test-Path -LiteralPath (Join-Path $Root 'Microsoft.AVS.Management/8.0.201') | Should -Be $Reuse
+        }
+    }
 }
 
 Describe 'Athenticode installs: <CommandName>' -ForEach @(

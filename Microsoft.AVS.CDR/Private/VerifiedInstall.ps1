@@ -123,7 +123,12 @@ function Get-CdrManifestPrerelease {
         $Manifest.PrivateData.ContainsKey('PSData') -and
         $Manifest.PrivateData.PSData -is [hashtable] -and
         $Manifest.PrivateData.PSData.ContainsKey('Prerelease')) {
-        return $Manifest.PrivateData.PSData.Prerelease
+        $prerelease = $Manifest.PrivateData.PSData.Prerelease
+        if ($prerelease -is [string] -and $prerelease.Length -eq 0) {
+            return $null
+        }
+
+        return $prerelease
     }
 
     $null
