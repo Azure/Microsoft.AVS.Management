@@ -125,6 +125,391 @@ if (-not (Get-Variable -Name '$SentinelVariableName' -Scope Global -ErrorAction 
     }
 }
 
+Describe 'Athenticode public parameter: <CommandName>' -ForEach @(
+    @{ CommandName = 'Install-PSResourcePinned' }
+    @{ CommandName = 'Install-PSResourceDependencies' }
+    @{ CommandName = 'Import-ModulePinned' }
+    @{ CommandName = 'Import-PSResourceDependencies' }
+) {
+    It 'offers an optional enum with exactly None, Check and Audit, without a switch alias' {
+        $command = Get-Command $CommandName
+        $parameter = $command.Parameters['Athenticode']
+        $parameter | Should -Not -BeNullOrEmpty
+        $parameter.ParameterType.IsEnum | Should -BeTrue
+        [enum]::GetNames($parameter.ParameterType) | Should -Be @('None', 'Check', 'Audit')
+        $parameter.Attributes.Mandatory | Should -Not -Contain $true
+        $command.Parameters.ContainsKey('AuthenticodeCheck') | Should -BeFalse
+        $parameter.Aliases | Should -Not -Contain 'AuthenticodeCheck'
+    }
+
+    It 'rejects invalid mode <InvalidMode> before resolving or performing operations' -ForEach @(
+        @{ InvalidMode = 'Unrecognized' }
+        @{ InvalidMode = 99 }
+        @{ InvalidMode = -1 }
+    ) {
+        $parameters = if ($CommandName -like '*Dependencies') {
+            @{ ManifestPath = (Join-Path $TestDrive 'absent.psd1') }
+        } else {
+            @{ Name = 'NeverResolve'; RequiredVersion = '1.0.0' }
+        }
+        { & $CommandName @parameters -Athenticode $InvalidMode } |
+            Should -Throw '*Athenticode*'
+    }
+}
+
+Describe 'Athenticode per-file and graph modes' {
+    BeforeEach {
+        $script:modeRoot = Join-Path $TestDrive 'mode-graph'
+        $script:modeOne = New-CdrFixtureModule -ModulesRoot $modeRoot -Name ModeOne -Version '1.0.0'
+        $script:modeTwo = New-CdrFixtureModule -ModulesRoot $modeRoot -Name ModeTwo -Version '2.0.0'
+        $null = New-Item -ItemType Directory -Path (Join-Path $modeOne.ModuleVersionPath 'bin') -Force
+        Set-Content -LiteralPath (Join-Path $modeOne.ModuleVersionPath 'bin/.hidden.PS1') -Value '# hidden'
+        Set-Content -LiteralPath (Join-Path $modeTwo.ModuleVersionPath 'Native.DLL') -Value 'fixture'
+        Set-Content -LiteralPath (Join-Path $modeTwo.ModuleVersionPath 'README.md') -Value 'ignored'
+    }
+
+    It 'audits every remaining file and module after unsigned, bad and untrusted signatures without success output' {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ One = $modeOne; Two = $modeTwo } {
+            param($One, $Two)
+            $seen = [System.Collections.Generic.List[string]]::new()
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' {
+                $seen.Add($LiteralPath)
+                if ($LiteralPath.EndsWith('.psm1')) { throw [System.Security.Cryptography.CryptographicException]::new('untrusted certificate chain') }
+                if ($LiteralPath.EndsWith('.DLL')) {
+                    [pscustomobject]@{ SignerCertificate = 'partial output' }
+                    throw [System.Security.Cryptography.CryptographicException]::new('bad digest')
+                }
+                @()
+            }
+            $nodes = @(
+                @{ Name = 'ModeOne'; Version = '1.0.0'; InstalledLocation = $One.ModuleVersionPath }
+                @{ Name = 'ModeTwo'; Version = '2.0.0'; InstalledLocation = $Two.ModuleVersionPath }
+            )
+            $result = Assert-CdrResolvedModuleSignatureGraph -Modules $nodes -Athenticode Audit `
+                -WarningVariable warnings -WarningAction SilentlyContinue
+            $result | Should -BeNullOrEmpty
+            $seen.Count | Should -Be 6
+            $warnings.Count | Should -Be 6
+            ($warnings -join "`n") | Should -BeLike '*ModeOne*1.0.0*'
+            ($warnings -join "`n") | Should -BeLike '*ModeTwo*2.0.0*'
+            ($warnings -join "`n") | Should -BeLike '*untrusted certificate chain*'
+            ($warnings -join "`n") | Should -BeLike '*bad digest*'
+            foreach ($path in $seen) {
+                ($warnings -join "`n") | Should -BeLike "*$path*"
+            }
+            Should -Invoke 'OpenAuthenticode\Get-OpenAuthenticodeSignature' -Times 6 -Exactly -ParameterFilter {
+                $ErrorAction -eq 'Stop' -and -not $SkipCertificateCheck -and -not $TrustStore
+            }
+        }
+    }
+
+    It 'produces neither warnings nor success output for valid <Mode> evaluation' -ForEach @(
+        @{ Mode = 'Check' }; @{ Mode = 'Audit' }
+    ) {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ One = $modeOne; Mode = $Mode } {
+            param($One, $Mode)
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' { [pscustomobject]@{ SignerCertificate = 'trusted' } }
+            $result = Assert-CdrModuleSignature -ModuleDirectory $One.ModuleVersionPath -ModuleName ModeOne `
+                -ModuleVersion '1.0.0' -Athenticode $Mode -WarningVariable warnings
+            $result | Should -BeNullOrEmpty
+            $warnings | Should -BeNullOrEmpty
+            Should -Invoke 'OpenAuthenticode\Get-OpenAuthenticodeSignature' -Times 3 -Exactly
+        }
+    }
+
+    It 'does not invoke the verifier in None mode' {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ One = $modeOne } {
+            param($One)
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' { throw 'must not verify' }
+            Assert-CdrModuleSignature -ModuleDirectory $One.ModuleVersionPath -ModuleName ModeOne `
+                -ModuleVersion '1.0.0' -Athenticode None
+            Should -Invoke 'OpenAuthenticode\Get-OpenAuthenticodeSignature' -Times 0
+        }
+    }
+
+    It 'keeps an Audit backend I/O failure terminating rather than treating it as a signature warning' {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ One = $modeOne } {
+            param($One)
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' { throw [System.IO.IOException]::new('disk read failed') }
+            $warnings = @()
+            { Assert-CdrModuleSignature -ModuleDirectory $One.ModuleVersionPath -ModuleName ModeOne `
+                -ModuleVersion '1.0.0' -Athenticode Audit -WarningVariable warnings } | Should -Throw '*ModeOne*1.0.0*disk read failed*'
+            $warnings | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'keeps a missing file terminating with the real Audit backend' {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ Root = $modeRoot } {
+            param($Root)
+            { Assert-CdrFileSignature -LiteralPath (Join-Path $Root 'missing.ps1') -ModuleName Missing `
+                -ModuleVersion '1.0.0' -Athenticode Audit } | Should -Throw
+        }
+    }
+
+    It 'audits unsigned files across a complete graph with the real backend' {
+        $realRoot = Join-Path $TestDrive 'real-unsigned'
+        $first = New-CdrFixtureModule -ModulesRoot $realRoot -Name UnsignedFirst -Version '1.0.0'
+        $second = New-CdrFixtureModule -ModulesRoot $realRoot -Name UnsignedSecond -Version '2.0.0'
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ First = $first; Second = $second } {
+            param($First, $Second)
+            $nodes = @(
+                @{ Name = 'UnsignedFirst'; Version = '1.0.0'; InstalledLocation = $First.ModuleVersionPath }
+                @{ Name = 'UnsignedSecond'; Version = '2.0.0'; InstalledLocation = $Second.ModuleVersionPath }
+            )
+            $result = Assert-CdrResolvedModuleSignatureGraph -Modules $nodes -Athenticode Audit `
+                -WarningVariable findings -WarningAction SilentlyContinue
+            $result | Should -BeNullOrEmpty
+            $findings.Count | Should -Be 4
+            ($findings -join "`n") | Should -BeLike '*UnsignedFirst*1.0.0*'
+            ($findings -join "`n") | Should -BeLike '*UnsignedSecond*2.0.0*'
+            ($findings -join "`n") | Should -BeLike '*does not contain an authenticode signature*'
+        }
+    }
+
+    It 'keeps unexpected backend failures terminating in Audit' {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ One = $modeOne } {
+            param($One)
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' { throw [System.InvalidOperationException]::new('unexpected backend failure') }
+            $warnings = @()
+            { Assert-CdrModuleSignature -ModuleDirectory $One.ModuleVersionPath -ModuleName ModeOne `
+                -ModuleVersion '1.0.0' -Athenticode Audit -WarningVariable warnings } |
+                Should -Throw '*unexpected backend failure*'
+            $warnings | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'audits an unsigned dependency-free manifest through <CommandName> with the real backend' -ForEach @(
+        @{ CommandName = 'Install-PSResourceDependencies' }
+        @{ CommandName = 'Import-PSResourceDependencies' }
+    ) {
+        $manifestPath = Join-Path $TestDrive 'UnsignedCaller.psd1'
+        Set-Content -LiteralPath $manifestPath -Value "@{ ModuleVersion = '1.0.0'; RequiredModules = @() }"
+        $result = & $CommandName -ManifestPath $manifestPath -Athenticode Audit `
+            -WarningVariable findings -WarningAction SilentlyContinue
+        $result | Should -BeNullOrEmpty
+        $findings.Count | Should -Be 1
+        $findings[0].Message | Should -BeLike '*UnsignedCaller*1.0.0*does not contain an authenticode signature*'
+    }
+
+    It 'keeps unreadable tree enumeration terminating in Audit' {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ One = $modeOne } {
+            param($One)
+            Mock Get-ChildItem { throw [System.UnauthorizedAccessException]::new('directory denied') }
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' { @() }
+            { Assert-CdrModuleSignature -ModuleDirectory $One.ModuleVersionPath -ModuleName ModeOne `
+                -ModuleVersion '1.0.0' -Athenticode Audit } | Should -Throw '*directory denied*'
+            Should -Invoke 'OpenAuthenticode\Get-OpenAuthenticodeSignature' -Times 0
+        }
+    }
+
+    It 'keeps missing directories and linked trees terminating in Audit' {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ One = $modeOne; Root = $modeRoot } {
+            param($One, $Root)
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' { @() }
+            { Assert-CdrModuleSignature -ModuleDirectory (Join-Path $Root 'absent') -ModuleName ModeOne `
+                -ModuleVersion '1.0.0' -Athenticode Audit } | Should -Throw '*Failed to access*'
+            $null = New-Item -ItemType SymbolicLink -Path (Join-Path $One.ModuleVersionPath 'linked.ps1') `
+                -Target $One.ManifestPath
+            { Assert-CdrModuleSignature -ModuleDirectory $One.ModuleVersionPath -ModuleName ModeOne `
+                -ModuleVersion '1.0.0' -Athenticode Audit } | Should -Throw '*symlink*'
+            Should -Invoke 'OpenAuthenticode\Get-OpenAuthenticodeSignature' -Times 0
+        }
+    }
+}
+
+Describe 'Athenticode imports: <CommandName>' -ForEach @(
+    @{ CommandName = 'Import-ModulePinned' }
+    @{ CommandName = 'Import-PSResourceDependencies' }
+) {
+    BeforeEach {
+        $script:modeRoot = Join-Path $TestDrive ([guid]::NewGuid().ToString())
+        $script:modeDependency = New-CdrFixtureModule -ModulesRoot $modeRoot -Name ModeDependency -Version '1.0.0' `
+            -SentinelVariableName CdrModeSentinel -SentinelValue 'dependency'
+        $script:modeMain = New-CdrFixtureModule -ModulesRoot $modeRoot -Name ModeMain -Version '2.0.0' `
+            -SentinelVariableName CdrModeSentinel -SentinelValue 'main'
+        $script:modeManifest = Join-Path $TestDrive 'Caller.PsD1'
+        Set-Content -LiteralPath $modeManifest -Value "@{ ModuleVersion = '3.0.0'; RequiredModules = @(@{ModuleName='ModeDependency'; RequiredVersion='1.0.0'}, @{ModuleName='ModeMain'; RequiredVersion='2.0.0'}) }"
+        $global:CdrModeSentinel = @()
+    }
+    AfterEach {
+        Remove-Module ModeDependency, ModeMain -Force -ErrorAction SilentlyContinue
+        Remove-Variable CdrModeSentinel -Scope Global -ErrorAction SilentlyContinue
+    }
+
+    It 'preserves execution and PassThru for <Mode>, valid=<Valid>, Force=<UseForce>' -ForEach @(
+        @{ Mode = 'Default'; Valid = $false; UseForce = $false }
+        @{ Mode = 'None'; Valid = $false; UseForce = $false }
+        @{ Mode = 'Check'; Valid = $true; UseForce = $false }
+        @{ Mode = 'Audit'; Valid = $true; UseForce = $false }
+        @{ Mode = 'Audit'; Valid = $false; UseForce = $false }
+        @{ Mode = 'Audit'; Valid = $false; UseForce = $true }
+    ) {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{
+            CommandName = $CommandName; Mode = $Mode; Valid = $Valid; UseForce = $UseForce
+            Dependency = $modeDependency; Main = $modeMain; Manifest = $modeManifest
+        } {
+            param($CommandName, $Mode, $Valid, $UseForce, $Dependency, $Main, $Manifest)
+            $nodes = @(
+                [DependencyGraphNode]::new('ModeDependency', '1.0.0', @(), $false, $null, $Dependency.ModuleVersionPath)
+                [DependencyGraphNode]::new('ModeMain', '2.0.0', @('ModeDependency@1.0.0'), $false, $null, $Main.ModuleVersionPath)
+            )
+            $seen = [System.Collections.Generic.List[string]]::new()
+            $nativeImport = Get-Command Microsoft.PowerShell.Core\Import-Module -CommandType Cmdlet
+            Mock Get-PSResourcesPinned { $nodes }
+            Mock Build-InstalledDependencyGraph {
+                foreach ($node in $nodes) { $Graph["$($node.Name)@$($node.Version)"] = $node }
+                if ($ModuleName -eq 'ModeMain') { 'ModeMain@2.0.0' } else { 'ModeDependency@1.0.0' }
+            }
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' {
+                $global:CdrModeSentinel.Count | Should -Be 0
+                $seen.Add($LiteralPath)
+                if ($Valid) { [pscustomobject]@{ SignerCertificate = 'trusted' } }
+                elseif ($LiteralPath.EndsWith('.psm1')) { throw [System.Security.Cryptography.CryptographicException]::new('untrusted signer') }
+            }
+            Mock Import-Module {
+                $path = if ($Name -eq 'ModeDependency') { $Dependency.ManifestPath }
+                    elseif ($Name -eq 'ModeMain') { $Main.ManifestPath } else { $Name }
+                & $nativeImport -Name $path -Global -Force:$Force -PassThru
+            }
+            $parameters = if ($CommandName -eq 'Import-ModulePinned') {
+                @{ Name = 'ModeMain'; RequiredVersion = '2.0.0' }
+            } else { @{ ManifestPath = $Manifest } }
+            if ($Mode -ne 'Default') { $parameters.Athenticode = $Mode }
+            $result = @(& $CommandName @parameters -Force:$UseForce -PassThru -WarningVariable warnings -WarningAction SilentlyContinue)
+            $global:CdrModeSentinel | Should -Be @('dependency', 'main')
+            $result.Count | Should -Be $(if ($CommandName -eq 'Import-ModulePinned') { 1 } else { 2 })
+            $result | Should -BeOfType ([System.Management.Automation.PSModuleInfo])
+            if ($Mode -in 'None', 'Default') {
+                $seen.Count | Should -Be 0
+                $warnings | Should -BeNullOrEmpty
+                Should -Invoke Import-Module -Times 2 -Exactly -ParameterFilter { $Name -in 'ModeDependency', 'ModeMain' }
+            } else {
+                $expected = if ($CommandName -eq 'Import-ModulePinned') { 4 } else { 5 }
+                $seen.Count | Should -Be $expected
+                @($warnings).Count | Should -Be $(if ($Valid) { 0 } else { $expected })
+                Should -Invoke Import-Module -Times 2 -Exactly -ParameterFilter {
+                    $Name -ceq $Dependency.ManifestPath -or $Name -ceq $Main.ManifestPath
+                }
+                if ($CommandName -eq 'Import-PSResourceDependencies') { $seen[0] | Should -BeExactly $Manifest }
+            }
+        }
+    }
+
+    It 'blocks unsigned Check imports even with Force' {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ CommandName = $CommandName; Main = $modeMain; Manifest = $modeManifest } {
+            param($CommandName, $Main, $Manifest)
+            Mock Get-PSResourcesPinned {
+                [DependencyGraphNode]::new('ModeMain', '2.0.0', @(), $false, $null, $Main.ModuleVersionPath)
+            }
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' { @() }
+            Mock Import-Module { throw 'must not import' }
+            $parameters = if ($CommandName -eq 'Import-ModulePinned') {
+                @{ Name = 'ModeMain'; RequiredVersion = '2.0.0' }
+            } else { @{ ManifestPath = $Manifest } }
+            { & $CommandName @parameters -Athenticode Check -Force } | Should -Throw '*No Authenticode signature*'
+            Should -Invoke Import-Module -Times 0
+        }
+        $global:CdrModeSentinel | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Athenticode Audit import operations: <CommandName>' -ForEach @(
+    @{ CommandName = 'Import-ModulePinned' }
+    @{ CommandName = 'Import-PSResourceDependencies' }
+) {
+    BeforeEach {
+        $script:modeMain = New-CdrFixtureModule -ModulesRoot (Join-Path $TestDrive ([guid]::NewGuid().ToString())) `
+            -Name ModeMain -Version '2.0.0' -SentinelVariableName CdrModeSentinel -SentinelValue 'main'
+        $script:modeManifest = Join-Path $TestDrive 'AuditOperations.psd1'
+        Set-Content -LiteralPath $modeManifest -Value "@{ ModuleVersion='3.0.0'; RequiredModules=@(@{ModuleName='ModeMain'; RequiredVersion='2.0.0'}) }"
+        $global:CdrModeSentinel = @()
+    }
+    AfterEach {
+        Remove-Module ModeMain -Force -ErrorAction SilentlyContinue
+        Remove-Variable CdrModeSentinel -Scope Global -ErrorAction SilentlyContinue
+    }
+
+    It 'evaluates files even for an already loaded module and emits nothing without PassThru' {
+        $null = Microsoft.PowerShell.Core\Import-Module -Name $modeMain.ManifestPath -Global -PassThru
+        InModuleScope Microsoft.AVS.CDR -Parameters @{
+            CommandName = $CommandName; Main = $modeMain; Manifest = $modeManifest
+        } {
+            param($CommandName, $Main, $Manifest)
+            $node = [DependencyGraphNode]::new('ModeMain', '2.0.0', @(), $false, $null, $Main.ModuleVersionPath)
+            Mock Get-PSResourcesPinned { $node }
+            Mock Build-InstalledDependencyGraph { $Graph['ModeMain@2.0.0'] = $node; 'ModeMain@2.0.0' }
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' { @() }
+            Mock Import-Module { throw 'loaded shortcut should not reimport' }
+            $parameters = if ($CommandName -eq 'Import-ModulePinned') {
+                @{ Name = 'ModeMain'; RequiredVersion = '2.0.0' }
+            } else { @{ ManifestPath = $Manifest } }
+            $result = & $CommandName @parameters -Athenticode Audit -WarningVariable warnings -WarningAction SilentlyContinue
+            $result | Should -BeNullOrEmpty
+            $expected = if ($CommandName -eq 'Import-ModulePinned') { 2 } else { 3 }
+            $warnings.Count | Should -Be $expected
+            Should -Invoke Import-Module -Times 0
+        }
+        $global:CdrModeSentinel | Should -Be @('main')
+    }
+
+    It 'keeps <Failure> failures terminating before fake success or execution' -ForEach @(
+        @{ Failure = 'resolver' }; @{ Failure = 'directory' }; @{ Failure = 'import' }; @{ Failure = 'loaded path' }
+    ) {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{
+            CommandName = $CommandName; Main = $modeMain; Manifest = $modeManifest; Failure = $Failure
+        } {
+            param($CommandName, $Main, $Manifest, $Failure)
+            $node = [DependencyGraphNode]::new('ModeMain', '2.0.0', @(), $false, $null, $Main.ModuleVersionPath)
+            if ($Failure -eq 'directory') { $node.InstalledLocation = Join-Path $Main.ModuleVersionPath 'absent' }
+            Mock Get-PSResourcesPinned {
+                if ($Failure -eq 'resolver') { throw 'resolver failed' }
+                $node
+            }
+            Mock Build-InstalledDependencyGraph {
+                if ($Failure -eq 'resolver') { throw 'resolver failed' }
+                $Graph['ModeMain@2.0.0'] = $node
+                'ModeMain@2.0.0'
+            }
+            Mock Get-Module {
+                if ($Failure -eq 'loaded path') {
+                    [pscustomobject]@{ Name='ModeMain'; Version=[version]'2.0.0'; ModuleBase=(Join-Path $Main.ModuleVersionPath 'other') }
+                }
+            }
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' { @() }
+            Mock Import-Module { throw 'import failed' }
+            $parameters = if ($CommandName -eq 'Import-ModulePinned') {
+                @{ Name = 'ModeMain'; RequiredVersion = '2.0.0' }
+            } else { @{ ManifestPath = $Manifest } }
+            $message = if ($Failure -eq 'loaded path') { '*cannot reuse loaded module*' } else { "*$Failure*" }
+            { & $CommandName @parameters -Athenticode Audit -PassThru -WarningAction SilentlyContinue } | Should -Throw $message
+            if ($Failure -ne 'import') { Should -Invoke Import-Module -Times 0 }
+        }
+        $global:CdrModeSentinel | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Athenticode empty manifest: <CommandName>' -ForEach @(
+    @{ CommandName = 'Install-PSResourceDependencies' }
+    @{ CommandName = 'Import-PSResourceDependencies' }
+) {
+    It 'audits a dependency-free supplied manifest before resolution and returns no success output' {
+        $manifest = Join-Path $TestDrive 'Empty.PSD1'
+        Set-Content -LiteralPath $manifest -Value "@{ ModuleVersion = '3.2.1'; RequiredModules = @() }"
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ CommandName = $CommandName; Manifest = $manifest } {
+            param($CommandName, $Manifest)
+            $events = [System.Collections.Generic.List[string]]::new()
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' { $events.Add('verify'); @() }
+            Mock Find-PSResourceDependencies { $events.Add('resolve'); @() }
+            Mock Get-ManifestModuleDependencies { $events.Add('resolve'); @() }
+            $result = & $CommandName -ManifestPath $Manifest -Athenticode Audit -WarningVariable warnings -WarningAction SilentlyContinue
+            $result | Should -BeNullOrEmpty
+            $events | Should -Be @('verify', 'resolve')
+            $warnings.Count | Should -Be 1
+            "$($warnings[0])" | Should -BeLike "*No*Empty*3.2.1*$Manifest*"
+        }
+    }
+}
+
 Describe "Assert-CdrFileSignature" {
     Context "Mocked backend behavior" {
         It "rejects an unsigned backend result" {
@@ -219,7 +604,7 @@ Describe "Assert-CdrModuleSignature" {
             $verbose = Assert-CdrModuleSignature -ModuleDirectory $moduleDir `
                 -ModuleName 'Fixture' -ModuleVersion '1.0.0' -Verbose 4>&1
 
-            $verbose.Message | Should -Match 'Verified 4 supported file\(s\)'
+            $verbose.Message | Should -Match 'Evaluated 4 supported file\(s\)'
             Should -Invoke Assert-CdrFileSignature -Times 4 -Exactly
             Should -Invoke Assert-CdrFileSignature -Times 1 -ParameterFilter { $LiteralPath -eq (Join-Path $moduleDir 'Fixture.psd1') }
             Should -Invoke Assert-CdrFileSignature -Times 1 -ParameterFilter { $LiteralPath -eq (Join-Path $moduleDir '.hidden.PS1') }
@@ -373,7 +758,7 @@ Describe "Import entry points with Authenticode checks" {
             Mock Build-InstalledDependencyGraph { throw 'should not resolve dependencies' }
             Mock Import-Module { throw 'should not import modules' }
 
-            $result = Import-PSResourceDependencies -ManifestPath $manifestPath -AuthenticodeCheck
+            $result = Import-PSResourceDependencies -ManifestPath $manifestPath -Athenticode Check
 
             $result | Should -BeNullOrEmpty
             Should -Invoke Assert-CdrFileSignature -Times 1 -Exactly -ParameterFilter {
@@ -427,7 +812,7 @@ Describe "Import entry points with Authenticode checks" {
             }
 
             {
-                Import-ModulePinned -Name 'RootModule' -RequiredVersion '9.9.9' -AuthenticodeCheck
+                Import-ModulePinned -Name 'RootModule' -RequiredVersion '9.9.9' -Athenticode Check
             } | Should -Throw '*BadDependencyModule*failed signature verification*'
 
             Should -Invoke Assert-CdrResolvedModuleSignatures -Times 1 -Exactly
@@ -505,7 +890,7 @@ Describe "Import entry points with Authenticode checks" {
             }
 
             {
-                Import-PSResourceDependencies -ManifestPath $manifestPath -AuthenticodeCheck
+                Import-PSResourceDependencies -ManifestPath $manifestPath -Athenticode Check
             } | Should -Throw '*No Authenticode signature*UnsignedDependencyModule*'
 
             Should -Invoke 'OpenAuthenticode\Get-OpenAuthenticodeSignature' -Times 1 -ParameterFilter {
@@ -540,7 +925,7 @@ Describe "Import entry points with Authenticode checks" {
             }
             Mock Import-Module { throw 'should not import a matching loaded module' }
 
-            $result = Import-ModulePinned -Name 'LoadedModuleFixture' -RequiredVersion '1.2.3' -AuthenticodeCheck -PassThru
+            $result = Import-ModulePinned -Name 'LoadedModuleFixture' -RequiredVersion '1.2.3' -Athenticode Check -PassThru
 
             $result.Name | Should -Be 'LoadedModuleFixture'
             $result.ModuleBase | Should -BeExactly $verifiedPath
@@ -572,7 +957,7 @@ Describe "Import entry points with Authenticode checks" {
             Mock Import-Module { throw 'should not import over a mismatched loaded module' }
 
             {
-                Import-ModulePinned -Name 'LoadedModuleFixture' -RequiredVersion '1.2.3' -AuthenticodeCheck
+                Import-ModulePinned -Name 'LoadedModuleFixture' -RequiredVersion '1.2.3' -Athenticode Check
             } | Should -Throw '*LoadedModuleFixture*1.2.3*/different/path/LoadedModuleFixture/1.2.3*/verified/LoadedModuleFixture/1.2.3*fresh PowerShell process*'
 
             Should -Invoke Assert-CdrResolvedModuleSignatures -Times 1 -Exactly
@@ -610,7 +995,7 @@ Describe "Import entry points with Authenticode checks" {
                 }
             }
 
-            $result = Import-ModulePinned -Name 'VerifiedStableModule' -RequiredVersion '1.2.3' -AuthenticodeCheck -PassThru
+            $result = Import-ModulePinned -Name 'VerifiedStableModule' -RequiredVersion '1.2.3' -Athenticode Check -PassThru
 
             $result.ModuleBase | Should -BeExactly $installedLocation
             Should -Invoke Import-Module -Times 1 -Exactly -ParameterFilter {
@@ -670,7 +1055,7 @@ Describe "Import entry points with Authenticode checks" {
                 }
             }
 
-            $result = Import-PSResourceDependencies -ManifestPath $manifestPath -AuthenticodeCheck -PassThru
+            $result = Import-PSResourceDependencies -ManifestPath $manifestPath -Athenticode Check -PassThru
 
             $result | Should -HaveCount 1
             $result[0].ModuleBase | Should -BeExactly $installedLocation
@@ -715,7 +1100,7 @@ Describe "Import entry points with Authenticode checks" {
             Mock Assert-CdrResolvedModuleSignatures { }
 
             $result = Import-ModulePinned -Name $verifiedModule.Name `
-                -RequiredVersion $verifiedModule.Version -AuthenticodeCheck -Force -PassThru
+                -RequiredVersion $verifiedModule.Version -Athenticode Check -Force -PassThru
 
             $result.ModuleBase | Should -BeExactly $verifiedModule.ModuleVersionPath
         }
@@ -763,7 +1148,7 @@ Describe "Import entry points with Authenticode checks" {
             }
 
             $result = Import-ModulePinned -Name 'LoadedDependencyFixture' -RequiredVersion '1.2.3' `
-                -AuthenticodeCheck -Force -PassThru
+                -Athenticode Check -Force -PassThru
 
             $result.ModuleBase | Should -BeExactly $installedLocation
             Should -Invoke Import-Module -Times 1 -Exactly -ParameterFilter {

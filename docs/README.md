@@ -139,14 +139,24 @@ CDR automatically loads the appropriate redirect map from its `maps/` directory 
 
 CDR also supports **opt-in Linux Authenticode verification** for the four install/import entry points:
 
-| CDR Cmdlet | Optional verification switch |
+| CDR Cmdlet | Optional verification mode |
 |------------|------------------------------|
-| `Install-PSResourcePinned` | `-AuthenticodeCheck` |
-| `Install-PSResourceDependencies` | `-AuthenticodeCheck` |
-| `Import-ModulePinned` | `-AuthenticodeCheck` |
-| `Import-PSResourceDependencies` | `-AuthenticodeCheck` |
+| `Install-PSResourcePinned` | `-Athenticode None\|Check\|Audit` |
+| `Install-PSResourceDependencies` | `-Athenticode None\|Check\|Audit` |
+| `Import-ModulePinned` | `-Athenticode None\|Check\|Audit` |
+| `Import-PSResourceDependencies` | `-Athenticode None\|Check\|Audit` |
 
-The switch is **off by default** everywhere. Existing callers do not verify signatures unless they explicitly pass `-AuthenticodeCheck`.
+`-Athenticode` (spelling intentional) is a `CdrAuthenticodeMode` enum with exactly `None`, `Check`, and `Audit`. **The default is `None`** on all four commands: callers that omit the parameter retain the existing behavior without signature verification.
+
+| Previous API | Replacement | Behavior |
+|--------------|-------------|----------|
+| Parameter omitted or `-AuthenticodeCheck:$false` | Parameter omitted or `-Athenticode None` | Skip signature verification |
+| `-AuthenticodeCheck` | `-Athenticode Check` | Fail closed on signature/trust failures |
+| No equivalent | `-Athenticode Audit` | Warn on every signature/trust failure, continue scanning, then install/import |
+
+The old switch is removed, not aliased. Migrate splatted `AuthenticodeCheck = $true` to `Athenticode = 'Check'` (or `$false` to `'None'`).
+
+**Audit is unsafe for enforcement:** it permits unsigned, invalidly signed, or untrusted code to be installed and imported. It is **not a standalone no-execution scan**. Audit evaluates the same supplied manifest and complete selected graph as Check, including dependency-free manifests and every supported file in staged, reused, or imported modules. Each failure warns with the module, version, file, and reason; remaining files and modules are still evaluated before installation/import proceeds. Structural, filesystem/access, metadata, resolution, acquisition, and promotion errors remain terminating; they are not converted to signature warnings.
 
 #### Linux Authenticode verification contract
 
@@ -155,9 +165,9 @@ The switch is **off by default** everywhere. Existing callers do not verify sign
 - **Supported file coverage is exact and limited to OpenAuthenticode 0.6.3's released providers:** `.ps1`, `.psd1`, `.psm1`, `.psc1`, `.ps1xml`, `.dll`, `.exe`.
 - **Unsupported files are not verified.** That includes `README` files, JSON, native `.so` files, catalogs, arbitrary data files, and dynamically loaded external files outside the selected module graph.
 - **No revocation checking.** Verification relies on OpenAuthenticode's default host trust behavior. Trusted roots and intermediate certificates available to the Linux host matter; revocation status is not checked by CDR.
-- **Fresh session recommended.** Checked imports validate files currently on disk, but they cannot retroactively prove that a module already imported earlier in the process was safe. If you are adopting checked mode for execution, start a fresh PowerShell session first.
-- **Installed/loaded shortcuts stay verified.** In checked mode, CDR still honors exact-version installed-module and loaded-module shortcuts only after validating the actual on-disk files or matching loaded path. CDR does **not** blindly skip verification just because the module is already installed or already loaded.
-- **`-Force` never bypasses verification.** `-Force` can replace an exact-version destination or force a re-import, but the replacement graph must still verify successfully first.
+- **Fresh session recommended.** Check and Audit evaluate files currently on disk, but they cannot retroactively prove that a module already imported earlier in the process was safe. If you are adopting checked mode for execution, start a fresh PowerShell session first.
+- **Installed/loaded shortcuts stay evaluated.** In Check and Audit, CDR still honors exact-version installed-module and loaded-module shortcuts only after evaluating the actual on-disk files or matching loaded path. CDR does **not** blindly skip evaluation just because the module is already installed or already loaded. Imports use the evaluated manifest paths rather than a new module-name lookup.
+- **`-Force` never bypasses selected signature evaluation.** `-Force` can replace an exact-version destination or force a re-import, but the replacement graph is still evaluated first: Check must succeed, while Audit reports signature failures and continues.
 - **Fail closed staging/promotion.** Checked installs stage downloads, verify the complete selected graph, and only then promote into the destination module path. If verification fails, CDR does not publish partially checked modules into the destination. Rollback preserves prior exact-version destinations where possible and reports recovery paths if rollback itself fails.
 - **Single-writer installation.** CDR does not lock the destination module directory. Overlapping installs or other modifications to the same destination, including through native PowerShell cmdlets, are unsupported; callers must serialize them.
 
@@ -168,19 +178,26 @@ Examples with verification enabled:
 Install-PSResourceDependencies `
     -ManifestPath "./MyModule/MyModule.psd1" `
     -Repository 'Consumption' `
-    -AuthenticodeCheck
+    -Athenticode Check
 
 # Install and import a pinned module with explicit Linux Authenticode checks
 Install-PSResourcePinned `
     -Name "VMware.PowerCLI" `
     -RequiredVersion "13.3.0" `
     -Repository 'Consumption' `
-    -AuthenticodeCheck
+    -Athenticode Check
 
 Import-ModulePinned `
     -Name "VMware.PowerCLI" `
     -RequiredVersion "13.3.0" `
-    -AuthenticodeCheck
+    -Athenticode Check
+
+# Explicitly retain legacy behavior (also the default when omitted)
+Install-PSResourcePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0" -Athenticode None
+
+# UNSAFE: warn about all signature failures, then import even unsigned/untrusted dependencies
+# This executes code; operational errors still terminate.
+Import-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1" -Athenticode Audit
 ```
 
 #### Transitional Guidance: Avoiding the `Import-ModulePinned` `AVSAttribute` Scope Bug

@@ -324,7 +324,10 @@ function Invoke-CdrVerifiedResourceInstallation {
         [switch]$Prerelease,
 
         [Parameter(Mandatory = $false)]
-        [switch]$Force
+        [switch]$Force,
+
+        [ValidateSet('None', 'Check', 'Audit')]
+        [CdrAuthenticodeMode]$Athenticode = [CdrAuthenticodeMode]::Check
     )
 
     if ($Resources.Count -eq 1 -and
@@ -426,7 +429,7 @@ function Invoke-CdrVerifiedResourceInstallation {
         foreach ($prepared in $preparedResources) {
             $moduleDirectory = if ($prepared.NeedsPromotion) { $prepared.StageRoot } else { $prepared.DestinationRoot }
             Assert-CdrModuleSignature -ModuleDirectory $moduleDirectory `
-                -ModuleName $prepared.Resource.Name -ModuleVersion $prepared.Resource.Version
+                -ModuleName $prepared.Resource.Name -ModuleVersion $prepared.Resource.Version -Athenticode $Athenticode
         }
 
         foreach ($prepared in $preparedResources | Where-Object NeedsPromotion) {

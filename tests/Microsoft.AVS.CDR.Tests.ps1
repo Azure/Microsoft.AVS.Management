@@ -49,7 +49,7 @@ Describe 'Manifest extension compatibility: <CommandName>' -ForEach @(
             Mock Import-Module { throw 'no module import expected' }
             $commandParams = @{ ManifestPath = $manifestPath }
             if ($checked) {
-                $commandParams['AuthenticodeCheck'] = $true
+                $commandParams['Athenticode'] = 'Check'
             }
 
             if ($accepted) {
@@ -104,11 +104,11 @@ Describe "Install-PSResourcePinned" {
             $command.Parameters.ContainsKey('RedirectMapPath') | Should -BeTrue
         }
 
-        It "Should have AuthenticodeCheck parameter as an optional switch" {
+        It "Should have Athenticode parameter as an optional enum" {
             $command = Get-Command Install-PSResourcePinned
-            $command.Parameters.ContainsKey('AuthenticodeCheck') | Should -BeTrue
-            $command.Parameters['AuthenticodeCheck'].SwitchParameter | Should -BeTrue
-            $command.Parameters['AuthenticodeCheck'].Attributes.Mandatory | Should -Not -Contain $true
+            $command.Parameters.ContainsKey('Athenticode') | Should -BeTrue
+            $command.Parameters['Athenticode'].ParameterType.IsEnum | Should -BeTrue
+            $command.Parameters['Athenticode'].Attributes.Mandatory | Should -Not -Contain $true
         }
     }
 
@@ -289,7 +289,7 @@ Describe "Install-PSResourcePinned" {
             }
         }
 
-        It "Should pass every resolved graph node to Install-CdrVerifiedResources when AuthenticodeCheck is enabled" {
+        It "Should pass every resolved graph node to Install-CdrVerifiedResources in Athenticode Check mode" {
             $credential = [pscredential]::new(
                 'copilot',
                 (ConvertTo-SecureString 'secret' -AsPlainText -Force)
@@ -326,7 +326,7 @@ Describe "Install-PSResourcePinned" {
 
                 Install-PSResourcePinned -Name 'Root.Module' -RequiredVersion '3.2.4' `
                     -Scope AllUsers -Repository 'RequestedRepo' -Credential $credential `
-                    -Prerelease -Force -AuthenticodeCheck
+                    -Prerelease -Force -Athenticode Check
 
                 Should -Invoke Install-CdrVerifiedResources -Times 1 -ParameterFilter {
                     $Scope -eq 'AllUsers' -and
@@ -667,11 +667,11 @@ Describe "Import-ModulePinned" {
             $command.Parameters.ContainsKey('RedirectMapPath') | Should -BeTrue
         }
 
-        It "Should have AuthenticodeCheck parameter as an optional switch" {
+        It "Should have Athenticode parameter as an optional enum" {
             $command = Get-Command Import-ModulePinned
-            $command.Parameters.ContainsKey('AuthenticodeCheck') | Should -BeTrue
-            $command.Parameters['AuthenticodeCheck'].SwitchParameter | Should -BeTrue
-            $command.Parameters['AuthenticodeCheck'].Attributes.Mandatory | Should -Not -Contain $true
+            $command.Parameters.ContainsKey('Athenticode') | Should -BeTrue
+            $command.Parameters['Athenticode'].ParameterType.IsEnum | Should -BeTrue
+            $command.Parameters['Athenticode'].Attributes.Mandatory | Should -Not -Contain $true
         }
     }
 
@@ -2400,11 +2400,11 @@ Describe "Install-PSResourceDependencies" {
             $validateSet.ValidValues | Should -Contain 'AllUsers'
         }
 
-        It "Should have AuthenticodeCheck parameter as an optional switch" {
+        It "Should have Athenticode parameter as an optional enum" {
             $command = Get-Command Install-PSResourceDependencies
-            $command.Parameters.ContainsKey('AuthenticodeCheck') | Should -BeTrue
-            $command.Parameters['AuthenticodeCheck'].SwitchParameter | Should -BeTrue
-            $command.Parameters['AuthenticodeCheck'].Attributes.Mandatory | Should -Not -Contain $true
+            $command.Parameters.ContainsKey('Athenticode') | Should -BeTrue
+            $command.Parameters['Athenticode'].ParameterType.IsEnum | Should -BeTrue
+            $command.Parameters['Athenticode'].Attributes.Mandatory | Should -Not -Contain $true
         }
     }
 
@@ -2462,7 +2462,7 @@ Describe "Install-PSResourceDependencies" {
                 Mock Find-PSResourceDependencies { throw 'dependency resolution should not run' }
                 Mock Install-CdrVerifiedResources { throw 'verified install should not run' }
 
-                { Install-PSResourceDependencies -ManifestPath $manifestPath -AuthenticodeCheck } |
+                { Install-PSResourceDependencies -ManifestPath $manifestPath -Athenticode Check } |
                     Should -Throw '*unsigned manifest*'
 
                 Should -Invoke Assert-CdrFileSignature -Times 1 -ParameterFilter {
@@ -2489,7 +2489,7 @@ Describe "Install-PSResourceDependencies" {
 
                 Push-Location $manifestDirectory
                 try {
-                    Install-PSResourceDependencies -ManifestPath './TestModule.psd1' -AuthenticodeCheck
+                    Install-PSResourceDependencies -ManifestPath './TestModule.psd1' -Athenticode Check
 
                     Should -Invoke Assert-CdrFileSignature -Times 1 -Exactly -ParameterFilter {
                         $LiteralPath -ceq $expectedManifestPath
@@ -2526,7 +2526,7 @@ Describe "Install-PSResourceDependencies" {
             Set-ItResult -Skipped -Because "Requires complex mocking of module resolution chain or integration environment"
         }
 
-        It "Should pass every resolved dependency to Install-CdrVerifiedResources when AuthenticodeCheck is enabled" {
+        It "Should pass every resolved dependency to Install-CdrVerifiedResources in Athenticode Check mode" {
             $manifestContent = @"
 @{
     ModuleVersion = '1.0.0'
@@ -2560,7 +2560,7 @@ Describe "Install-PSResourceDependencies" {
                 Mock Install-PSResource { throw 'unchecked install path should not run' }
 
                 Install-PSResourceDependencies -ManifestPath $manifestPath -Scope AllUsers `
-                    -Repository 'RequestedRepo' -Credential $credential -Force -AuthenticodeCheck
+                    -Repository 'RequestedRepo' -Credential $credential -Force -Athenticode Check
 
                 Should -Invoke Assert-CdrFileSignature -Times 1 -ParameterFilter {
                     $LiteralPath -eq $manifestPath -and
@@ -2725,11 +2725,11 @@ Describe "Import-PSResourceDependencies" {
             } | Should -Throw -ExpectedMessage "*not found*"
         }
 
-        It "Should have AuthenticodeCheck parameter as an optional switch" {
+        It "Should have Athenticode parameter as an optional enum" {
             $command = Get-Command Import-PSResourceDependencies
-            $command.Parameters.ContainsKey('AuthenticodeCheck') | Should -BeTrue
-            $command.Parameters['AuthenticodeCheck'].SwitchParameter | Should -BeTrue
-            $command.Parameters['AuthenticodeCheck'].Attributes.Mandatory | Should -Not -Contain $true
+            $command.Parameters.ContainsKey('Athenticode') | Should -BeTrue
+            $command.Parameters['Athenticode'].ParameterType.IsEnum | Should -BeTrue
+            $command.Parameters['Athenticode'].Attributes.Mandatory | Should -Not -Contain $true
         }
 
         AfterEach {

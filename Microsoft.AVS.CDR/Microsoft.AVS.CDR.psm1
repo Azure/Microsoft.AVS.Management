@@ -1,6 +1,12 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+enum CdrAuthenticodeMode {
+    None
+    Check
+    Audit
+}
+
 . (Join-Path -Path $PSScriptRoot -ChildPath 'Private/Authenticode.ps1')
 . (Join-Path -Path $PSScriptRoot -ChildPath 'Private/VerifiedInstall.ps1')
 
@@ -1088,7 +1094,11 @@ function Install-PSResourcePinned {
     .SYNOPSIS
         Installs a module with pinned dependency versions.
         Works around PowerCLI not following semver (13.4 breaks backward-compat).
-        
+
+    .PARAMETER Athenticode
+        None (default) skips signature verification. Check fails closed on signature errors.
+        Audit warns and continues installing unsigned or untrusted code; operational errors still terminate.
+
     .EXAMPLE
         Install-PSResourcePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0"
     #>
@@ -1120,7 +1130,8 @@ function Install-PSResourcePinned {
         [switch]$Force,
 
         [Parameter(Mandatory = $false)]
-        [switch]$AuthenticodeCheck
+        [ValidateSet('None', 'Check', 'Audit')]
+        [CdrAuthenticodeMode]$Athenticode = [CdrAuthenticodeMode]::None
     )
     
     # Load redirect map
@@ -1157,7 +1168,7 @@ function Install-PSResourcePinned {
         Write-Verbose "  $($i + 1). $($topologicalOrder[$i])"
     }
 
-    if ($AuthenticodeCheck) {
+    if ($Athenticode -ne [CdrAuthenticodeMode]::None) {
         $resources = foreach ($moduleKey in $topologicalOrder) {
             $node = $dependencyGraph[$moduleKey]
 
@@ -1170,6 +1181,7 @@ function Install-PSResourcePinned {
 
         $verifiedInstallParams = @{
             Resources = @($resources)
+            Athenticode = $Athenticode
             Scope = $Scope
             Prerelease = $Prerelease
             Force = $Force
@@ -1561,7 +1573,11 @@ function Install-PSResourceDependencies {
     <#
     .SYNOPSIS
         Installs all manifest dependencies using Find-PSResourceDependencies.
-        
+
+    .PARAMETER Athenticode
+        None (default) skips signature verification. Check fails closed on signature errors.
+        Audit warns and continues installing unsigned or untrusted code; operational errors still terminate.
+
     .EXAMPLE
         Install-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
     #>
@@ -1587,10 +1603,11 @@ function Install-PSResourceDependencies {
         [switch]$Force,
 
         [Parameter(Mandatory = $false)]
-        [switch]$AuthenticodeCheck
+        [ValidateSet('None', 'Check', 'Audit')]
+        [CdrAuthenticodeMode]$Athenticode = [CdrAuthenticodeMode]::None
     )
 
-    if ($AuthenticodeCheck) {
+    if ($Athenticode -ne [CdrAuthenticodeMode]::None) {
         if (-not (Test-Path $ManifestPath)) {
             throw "Manifest file not found: $ManifestPath"
         }
@@ -1605,7 +1622,7 @@ function Install-PSResourceDependencies {
         $manifestModuleVersion = if ($manifest.ModuleVersion) { $manifest.ModuleVersion.ToString() } else { "" }
 
         Assert-CdrFileSignature -LiteralPath $resolvedManifestPath.Path `
-            -ModuleName $manifestModuleName -ModuleVersion $manifestModuleVersion
+            -ModuleName $manifestModuleName -ModuleVersion $manifestModuleVersion -Athenticode $Athenticode
 
         $ManifestPath = $resolvedManifestPath.Path
     }
@@ -1632,9 +1649,10 @@ function Install-PSResourceDependencies {
     
     Write-Verbose "Installing $($resolvedDependencies.Count) resolved dependency(ies)"
 
-    if ($AuthenticodeCheck) {
+    if ($Athenticode -ne [CdrAuthenticodeMode]::None) {
         $verifiedInstallParams = @{
             Resources = @($resolvedDependencies)
+            Athenticode = $Athenticode
             Scope = $Scope
             Force = $Force
         }
@@ -1738,7 +1756,7 @@ function Assert-CdrLoadedShortcutMatchesVerifiedLocation {
     )
 
     if (-not (Test-CdrVerifiedModuleBase -ActualModuleBase $LoadedModule.ModuleBase -VerifiedModuleBase $Node.InstalledLocation)) {
-        throw "Checked import cannot reuse loaded module '$($Node.Name)' version '$($Node.Version)' from '$($LoadedModule.ModuleBase)' because the verified installed location is '$($Node.InstalledLocation)'. Start a fresh PowerShell process and retry with -AuthenticodeCheck."
+        throw "Signature-evaluated import cannot reuse loaded module '$($Node.Name)' version '$($Node.Version)' from '$($LoadedModule.ModuleBase)' because the evaluated installed location is '$($Node.InstalledLocation)'. Start a fresh PowerShell process and retry with the same -Athenticode mode."
     }
 }
 
@@ -1748,10 +1766,13 @@ function Import-CdrVerifiedModuleGraph {
         [object[]]$Nodes,
 
         [Parameter(Mandatory = $true)]
-        [switch]$Force
+        [switch]$Force,
+
+        [ValidateSet('None', 'Check', 'Audit')]
+        [CdrAuthenticodeMode]$Athenticode = [CdrAuthenticodeMode]::Check
     )
 
-    Assert-CdrResolvedModuleSignatureGraph -Modules $Nodes
+    Assert-CdrResolvedModuleSignatureGraph -Modules $Nodes -Athenticode $Athenticode
 
     $importedModules = @{}
 
@@ -1807,7 +1828,7 @@ function Import-CdrVerifiedModuleGraph {
 
         if (-not $matchingModule) {
             $actualModuleBase = @($imported | Select-Object -First 1).ModuleBase
-            throw "Checked import of module '$($node.Name)' version '$($node.Version)' returned ModuleBase '$actualModuleBase' instead of verified path '$($node.InstalledLocation)'. Start a fresh PowerShell process and retry with -AuthenticodeCheck."
+            throw "Signature-evaluated import of module '$($node.Name)' version '$($node.Version)' returned ModuleBase '$actualModuleBase' instead of evaluated path '$($node.InstalledLocation)'. Start a fresh PowerShell process and retry with the same -Athenticode mode."
         }
 
         $importedModules[$moduleKey] = $matchingModule
@@ -1821,7 +1842,12 @@ function Import-PSResourceDependencies {
     .SYNOPSIS
         Imports all manifest dependencies (RequiredModules + ModuleList) in topological order
         with pinned versions. Prevents "assembly already loaded" errors from incomplete graphs.
-        
+
+    .PARAMETER Athenticode
+        None (default) skips signature verification. Check fails closed on signature errors.
+        Audit warns and continues importing unsigned or untrusted code; it executes code, not just a scan.
+        Operational errors still terminate.
+
     .EXAMPLE
         Import-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
     #>
@@ -1837,7 +1863,8 @@ function Import-PSResourceDependencies {
         [switch]$Force,
 
         [Parameter(Mandatory = $false)]
-        [switch]$AuthenticodeCheck,
+        [ValidateSet('None', 'Check', 'Audit')]
+        [CdrAuthenticodeMode]$Athenticode = [CdrAuthenticodeMode]::None,
         
         [Parameter(Mandatory = $false)]
         [switch]$PassThru
@@ -1860,8 +1887,8 @@ function Import-PSResourceDependencies {
     $manifestModuleName = [System.IO.Path]::GetFileNameWithoutExtension($resolvedPath.Path)
     $manifestModuleVersion = if ($manifest.ModuleVersion) { $manifest.ModuleVersion.ToString() } else { "" }
 
-    if ($AuthenticodeCheck) {
-        Assert-CdrFileSignature -LiteralPath $resolvedPath.Path -ModuleName $manifestModuleName -ModuleVersion $manifestModuleVersion
+    if ($Athenticode -ne [CdrAuthenticodeMode]::None) {
+        Assert-CdrFileSignature -LiteralPath $resolvedPath.Path -ModuleName $manifestModuleName -ModuleVersion $manifestModuleVersion -Athenticode $Athenticode
     }
     
     # Extract module dependencies from both RequiredModules and ModuleList
@@ -1916,8 +1943,8 @@ function Import-PSResourceDependencies {
     
     Write-Verbose "Pre-loading all modules in topological order"
     
-    if ($AuthenticodeCheck) {
-        $importedModules = Import-CdrVerifiedModuleGraph -Nodes @($topologicalOrder | ForEach-Object { $dependencyGraph[$_] }) -Force:$Force
+    if ($Athenticode -ne [CdrAuthenticodeMode]::None) {
+        $importedModules = Import-CdrVerifiedModuleGraph -Nodes @($topologicalOrder | ForEach-Object { $dependencyGraph[$_] }) -Force:$Force -Athenticode $Athenticode
 
         Write-Verbose "Successfully imported $($importedModules.Count) module(s) from manifest"
 
@@ -1988,7 +2015,12 @@ function Import-ModulePinned {
     .SYNOPSIS
         Imports a module after pre-loading ALL transitive dependencies at exact versions.
         Prevents PowerShell from loading wrong versions via minimum-version semantics.
-        
+
+    .PARAMETER Athenticode
+        None (default) skips signature verification. Check fails closed on signature errors.
+        Audit warns and continues importing unsigned or untrusted code; it executes code, not just a scan.
+        Operational errors still terminate.
+
     .EXAMPLE
         Import-ModulePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0"
     #>
@@ -2007,7 +2039,8 @@ function Import-ModulePinned {
         [switch]$Force,
 
         [Parameter(Mandatory = $false)]
-        [switch]$AuthenticodeCheck,
+        [ValidateSet('None', 'Check', 'Audit')]
+        [CdrAuthenticodeMode]$Athenticode = [CdrAuthenticodeMode]::None,
         
         [Parameter(Mandatory = $false)]
         [string]$Prefix,
@@ -2045,8 +2078,8 @@ function Import-ModulePinned {
     
     Write-Verbose "Pre-loading all modules in topological order"
 
-    if ($AuthenticodeCheck) {
-        $importedModules = Import-CdrVerifiedModuleGraph -Nodes $resolvedModules -Force:$Force
+    if ($Athenticode -ne [CdrAuthenticodeMode]::None) {
+        $importedModules = Import-CdrVerifiedModuleGraph -Nodes $resolvedModules -Force:$Force -Athenticode $Athenticode
 
         Write-Verbose "Returning main module"
 

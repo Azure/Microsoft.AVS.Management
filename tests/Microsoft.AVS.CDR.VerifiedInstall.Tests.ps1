@@ -213,6 +213,143 @@ $prereleaseBlock
     Set-Item -Path function:global:New-TestModuleLayout -Value ${function:New-TestModuleLayout}
 }
 
+Describe 'Athenticode installs: <CommandName>' -ForEach @(
+    @{ CommandName = 'Install-PSResourcePinned' }
+    @{ CommandName = 'Install-PSResourceDependencies' }
+) {
+    BeforeEach {
+        $script:modeRoot = Join-Path $TestDrive ([guid]::NewGuid().ToString())
+        $null = New-Item -ItemType Directory -Path $modeRoot -Force
+        $script:modeManifest = Join-Path $TestDrive 'Caller.PSD1'
+        Set-Content -LiteralPath $modeManifest -Value "@{ ModuleVersion = '3.0.0'; RequiredModules = @('ModeOne', 'ModeTwo') }"
+    }
+
+    It 'preserves installation for <Mode>, valid=<Valid>, reuse=<Reuse>, Force=<UseForce>' -ForEach @(
+        @{ Mode = 'Default'; Valid = $false; Reuse = $false; UseForce = $false }
+        @{ Mode = 'None'; Valid = $false; Reuse = $false; UseForce = $false }
+        @{ Mode = 'Check'; Valid = $true; Reuse = $false; UseForce = $false }
+        @{ Mode = 'Audit'; Valid = $true; Reuse = $false; UseForce = $false }
+        @{ Mode = 'Audit'; Valid = $false; Reuse = $false; UseForce = $false }
+        @{ Mode = 'Audit'; Valid = $false; Reuse = $true; UseForce = $false }
+        @{ Mode = 'Audit'; Valid = $false; Reuse = $true; UseForce = $true }
+    ) {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{
+            CommandName = $CommandName; Mode = $Mode; Valid = $Valid; Reuse = $Reuse; UseForce = $UseForce
+            InstallRoot = $modeRoot; Manifest = $modeManifest
+        } {
+            param($CommandName, $Mode, $Valid, $Reuse, $UseForce, $InstallRoot, $Manifest)
+            $resources = @(
+                [pscustomobject]@{ Name = 'ModeOne'; Version = '1.0.0'; Repository = 'TestRepo' }
+                [pscustomobject]@{ Name = 'ModeTwo'; Version = '1.0.0'; Repository = 'TestRepo' }
+            )
+            if ($Reuse) {
+                foreach ($resource in $resources) {
+                    $null = New-TestModuleLayout -BasePath $InstallRoot -ModuleName $resource.Name -BaseVersion '1.0.0'
+                }
+            }
+            $seen = [System.Collections.Generic.List[string]]::new()
+            Mock Get-CdrLinuxModuleRoot { $InstallRoot }
+            Mock Find-PSResourceDependencies { $resources }
+            Mock Build-RemoteDependencyGraph {
+                $Graph['ModeOne@1.0.0'] = [DependencyGraphNode]::new('ModeOne', '1.0.0', @(), $false, 'TestRepo', $null)
+                $Graph['ModeTwo@1.0.0'] = [DependencyGraphNode]::new('ModeTwo', '1.0.0', @('ModeOne@1.0.0'), $false, 'TestRepo', $null)
+                'ModeTwo@1.0.0'
+            }
+            Mock Save-PSResource {
+                $null = New-TestModuleLayout -BasePath $Path -ModuleName $Name -BaseVersion $Version
+            }
+            Mock Get-PSResource {
+                if (Test-Path -LiteralPath (Join-Path $InstallRoot "$Name/1.0.0/$Name.psd1")) {
+                    [pscustomobject]@{ Name = $Name; Version = [version]'1.0.0'; Prerelease = $null; InstalledLocation = $InstallRoot }
+                }
+            }
+            Mock Install-PSResource {
+                $null = New-TestModuleLayout -BasePath $InstallRoot -ModuleName $Name -BaseVersion $Version
+                'legacy-output'
+            }
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' {
+                $seen.Add($LiteralPath)
+                if ($Valid) { [pscustomobject]@{ SignerCertificate = 'trusted' } }
+                elseif ($LiteralPath.EndsWith('.psm1')) { throw [System.Security.Cryptography.CryptographicException]::new('untrusted certificate') }
+            }
+            $parameters = if ($CommandName -eq 'Install-PSResourcePinned') {
+                @{ Name = 'ModeTwo'; RequiredVersion = '1.0.0' }
+            } else { @{ ManifestPath = $Manifest } }
+            if ($Mode -ne 'Default') { $parameters.Athenticode = $Mode }
+            $result = @(& $CommandName @parameters -Force:$UseForce -WarningVariable warnings -WarningAction SilentlyContinue)
+            Test-Path -LiteralPath (Join-Path $InstallRoot 'ModeOne/1.0.0/ModeOne.psd1') | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $InstallRoot 'ModeTwo/1.0.0/ModeTwo.psd1') | Should -BeTrue
+            if ($Mode -in 'None', 'Default') {
+                $result | Should -Be @('legacy-output', 'legacy-output')
+                $seen.Count | Should -Be 0
+                $warnings | Should -BeNullOrEmpty
+                Should -Invoke Save-PSResource -Times 0
+            } else {
+                $result | Should -BeNullOrEmpty
+                $expected = if ($CommandName -eq 'Install-PSResourcePinned') { 4 } else { 5 }
+                $seen.Count | Should -Be $expected
+                @($warnings).Count | Should -Be $(if ($Valid) { 0 } else { $expected })
+                Should -Invoke Install-PSResource -Times 0
+                $saves = if ($Reuse -and -not $UseForce) { 0 } else { 2 }
+                Should -Invoke Save-PSResource -Times $saves -Exactly
+                if ($CommandName -eq 'Install-PSResourceDependencies') { $seen[0] | Should -BeExactly $Manifest }
+            }
+        }
+    }
+
+    It 'blocks unsigned Check installs even with Force' {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ CommandName = $CommandName; InstallRoot = $modeRoot; Manifest = $modeManifest } {
+            param($CommandName, $InstallRoot, $Manifest)
+            Mock Get-CdrLinuxModuleRoot { $InstallRoot }
+            Mock Build-RemoteDependencyGraph {
+                $Graph['ModeTwo@1.0.0'] = [DependencyGraphNode]::new('ModeTwo', '1.0.0', @(), $false, 'TestRepo', $null)
+                'ModeTwo@1.0.0'
+            }
+            Mock Save-PSResource { $null = New-TestModuleLayout -BasePath $Path -ModuleName $Name -BaseVersion $Version }
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' { @() }
+            $parameters = if ($CommandName -eq 'Install-PSResourcePinned') {
+                @{ Name = 'ModeTwo'; RequiredVersion = '1.0.0' }
+            } else { @{ ManifestPath = $Manifest } }
+            { & $CommandName @parameters -Athenticode Check -Force } | Should -Throw '*No Authenticode signature*'
+            Test-Path -LiteralPath (Join-Path $InstallRoot 'ModeTwo/1.0.0') | Should -BeFalse
+        }
+    }
+
+    It 'does not turn Audit <Failure> operational failure into a successful install' -ForEach @(
+        @{ Failure = 'resolver' }; @{ Failure = 'save' }; @{ Failure = 'metadata' }; @{ Failure = 'promotion' }
+    ) {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{
+            CommandName = $CommandName; InstallRoot = $modeRoot; Manifest = $modeManifest; Failure = $Failure
+        } {
+            param($CommandName, $InstallRoot, $Manifest, $Failure)
+            Mock Get-CdrLinuxModuleRoot { $InstallRoot }
+            Mock Find-PSResourceDependencies {
+                if ($Failure -eq 'resolver') { throw 'resolver failed' }
+                [pscustomobject]@{ Name = 'ModeTwo'; Version = '1.0.0'; Repository = 'TestRepo' }
+            }
+            Mock Build-RemoteDependencyGraph {
+                if ($Failure -eq 'resolver') { throw 'resolver failed' }
+                $Graph['ModeTwo@1.0.0'] = [DependencyGraphNode]::new('ModeTwo', '1.0.0', @(), $false, 'TestRepo', $null)
+                'ModeTwo@1.0.0'
+            }
+            Mock Save-PSResource {
+                if ($Failure -eq 'save') { throw 'save failed' }
+                $null = New-TestModuleLayout -BasePath $Path -ModuleName $Name -BaseVersion $Version
+                if ($Failure -eq 'metadata') {
+                    Set-Content -LiteralPath (Join-Path $Path "$Name/$Version/PSGetModuleInfo.xml") -Value 'invalid metadata'
+                }
+            }
+            Mock Invoke-CdrDirectoryMove { throw 'promotion failed' }
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' { @() }
+            $parameters = if ($CommandName -eq 'Install-PSResourcePinned') {
+                @{ Name = 'ModeTwo'; RequiredVersion = '1.0.0' }
+            } else { @{ ManifestPath = $Manifest } }
+            { & $CommandName @parameters -Athenticode Audit -WarningAction SilentlyContinue } | Should -Throw "*$Failure*"
+            Test-Path -LiteralPath (Join-Path $InstallRoot 'ModeTwo/1.0.0') | Should -BeFalse
+        }
+    }
+}
+
 Describe 'Install-CdrVerifiedResources' {
     BeforeEach {
         $script:root = Join-Path $TestDrive 'ModulesRoot'

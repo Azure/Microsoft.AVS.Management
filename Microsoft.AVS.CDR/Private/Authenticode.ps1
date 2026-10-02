@@ -35,6 +35,10 @@ function Assert-CdrFileSignature {
 
     .PARAMETER ModuleVersion
         Version of the module that owns the file.
+
+    .PARAMETER Athenticode
+        Check (default) requires a trusted signature; Audit warns on signature failures.
+        None skips evaluation. Operational failures terminate in both evaluating modes.
     #>
     [CmdletBinding()]
     param(
@@ -45,14 +49,38 @@ function Assert-CdrFileSignature {
         [string]$ModuleName,
 
         [Parameter(Mandatory = $true)]
-        [string]$ModuleVersion
+        [string]$ModuleVersion,
+
+        [ValidateSet('None', 'Check', 'Audit')]
+        [CdrAuthenticodeMode]$Athenticode = [CdrAuthenticodeMode]::Check
     )
+
+    if ($Athenticode -eq [CdrAuthenticodeMode]::None) {
+        return
+    }
 
     try {
         $signatures = @(OpenAuthenticode\Get-OpenAuthenticodeSignature -LiteralPath $LiteralPath -ErrorAction Stop)
     }
     catch {
         $message = "Failed to verify Authenticode signature for module '$ModuleName' version '$ModuleVersion' at '$LiteralPath': $($_.Exception.Message)"
+        # OpenAuthenticode reports unsigned files as ObjectNotFound, just like missing paths.
+        $signatureFailure = $_.FullyQualifiedErrorId -eq 'NoSignature,OpenAuthenticode.Module.GetOpenAuthenticodeSignature'
+        $cause = $_.Exception
+        while ($null -ne $cause) {
+            if ($cause -is [System.Security.Cryptography.CryptographicException] -or
+                $cause -is [System.FormatException] -or
+                ($cause -is [System.ArgumentException] -and
+                    $_.FullyQualifiedErrorId -eq 'GetSignatureError,OpenAuthenticode.Module.GetOpenAuthenticodeSignature')) {
+                $signatureFailure = $true
+                break
+            }
+            $cause = $cause.InnerException
+        }
+        if ($Athenticode -eq [CdrAuthenticodeMode]::Audit -and $signatureFailure) {
+            Write-Warning $message
+            return
+        }
         $exception = [System.InvalidOperationException]::new($message, $_.Exception)
         $errorRecord = [System.Management.Automation.ErrorRecord]::new(
             $exception,
@@ -64,6 +92,10 @@ function Assert-CdrFileSignature {
 
     if ($signatures.Count -eq 0) {
         $message = "No Authenticode signature was returned for module '$ModuleName' version '$ModuleVersion' at '$LiteralPath'."
+        if ($Athenticode -eq [CdrAuthenticodeMode]::Audit) {
+            Write-Warning $message
+            return
+        }
         $exception = [System.InvalidOperationException]::new($message)
         $errorRecord = [System.Management.Automation.ErrorRecord]::new(
             $exception,
@@ -87,6 +119,10 @@ function Assert-CdrModuleSignature {
 
     .PARAMETER ModuleVersion
         Version of the module being verified.
+
+    .PARAMETER Athenticode
+        Check (default) requires trusted signatures; Audit warns and scans remaining files.
+        None skips evaluation. Invalid or unreadable module trees always terminate evaluation.
     #>
     [CmdletBinding()]
     param(
@@ -97,8 +133,15 @@ function Assert-CdrModuleSignature {
         [string]$ModuleName,
 
         [Parameter(Mandatory = $true)]
-        [string]$ModuleVersion
+        [string]$ModuleVersion,
+
+        [ValidateSet('None', 'Check', 'Audit')]
+        [CdrAuthenticodeMode]$Athenticode = [CdrAuthenticodeMode]::Check
     )
+
+    if ($Athenticode -eq [CdrAuthenticodeMode]::None) {
+        return
+    }
 
     try {
         $moduleRoot = Get-Item -LiteralPath $ModuleDirectory -ErrorAction Stop
@@ -138,7 +181,7 @@ function Assert-CdrModuleSignature {
 
         foreach ($child in $children) {
             if (($child.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-                throw "Module '$ModuleName' version '$ModuleVersion' path '$($child.FullName)' is a symlink or reparse point, which is not allowed in checked mode."
+                throw "Module '$ModuleName' version '$ModuleVersion' path '$($child.FullName)' is a symlink or reparse point, which is not allowed during signature evaluation."
             }
 
             if ($child.PSIsContainer) {
@@ -156,11 +199,11 @@ function Assert-CdrModuleSignature {
 
     $filesToVerify = @($supportedFiles | Sort-Object)
     foreach ($filePath in $filesToVerify) {
-        Assert-CdrFileSignature -LiteralPath $filePath -ModuleName $ModuleName -ModuleVersion $ModuleVersion
+        Assert-CdrFileSignature -LiteralPath $filePath -ModuleName $ModuleName -ModuleVersion $ModuleVersion -Athenticode $Athenticode
     }
 
     $unsupportedCount = $totalFiles - $filesToVerify.Count
-    Write-Verbose "Verified $($filesToVerify.Count) supported file(s) for module '$ModuleName' version '$ModuleVersion' under '$ModuleDirectory'; ignored $unsupportedCount unsupported file(s)."
+    Write-Verbose "Evaluated $($filesToVerify.Count) supported file(s) in $Athenticode mode for module '$ModuleName' version '$ModuleVersion' under '$ModuleDirectory'; ignored $unsupportedCount unsupported file(s)."
 }
 
 function Assert-CdrResolvedModuleSignatureGraph {
@@ -170,16 +213,23 @@ function Assert-CdrResolvedModuleSignatureGraph {
 
     .PARAMETER Modules
         Module graph nodes with Name, Version, and InstalledLocation properties.
+
+    .PARAMETER Athenticode
+        Check (default) fails closed; Audit warns and continues signature evaluation across the graph.
+        None skips evaluation.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [object[]]$Modules
+        [object[]]$Modules,
+
+        [ValidateSet('None', 'Check', 'Audit')]
+        [CdrAuthenticodeMode]$Athenticode = [CdrAuthenticodeMode]::Check
     )
 
     foreach ($module in $Modules) {
         Assert-CdrModuleSignature -ModuleDirectory $module.InstalledLocation `
-            -ModuleName $module.Name -ModuleVersion $module.Version
+            -ModuleName $module.Name -ModuleVersion $module.Version -Athenticode $Athenticode
     }
 }
 
