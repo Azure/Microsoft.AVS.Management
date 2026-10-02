@@ -1485,7 +1485,7 @@ function Find-PSResourceDependencies {
     }
     
     $resolvedPath = Resolve-Path $ManifestPath
-    if (-not $resolvedPath.Path.EndsWith('.psd1')) {
+    if (-not $resolvedPath.Path.EndsWith('.psd1', [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "File must be a PowerShell module manifest (.psd1): $ManifestPath"
     }
     
@@ -1596,7 +1596,7 @@ function Install-PSResourceDependencies {
         }
 
         $resolvedManifestPath = Resolve-Path $ManifestPath
-        if (-not $resolvedManifestPath.Path.EndsWith('.psd1')) {
+        if (-not $resolvedManifestPath.Path.EndsWith('.psd1', [System.StringComparison]::OrdinalIgnoreCase)) {
             throw "File must be a PowerShell module manifest (.psd1): $ManifestPath"
         }
 
@@ -1606,6 +1606,8 @@ function Install-PSResourceDependencies {
 
         Assert-CdrFileSignature -LiteralPath $resolvedManifestPath.Path `
             -ModuleName $manifestModuleName -ModuleVersion $manifestModuleVersion
+
+        $ManifestPath = $resolvedManifestPath.Path
     }
     
     $findParams = @{
@@ -1847,7 +1849,7 @@ function Import-PSResourceDependencies {
     }
     
     $resolvedPath = Resolve-Path $ManifestPath
-    if (-not $resolvedPath.Path.EndsWith('.psd1')) {
+    if (-not $resolvedPath.Path.EndsWith('.psd1', [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "File must be a PowerShell module manifest (.psd1): $ManifestPath"
     }
     

@@ -493,41 +493,39 @@ Describe 'Install-CdrVerifiedResources' {
         }
     }
 
-    It 'promotes staged modules and verifies discoverability in the actual CurrentUser module root' {
-        $currentUserRoot = Join-Path $HOME '.local/share/powershell/Modules'
-        $moduleName = "Copilot.Task3.$([guid]::NewGuid().ToString('N'))"
+    It 'promotes staged modules and verifies real discoverability in an isolated CurrentUser module root' {
+        $currentUserRoot = $script:root
+        $moduleName = "Discovery.Test.$([guid]::NewGuid().ToString('N'))"
         $resource = New-TestResource -Name $moduleName -Version '3.2.4' -Repository 'DiscoveryRepo'
-        $moduleRootToClean = Join-Path $currentUserRoot $moduleName
+        $nativeDiscovery = Get-Command Microsoft.PowerShell.PSResourceGet\Get-InstalledPSResource -CommandType Cmdlet
 
-        if (Test-Path -LiteralPath $moduleRootToClean) {
-            Remove-Item -LiteralPath $moduleRootToClean -Recurse -Force
-        }
+        InModuleScope Microsoft.AVS.CDR -ArgumentList $resource, $currentUserRoot, $nativeDiscovery {
+            param($resource, $currentUserRoot, $nativeDiscovery)
 
-        try {
-            InModuleScope Microsoft.AVS.CDR -ArgumentList $resource {
-                param($resource)
-
-                Mock Save-PSResource {
-                    param($Name, $Version, $Path, $Repository)
-                    $moduleName = $Name
-                    $savePath = $Path
-                    $repositoryName = $Repository
-                    New-TestModuleLayout -BasePath $savePath -ModuleName $moduleName -BaseVersion '3.2.4' `
-                        -Repository $repositoryName -InstalledLocation $savePath | Out-Null
-                }
-                Mock Assert-CdrModuleSignature { param($ModuleDirectory, $ModuleName, $ModuleVersion) }
-
-                Install-CdrVerifiedResources -Resources @($resource) -Scope CurrentUser
+            Mock Get-CdrLinuxModuleRoot { $currentUserRoot }
+            Mock Save-PSResource {
+                param($Name, $Version, $Path, $Repository)
+                $moduleName = $Name
+                $savePath = $Path
+                $repositoryName = $Repository
+                New-TestModuleLayout -BasePath $savePath -ModuleName $moduleName -BaseVersion '3.2.4' `
+                    -Repository $repositoryName -InstalledLocation $savePath | Out-Null
+            }
+            Mock Assert-CdrModuleSignature { param($ModuleDirectory, $ModuleName, $ModuleVersion) }
+            Mock Get-InstalledPSResource {
+                param($Name)
+                & $nativeDiscovery -Name $Name -Path $currentUserRoot -ErrorAction Stop
             }
 
-            $discovered = Get-PSResource -Name $moduleName -ErrorAction SilentlyContinue | Select-Object -First 1
-            $discovered | Should -Not -BeNullOrEmpty
-            $discovered.Repository | Should -Be 'DiscoveryRepo'
-            $discovered.InstalledLocation | Should -BeExactly $currentUserRoot
+            Install-CdrVerifiedResources -Resources @($resource) -Scope CurrentUser
+            Should -Invoke Get-CdrLinuxModuleRoot -Times 1 -Exactly -ParameterFilter { $Scope -eq 'CurrentUser' }
         }
-        finally {
-            Remove-Item -LiteralPath $moduleRootToClean -Recurse -Force -ErrorAction SilentlyContinue
-        }
+
+        $discovered = @(Get-PSResource -Name $moduleName -Path $currentUserRoot -ErrorAction Stop)
+        $discovered.Count | Should -Be 1
+        $discovered[0].Repository | Should -Be 'DiscoveryRepo'
+        $discovered[0].Version.ToString() | Should -Be '3.2.4'
+        $discovered[0].InstalledLocation | Should -BeExactly $currentUserRoot
     }
 
     It 'supports an isolated AllUsers destination without requiring elevated changes' {

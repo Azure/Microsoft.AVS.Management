@@ -27,6 +27,49 @@ BeforeAll {
     }
 }
 
+Describe 'Manifest extension compatibility: <CommandName>' -ForEach @(
+    @{ CommandName = 'Find-PSResourceDependencies'; Checked = $false }
+    @{ CommandName = 'Install-PSResourceDependencies'; Checked = $true }
+    @{ CommandName = 'Import-PSResourceDependencies'; Checked = $true }
+) {
+    It 'validates extension <Extension> without changing the file path' -ForEach @(
+        @{ Extension = '.psd1'; Accepted = $true }
+        @{ Extension = '.PSD1'; Accepted = $true }
+        @{ Extension = '.PsD1'; Accepted = $true }
+        @{ Extension = '.txt'; Accepted = $false }
+    ) {
+        $manifestPath = Join-Path $TestDrive "MixedCase.Module$Extension"
+        Set-Content -LiteralPath $manifestPath -Value "@{ ModuleVersion = '1.0.0'; RequiredModules = @() }"
+
+        InModuleScope Microsoft.AVS.CDR -ArgumentList $manifestPath, $CommandName, $Checked, $Accepted {
+            param($manifestPath, $commandName, $checked, $accepted)
+
+            Mock Assert-CdrFileSignature { }
+            Mock Find-PSResource { throw 'no remote discovery expected' }
+            Mock Import-Module { throw 'no module import expected' }
+            $commandParams = @{ ManifestPath = $manifestPath }
+            if ($checked) {
+                $commandParams['AuthenticodeCheck'] = $true
+            }
+
+            if ($accepted) {
+                @(& $commandName @commandParams).Count | Should -Be 0
+                if ($checked) {
+                    Should -Invoke Assert-CdrFileSignature -Times 1 -Exactly -ParameterFilter {
+                        $LiteralPath -ceq $manifestPath -and $ModuleName -ceq 'MixedCase.Module'
+                    }
+                }
+            }
+            else {
+                { & $commandName @commandParams } | Should -Throw '*.psd1*'
+                Should -Invoke Assert-CdrFileSignature -Times 0
+            }
+            Should -Invoke Find-PSResource -Times 0
+            Should -Invoke Import-Module -Times 0
+        }
+    }
+}
+
 Describe "Install-PSResourcePinned" {
     BeforeAll {
         $script:testScope = 'CurrentUser'
@@ -2429,6 +2472,35 @@ Describe "Install-PSResourceDependencies" {
                 }
                 Should -Invoke Find-PSResourceDependencies -Times 0
                 Should -Invoke Install-CdrVerifiedResources -Times 0
+            }
+        }
+
+        It "Should resolve dependencies from the same absolute manifest path that was verified" {
+            $manifestDirectory = Join-Path $TestDrive 'RelativeManifest'
+            $null = New-Item -Path $manifestDirectory -ItemType Directory -Force
+            $manifestPath = Join-Path $manifestDirectory 'TestModule.psd1'
+            Set-Content -LiteralPath $manifestPath -Value "@{ ModuleVersion = '1.0.0'; RequiredModules = @() }"
+
+            InModuleScope Microsoft.AVS.CDR -ArgumentList $manifestDirectory, $manifestPath {
+                param($manifestDirectory, $expectedManifestPath)
+
+                Mock Assert-CdrFileSignature { }
+                Mock Find-PSResourceDependencies { @() }
+
+                Push-Location $manifestDirectory
+                try {
+                    Install-PSResourceDependencies -ManifestPath './TestModule.psd1' -AuthenticodeCheck
+
+                    Should -Invoke Assert-CdrFileSignature -Times 1 -Exactly -ParameterFilter {
+                        $LiteralPath -ceq $expectedManifestPath
+                    }
+                    Should -Invoke Find-PSResourceDependencies -Times 1 -Exactly -ParameterFilter {
+                        $ManifestPath -ceq $expectedManifestPath
+                    }
+                }
+                finally {
+                    Pop-Location
+                }
             }
         }
     }
