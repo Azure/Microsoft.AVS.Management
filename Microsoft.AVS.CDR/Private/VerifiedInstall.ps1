@@ -289,19 +289,11 @@ function Invoke-CdrInstalledVersionDirectoryRemoval {
         [string]$LiteralPath
     )
 
-    if (-not (Test-Path -LiteralPath $LiteralPath)) {
+    if (-not (Test-Path -LiteralPath $LiteralPath -ErrorAction Stop)) {
         return
     }
 
     Remove-Item -LiteralPath $LiteralPath -Recurse -Force -ErrorAction Stop
-
-    $moduleRoot = Split-Path -Path $LiteralPath -Parent
-    if ($moduleRoot -and (Test-Path -LiteralPath $moduleRoot)) {
-        $remainingEntries = @(Get-ChildItem -LiteralPath $moduleRoot -Force -ErrorAction Stop)
-        if ($remainingEntries.Count -eq 0) {
-            Remove-Item -LiteralPath $moduleRoot -Force -ErrorAction Stop
-        }
-    }
 }
 
 Set-Alias -Name Get-CdrResourceDestinationPaths -Value Get-CdrResourceDestinationLayout -Scope Script
@@ -364,8 +356,7 @@ function Invoke-CdrVerifiedResourceInstallation {
     $operationRoot = $null
     $promotedDestinations = [System.Collections.Generic.List[string]]::new()
     $backupMoves = [System.Collections.Generic.List[object]]::new()
-    $cleanupPaths = [System.Collections.Generic.List[string]]::new()
-    $preserveRecoveryEvidence = $false
+    $createdModuleParents = [System.Collections.Generic.List[string]]::new()
     $preparedResources = @()
 
     try {
@@ -375,7 +366,6 @@ function Invoke-CdrVerifiedResourceInstallation {
         $backupRoot = Join-Path -Path $operationRoot -ChildPath 'backups'
         $null = New-Item -ItemType Directory -Path $stagingModulesRoot -Force -ErrorAction Stop
         $null = New-Item -ItemType Directory -Path $backupRoot -Force -ErrorAction Stop
-        $cleanupPaths.Add($operationRoot) | Out-Null
 
         $preparedResources = foreach ($resource in $Resources) {
             $destinationPaths = Get-CdrResourceDestinationLayout -ModulesRoot $modulesRoot -Resource $resource
@@ -445,6 +435,8 @@ function Invoke-CdrVerifiedResourceInstallation {
         foreach ($prepared in $preparedResources | Where-Object NeedsPromotion) {
             $destinationParent = Split-Path -Path $prepared.DestinationRoot -Parent
             if (-not (Test-Path -LiteralPath $destinationParent)) {
+                # Record ownership before creation, which can fail after creating the directory.
+                $createdModuleParents.Add($destinationParent)
                 $null = New-Item -ItemType Directory -Path $destinationParent -Force -ErrorAction Stop
             }
 
@@ -455,11 +447,11 @@ function Invoke-CdrVerifiedResourceInstallation {
                     $null = New-Item -ItemType Directory -Path $backupParent -Force -ErrorAction Stop
                 }
 
-                Invoke-CdrDirectoryMove -LiteralPath $prepared.DestinationRoot -Destination $backupDestination
                 $backupMoves.Add([pscustomobject]@{
                     DestinationRoot = $prepared.DestinationRoot
                     BackupRoot = $backupDestination
                 }) | Out-Null
+                Invoke-CdrDirectoryMove -LiteralPath $prepared.DestinationRoot -Destination $backupDestination
             }
 
             try {
@@ -481,69 +473,86 @@ function Invoke-CdrVerifiedResourceInstallation {
                 throw "Installed resource '$($resource.Name)' version '$($resource.Version)' was not discoverable through Get-PSResource at '$modulesRoot' after promotion."
             }
         }
-
-        foreach ($backup in $backupMoves) {
-            if (Test-Path -LiteralPath $backup.BackupRoot) {
-                Remove-Item -LiteralPath $backup.BackupRoot -Recurse -Force -ErrorAction Stop
-            }
-        }
     }
     catch {
         $originalError = $_
         $rollbackIssues = [System.Collections.Generic.List[string]]::new()
 
         foreach ($destination in @($promotedDestinations.ToArray()) | Sort-Object -Descending) {
-            if (Test-Path -LiteralPath $destination) {
-                try {
-                    Invoke-CdrInstalledVersionDirectoryRemoval -LiteralPath $destination
-                }
-                catch {
-                    $rollbackIssues.Add($destination) | Out-Null
-                }
+            try {
+                Invoke-CdrInstalledVersionDirectoryRemoval -LiteralPath $destination
+            }
+            catch {
+                $rollbackIssues.Add("Failed to remove promoted destination '$destination': $($_.Exception.Message)")
             }
         }
 
         foreach ($backup in @($backupMoves.ToArray()) | Sort-Object DestinationRoot -Descending) {
-            if (Test-Path -LiteralPath $backup.BackupRoot) {
-                try {
+            try {
+                if (Test-Path -LiteralPath $backup.BackupRoot -ErrorAction Stop) {
+                    if (Test-Path -LiteralPath $backup.DestinationRoot -ErrorAction Stop) {
+                        throw "Destination still exists; refusing to move a backup into it."
+                    }
+
                     $restoreParent = Split-Path -Path $backup.DestinationRoot -Parent
-                    if (-not (Test-Path -LiteralPath $restoreParent)) {
+                    if (-not (Test-Path -LiteralPath $restoreParent -ErrorAction Stop)) {
                         $null = New-Item -ItemType Directory -Path $restoreParent -Force -ErrorAction Stop
                     }
 
                     Invoke-CdrDirectoryMove -LiteralPath $backup.BackupRoot -Destination $backup.DestinationRoot
                 }
-                catch {
-                    $rollbackIssues.Add($backup.BackupRoot) | Out-Null
-                    $rollbackIssues.Add($backup.DestinationRoot) | Out-Null
-                }
+            }
+            catch {
+                $rollbackIssues.Add("Failed to restore backup '$($backup.BackupRoot)' to '$($backup.DestinationRoot)': $($_.Exception.Message)")
             }
         }
 
-        foreach ($prepared in $preparedResources) {
+        foreach ($moduleParent in $createdModuleParents) {
             try {
-                Remove-CdrEmptyDirectory -LiteralPath $prepared.DestinationModuleRoot
+                if (Test-Path -LiteralPath $moduleParent -ErrorAction Stop) {
+                    $remainingEntries = @(Get-ChildItem -LiteralPath $moduleParent -Force -ErrorAction Stop)
+                    if ($remainingEntries.Count -eq 0) {
+                        Remove-Item -LiteralPath $moduleParent -Force -ErrorAction Stop
+                    }
+                }
             }
             catch {
-                $rollbackIssues.Add($prepared.DestinationModuleRoot) | Out-Null
+                $rollbackIssues.Add("Failed to remove operation-created module parent '$moduleParent': $($_.Exception.Message)")
             }
         }
 
         if ($rollbackIssues.Count -gt 0) {
-            $preserveRecoveryEvidence = $true
-            $issueList = ($rollbackIssues | Select-Object -Unique) -join ', '
-            throw "Failed to install verified resources and rollback was incomplete after '$($originalError.Exception.Message)'. Preserved recovery paths: $issueList"
+            throw "Failed to install verified resources and rollback was incomplete after '$($originalError.Exception.Message)'. Preserved recovery directory '$operationRoot'. Rollback failures: $($rollbackIssues -join '; ')"
+        }
+
+        try {
+            if ($operationRoot -and (Test-Path -LiteralPath $operationRoot -ErrorAction Stop)) {
+                Remove-Item -LiteralPath $operationRoot -Recurse -Force -ErrorAction Stop
+            }
+        }
+        catch {
+            throw "Failed to install verified resources after '$($originalError.Exception.Message)'. Cleanup failed for operation directory '$operationRoot': $($_.Exception.Message)"
         }
 
         throw
     }
-    finally {
-        if (-not $preserveRecoveryEvidence) {
-            foreach ($cleanupPath in ($cleanupPaths | Sort-Object -Descending)) {
-                if (Test-Path -LiteralPath $cleanupPath) {
-                    Remove-Item -LiteralPath $cleanupPath -Recurse -Force -ErrorAction SilentlyContinue
-                }
+
+    # Promotion and discovery commit the installation. Backup disposal must never trigger rollback.
+    $cleanupPath = $operationRoot
+    try {
+        foreach ($backup in $backupMoves) {
+            $cleanupPath = $backup.BackupRoot
+            if (Test-Path -LiteralPath $cleanupPath -ErrorAction Stop) {
+                Remove-Item -LiteralPath $cleanupPath -Recurse -Force -ErrorAction Stop
             }
         }
+
+        $cleanupPath = $operationRoot
+        if (Test-Path -LiteralPath $cleanupPath -ErrorAction Stop) {
+            Remove-Item -LiteralPath $cleanupPath -Recurse -Force -ErrorAction Stop
+        }
+    }
+    catch {
+        throw "Verified resource installation committed, but cleanup failed for '$cleanupPath': $($_.Exception.Message). Installed resources were retained; remaining recovery material is at '$operationRoot'."
     }
 }

@@ -248,6 +248,364 @@ $prereleaseBlock
     Set-Item -Path function:global:New-TestPrereleaseModuleLayout -Value ${function:New-TestPrereleaseModuleLayout}
 }
 
+Describe 'Checked installation transaction cleanup' {
+    BeforeEach {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ TestRoot = $TestDrive } {
+            param($TestRoot)
+            $parent = Join-Path $TestRoot ([guid]::NewGuid().ToString('N'))
+            $root = Join-Path $parent 'Modules'
+            $null = New-Item -ItemType Directory -Path $root -Force
+            $unrelatedOperation = Join-Path $parent '.microsoft.avs.cdr/another-operation'
+            $null = New-Item -ItemType Directory -Path $unrelatedOperation -Force
+            Set-Content -LiteralPath (Join-Path $unrelatedOperation 'keep.txt') -Value 'other operation' -NoNewline
+            $unrelatedVersion = New-TestModuleLayout -BasePath $root -ModuleName 'Unrelated.Module' -BaseVersion '1.0.0'
+            $script:transaction = @{
+                Root = $root
+                OperationRoot = $null
+                UnrelatedOperation = $unrelatedOperation
+                UnrelatedManifest = Join-Path $unrelatedVersion 'Unrelated.Module.psd1'
+                NativeDiscovery = Get-Command Microsoft.PowerShell.PSResourceGet\Get-InstalledPSResource -CommandType Cmdlet
+                Resources = @(
+                    [pscustomobject]@{ Name = 'First.Module'; Version = '3.2.4'; Repository = 'TestRepo' }
+                    [pscustomobject]@{ Name = 'Second.Module'; Version = '3.2.4'; Repository = 'TestRepo' }
+                )
+            }
+            $transaction.UnrelatedHash = (Get-FileHash -LiteralPath $transaction.UnrelatedManifest).Hash
+            Mock Get-CdrLinuxModuleRoot { $transaction.Root }
+            Mock Save-PSResource {
+                $transaction.OperationRoot = Split-Path $Path -Parent
+                $versionRoot = New-TestModuleLayout -BasePath $Path -ModuleName $Name -BaseVersion $Version
+                Set-Content -LiteralPath (Join-Path $versionRoot 'marker.txt') -Value "new-$Name" -NoNewline
+            }
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' { [pscustomobject]@{ SignerCertificate = 'trusted' } }
+            Mock Get-InstalledPSResource {
+                & $transaction.NativeDiscovery -Name $Name -Path $transaction.Root -ErrorAction Stop
+            }
+        }
+    }
+
+    AfterEach {
+        InModuleScope Microsoft.AVS.CDR {
+            Test-Path -LiteralPath $transaction.Root -PathType Container | Should -BeTrue
+            (Get-FileHash -LiteralPath $transaction.UnrelatedManifest).Hash | Should -BeExactly $transaction.UnrelatedHash
+            Get-Content -LiteralPath (Join-Path $transaction.UnrelatedOperation 'keep.txt') -Raw |
+                Should -BeExactly 'other operation'
+        }
+    }
+
+    It 'preserves the original unsigned reused-dependency error and all installed bytes while deleting only its staging' {
+        InModuleScope Microsoft.AVS.CDR {
+            $emptyParent = Join-Path $transaction.Root 'First.Module'
+            $null = New-Item -ItemType Directory -Path $emptyParent
+            $installed = New-TestModuleLayout -BasePath $transaction.Root -ModuleName 'Second.Module' -BaseVersion '3.2.4'
+            Set-Content -LiteralPath (Join-Path $installed 'Add-SshIdentity.ps1') -Value '# unsigned'
+            $before = @(Get-ChildItem -LiteralPath $installed -File | Get-FileHash | Select-Object -ExpandProperty Hash)
+            Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' { @() } -ParameterFilter {
+                $LiteralPath.EndsWith('Add-SshIdentity.ps1')
+            }
+
+            $failure = $null
+            try { Install-CdrVerifiedResources -Resources $transaction.Resources -Scope CurrentUser -Athenticode Check }
+            catch { $failure = $_ }
+
+            $failure.Exception.Message | Should -BeLike '*No Authenticode signature*Second.Module*3.2.4*Add-SshIdentity.ps1*'
+            $failure.Exception.Message | Should -Not -BeLike '*rollback*'
+            @(Get-ChildItem -LiteralPath $installed -File | Get-FileHash | Select-Object -ExpandProperty Hash) | Should -Be $before
+            Test-Path -LiteralPath $emptyParent -PathType Container | Should -BeTrue
+            @(Get-ChildItem -LiteralPath $emptyParent -Force).Count | Should -Be 0
+            Test-Path -LiteralPath $transaction.OperationRoot | Should -BeFalse
+        }
+    }
+
+    It 'cleans a partial <Failure> without changing preexisting empty module parents' -ForEach @(
+        @{ Failure = 'save' }
+        @{ Failure = 'prepare' }
+    ) {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ FailureKind = $Failure } {
+            param($FailureKind)
+            $emptyParent = Join-Path $transaction.Root 'First.Module'
+            $null = New-Item -ItemType Directory -Path $emptyParent
+            Mock Save-PSResource {
+                $transaction.OperationRoot = Split-Path $Path -Parent
+                $versionRoot = New-TestModuleLayout -BasePath $Path -ModuleName $Name -BaseVersion $Version
+                if ($Name -eq 'Second.Module') {
+                    if ($FailureKind -eq 'save') { throw 'partial acquisition failed' }
+                    Remove-Item -LiteralPath (Join-Path $versionRoot 'PSGetModuleInfo.xml') -ErrorAction Stop
+                }
+            }
+
+            $failure = $null
+            try { Install-CdrVerifiedResources -Resources $transaction.Resources -Scope CurrentUser }
+            catch { $failure = $_ }
+
+            if ($FailureKind -eq 'save') { $failure.Exception.Message | Should -BeExactly 'partial acquisition failed' }
+            else { $failure.Exception.Message | Should -BeLike '*Second.Module*missing generated metadata*' }
+            $failure.Exception.Message | Should -Not -BeLike '*rollback*'
+            Test-Path -LiteralPath $transaction.OperationRoot | Should -BeFalse
+            Test-Path -LiteralPath $emptyParent -PathType Container | Should -BeTrue
+            @(Get-ChildItem -LiteralPath $emptyParent -Force).Count | Should -Be 0
+            Test-Path -LiteralPath (Join-Path $transaction.Root 'Second.Module') | Should -BeFalse
+        }
+    }
+
+    It 'cleans operation staging when <Directory> initialization throws after creating directories' -ForEach @(
+        @{ Directory = 'staging' }
+        @{ Directory = 'backups' }
+    ) {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ Directory = $Directory } {
+            param($Directory)
+            Mock New-Item {
+                $transaction.OperationRoot = Split-Path $Path -Parent
+                $null = [System.IO.Directory]::CreateDirectory($Path)
+                throw "$Directory initialization failed"
+            } -ParameterFilter { (Split-Path $Path -Leaf) -eq $Directory }
+
+            { Install-CdrVerifiedResources -Resources $transaction.Resources -Scope CurrentUser } |
+                Should -Throw -ExpectedMessage "$Directory initialization failed"
+
+            Test-Path -LiteralPath $transaction.OperationRoot | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $transaction.Root 'First.Module') | Should -BeFalse
+        }
+    }
+
+    It 'removes a newly created empty destination parent when its initialization throws' {
+        InModuleScope Microsoft.AVS.CDR {
+            $newParent = Join-Path $transaction.Root 'First.Module'
+            Mock New-Item {
+                $null = [System.IO.Directory]::CreateDirectory($Path)
+                throw 'destination parent initialization failed'
+            } -ParameterFilter { $Path -eq $newParent }
+
+            { Install-CdrVerifiedResources -Resources $transaction.Resources -Scope CurrentUser } |
+                Should -Throw -ExpectedMessage 'destination parent initialization failed'
+
+            Test-Path -LiteralPath $newParent | Should -BeFalse
+            Test-Path -LiteralPath $transaction.OperationRoot | Should -BeFalse
+        }
+    }
+
+    It 'restores force backups after partial promotion and preserves only preexisting parents (existing: <ExistingParent>)' -ForEach @(
+        @{ ExistingParent = $false }
+        @{ ExistingParent = $true }
+    ) {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ ExistingParent = $ExistingParent } {
+            param($ExistingParent)
+            $installed = New-TestModuleLayout -BasePath $transaction.Root -ModuleName 'First.Module' -BaseVersion '3.2.4'
+            Set-Content -LiteralPath (Join-Path $installed 'marker.txt') -Value 'original' -NoNewline
+            $before = @(Get-ChildItem -LiteralPath $installed -File | Get-FileHash | Select-Object -ExpandProperty Hash)
+            $secondParent = Join-Path $transaction.Root 'Second.Module'
+            if ($ExistingParent) { $null = New-Item -ItemType Directory -Path $secondParent }
+            Mock Move-Item {
+                [System.IO.Directory]::Move($LiteralPath, $Destination)
+                throw 'promotion failed after move'
+            } -ParameterFilter { $LiteralPath -like '*/staging/Second.Module/3.2.4' }
+
+            $failure = $null
+            try { Install-CdrVerifiedResources -Resources $transaction.Resources -Scope CurrentUser -Force }
+            catch { $failure = $_ }
+
+            $failure.Exception.Message | Should -BeExactly 'promotion failed after move'
+            @(Get-ChildItem -LiteralPath $installed -File | Get-FileHash | Select-Object -ExpandProperty Hash) | Should -Be $before
+            Test-Path -LiteralPath (Join-Path $secondParent '3.2.4') | Should -BeFalse
+            Test-Path -LiteralPath $secondParent -PathType Container | Should -Be $ExistingParent
+            Test-Path -LiteralPath $transaction.OperationRoot | Should -BeFalse
+        }
+    }
+
+    It 'rolls back before commit when <FailureKind> fails' -ForEach @(
+        @{ FailureKind = 'discovery' }
+        @{ FailureKind = 'backup parent initialization' }
+    ) {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ FailureKind = $FailureKind } {
+            param($FailureKind)
+            $installed = New-TestModuleLayout -BasePath $transaction.Root -ModuleName 'Second.Module' -BaseVersion '3.2.4'
+            Set-Content -LiteralPath (Join-Path $installed 'marker.txt') -Value 'original' -NoNewline
+            $before = @(Get-ChildItem -LiteralPath $installed -File | Get-FileHash | Select-Object -ExpandProperty Hash)
+            if ($FailureKind -eq 'discovery') {
+                Mock Get-InstalledPSResource { @() } -ParameterFilter { $Name -eq 'Second.Module' }
+            }
+            else {
+                Mock New-Item {
+                    $null = [System.IO.Directory]::CreateDirectory($Path)
+                    throw 'backup parent initialization failed'
+                } -ParameterFilter { $Path -like '*/backups/Second.Module' }
+            }
+
+            $failure = $null
+            try { Install-CdrVerifiedResources -Resources $transaction.Resources -Scope CurrentUser -Force }
+            catch { $failure = $_ }
+
+            if ($FailureKind -eq 'discovery') {
+                $failure.Exception.Message | Should -BeLike '*Second.Module*not discoverable*'
+            }
+            else { $failure.Exception.Message | Should -BeExactly 'backup parent initialization failed' }
+            $failure.Exception.Message | Should -Not -BeLike '*rollback*'
+            @(Get-ChildItem -LiteralPath $installed -File | Get-FileHash | Select-Object -ExpandProperty Hash) | Should -Be $before
+            Test-Path -LiteralPath (Join-Path $transaction.Root 'First.Module') | Should -BeFalse
+            Test-Path -LiteralPath $transaction.OperationRoot | Should -BeFalse
+        }
+    }
+
+    It 'restores a backup even when the backup move throws after moving the original' {
+        InModuleScope Microsoft.AVS.CDR {
+            $installed = New-TestModuleLayout -BasePath $transaction.Root -ModuleName 'First.Module' -BaseVersion '3.2.4'
+            Set-Content -LiteralPath (Join-Path $installed 'marker.txt') -Value 'original' -NoNewline
+            Mock Move-Item {
+                [System.IO.Directory]::Move($LiteralPath, $Destination)
+                throw 'backup move failed after move'
+            } -ParameterFilter { $Destination -like '*/backups/First.Module/3.2.4' }
+
+            $failure = $null
+            try { Install-CdrVerifiedResources -Resources $transaction.Resources -Scope CurrentUser -Force }
+            catch { $failure = $_ }
+
+            $failure.Exception.Message | Should -BeExactly 'backup move failed after move'
+            Get-Content -LiteralPath (Join-Path $installed 'marker.txt') -Raw | Should -BeExactly 'original'
+            Test-Path -LiteralPath $transaction.OperationRoot | Should -BeFalse
+        }
+    }
+
+    It 'retains the real backup and unpromoted staging with both failure reasons when restoration fails' {
+        InModuleScope Microsoft.AVS.CDR {
+            $installed = New-TestModuleLayout -BasePath $transaction.Root -ModuleName 'First.Module' -BaseVersion '3.2.4'
+            Set-Content -LiteralPath (Join-Path $installed 'marker.txt') -Value 'original' -NoNewline
+            Mock Move-Item { throw 'promotion denied' } -ParameterFilter { $LiteralPath -like '*/staging/Second.Module/3.2.4' }
+            Mock Move-Item { throw 'restore denied' } -ParameterFilter { $LiteralPath -like '*/backups/First.Module/3.2.4' }
+
+            $failure = $null
+            try { Install-CdrVerifiedResources -Resources $transaction.Resources -Scope CurrentUser -Force }
+            catch { $failure = $_ }
+
+            $backup = Join-Path $transaction.OperationRoot 'backups/First.Module/3.2.4'
+            $failure.Exception.Message | Should -BeLike '*promotion denied*'
+            $failure.Exception.Message | Should -BeLike '*restore denied*'
+            $failure.Exception.Message | Should -BeLike "*$backup*"
+            $failure.Exception.Message | Should -BeLike "*$installed*"
+            Get-Content -LiteralPath (Join-Path $backup 'marker.txt') -Raw | Should -BeExactly 'original'
+            Get-Content -LiteralPath (Join-Path $transaction.OperationRoot 'staging/Second.Module/3.2.4/marker.txt') -Raw |
+                Should -BeExactly 'new-Second.Module'
+            Test-Path -LiteralPath $installed | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $transaction.Root 'Second.Module') | Should -BeFalse
+        }
+    }
+
+    It 'does not nest a backup inside a replacement when rollback deletion fails' {
+        InModuleScope Microsoft.AVS.CDR {
+            $installed = New-TestModuleLayout -BasePath $transaction.Root -ModuleName 'First.Module' -BaseVersion '3.2.4'
+            Set-Content -LiteralPath (Join-Path $installed 'marker.txt') -Value 'original' -NoNewline
+            Mock Move-Item { throw 'promotion denied' } -ParameterFilter { $LiteralPath -like '*/staging/Second.Module/3.2.4' }
+            Mock Remove-Item { throw 'replacement removal denied' } -ParameterFilter { $LiteralPath -eq $installed }
+
+            $failure = $null
+            try { Install-CdrVerifiedResources -Resources $transaction.Resources -Scope CurrentUser -Force }
+            catch { $failure = $_ }
+
+            $backup = Join-Path $transaction.OperationRoot 'backups/First.Module/3.2.4'
+            $failure.Exception.Message | Should -BeLike '*promotion denied*'
+            $failure.Exception.Message | Should -BeLike '*replacement removal denied*'
+            $failure.Exception.Message | Should -BeLike "*$backup*"
+            $failure.Exception.Message | Should -BeLike "*$installed*"
+            Get-Content -LiteralPath (Join-Path $backup 'marker.txt') -Raw | Should -BeExactly 'original'
+            Get-Content -LiteralPath (Join-Path $installed 'marker.txt') -Raw | Should -BeExactly 'new-First.Module'
+            Test-Path -LiteralPath (Join-Path $installed '3.2.4') | Should -BeFalse
+        }
+    }
+
+    It 'reports an empty parent cleanup failure and preserves the staging it could not finish cleaning' {
+        InModuleScope Microsoft.AVS.CDR {
+            $newParent = Join-Path $transaction.Root 'First.Module'
+            Mock Move-Item { throw 'promotion denied' } -ParameterFilter { $LiteralPath -like '*/staging/First.Module/3.2.4' }
+            Mock Remove-Item { Write-Error 'empty parent cleanup denied' } -ParameterFilter { $LiteralPath -eq $newParent }
+
+            $failure = $null
+            try { Install-CdrVerifiedResources -Resources $transaction.Resources -Scope CurrentUser }
+            catch { $failure = $_ }
+
+            $failure.Exception.Message | Should -BeLike '*promotion denied*'
+            $failure.Exception.Message | Should -BeLike '*empty parent cleanup denied*'
+            $failure.Exception.Message | Should -BeLike "*$newParent*"
+            $failure.Exception.Message | Should -BeLike "*$($transaction.OperationRoot)*"
+            Test-Path -LiteralPath $newParent -PathType Container | Should -BeTrue
+            @(Get-ChildItem -LiteralPath $newParent -Force).Count | Should -Be 0
+            Test-Path -LiteralPath (Join-Path $transaction.OperationRoot 'staging/First.Module/3.2.4/marker.txt') | Should -BeTrue
+        }
+    }
+
+    It 'reports staging cleanup denial without losing the original acquisition error' {
+        InModuleScope Microsoft.AVS.CDR {
+            Mock Save-PSResource {
+                $transaction.OperationRoot = Split-Path $Path -Parent
+                Set-Content -LiteralPath (Join-Path $Path 'partial.txt') -Value 'partial'
+                throw 'acquisition denied'
+            }
+            Mock Remove-Item { Write-Error 'staging cleanup denied' } -ParameterFilter { $LiteralPath -eq $transaction.OperationRoot }
+
+            $failure = $null
+            try { Install-CdrVerifiedResources -Resources $transaction.Resources -Scope CurrentUser }
+            catch { $failure = $_ }
+
+            $failure.Exception.Message | Should -BeLike '*acquisition denied*'
+            $failure.Exception.Message | Should -BeLike '*staging cleanup denied*'
+            $failure.Exception.Message | Should -BeLike "*$($transaction.OperationRoot)*"
+            Test-Path -LiteralPath (Join-Path $transaction.OperationRoot 'staging/partial.txt') | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $transaction.Root 'First.Module') | Should -BeFalse
+        }
+    }
+
+    It 'cleans successful staging and backups without changing committed module bytes' {
+        InModuleScope Microsoft.AVS.CDR {
+            $null = New-TestModuleLayout -BasePath $transaction.Root -ModuleName 'First.Module' -BaseVersion '3.2.4'
+
+            Install-CdrVerifiedResources -Resources $transaction.Resources -Scope CurrentUser -Force
+
+            Get-Content -LiteralPath (Join-Path $transaction.Root 'First.Module/3.2.4/marker.txt') -Raw | Should -BeExactly 'new-First.Module'
+            Get-Content -LiteralPath (Join-Path $transaction.Root 'Second.Module/3.2.4/marker.txt') -Raw | Should -BeExactly 'new-Second.Module'
+            Test-Path -LiteralPath $transaction.OperationRoot | Should -BeFalse
+        }
+    }
+
+    It 'reports post-commit staging cleanup failure without rolling back successful installation' {
+        InModuleScope Microsoft.AVS.CDR {
+            Mock Remove-Item { Write-Error 'staging cleanup denied' } -ParameterFilter { $LiteralPath -eq $transaction.OperationRoot }
+
+            $failure = $null
+            try { Install-CdrVerifiedResources -Resources $transaction.Resources -Scope CurrentUser }
+            catch { $failure = $_ }
+
+            $failure | Should -Not -BeNullOrEmpty
+            $failure.Exception.Message | Should -BeLike '*committed*'
+            $failure.Exception.Message | Should -BeLike '*staging cleanup denied*'
+            $failure.Exception.Message | Should -BeLike "*$($transaction.OperationRoot)*"
+            Get-Content -LiteralPath (Join-Path $transaction.Root 'First.Module/3.2.4/marker.txt') -Raw | Should -BeExactly 'new-First.Module'
+            Get-Content -LiteralPath (Join-Path $transaction.Root 'Second.Module/3.2.4/marker.txt') -Raw | Should -BeExactly 'new-Second.Module'
+            Test-Path -LiteralPath $transaction.OperationRoot | Should -BeTrue
+        }
+    }
+
+    It 'does not roll back committed replacements when disposal fails after an earlier backup was deleted' {
+        InModuleScope Microsoft.AVS.CDR {
+            $first = New-TestModuleLayout -BasePath $transaction.Root -ModuleName 'First.Module' -BaseVersion '3.2.4'
+            $second = New-TestModuleLayout -BasePath $transaction.Root -ModuleName 'Second.Module' -BaseVersion '3.2.4'
+            Set-Content -LiteralPath (Join-Path $first 'marker.txt') -Value 'original-first' -NoNewline
+            Set-Content -LiteralPath (Join-Path $second 'marker.txt') -Value 'original-second' -NoNewline
+            Mock Remove-Item { Write-Error 'backup disposal denied' } -ParameterFilter { $LiteralPath -like '*/backups/Second.Module/3.2.4' }
+
+            $failure = $null
+            try { Install-CdrVerifiedResources -Resources $transaction.Resources -Scope CurrentUser -Force }
+            catch { $failure = $_ }
+
+            $remainingBackup = Join-Path $transaction.OperationRoot 'backups/Second.Module/3.2.4'
+            $failure.Exception.Message | Should -BeLike '*committed*'
+            $failure.Exception.Message | Should -BeLike '*backup disposal denied*'
+            $failure.Exception.Message | Should -BeLike "*$remainingBackup*"
+            Get-Content -LiteralPath (Join-Path $first 'marker.txt') -Raw | Should -BeExactly 'new-First.Module'
+            Get-Content -LiteralPath (Join-Path $second 'marker.txt') -Raw | Should -BeExactly 'new-Second.Module'
+            Test-Path -LiteralPath (Join-Path $transaction.OperationRoot 'backups/First.Module/3.2.4') | Should -BeFalse
+            Get-Content -LiteralPath (Join-Path $remainingBackup 'marker.txt') -Raw | Should -BeExactly 'original-second'
+        }
+    }
+}
+
 Describe 'Checked prerelease identity (reused installed copy: <Reuse>)' -ForEach @(
     @{ Reuse = $true }
     @{ Reuse = $false }
