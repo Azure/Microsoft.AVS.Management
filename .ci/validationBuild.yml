@@ -35,7 +35,7 @@ extends:
     sdl:
       sourceAnalysisPool:
         os: windows
-        image: avs-management-windows-2022-1es-image
+        image: avs-management-windows-2025-1es-image
         name: avs-management-1es-hosted-pool
     stages:
     - template: templates/common-validation-stages.yml@self
