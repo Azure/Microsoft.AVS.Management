@@ -27,6 +27,49 @@ BeforeAll {
     }
 }
 
+Describe 'Manifest extension compatibility: <CommandName>' -ForEach @(
+    @{ CommandName = 'Find-PSResourceDependencies'; Checked = $false }
+    @{ CommandName = 'Install-PSResourceDependencies'; Checked = $true }
+    @{ CommandName = 'Import-PSResourceDependencies'; Checked = $true }
+) {
+    It 'validates extension <Extension> without changing the file path' -ForEach @(
+        @{ Extension = '.psd1'; Accepted = $true }
+        @{ Extension = '.PSD1'; Accepted = $true }
+        @{ Extension = '.PsD1'; Accepted = $true }
+        @{ Extension = '.txt'; Accepted = $false }
+    ) {
+        $manifestPath = Join-Path $TestDrive "MixedCase.Module$Extension"
+        Set-Content -LiteralPath $manifestPath -Value "@{ ModuleVersion = '1.0.0'; RequiredModules = @() }"
+
+        InModuleScope Microsoft.AVS.CDR -ArgumentList $manifestPath, $CommandName, $Checked, $Accepted {
+            param($manifestPath, $commandName, $checked, $accepted)
+
+            Mock Assert-CdrFileSignature { }
+            Mock Find-PSResource { throw 'no remote discovery expected' }
+            Mock Import-Module { throw 'no module import expected' }
+            $commandParams = @{ ManifestPath = $manifestPath }
+            if ($checked) {
+                $commandParams['Athenticode'] = 'Check'
+            }
+
+            if ($accepted) {
+                @(& $commandName @commandParams).Count | Should -Be 0
+                if ($checked) {
+                    Should -Invoke Assert-CdrFileSignature -Times 1 -Exactly -ParameterFilter {
+                        $LiteralPath -ceq $manifestPath -and $ModuleName -ceq 'MixedCase.Module'
+                    }
+                }
+            }
+            else {
+                { & $commandName @commandParams } | Should -Throw '*.psd1*'
+                Should -Invoke Assert-CdrFileSignature -Times 0
+            }
+            Should -Invoke Find-PSResource -Times 0
+            Should -Invoke Import-Module -Times 0
+        }
+    }
+}
+
 Describe "Install-PSResourcePinned" {
     BeforeAll {
         $script:testScope = 'CurrentUser'
@@ -59,6 +102,13 @@ Describe "Install-PSResourcePinned" {
         It "Should have RedirectMapPath parameter" {
             $command = Get-Command Install-PSResourcePinned
             $command.Parameters.ContainsKey('RedirectMapPath') | Should -BeTrue
+        }
+
+        It "Should have Athenticode parameter as an optional enum" {
+            $command = Get-Command Install-PSResourcePinned
+            $command.Parameters.ContainsKey('Athenticode') | Should -BeTrue
+            $command.Parameters['Athenticode'].ParameterType.IsEnum | Should -BeTrue
+            $command.Parameters['Athenticode'].Attributes.Mandatory | Should -Not -Contain $true
         }
     }
 
@@ -235,6 +285,66 @@ Describe "Install-PSResourcePinned" {
                 Install-PSResourcePinned -Name "TestModule" -RequiredVersion "1.0.0-dev" -Prerelease
                 
                 # Install-PSResource should NOT be called because module is already installed
+                Should -Invoke Install-PSResource -Times 0
+            }
+        }
+
+        It "Should pass every resolved graph node to Install-CdrVerifiedResources in Athenticode Check mode" {
+            $credential = [pscredential]::new(
+                'copilot',
+                (ConvertTo-SecureString 'secret' -AsPlainText -Force)
+            )
+
+            InModuleScope Microsoft.AVS.CDR -ArgumentList $credential {
+                param($credential)
+
+                Mock Resolve-ExactDependency {
+                    [pscustomobject]@{
+                        ResolvedName = 'Root.Module'
+                        ResolvedVersion = '3.2.4'
+                        Constraint = $null
+                    }
+                }
+                Mock Build-RemoteDependencyGraph {
+                    param($ModuleName, $ModuleVersion, $Graph)
+                    $Graph['Root.Module@3.2.4'] = [DependencyGraphNode]::new(
+                        'Root.Module', '3.2.4', @('Shared.Dependency@2.0.0', 'Leaf.Dependency@1.5.0'), $false, 'RootRepo', $null
+                    )
+                    $Graph['Shared.Dependency@2.0.0'] = [DependencyGraphNode]::new(
+                        'Shared.Dependency', '2.0.0', @(), $false, 'SharedRepo', $null
+                    )
+                    $Graph['Leaf.Dependency@1.5.0'] = [DependencyGraphNode]::new(
+                        'Leaf.Dependency', '1.5.0', @(), $false, 'LeafRepo', $null
+                    )
+                    return 'Root.Module@3.2.4'
+                }
+                Mock Resolve-DiamondDependencies { @{} }
+                Mock Resolve-GraphRootKey { param($RootKeys, $RedirectedKeys) $RootKeys }
+                Mock Get-TopologicalOrder { @('Shared.Dependency@2.0.0', 'Leaf.Dependency@1.5.0', 'Root.Module@3.2.4') }
+                Mock Install-CdrVerifiedResources { }
+                Mock Install-PSResource { throw 'unchecked install path should not run' }
+
+                Install-PSResourcePinned -Name 'Root.Module' -RequiredVersion '3.2.4' `
+                    -Scope AllUsers -Repository 'RequestedRepo' -Credential $credential `
+                    -Prerelease -Force -Athenticode Check
+
+                Should -Invoke Install-CdrVerifiedResources -Times 1 -ParameterFilter {
+                    $Scope -eq 'AllUsers' -and
+                    $Prerelease -and
+                    $Force -and
+                    $Repository -eq 'RequestedRepo' -and
+                    $Credential -eq $credential -and
+                    $Resources.Count -eq 3 -and
+                    $Resources[0].Name -eq 'Shared.Dependency' -and
+                    $Resources[0].Version -eq '2.0.0' -and
+                    $Resources[0].Repository -eq 'SharedRepo' -and
+                    $Resources[1].Name -eq 'Leaf.Dependency' -and
+                    $Resources[1].Version -eq '1.5.0' -and
+                    $Resources[1].Repository -eq 'LeafRepo' -and
+                    $Resources[2].Name -eq 'Root.Module' -and
+                    $Resources[2].Version -eq '3.2.4' -and
+                    $Resources[2].Repository -eq 'RootRepo'
+                }
                 Should -Invoke Install-PSResource -Times 0
             }
         }
@@ -555,6 +665,13 @@ Describe "Import-ModulePinned" {
         It "Should have RedirectMapPath parameter" {
             $command = Get-Command Import-ModulePinned
             $command.Parameters.ContainsKey('RedirectMapPath') | Should -BeTrue
+        }
+
+        It "Should have Athenticode parameter as an optional enum" {
+            $command = Get-Command Import-ModulePinned
+            $command.Parameters.ContainsKey('Athenticode') | Should -BeTrue
+            $command.Parameters['Athenticode'].ParameterType.IsEnum | Should -BeTrue
+            $command.Parameters['Athenticode'].Attributes.Mandatory | Should -Not -Contain $true
         }
     }
 
@@ -2282,6 +2399,13 @@ Describe "Install-PSResourceDependencies" {
             $validateSet.ValidValues | Should -Contain 'CurrentUser'
             $validateSet.ValidValues | Should -Contain 'AllUsers'
         }
+
+        It "Should have Athenticode parameter as an optional enum" {
+            $command = Get-Command Install-PSResourceDependencies
+            $command.Parameters.ContainsKey('Athenticode') | Should -BeTrue
+            $command.Parameters['Athenticode'].ParameterType.IsEnum | Should -BeTrue
+            $command.Parameters['Athenticode'].Attributes.Mandatory | Should -Not -Contain $true
+        }
     }
 
     Context "Manifest Validation" {
@@ -2317,6 +2441,68 @@ Describe "Install-PSResourceDependencies" {
             # Should not throw, just return silently
             { Install-PSResourceDependencies -ManifestPath $script:testManifestPath } | Should -Not -Throw
         }
+
+        It "Should reject an unsigned manifest before resolving even when it has no dependencies" {
+            New-Item -Path $script:testManifestDir -ItemType Directory -Force | Out-Null
+
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+
+            InModuleScope Microsoft.AVS.CDR -ArgumentList $script:testManifestPath {
+                param($manifestPath)
+
+                Mock Assert-CdrFileSignature { throw 'unsigned manifest' }
+                Mock Find-PSResourceDependencies { throw 'dependency resolution should not run' }
+                Mock Install-CdrVerifiedResources { throw 'verified install should not run' }
+
+                { Install-PSResourceDependencies -ManifestPath $manifestPath -Athenticode Check } |
+                    Should -Throw '*unsigned manifest*'
+
+                Should -Invoke Assert-CdrFileSignature -Times 1 -ParameterFilter {
+                    $LiteralPath -eq $manifestPath -and
+                    $ModuleName -eq 'TestModule' -and
+                    $ModuleVersion -eq '1.0.0'
+                }
+                Should -Invoke Find-PSResourceDependencies -Times 0
+                Should -Invoke Install-CdrVerifiedResources -Times 0
+            }
+        }
+
+        It "Should resolve dependencies from the same absolute manifest path that was verified" {
+            $manifestDirectory = Join-Path $TestDrive 'RelativeManifest'
+            $null = New-Item -Path $manifestDirectory -ItemType Directory -Force
+            $manifestPath = Join-Path $manifestDirectory 'TestModule.psd1'
+            Set-Content -LiteralPath $manifestPath -Value "@{ ModuleVersion = '1.0.0'; RequiredModules = @() }"
+
+            InModuleScope Microsoft.AVS.CDR -ArgumentList $manifestDirectory, $manifestPath {
+                param($manifestDirectory, $expectedManifestPath)
+
+                Mock Assert-CdrFileSignature { }
+                Mock Find-PSResourceDependencies { @() }
+
+                Push-Location $manifestDirectory
+                try {
+                    Install-PSResourceDependencies -ManifestPath './TestModule.psd1' -Athenticode Check
+
+                    Should -Invoke Assert-CdrFileSignature -Times 1 -Exactly -ParameterFilter {
+                        $LiteralPath -ceq $expectedManifestPath
+                    }
+                    Should -Invoke Find-PSResourceDependencies -Times 1 -Exactly -ParameterFilter {
+                        $ManifestPath -ceq $expectedManifestPath
+                    }
+                }
+                finally {
+                    Pop-Location
+                }
+            }
+        }
     }
 
     Context "RequiredModules Processing" -Tag 'Integration' {
@@ -2338,6 +2524,64 @@ Describe "Install-PSResourceDependencies" {
 
         It "Should pass through Scope and Repository parameters" {
             Set-ItResult -Skipped -Because "Requires complex mocking of module resolution chain or integration environment"
+        }
+
+        It "Should pass every resolved dependency to Install-CdrVerifiedResources in Athenticode Check mode" {
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = 'Shared.Dependency'; RequiredVersion = '2.0.0' }
+        @{ ModuleName = 'Leaf.Dependency'; RequiredVersion = '1.5.0' }
+    )
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+
+            $credential = [pscredential]::new(
+                'copilot',
+                (ConvertTo-SecureString 'secret' -AsPlainText -Force)
+            )
+
+            InModuleScope Microsoft.AVS.CDR -ArgumentList $script:testManifestPath, $credential {
+                param($manifestPath, $credential)
+
+                Mock Assert-CdrFileSignature { }
+                Mock Find-PSResourceDependencies {
+                    @(
+                        [pscustomobject]@{ Name = 'Shared.Dependency'; Version = '2.0.0'; Repository = 'SharedRepo'; IsRedirected = $false }
+                        [pscustomobject]@{ Name = 'Leaf.Dependency'; Version = '1.5.0'; Repository = 'LeafRepo'; IsRedirected = $false }
+                    )
+                }
+                Mock Install-CdrVerifiedResources { }
+                Mock Install-PSResource { throw 'unchecked install path should not run' }
+
+                Install-PSResourceDependencies -ManifestPath $manifestPath -Scope AllUsers `
+                    -Repository 'RequestedRepo' -Credential $credential -Force -Athenticode Check
+
+                Should -Invoke Assert-CdrFileSignature -Times 1 -ParameterFilter {
+                    $LiteralPath -eq $manifestPath -and
+                    $ModuleName -eq 'TestModule' -and
+                    $ModuleVersion -eq '1.0.0'
+                }
+                Should -Invoke Install-CdrVerifiedResources -Times 1 -ParameterFilter {
+                    $Scope -eq 'AllUsers' -and
+                    $Force -and
+                    $Repository -eq 'RequestedRepo' -and
+                    $Credential -eq $credential -and
+                    $Resources.Count -eq 2 -and
+                    $Resources[0].Name -eq 'Shared.Dependency' -and
+                    $Resources[0].Version -eq '2.0.0' -and
+                    $Resources[0].Repository -eq 'SharedRepo' -and
+                    $Resources[1].Name -eq 'Leaf.Dependency' -and
+                    $Resources[1].Version -eq '1.5.0' -and
+                    $Resources[1].Repository -eq 'LeafRepo'
+                }
+                Should -Invoke Install-PSResource -Times 0
+            }
         }
 
         AfterEach {
@@ -2479,6 +2723,13 @@ Describe "Import-PSResourceDependencies" {
                 Import-PSResourceDependencies -ManifestPath $script:testManifestPath `
                     -RedirectMapPath $nonExistentMapPath -ErrorAction Stop
             } | Should -Throw -ExpectedMessage "*not found*"
+        }
+
+        It "Should have Athenticode parameter as an optional enum" {
+            $command = Get-Command Import-PSResourceDependencies
+            $command.Parameters.ContainsKey('Athenticode') | Should -BeTrue
+            $command.Parameters['Athenticode'].ParameterType.IsEnum | Should -BeTrue
+            $command.Parameters['Athenticode'].Attributes.Mandatory | Should -Not -Contain $true
         }
 
         AfterEach {

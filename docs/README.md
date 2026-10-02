@@ -137,6 +137,67 @@ Import-ModulePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0"
 
 CDR automatically loads the appropriate redirect map from its `maps/` directory based on the `Microsoft.AVS.Management` version in your dependency chain. You can also supply a custom redirect map via `-RedirectMapPath`.
 
+CDR also supports **opt-in Linux Authenticode verification** for the four install/import entry points:
+
+| CDR Cmdlet | Optional verification mode |
+|------------|------------------------------|
+| `Install-PSResourcePinned` | `-Athenticode None\|Check\|Audit` |
+| `Install-PSResourceDependencies` | `-Athenticode None\|Check\|Audit` |
+| `Import-ModulePinned` | `-Athenticode None\|Check\|Audit` |
+| `Import-PSResourceDependencies` | `-Athenticode None\|Check\|Audit` |
+
+`-Athenticode` is a `CdrAuthenticodeMode` enum with values `None`, `Check`, and `Audit`. **The default is `None`** on all four commands: omitting the parameter skips signature verification.
+
+| Mode | Behavior |
+|------|----------|
+| `None` (default) | Skip signature verification |
+| `Check` | Fail closed on signature/trust failures |
+| `Audit` | Warn on every signature/trust failure, continue scanning, then install/import |
+
+**Audit is unsafe for enforcement:** it permits unsigned, invalidly signed, or untrusted code to be installed and imported. It is **not a standalone no-execution scan**. Audit evaluates the same supplied manifest and complete selected graph as Check, including dependency-free manifests and every supported file in staged, reused, or imported modules. Each failure warns with the module, version, file, and reason; remaining files and modules are still evaluated before installation/import proceeds. Structural, filesystem/access, metadata, resolution, acquisition, and promotion errors remain terminating; they are not converted to signature warnings.
+
+#### Linux Authenticode verification contract
+
+- **Linux only.** This feature is intended for PowerShell 7.4+ on Linux. It does not add a Windows verification backend, does not claim Windows parity, and is **not** equivalent to native PowerShell `SignatureStatus.Valid`.
+- **Mandatory dependency.** `Microsoft.AVS.CDR` requires **OpenAuthenticode 0.6.3**, including in `None` mode. Provision that exact module version through the approved **Consumption** feed before importing or packaging CDR; there is no direct public-source fallback or on-demand runtime installer.
+- **Supported file coverage is exact and limited to OpenAuthenticode 0.6.3's released providers:** `.ps1`, `.psd1`, `.psm1`, `.psc1`, `.ps1xml`, `.dll`, `.exe`.
+- **Unsupported files are not verified.** That includes `README` files, JSON, native `.so` files, catalogs, arbitrary data files, and dynamically loaded external files outside the selected module graph.
+- **Host trust policy.** Verification relies on OpenAuthenticode's default certificate-chain policy and the host's trusted roots and intermediate certificates. CDR does not implement its own revocation policy. The [OpenAuthenticode 0.6.3 implementation](https://github.com/jborean93/PowerShell-OpenAuthenticode/blob/v0.6.3/src/OpenAuthenticode/SignerInfoExtensions.cs) requests online revocation checks; do not assume verification is offline or equivalent to Windows Authenticode policy.
+- **Fresh session recommended.** Check and Audit evaluate files currently on disk, but they cannot retroactively prove that a module already imported earlier in the process was safe. If you are adopting checked mode for execution, start a fresh PowerShell session first.
+- **Installed/loaded shortcuts stay evaluated.** In Check and Audit, CDR still honors exact-version installed-module and loaded-module shortcuts only after evaluating the actual on-disk files or matching loaded path. CDR does **not** blindly skip evaluation just because the module is already installed or already loaded. Imports use the evaluated manifest paths rather than a new module-name lookup.
+- **`-Force` never bypasses selected signature evaluation.** `-Force` can replace an exact-version destination or force a re-import, but the replacement graph is still evaluated first: Check must succeed, while Audit reports signature failures and continues.
+- **Staging/promotion.** Check and Audit stage downloads and evaluate the complete selected graph before promotion into the destination module path. In Check mode, signature failures prevent publication; in Audit mode, signature findings are warnings and promotion proceeds. Operational failures terminate in both modes. Rollback preserves prior exact-version destinations where possible and reports recovery paths if rollback itself fails.
+- **Single-writer installation.** CDR does not lock the destination module directory. Overlapping installs or other modifications to the same destination, including through native PowerShell cmdlets, are unsupported; callers must serialize them.
+
+Examples:
+
+```powershell
+# Install declared dependencies with exact pins and signature checks enabled
+Install-PSResourceDependencies `
+    -ManifestPath "./MyModule/MyModule.psd1" `
+    -Repository 'Consumption' `
+    -Athenticode Check
+
+# Install and import a pinned module with explicit Linux Authenticode checks
+Install-PSResourcePinned `
+    -Name "VMware.PowerCLI" `
+    -RequiredVersion "13.3.0" `
+    -Repository 'Consumption' `
+    -Athenticode Check
+
+Import-ModulePinned `
+    -Name "VMware.PowerCLI" `
+    -RequiredVersion "13.3.0" `
+    -Athenticode Check
+
+# Skip signature verification (also the default when omitted)
+Install-PSResourcePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0" -Athenticode None
+
+# UNSAFE: warn about all signature failures, then import even unsigned/untrusted dependencies
+# This executes code; operational errors still terminate.
+Import-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1" -Athenticode Audit
+```
+
 #### Transitional Guidance: Avoiding the `Import-ModulePinned` `AVSAttribute` Scope Bug
 
 Packages that still depend on `Microsoft.AVS.Management` **9 or earlier** are affected by a PowerShell scope-loss bug when imported via `Import-ModulePinned` and `Import-PSResourceDependencies`. The symptom is a parse-time error inside a dot-sourced script file in the consumer module:
