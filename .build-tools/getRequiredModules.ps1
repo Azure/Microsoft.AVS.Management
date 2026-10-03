@@ -6,7 +6,6 @@ param (
 $ErrorActionPreference = "Stop"
 if (-not $SkipPrereq) {
     $requiredModules = @(
-        @{ Name = "PSScriptAnalyzer"; Version = "1.21.0" }
         @{ Name = "Pester"; Version = "5.7.1" }
     )
     foreach ($module in $requiredModules) {
