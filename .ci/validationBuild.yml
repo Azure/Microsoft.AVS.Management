@@ -32,7 +32,14 @@ extends:
       os: linux
       image: avs-management-ubuntu-22.04-1es-image
       name: avs-management-1es-hosted-pool
+    featureFlags:
+      autoBaseline: false
     sdl:
+      psscriptanalyzer:
+        enabled: true
+        break: true
+        severity: Error
+        settings: PSGallery
       sourceAnalysisPool:
         os: windows
         image: avs-management-windows-2022-1es-image

@@ -27,7 +27,9 @@ extends:
     sdl:
       psscriptanalyzer:
         enabled: true
-        break: false
+        break: true
+        severity: Error
+        settings: PSGallery
       policy: M365
       sourceAnalysisPool:
         os: windows
