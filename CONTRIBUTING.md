@@ -12,9 +12,3 @@ These are the following checks we'll normally put in place:
 3. **Adhere to [PowerShell style guidelines](https://learn.microsoft.com/en-us/powershell/scripting/developer/cmdlet/required-development-guidelines?view=powershell-7.3) and [AVS Scripting guidelines](docs/README.md)**
    Format and test your code.
 4. **Do NOT modify repository policies**
-
-PR validation and preview builds run PSScriptAnalyzer through the 1ES SDL source-analysis
-task, using the template's default analyzer preset with error-level build breaking and automatic baselining
-disabled. The task scans the full checkout and manages the analyzer version; module build
-jobs do not install or invoke it. `tests/prevalidateModules.ps1` retains script metadata,
-module manifest, and Pester checks.
