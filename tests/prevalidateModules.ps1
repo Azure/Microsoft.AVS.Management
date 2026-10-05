@@ -5,7 +5,6 @@ param (
 
 Import-Module Pester -MinimumVersion 5.0 -ErrorAction Stop
 
-$script:zeroPSAnalyzerErrorsFound = $true
 $script:zeroTestScriptFileInfoErrorsFound = $true
 $script:zeroTestModuleManifestErrorsFound = $true
 $script:zeroPesterErrorsFound = $true
@@ -15,22 +14,9 @@ function Get-PrevalidationResults {
         [string]$targetDir,
         $fileExtList
     )
-    $scriptsToAnalyze = (Get-ChildItem "$targetDir\*" -Recurse -Include $fileExtList)
+    $scriptsToValidate = (Get-ChildItem "$targetDir\*" -Recurse -Include $fileExtList)
 
-    # Four typed of severity from PSScriptAnalyzer: Information, Error, ParseError, Warning. See https://github.com/PowerShell/PSScriptAnalyzer/blob/e51d50864106998a65e05971eff69d95bb80aaba/Engine/Generic/DiagnosticRecord.cs#L129
-    foreach ($script in $scriptsToAnalyze) {
-        $analyzerOptions = @{Settings="PSGallery"; Path=($script.FullName)}
-        $scriptIssues = (Invoke-ScriptAnalyzer @analyzerOptions)
-        $scriptIssues | Format-Table @{Label="Severity";Alignment="Left"; Expression={$_.Severity}},ScriptName,RuleName,Message -Autosize
-
-        $numberOfErrors = ($scriptIssues | Where-Object {$_.Severity -eq "Error" || $_.Severity -eq "ParseError"}).Count
-        $numberOfWarnings = ($scriptIssues | Where-Object {$_.Severity -eq "Warning"}).Count
-        $numberOfInfos = ($scriptIssues | Where-Object {$_.Severity -eq "Information"}).Count
-        if ($numberOfErrors -gt 0) {
-            $script:zeroPSAnalyzerErrorsFound = $false
-        }
-
-        [PSCustomObject]@{"# Errors" = $numberOfErrors; "# Warnings" = $numberOfWarnings; "# Information" = $numberOfInfos; "PS File" = $script.Name} | Format-Table
+    foreach ($script in $scriptsToValidate) {
         $fileExtension = ($script.Extension)
         switch ($fileExtension) {
             ".ps1" { 
@@ -95,9 +81,6 @@ if (Test-Path $pesterTestFile) {
     Write-Output "No Pester test file found at: $pesterTestFile"
 }
 
-if (!$script:zeroPSAnalyzerErrorsFound) {
-    Write-Error -Message "PRE-VALIDATION FAILED: PSScriptAnalyzer found errors"
-}
 if (!$script:zeroTestScriptFileInfoErrorsFound) {
     Write-Error -Message "PRE-VALIDATION FAILED: Test-PSScriptFileInfo found errors"
 }
@@ -107,7 +90,7 @@ if (!$script:zeroTestModuleManifestErrorsFound) {
 if (!$script:zeroPesterErrorsFound) {
     Write-Error -Message "PRE-VALIDATION FAILED: Pester tests failed"
 }
-if (!$script:zeroPSAnalyzerErrorsFound -or !$script:zeroTestScriptFileInfoErrorsFound -or !$script:zeroTestModuleManifestErrorsFound -or !$script:zeroPesterErrorsFound) {
+if (!$script:zeroTestScriptFileInfoErrorsFound -or !$script:zeroTestModuleManifestErrorsFound -or !$script:zeroPesterErrorsFound) {
     Write-Error -Message "PRE-VALIDATION FAILED: See above errors"
     Throw "Prevalidation failed"
 } else {

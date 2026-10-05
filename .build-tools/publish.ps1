@@ -10,6 +10,30 @@ $ErrorActionPreference = "Stop"
 # Import the CDR module for conservative dependency resolution
 Import-Module "$PSScriptRoot/../Microsoft.AVS.CDR/Microsoft.AVS.CDR.psd1" -Force 
 
+function New-PublishingSecureString {
+    <#
+    .SYNOPSIS
+    Adapts a pipeline access token to the SecureString required by PSCredential.
+    .DESCRIPTION
+    Isolates the conversion of a token already supplied as text by Azure Pipelines.
+    .PARAMETER Text
+    The pipeline-provided access token. Its value is never logged by this helper.
+    .EXAMPLE
+    New-PublishingSecureString -Text $accessToken
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSAvoidUsingConvertToSecureStringWithPlainText', '',
+        Justification = 'Azure Pipelines supplies the short-lived token as text; package cmdlets require a PSCredential with a SecureString password.')]
+    [CmdletBinding()]
+    [OutputType([System.Security.SecureString])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Text
+    )
+
+    return $Text | ConvertTo-SecureString -AsPlainText -Force
+}
+
 function update-moduleversion {
     $manifestVersionAsArray = (Import-PowerShellDataFile $absolutePathToManifest).ModuleVersion -split "\."
     $updatedModuleVersion = @( $manifestVersionAsArray[0], $manifestVersionAsArray[1],  $buildNumber ) | Join-String -Separator '.'
@@ -54,7 +78,7 @@ Write-Output "Uploading dependencies to $previewFeed"
 $manifest = Import-PowerShellDataFile "$absolutePathToManifest"
 $moduleName = [System.IO.Path]::GetFileNameWithoutExtension($absolutePathToManifest)
 
-$c = [PSCredential]::new("ONEBRANCH_TOKEN", ($accessToken | ConvertTo-SecureString -AsPlainText -Force))
+$c = [PSCredential]::new("ONEBRANCH_TOKEN", (New-PublishingSecureString -Text $accessToken))
 
 # Create a temporary directory for packages
 $packagePath = Join-Path ([System.IO.Path]::GetTempPath()) "$moduleName-$(Get-Date -Format 'yyyyMMddHHmmss')"
