@@ -42,6 +42,28 @@ function Get-PrevalidationResults {
     }
 }
 
+function Get-PesterTestPaths {
+    param(
+        [Parameter(Mandatory = $true)][string]$testsDir,
+        [Parameter(Mandatory = $true)][string]$moduleFolderName
+    )
+
+    $pesterTestPaths = @()
+    $basePesterTestFile = Join-Path -Path $testsDir -ChildPath "$moduleFolderName.Tests.ps1"
+
+    if (Test-Path $basePesterTestFile) {
+        $pesterTestPaths += $basePesterTestFile
+    }
+
+    if ($moduleFolderName -eq 'Microsoft.AVS.CDR') {
+        $pesterTestPaths += Get-ChildItem -Path $testsDir -Filter 'Microsoft.AVS.CDR.*.Tests.ps1' -File |
+            Sort-Object -Property Name |
+            Select-Object -ExpandProperty FullName
+    }
+
+    return $pesterTestPaths
+}
+
 Write-Output "---- START: Pre-Validation----"
 
 $repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"
@@ -52,10 +74,10 @@ Get-PrevalidationResults (Join-Path -Path $repoRoot -ChildPath $modulesFolderPat
 # Check for and run Pester tests if they exist
 $moduleFolderName = Split-Path -Leaf $modulesFolderPath
 $testsDir = Join-Path -Path $repoRoot -ChildPath "tests"
-$pesterTestFile = Join-Path -Path $testsDir -ChildPath "$moduleFolderName.Tests.ps1"
+$pesterTestFiles = @(Get-PesterTestPaths -testsDir $testsDir -moduleFolderName $moduleFolderName)
 
-if (Test-Path $pesterTestFile) {
-    Write-Output "Found Pester test file: $pesterTestFile"
+if ($pesterTestFiles.Count -gt 0) {
+    Write-Output "Found Pester test file(s): $($pesterTestFiles -join ', ')"
     Write-Output "Running Pester tests..."
     
     $env:SKIP_INTEGRATION_TESTS = 'false'
@@ -64,7 +86,7 @@ if (Test-Path $pesterTestFile) {
     }
     
     $pesterConfig = New-PesterConfiguration
-    $pesterConfig.Run.Path = $pesterTestFile
+    $pesterConfig.Run.Path = $pesterTestFiles
     $pesterConfig.Run.Exit = $false
     $pesterConfig.Output.Verbosity = 'Detailed'
     $pesterConfig.Should.ErrorAction = 'Continue'
@@ -78,7 +100,7 @@ if (Test-Path $pesterTestFile) {
         Write-Output "SUCCESS: All Pester tests passed ($($pesterResults.PassedCount) passed)"
     }
 } else {
-    Write-Output "No Pester test file found at: $pesterTestFile"
+    Write-Output "No Pester test files found for module: $moduleFolderName"
 }
 
 if (!$script:zeroTestScriptFileInfoErrorsFound) {

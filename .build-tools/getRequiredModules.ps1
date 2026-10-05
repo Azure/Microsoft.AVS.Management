@@ -5,8 +5,19 @@ param (
 )
 $ErrorActionPreference = "Stop"
 if (-not $SkipPrereq) {
+    $cdrManifestPath = Join-Path $PSScriptRoot "../Microsoft.AVS.CDR/Microsoft.AVS.CDR.psd1"
+    $cdrManifest = Import-PowerShellDataFile -Path $cdrManifestPath
+    $openAuthenticodeDependency = @($cdrManifest.RequiredModules | Where-Object {
+        $_.ModuleName -eq "OpenAuthenticode"
+    })
+
+    if ($openAuthenticodeDependency.Count -ne 1 -or -not $openAuthenticodeDependency[0].RequiredVersion) {
+        throw "Microsoft.AVS.CDR must declare exactly one OpenAuthenticode RequiredModules entry with RequiredVersion."
+    }
+
     $requiredModules = @(
         @{ Name = "Pester"; Version = "5.7.1" }
+        @{ Name = "OpenAuthenticode"; Version = $openAuthenticodeDependency[0].RequiredVersion }
     )
     foreach ($module in $requiredModules) {
         Write-Host "Installing $($module.Name)@$($module.Version) ...."

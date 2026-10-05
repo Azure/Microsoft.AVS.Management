@@ -1,6 +1,15 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+enum CdrAuthenticodeMode {
+    None
+    Check
+    Audit
+}
+
+. (Join-Path -Path $PSScriptRoot -ChildPath 'Private/Authenticode.ps1')
+. (Join-Path -Path $PSScriptRoot -ChildPath 'Private/VerifiedInstall.ps1')
+
 class DependencyGraphNode {
     [string]$Name
     [string]$Version
@@ -999,7 +1008,7 @@ function Build-InstalledDependencyGraph {
     }
 
     # Find the installed module
-    $installedModule = Get-PSResource -Name $ModuleName -Version $ModuleVersion -ErrorAction SilentlyContinue | Select-Object -First 1
+    $installedModule = Get-InstalledPSResource -Name $ModuleName -Version $ModuleVersion -ErrorAction SilentlyContinue | Select-Object -First 1
     
     $notFound = $false
     if (-not $installedModule) {
@@ -1085,7 +1094,11 @@ function Install-PSResourcePinned {
     .SYNOPSIS
         Installs a module with pinned dependency versions.
         Works around PowerCLI not following semver (13.4 breaks backward-compat).
-        
+
+    .PARAMETER Athenticode
+        None (default) skips signature verification. Check fails closed on signature errors.
+        Audit warns and continues installing unsigned or untrusted code; operational errors still terminate.
+
     .EXAMPLE
         Install-PSResourcePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0"
     #>
@@ -1114,7 +1127,11 @@ function Install-PSResourcePinned {
         [switch]$Prerelease,
         
         [Parameter(Mandatory = $false)]
-        [switch]$Force
+        [switch]$Force,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateSet('None', 'Check', 'Audit')]
+        [CdrAuthenticodeMode]$Athenticode = [CdrAuthenticodeMode]::None
     )
     
     # Load redirect map
@@ -1150,50 +1167,79 @@ function Install-PSResourcePinned {
     for ($i = 0; $i -lt $topologicalOrder.Count; $i++) {
         Write-Verbose "  $($i + 1). $($topologicalOrder[$i])"
     }
-    
-    # Install modules in topological order
-    foreach ($moduleKey in $topologicalOrder) {
-        $node = $dependencyGraph[$moduleKey]
-        $modName = $node.Name
-        $modVersion = $node.Version
-        
-        $installed = $null
-        if (-not $Force) {
-            $installed = Get-PSResource -Name $modName -ErrorAction SilentlyContinue | 
-                Where-Object {
-                    if (-not $_) { return $false }
-                    $installedVersion = $_.Version.ToString()
-                    if ($_.Prerelease) {
-                        $installedVersion = "$installedVersion-$($_.Prerelease)"
-                    }
-                    $installedVersion -eq $modVersion
-                }
+
+    if ($Athenticode -ne [CdrAuthenticodeMode]::None) {
+        $resources = foreach ($moduleKey in $topologicalOrder) {
+            $node = $dependencyGraph[$moduleKey]
+
+            [PSCustomObject]@{
+                Name = $node.Name
+                Version = $node.Version
+                Repository = $node.Repository
+            }
         }
-        
-        if (-not $installed) {
-            Write-Verbose "Installing: $modName version $modVersion"
-            $installParams = @{
-                Name = $modName
-                Version = $modVersion
-                Scope = $Scope
-                Prerelease = $Prerelease
-                TrustRepository = $true
-                SkipDependencyCheck = $true
-            }
-            if ($Repository) {
-                $installParams['Repository'] = $Repository
-            }
-            if ($Credential) {
-                $installParams['Credential'] = $Credential
-            }
-            if ($Force) {
-                $installParams['Reinstall'] = $true
+
+        $verifiedInstallParams = @{
+            Resources = @($resources)
+            Athenticode = $Athenticode
+            Scope = $Scope
+            Prerelease = $Prerelease
+            Force = $Force
+        }
+        if ($Repository) {
+            $verifiedInstallParams['Repository'] = $Repository
+        }
+        if ($Credential) {
+            $verifiedInstallParams['Credential'] = $Credential
+        }
+
+        Invoke-CdrVerifiedResourceInstallation @verifiedInstallParams
+    }
+    else {
+        # Install modules in topological order
+        foreach ($moduleKey in $topologicalOrder) {
+            $node = $dependencyGraph[$moduleKey]
+            $modName = $node.Name
+            $modVersion = $node.Version
+            
+            $installed = $null
+            if (-not $Force) {
+                $installed = Get-InstalledPSResource -Name $modName -ErrorAction SilentlyContinue | 
+                    Where-Object {
+                        if (-not $_) { return $false }
+                        $installedVersion = $_.Version.ToString()
+                        if ($_.Prerelease) {
+                            $installedVersion = "$installedVersion-$($_.Prerelease)"
+                        }
+                        $installedVersion -eq $modVersion
+                    }
             }
             
-            Install-PSResource @installParams
-        }
-        else {
-            Write-Verbose "Already installed: $modName version $modVersion"
+            if (-not $installed) {
+                Write-Verbose "Installing: $modName version $modVersion"
+                $installParams = @{
+                    Name = $modName
+                    Version = $modVersion
+                    Scope = $Scope
+                    Prerelease = $Prerelease
+                    TrustRepository = $true
+                    SkipDependencyCheck = $true
+                }
+                if ($Repository) {
+                    $installParams['Repository'] = $Repository
+                }
+                if ($Credential) {
+                    $installParams['Credential'] = $Credential
+                }
+                if ($Force) {
+                    $installParams['Reinstall'] = $true
+                }
+                
+                Install-PSResource @installParams
+            }
+            else {
+                Write-Verbose "Already installed: $modName version $modVersion"
+            }
         }
     }
     
@@ -1451,7 +1497,7 @@ function Find-PSResourceDependencies {
     }
     
     $resolvedPath = Resolve-Path $ManifestPath
-    if (-not $resolvedPath.Path.EndsWith('.psd1')) {
+    if (-not $resolvedPath.Path.EndsWith('.psd1', [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "File must be a PowerShell module manifest (.psd1): $ManifestPath"
     }
     
@@ -1527,7 +1573,11 @@ function Install-PSResourceDependencies {
     <#
     .SYNOPSIS
         Installs all manifest dependencies using Find-PSResourceDependencies.
-        
+
+    .PARAMETER Athenticode
+        None (default) skips signature verification. Check fails closed on signature errors.
+        Audit warns and continues installing unsigned or untrusted code; operational errors still terminate.
+
     .EXAMPLE
         Install-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
     #>
@@ -1550,8 +1600,32 @@ function Install-PSResourceDependencies {
         [PSCredential]$Credential,
         
         [Parameter(Mandatory = $false)]
-        [switch]$Force
+        [switch]$Force,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateSet('None', 'Check', 'Audit')]
+        [CdrAuthenticodeMode]$Athenticode = [CdrAuthenticodeMode]::None
     )
+
+    if ($Athenticode -ne [CdrAuthenticodeMode]::None) {
+        if (-not (Test-Path $ManifestPath)) {
+            throw "Manifest file not found: $ManifestPath"
+        }
+
+        $resolvedManifestPath = Resolve-Path $ManifestPath
+        if (-not $resolvedManifestPath.Path.EndsWith('.psd1', [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "File must be a PowerShell module manifest (.psd1): $ManifestPath"
+        }
+
+        $manifest = Import-PowerShellDataFile -Path $resolvedManifestPath
+        $manifestModuleName = [System.IO.Path]::GetFileNameWithoutExtension($resolvedManifestPath.Path)
+        $manifestModuleVersion = if ($manifest.ModuleVersion) { $manifest.ModuleVersion.ToString() } else { "" }
+
+        Assert-CdrFileSignature -LiteralPath $resolvedManifestPath.Path `
+            -ModuleName $manifestModuleName -ModuleVersion $manifestModuleVersion -Athenticode $Athenticode
+
+        $ManifestPath = $resolvedManifestPath.Path
+    }
     
     $findParams = @{
         ManifestPath = $ManifestPath
@@ -1574,38 +1648,56 @@ function Install-PSResourceDependencies {
     }
     
     Write-Verbose "Installing $($resolvedDependencies.Count) resolved dependency(ies)"
-    
-    foreach ($dependency in $resolvedDependencies) {
-        $installed = $null
-        if (-not $Force) {
-            $installed = Get-PSResource -Name $dependency.Name -ErrorAction SilentlyContinue | 
-                Where-Object { $_.Version.ToString() -eq $dependency.Version }
+
+    if ($Athenticode -ne [CdrAuthenticodeMode]::None) {
+        $verifiedInstallParams = @{
+            Resources = @($resolvedDependencies)
+            Athenticode = $Athenticode
+            Scope = $Scope
+            Force = $Force
         }
-        
-        if (-not $installed) {
-            Write-Host "Installing dependency: $($dependency.Name) version $($dependency.Version)"
-            
-            $installParams = @{
-                Name = $dependency.Name
-                Version = $dependency.Version
-                Scope = $Scope
-                TrustRepository = $true
-                SkipDependencyCheck = $true
-            }
-            if ($Repository) {
-                $installParams['Repository'] = $Repository
-            }
-            if ($Credential) {
-                $installParams['Credential'] = $Credential
-            }
-            if ($Force) {
-                $installParams['Reinstall'] = $true
+        if ($Repository) {
+            $verifiedInstallParams['Repository'] = $Repository
+        }
+        if ($Credential) {
+            $verifiedInstallParams['Credential'] = $Credential
+        }
+
+        Invoke-CdrVerifiedResourceInstallation @verifiedInstallParams
+    }
+    else {
+        foreach ($dependency in $resolvedDependencies) {
+            $installed = $null
+            if (-not $Force) {
+                $installed = Get-InstalledPSResource -Name $dependency.Name -ErrorAction SilentlyContinue | 
+                    Where-Object { $_.Version.ToString() -eq $dependency.Version }
             }
             
-            Install-PSResource @installParams
-        }
-        else {
-            Write-Verbose "Already installed: $($dependency.Name) version $($dependency.Version)"
+            if (-not $installed) {
+                Write-Host "Installing dependency: $($dependency.Name) version $($dependency.Version)"
+                
+                $installParams = @{
+                    Name = $dependency.Name
+                    Version = $dependency.Version
+                    Scope = $Scope
+                    TrustRepository = $true
+                    SkipDependencyCheck = $true
+                }
+                if ($Repository) {
+                    $installParams['Repository'] = $Repository
+                }
+                if ($Credential) {
+                    $installParams['Credential'] = $Credential
+                }
+                if ($Force) {
+                    $installParams['Reinstall'] = $true
+                }
+                
+                Install-PSResource @installParams
+            }
+            else {
+                Write-Verbose "Already installed: $($dependency.Name) version $($dependency.Version)"
+            }
         }
     }
     
@@ -1622,12 +1714,140 @@ function Get-InstalledModuleManifestPath {
     return Join-Path -Path $Node.InstalledLocation -ChildPath "$moduleName.psd1"
 }
 
+function Resolve-CdrComparablePath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$LiteralPath
+    )
+
+    try {
+        $resolvedPath = Resolve-Path -LiteralPath $LiteralPath -ErrorAction Stop
+        $comparablePath = $resolvedPath.Path
+    }
+    catch {
+        $comparablePath = [System.IO.Path]::GetFullPath($LiteralPath)
+    }
+
+    return $comparablePath.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+}
+
+function Test-CdrVerifiedModuleBase {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ActualModuleBase,
+
+        [Parameter(Mandatory = $true)]
+        [string]$VerifiedModuleBase
+    )
+
+    return (
+        (Resolve-CdrComparablePath -LiteralPath $ActualModuleBase) -ceq
+        (Resolve-CdrComparablePath -LiteralPath $VerifiedModuleBase)
+    )
+}
+
+function Assert-CdrLoadedShortcutMatchesVerifiedLocation {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$LoadedModule,
+
+        [Parameter(Mandatory = $true)]
+        [object]$Node
+    )
+
+    if (-not (Test-CdrVerifiedModuleBase -ActualModuleBase $LoadedModule.ModuleBase -VerifiedModuleBase $Node.InstalledLocation)) {
+        throw "Signature-evaluated import cannot reuse loaded module '$($Node.Name)' version '$($Node.Version)' from '$($LoadedModule.ModuleBase)' because the evaluated installed location is '$($Node.InstalledLocation)'. Start a fresh PowerShell process and retry with the same -Athenticode mode."
+    }
+}
+
+function Import-CdrVerifiedModuleGraph {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$Nodes,
+
+        [Parameter(Mandatory = $true)]
+        [switch]$Force,
+
+        [ValidateSet('None', 'Check', 'Audit')]
+        [CdrAuthenticodeMode]$Athenticode = [CdrAuthenticodeMode]::Check
+    )
+
+    Assert-CdrResolvedModuleSignatureGraph -Modules $Nodes -Athenticode $Athenticode
+
+    $importedModules = @{}
+
+    foreach ($node in $Nodes) {
+        $moduleKey = "$($node.Name)@$($node.Version)"
+        $loadedShortcutCandidates = @(Get-Module -Name $node.Name | Where-Object {
+            if ($node.Version -match '-') {
+                $_.ModuleBase -eq $node.InstalledLocation
+            }
+            else {
+                $_.Version.ToString() -eq $node.Version
+            }
+        })
+
+        if ($loadedShortcutCandidates.Count -gt 0 -and -not $Force) {
+            foreach ($loadedShortcutCandidate in $loadedShortcutCandidates) {
+                Assert-CdrLoadedShortcutMatchesVerifiedLocation -LoadedModule $loadedShortcutCandidate -Node $node
+            }
+
+            Write-Verbose "Already loaded: $($node.Name) version $($node.Version)"
+            $importedModules[$moduleKey] = $loadedShortcutCandidates | Select-Object -First 1
+            continue
+        }
+
+        $manifestPath = Get-InstalledModuleManifestPath -Node $node
+        if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+            throw "Installed manifest not found for module '$($node.Name)' version '$($node.Version)' at '$manifestPath'."
+        }
+
+        $importParams = @{
+            Name = $manifestPath
+            ErrorAction = 'Stop'
+            DisableNameChecking = $true
+            Global = $true
+        }
+
+        if ($Force) {
+            $importParams['Force'] = $true
+        }
+
+        try {
+            Write-Verbose "Importing: $($node.Name) version $($node.Version)"
+            $imported = @(Import-Module @importParams -PassThru)
+        }
+        catch {
+            throw "Failed to import $($node.Name) version $($node.Version): $_"
+        }
+
+        $matchingModule = @($imported | Where-Object {
+            $_.Name -eq $node.Name -and
+            (Test-CdrVerifiedModuleBase -ActualModuleBase $_.ModuleBase -VerifiedModuleBase $node.InstalledLocation)
+        }) | Select-Object -First 1
+
+        if (-not $matchingModule) {
+            $actualModuleBase = @($imported | Select-Object -First 1).ModuleBase
+            throw "Signature-evaluated import of module '$($node.Name)' version '$($node.Version)' returned ModuleBase '$actualModuleBase' instead of evaluated path '$($node.InstalledLocation)'. Start a fresh PowerShell process and retry with the same -Athenticode mode."
+        }
+
+        $importedModules[$moduleKey] = $matchingModule
+    }
+
+    return $importedModules
+}
+
 function Import-PSResourceDependencies {
     <#
     .SYNOPSIS
         Imports all manifest dependencies (RequiredModules + ModuleList) in topological order
         with pinned versions. Prevents "assembly already loaded" errors from incomplete graphs.
-        
+
+    .PARAMETER Athenticode
+        None (default) skips signature verification. Check fails closed on signature errors.
+        Audit warns and continues importing unsigned or untrusted code; it executes code, not just a scan.
+        Operational errors still terminate.
+
     .EXAMPLE
         Import-PSResourceDependencies -ManifestPath "./MyModule/MyModule.psd1"
     #>
@@ -1641,6 +1861,10 @@ function Import-PSResourceDependencies {
         
         [Parameter(Mandatory = $false)]
         [switch]$Force,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateSet('None', 'Check', 'Audit')]
+        [CdrAuthenticodeMode]$Athenticode = [CdrAuthenticodeMode]::None,
         
         [Parameter(Mandatory = $false)]
         [switch]$PassThru
@@ -1652,7 +1876,7 @@ function Import-PSResourceDependencies {
     }
     
     $resolvedPath = Resolve-Path $ManifestPath
-    if (-not $resolvedPath.Path.EndsWith('.psd1')) {
+    if (-not $resolvedPath.Path.EndsWith('.psd1', [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "File must be a PowerShell module manifest (.psd1): $ManifestPath"
     }
     
@@ -1660,6 +1884,12 @@ function Import-PSResourceDependencies {
     
     # Parse the manifest
     $manifest = Import-PowerShellDataFile -Path $resolvedPath
+    $manifestModuleName = [System.IO.Path]::GetFileNameWithoutExtension($resolvedPath.Path)
+    $manifestModuleVersion = if ($manifest.ModuleVersion) { $manifest.ModuleVersion.ToString() } else { "" }
+
+    if ($Athenticode -ne [CdrAuthenticodeMode]::None) {
+        Assert-CdrFileSignature -LiteralPath $resolvedPath.Path -ModuleName $manifestModuleName -ModuleVersion $manifestModuleVersion -Athenticode $Athenticode
+    }
     
     # Extract module dependencies from both RequiredModules and ModuleList
     $moduleDependencies = @(Get-ManifestModuleDependencies -Manifest $manifest)
@@ -1667,9 +1897,6 @@ function Import-PSResourceDependencies {
         Write-Verbose "No module dependencies found in manifest (RequiredModules or ModuleList)"
         return
     }
-    
-    $manifestModuleName = [System.IO.Path]::GetFileNameWithoutExtension($resolvedPath.Path)
-    $manifestModuleVersion = if ($manifest.ModuleVersion) { $manifest.ModuleVersion.ToString() } else { "" }
     
     if ($RedirectMapPath) {
         if (-not (Test-Path $RedirectMapPath)) {
@@ -1716,6 +1943,18 @@ function Import-PSResourceDependencies {
     
     Write-Verbose "Pre-loading all modules in topological order"
     
+    if ($Athenticode -ne [CdrAuthenticodeMode]::None) {
+        $importedModules = Import-CdrVerifiedModuleGraph -Nodes @($topologicalOrder | ForEach-Object { $dependencyGraph[$_] }) -Force:$Force -Athenticode $Athenticode
+
+        Write-Verbose "Successfully imported $($importedModules.Count) module(s) from manifest"
+
+        if ($PassThru) {
+            return $importedModules.Values
+        }
+
+        return
+    }
+
     $importedModules = @{}
     
     foreach ($moduleKey in $topologicalOrder) {
@@ -1776,7 +2015,12 @@ function Import-ModulePinned {
     .SYNOPSIS
         Imports a module after pre-loading ALL transitive dependencies at exact versions.
         Prevents PowerShell from loading wrong versions via minimum-version semantics.
-        
+
+    .PARAMETER Athenticode
+        None (default) skips signature verification. Check fails closed on signature errors.
+        Audit warns and continues importing unsigned or untrusted code; it executes code, not just a scan.
+        Operational errors still terminate.
+
     .EXAMPLE
         Import-ModulePinned -Name "VMware.PowerCLI" -RequiredVersion "13.3.0"
     #>
@@ -1793,6 +2037,10 @@ function Import-ModulePinned {
         
         [Parameter(Mandatory = $false)]
         [switch]$Force,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateSet('None', 'Check', 'Audit')]
+        [CdrAuthenticodeMode]$Athenticode = [CdrAuthenticodeMode]::None,
         
         [Parameter(Mandatory = $false)]
         [string]$Prefix,
@@ -1829,6 +2077,32 @@ function Import-ModulePinned {
     }
     
     Write-Verbose "Pre-loading all modules in topological order"
+
+    if ($Athenticode -ne [CdrAuthenticodeMode]::None) {
+        $importedModules = Import-CdrVerifiedModuleGraph -Nodes $resolvedModules -Force:$Force -Athenticode $Athenticode
+
+        Write-Verbose "Returning main module"
+
+        $mainNode = $resolvedModules |
+            Where-Object { $_.Name -eq $Name } |
+            Select-Object -Last 1
+        $mainModuleKey = "${Name}@$($mainNode.Version)"
+        $mainModule = $importedModules[$mainModuleKey]
+
+        if (-not $mainModule) {
+            $mainModule = Get-Module -Name $Name | Where-Object {
+                $_.Version.ToString() -eq $mainNode.Version
+            } | Select-Object -First 1
+        }
+
+        Write-Verbose "Successfully imported $Name version $($mainNode.Version) (and $($importedModules.Count - 1) dependencies)"
+
+        if ($PassThru) {
+            return $mainModule
+        }
+
+        return
+    }
     
     $importedModules = @{}
     
