@@ -14,7 +14,7 @@ These are the following checks we'll normally put in place:
 4. **Do NOT modify repository policies**
 
 PR validation and preview builds run PSScriptAnalyzer through the 1ES SDL source-analysis
-task, using the `PSGallery` ruleset with error-level build breaking and automatic baselining
+task, using the template's default analyzer preset with error-level build breaking and automatic baselining
 disabled. The task scans the full checkout and manages the analyzer version; module build
 jobs do not install or invoke it. `tests/prevalidateModules.ps1` retains script metadata,
 module manifest, and Pester checks.

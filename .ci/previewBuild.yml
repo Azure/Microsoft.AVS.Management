@@ -29,7 +29,6 @@ extends:
         enabled: true
         break: true
         severity: Error
-        settings: PSGallery
       policy: M365
       sourceAnalysisPool:
         os: windows

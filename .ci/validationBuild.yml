@@ -39,7 +39,6 @@ extends:
         enabled: true
         break: true
         severity: Error
-        settings: PSGallery
       sourceAnalysisPool:
         os: windows
         image: avs-management-windows-2022-1es-image
