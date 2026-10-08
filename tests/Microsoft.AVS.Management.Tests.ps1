@@ -1413,19 +1413,21 @@ Describe "Set-VCLoginBanner" {
                 } | Should -Not -Throw
                 Should -Invoke Limit-WildcardsandCodeInjectionCharacters -ModuleName Microsoft.AVS.Management -Times 2
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "sudo -n /opt/vmware/bin/sso-config.sh *" -and
                     $Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-enable_checkbox true*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable_checkbox true"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-set_logon_banner -enable true*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable true"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
                     $Command -like "*mkdir -p*"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
-                    $Command -like "*-enable_checkbox Y*" -or $Command -like "*-enable_checkbox N*"
+                    $Command -like "sudo -n /opt/vmware/bin/sso-config.sh *" -and
+                    ($Command -like "*-enable_checkbox Y*" -or $Command -like "*-enable_checkbox N*")
                 }
             }
             finally {
@@ -1465,6 +1467,7 @@ Describe "Set-VCLoginBanner" {
                 } | Should -Not -Throw
                 Should -Invoke Limit-WildcardsandCodeInjectionCharacters -ModuleName Microsoft.AVS.Management -Times 2
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "sudo -n /opt/vmware/bin/sso-config.sh *" -and
                     $Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
@@ -1474,21 +1477,23 @@ Describe "Set-VCLoginBanner" {
                     $Command -like "*printf '%s'*" -and $Command -like "*>*message.txt*"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "sudo -n /opt/vmware/bin/sso-config.sh *" -and
                     $Command -like "*-set_logon_banner -title*" -and
                     $Command -like "*/message.txt*" -and
                     $Command -notlike "*-content*"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-enable_checkbox true*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable_checkbox true"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-set_logon_banner -enable true*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable true"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
                     $Command -like "*rm -rf --*"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
-                    $Command -like "*-enable_checkbox Y*" -or $Command -like "*-enable_checkbox N*"
+                    $Command -like "sudo -n /opt/vmware/bin/sso-config.sh *" -and
+                    ($Command -like "*-enable_checkbox Y*" -or $Command -like "*-enable_checkbox N*")
                 }
             }
             finally {
@@ -1528,16 +1533,17 @@ Describe "Set-VCLoginBanner" {
                 } | Should -Not -Throw
                 Should -Invoke Limit-WildcardsandCodeInjectionCharacters -ModuleName Microsoft.AVS.Management -Times 2
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "sudo -n /opt/vmware/bin/sso-config.sh *" -and
                     $Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-enable_checkbox true*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable_checkbox true"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-enable_checkbox Y*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable_checkbox Y"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-set_logon_banner -enable true*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable true"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
                     $Command -like "*mkdir -p*"
@@ -1594,22 +1600,24 @@ Describe "Set-VCLoginBanner" {
                 } | Should -Throw -ExpectedMessage "*Failed to verify banner state*"
                 Should -Invoke Limit-WildcardsandCodeInjectionCharacters -ModuleName Microsoft.AVS.Management -Times 2
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "sudo -n /opt/vmware/bin/sso-config.sh *" -and
                     $Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-enable_checkbox true*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable_checkbox true"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-set_logon_banner -enable true*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable true"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-get_logon_banner*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -get_logon_banner"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-print_logon_banner*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -print_logon_banner"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
-                    $Command -like "*-enable_checkbox Y*" -or $Command -like "*-enable_checkbox N*"
+                    $Command -like "sudo -n /opt/vmware/bin/sso-config.sh *" -and
+                    ($Command -like "*-enable_checkbox Y*" -or $Command -like "*-enable_checkbox N*")
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
                     $Command -like "*mkdir -p*"
@@ -1661,13 +1669,13 @@ Describe "Set-VCLoginBanner" {
                     Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
                 } | Should -Not -Throw
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-set_logon_banner -enable true*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable true"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-get_logon_banner*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -get_logon_banner"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
-                    $Command -like "*-print_logon_banner*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -print_logon_banner"
                 }
             }
             finally {
@@ -1721,13 +1729,13 @@ Describe "Set-VCLoginBanner" {
                     Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
                 } | Should -Not -Throw
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-set_logon_banner -enable true*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable true"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-get_logon_banner*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -get_logon_banner"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-print_logon_banner*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -print_logon_banner"
                 }
             }
             finally {
@@ -1771,13 +1779,13 @@ Describe "Set-VCLoginBanner" {
                     Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
                 } | Should -Throw -ExpectedMessage "*Banner enable failed: toggle command failed and banner content is empty*"
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-set_logon_banner -enable true*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable true"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-get_logon_banner*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -get_logon_banner"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
-                    $Command -like "*-print_logon_banner*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -print_logon_banner"
                 }
             }
             finally {
@@ -1823,6 +1831,7 @@ Describe "Set-VCLoginBanner" {
                     Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
                 } | Should -Throw -ExpectedMessage "*Failed to set login banner content using supported formats*"
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "sudo -n /opt/vmware/bin/sso-config.sh *" -and
                     $Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
@@ -1835,6 +1844,7 @@ Describe "Set-VCLoginBanner" {
                     $Command -like "*printf '%s'*"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
+                    $Command -like "sudo -n /opt/vmware/bin/sso-config.sh *" -and
                     $Command -like "*-set_logon_banner -title*" -and $Command -like "*message.txt*"
                 }
             }
@@ -1900,19 +1910,21 @@ Describe "Set-VCLoginBanner" {
                     Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
                 } | Should -Not -Throw
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
+                    $Command -like "sudo -n /opt/vmware/bin/sso-config.sh *" -and
                     $Command -like "*-set_logon_banner -title*" -and $Command -like "*-content*"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-enable_checkbox true*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable_checkbox true"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-set_logon_banner -enable true*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable true"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
                     $Command -like "*/usr/bin/curl*" -and $Command -like "*-k*" -and $Command -like "*-s*" -and $Command -like "*-L*" -and $Command -like "*https://localhost/ui/login*"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
-                    $Command -like "*-get_logon_banner*" -or $Command -like "*-print_logon_banner*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -get_logon_banner" -or
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -print_logon_banner"
                 }
             }
             finally {
@@ -1982,7 +1994,8 @@ Describe "Set-VCLoginBanner" {
                     $Message -like "*Login page source check did not find banner text*"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
-                    $Command -like "*-get_logon_banner*" -or $Command -like "*-print_logon_banner*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -get_logon_banner" -or
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -print_logon_banner"
                 }
             }
             finally {
@@ -2048,7 +2061,8 @@ Describe "Set-VCLoginBanner" {
                     $Message -like "*Login page source check skipped: failed to fetch /ui/login via curl.*"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 0 -ParameterFilter {
-                    $Command -like "*-get_logon_banner*" -or $Command -like "*-print_logon_banner*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -get_logon_banner" -or
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -print_logon_banner"
                 }
             }
             finally {
@@ -2187,14 +2201,50 @@ Describe "Get-VCLoginBanner" {
                 } -ModuleName Microsoft.AVS.Management
                 { Get-VCLoginBanner } | Should -Not -Throw
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-get_logon_banner*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -get_logon_banner"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-print_logon_banner*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -print_logon_banner"
                 }
                 $global:NamedOutputs | Should -Not -BeNullOrEmpty
                 $global:NamedOutputs.ContainsKey("LoginBannerConfig") | Should -BeTrue
                 $global:NamedOutputs["LoginBannerConfig"] | Should -BeLike "*Title: Notice*"
+            }
+            finally {
+                $global:SSH_Sessions = $originalSshSessions
+                $global:NamedOutputs = $originalNamedOutputs
+            }
+        }
+    }
+
+    Context "Sudo Permission Failure" {
+        It "Should throw without publishing banner output when sudo denies both read commands" {
+            $originalSshSessions = $global:SSH_Sessions
+            $originalNamedOutputs = $global:NamedOutputs
+            try {
+                $mockSession = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject([SSH.SshSession])
+                $global:SSH_Sessions = @{
+                    VC = [PSCustomObject]@{ Value = $mockSession }
+                }
+                $global:NamedOutputs = @{}
+                Mock Write-VCSSHPermissionDiagnostic { } -ModuleName Microsoft.AVS.Management
+                Mock Invoke-SSHCommand {
+                    [PSCustomObject]@{
+                        ExitStatus = 1
+                        Output = @()
+                        Error = @("sudo: a password is required")
+                    }
+                } -ModuleName Microsoft.AVS.Management
+
+                { Get-VCLoginBanner } | Should -Throw -ExpectedMessage "*Failed to retrieve login banner configuration: sudo: a password is required*"
+
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -get_logon_banner"
+                }
+                Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -Exactly -ParameterFilter {
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -print_logon_banner"
+                }
+                $global:NamedOutputs.ContainsKey("LoginBannerConfig") | Should -BeFalse
             }
             finally {
                 $global:SSH_Sessions = $originalSshSessions
@@ -2253,10 +2303,10 @@ Describe "Remove-VCLoginBanner" {
                 } -ModuleName Microsoft.AVS.Management
                 { Remove-VCLoginBanner } | Should -Not -Throw
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-set_logon_banner -enable false*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable false"
                 }
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
-                    $Command -like "*-disable_logon_banner*"
+                    $Command -eq "sudo -n /opt/vmware/bin/sso-config.sh -disable_logon_banner"
                 }
             }
             finally {

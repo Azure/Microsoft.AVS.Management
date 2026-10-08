@@ -1012,6 +1012,7 @@ function Set-VCLoginBanner {
         executing sso-config.sh commands on the VCSA via the pre-established SSH session.
         This enables both Layer 1 (configuration data) and Layer 2 (activation toggle),
         which cannot be achieved through the vCenter API alone.
+        Requires the VCSA scripting account to be permitted to run the banner commands through passwordless sudo.
 
     .PARAMETER BannerTitle
         The title displayed on the vCenter login page (e.g., "Authorized Users Only").
@@ -1076,7 +1077,7 @@ function Set-VCLoginBanner {
         }
 
         # Step 1: Set the banner title and message content (Layer 1)
-        $setContentCmd = "/opt/vmware/bin/sso-config.sh -set_logon_banner -title '$escapedTitle' -content '$escapedMessage'"
+        $setContentCmd = "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -title '$escapedTitle' -content '$escapedMessage'"
         Write-Host "Setting login banner content using inline content format..."
         $setContentSucceeded = & $InvokeBannerCommand -Command $setContentCmd -StepName "Set login banner content (inline)"
         if (-not $setContentSucceeded) {
@@ -1097,7 +1098,7 @@ function Set-VCLoginBanner {
                 $createFileSucceeded = & $InvokeBannerCommand -Command $createBannerFileCmd -StepName "Create banner file for fallback"
 
                 if ($createFileSucceeded) {
-                    $setContentCmdFallback = "/opt/vmware/bin/sso-config.sh -set_logon_banner -title '$escapedTitle' '$bannerFilePath'"
+                    $setContentCmdFallback = "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -title '$escapedTitle' '$bannerFilePath'"
                     Write-Host "Retrying login banner content using file format..."
                     $setContentSucceeded = & $InvokeBannerCommand -Command $setContentCmdFallback -StepName "Set login banner content (file)"
                     if ($setContentSucceeded) {
@@ -1130,11 +1131,11 @@ function Set-VCLoginBanner {
         }
 
         # Step 2: Enable the consent checkbox setting
-        $setConsentCmd = "/opt/vmware/bin/sso-config.sh -set_logon_banner -enable_checkbox $consentFlag"
+        $setConsentCmd = "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable_checkbox $consentFlag"
         Write-Host "Setting consent checkbox to $consentFlag..."
         $setConsentSucceeded = & $InvokeBannerCommand -Command $setConsentCmd -StepName "Set consent checkbox ($consentFlag)"
         if (-not $setConsentSucceeded) {
-            $setConsentCmdLegacy = "/opt/vmware/bin/sso-config.sh -set_logon_banner -enable_checkbox $consentFlagYN"
+            $setConsentCmdLegacy = "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable_checkbox $consentFlagYN"
             Write-Host "Retrying consent checkbox with legacy Y/N format ($consentFlagYN)..."
             $setConsentSucceeded = & $InvokeBannerCommand -Command $setConsentCmdLegacy -StepName "Set consent checkbox ($consentFlagYN)"
             if ($setConsentSucceeded) {
@@ -1147,15 +1148,15 @@ function Set-VCLoginBanner {
         }
 
         # Step 3: Enable the login banner toggle (Layer 2 — the activation switch)
-        $enableCmd = "/opt/vmware/bin/sso-config.sh -set_logon_banner -enable true"
+        $enableCmd = "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable true"
         Write-Host "Enabling login banner display (Layer 2 toggle)..."
         $enableSucceeded = & $InvokeBannerCommand -Command $enableCmd -StepName "Enable login banner toggle (-enable true)"
 
         if (-not $enableSucceeded) {
             Write-Warning "Enable command (-enable true) did not work on this VCSA variant. Checking banner content..."
 
-            $getCmd = "/opt/vmware/bin/sso-config.sh -get_logon_banner"
-            $printCmd = "/opt/vmware/bin/sso-config.sh -print_logon_banner"
+            $getCmd = "sudo -n /opt/vmware/bin/sso-config.sh -get_logon_banner"
+            $printCmd = "sudo -n /opt/vmware/bin/sso-config.sh -print_logon_banner"
 
             $checkResult = Invoke-SSHCommand -SSHSession $SshSession -Command $getCmd -ErrorAction SilentlyContinue
             $checkOutput = $checkResult.Output -join [Environment]::NewLine
@@ -1226,6 +1227,7 @@ function Get-VCLoginBanner {
         Reads the current login banner settings (title, message, consent checkbox, enabled state)
         from the VCSA by executing sso-config.sh via the pre-established SSH session.
         Returns the configuration via the NamedOutputs hashtable.
+        Requires the VCSA scripting account to be permitted to run the banner commands through passwordless sudo.
 
     .EXAMPLE
         Get-VCLoginBanner
@@ -1238,8 +1240,8 @@ function Get-VCLoginBanner {
         $SshSession = Assert-VCSSHSession
         Write-VCSSHPermissionDiagnostic -SshSession $SshSession
 
-        $getCmd = "/opt/vmware/bin/sso-config.sh -get_logon_banner"
-        $printCmd = "/opt/vmware/bin/sso-config.sh -print_logon_banner"
+        $getCmd = "sudo -n /opt/vmware/bin/sso-config.sh -get_logon_banner"
+        $printCmd = "sudo -n /opt/vmware/bin/sso-config.sh -print_logon_banner"
         Write-Host "Retrieving login banner configuration..."
 
         $result = Invoke-SSHCommand -SSHSession $SshSession -Command $getCmd -ErrorAction Stop
@@ -1274,6 +1276,7 @@ function Remove-VCLoginBanner {
         Disables the login banner by toggling the "Show login message" switch OFF (Layer 2)
         on the VCSA via the pre-established SSH session. The banner configuration data
         (title, message) is preserved but no longer displayed on the login page.
+        Requires the VCSA scripting account to be permitted to run the banner commands through passwordless sudo.
 
     .EXAMPLE
         Remove-VCLoginBanner
@@ -1286,8 +1289,8 @@ function Remove-VCLoginBanner {
         $SshSession = Assert-VCSSHSession
         Write-VCSSHPermissionDiagnostic -SshSession $SshSession
 
-        $disableCmd = "/opt/vmware/bin/sso-config.sh -set_logon_banner -enable false"
-        $disableCmdFallback = "/opt/vmware/bin/sso-config.sh -disable_logon_banner"
+        $disableCmd = "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable false"
+        $disableCmdFallback = "sudo -n /opt/vmware/bin/sso-config.sh -disable_logon_banner"
         Write-Host "Disabling login banner display..."
 
         $result = Invoke-SSHCommand -SSHSession $SshSession -Command $disableCmd -ErrorAction Stop
