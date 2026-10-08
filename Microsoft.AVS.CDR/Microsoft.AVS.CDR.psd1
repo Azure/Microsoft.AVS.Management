@@ -9,7 +9,7 @@
 @{
     RootModule = 'Microsoft.AVS.CDR.psm1'
 
-    ModuleVersion = '2.0.0'
+    ModuleVersion = '2.1.0'
 
     # CompatiblePSEditions = @()
 
@@ -25,7 +25,9 @@
 
     PowerShellVersion = '7.4'
 
-    RequiredModules = @()
+    RequiredModules = @(
+        @{ ModuleName = 'OpenAuthenticode'; RequiredVersion = '0.6.3' }
+    )
 
     FunctionsToExport = @(
         'Install-PSResourcePinned'
@@ -73,4 +75,3 @@
     # DefaultCommandPrefix = ''
 
 }
-

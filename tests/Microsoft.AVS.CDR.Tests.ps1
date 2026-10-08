@@ -27,6 +27,49 @@ BeforeAll {
     }
 }
 
+Describe 'Manifest extension compatibility: <CommandName>' -ForEach @(
+    @{ CommandName = 'Find-PSResourceDependencies'; Checked = $false }
+    @{ CommandName = 'Install-PSResourceDependencies'; Checked = $true }
+    @{ CommandName = 'Import-PSResourceDependencies'; Checked = $true }
+) {
+    It 'validates extension <Extension> without changing the file path' -ForEach @(
+        @{ Extension = '.psd1'; Accepted = $true }
+        @{ Extension = '.PSD1'; Accepted = $true }
+        @{ Extension = '.PsD1'; Accepted = $true }
+        @{ Extension = '.txt'; Accepted = $false }
+    ) {
+        $manifestPath = Join-Path $TestDrive "MixedCase.Module$Extension"
+        Set-Content -LiteralPath $manifestPath -Value "@{ ModuleVersion = '1.0.0'; RequiredModules = @() }"
+
+        InModuleScope Microsoft.AVS.CDR -ArgumentList $manifestPath, $CommandName, $Checked, $Accepted {
+            param($manifestPath, $commandName, $checked, $accepted)
+
+            Mock Assert-CdrFileSignature { }
+            Mock Find-PSResource { throw 'no remote discovery expected' }
+            Mock Import-Module { throw 'no module import expected' }
+            $commandParams = @{ ManifestPath = $manifestPath }
+            if ($checked) {
+                $commandParams['Athenticode'] = 'Check'
+            }
+
+            if ($accepted) {
+                @(& $commandName @commandParams).Count | Should -Be 0
+                if ($checked) {
+                    Should -Invoke Assert-CdrFileSignature -Times 1 -Exactly -ParameterFilter {
+                        $LiteralPath -ceq $manifestPath -and $ModuleName -ceq 'MixedCase.Module'
+                    }
+                }
+            }
+            else {
+                { & $commandName @commandParams } | Should -Throw '*.psd1*'
+                Should -Invoke Assert-CdrFileSignature -Times 0
+            }
+            Should -Invoke Find-PSResource -Times 0
+            Should -Invoke Import-Module -Times 0
+        }
+    }
+}
+
 Describe "Install-PSResourcePinned" {
     BeforeAll {
         $script:testScope = 'CurrentUser'
@@ -59,6 +102,13 @@ Describe "Install-PSResourcePinned" {
         It "Should have RedirectMapPath parameter" {
             $command = Get-Command Install-PSResourcePinned
             $command.Parameters.ContainsKey('RedirectMapPath') | Should -BeTrue
+        }
+
+        It "Should have Athenticode parameter as an optional enum" {
+            $command = Get-Command Install-PSResourcePinned
+            $command.Parameters.ContainsKey('Athenticode') | Should -BeTrue
+            $command.Parameters['Athenticode'].ParameterType.IsEnum | Should -BeTrue
+            $command.Parameters['Athenticode'].Attributes.Mandatory | Should -Not -Contain $true
         }
     }
 
@@ -180,6 +230,7 @@ Describe "Install-PSResourcePinned" {
                     $Graph["$ModuleName@$ModuleVersion"] = [DependencyGraphNode]::new(
                         $ModuleName, $ModuleVersion, @(), $false, "TestRepo", $null
                     )
+                    return "$ModuleName@$ModuleVersion"
                 }
                 
                 Mock Get-PSResource { $null }
@@ -191,6 +242,24 @@ Describe "Install-PSResourcePinned" {
             }
         }
 
+        It "Should use the concrete root key returned by graph construction" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Build-RemoteDependencyGraph {
+                    param($ModuleName, $Graph)
+                    $concreteKey = "$ModuleName@1.0.0"
+                    $Graph[$concreteKey] = [DependencyGraphNode]::new(
+                        $ModuleName, "1.0.0", @(), $false, "TestRepo", $null
+                    )
+                    return $concreteKey
+                }
+                Mock Get-PSResource { $null }
+                Mock Install-PSResource { }
+
+                { Install-PSResourcePinned -Name "TestModule" -RequiredVersion "[1.0.0]" } |
+                    Should -Not -Throw
+            }
+        }
+
         It "Should correctly compare installed prerelease versions" {
             InModuleScope Microsoft.AVS.CDR {
                 # Mock Build-RemoteDependencyGraph to add a prerelease module to the graph
@@ -199,6 +268,7 @@ Describe "Install-PSResourcePinned" {
                     $Graph["$ModuleName@$ModuleVersion"] = [DependencyGraphNode]::new(
                         $ModuleName, "1.0.0-dev", @(), $false, "TestRepo", $null  # Full version with prerelease
                     )
+                    return "$ModuleName@$ModuleVersion"
                 }
                 
                 # Mock Get-PSResource to return an installed prerelease version
@@ -219,6 +289,66 @@ Describe "Install-PSResourcePinned" {
             }
         }
 
+        It "Should pass every resolved graph node to Install-CdrVerifiedResources in Athenticode Check mode" {
+            $credential = [pscredential]::new(
+                'copilot',
+                (ConvertTo-SecureString 'secret' -AsPlainText -Force)
+            )
+
+            InModuleScope Microsoft.AVS.CDR -ArgumentList $credential {
+                param($credential)
+
+                Mock Resolve-ExactDependency {
+                    [pscustomobject]@{
+                        ResolvedName = 'Root.Module'
+                        ResolvedVersion = '3.2.4'
+                        Constraint = $null
+                    }
+                }
+                Mock Build-RemoteDependencyGraph {
+                    param($ModuleName, $ModuleVersion, $Graph)
+                    $Graph['Root.Module@3.2.4'] = [DependencyGraphNode]::new(
+                        'Root.Module', '3.2.4', @('Shared.Dependency@2.0.0', 'Leaf.Dependency@1.5.0'), $false, 'RootRepo', $null
+                    )
+                    $Graph['Shared.Dependency@2.0.0'] = [DependencyGraphNode]::new(
+                        'Shared.Dependency', '2.0.0', @(), $false, 'SharedRepo', $null
+                    )
+                    $Graph['Leaf.Dependency@1.5.0'] = [DependencyGraphNode]::new(
+                        'Leaf.Dependency', '1.5.0', @(), $false, 'LeafRepo', $null
+                    )
+                    return 'Root.Module@3.2.4'
+                }
+                Mock Resolve-DiamondDependencies { @{} }
+                Mock Resolve-GraphRootKey { param($RootKeys, $RedirectedKeys) $RootKeys }
+                Mock Get-TopologicalOrder { @('Shared.Dependency@2.0.0', 'Leaf.Dependency@1.5.0', 'Root.Module@3.2.4') }
+                Mock Install-CdrVerifiedResources { }
+                Mock Install-PSResource { throw 'unchecked install path should not run' }
+
+                Install-PSResourcePinned -Name 'Root.Module' -RequiredVersion '3.2.4' `
+                    -Scope AllUsers -Repository 'RequestedRepo' -Credential $credential `
+                    -Prerelease -Force -Athenticode Check
+
+                Should -Invoke Install-CdrVerifiedResources -Times 1 -ParameterFilter {
+                    $Scope -eq 'AllUsers' -and
+                    $Prerelease -and
+                    $Force -and
+                    $Repository -eq 'RequestedRepo' -and
+                    $Credential -eq $credential -and
+                    $Resources.Count -eq 3 -and
+                    $Resources[0].Name -eq 'Shared.Dependency' -and
+                    $Resources[0].Version -eq '2.0.0' -and
+                    $Resources[0].Repository -eq 'SharedRepo' -and
+                    $Resources[1].Name -eq 'Leaf.Dependency' -and
+                    $Resources[1].Version -eq '1.5.0' -and
+                    $Resources[1].Repository -eq 'LeafRepo' -and
+                    $Resources[2].Name -eq 'Root.Module' -and
+                    $Resources[2].Version -eq '3.2.4' -and
+                    $Resources[2].Repository -eq 'RootRepo'
+                }
+                Should -Invoke Install-PSResource -Times 0
+            }
+        }
+
         It "Should install when prerelease version is not yet installed" {
             InModuleScope Microsoft.AVS.CDR {
                 Mock Build-RemoteDependencyGraph {
@@ -226,6 +356,7 @@ Describe "Install-PSResourcePinned" {
                     $Graph["$ModuleName@$ModuleVersion"] = [DependencyGraphNode]::new(
                         $ModuleName, "2.0.0-beta", @(), $false, "TestRepo", $null
                     )
+                    return "$ModuleName@$ModuleVersion"
                 }
                 
                 # Mock Get-PSResource to return a different version
@@ -253,6 +384,7 @@ Describe "Install-PSResourcePinned" {
                     $Graph["$ModuleName@$ModuleVersion"] = [DependencyGraphNode]::new(
                         $ModuleName, "1.0.0-alpha", @(), $false, "TestRepo", $null
                     )
+                    return "$ModuleName@$ModuleVersion"
                 }
                 
                 Mock Get-PSResource { $null }
@@ -534,6 +666,13 @@ Describe "Import-ModulePinned" {
             $command = Get-Command Import-ModulePinned
             $command.Parameters.ContainsKey('RedirectMapPath') | Should -BeTrue
         }
+
+        It "Should have Athenticode parameter as an optional enum" {
+            $command = Get-Command Import-ModulePinned
+            $command.Parameters.ContainsKey('Athenticode') | Should -BeTrue
+            $command.Parameters['Athenticode'].ParameterType.IsEnum | Should -BeTrue
+            $command.Parameters['Athenticode'].Attributes.Mandatory | Should -Not -Contain $true
+        }
     }
 
     Context "Module Import" -Tag 'Integration' {
@@ -736,14 +875,24 @@ Describe "Import-ModulePinned" {
     Context "Prerelease Version Handling" {
         # Verify Import-ModulePinned can resolve and import an installed prerelease
         # module when the caller passes the full prerelease version string
-        # (e.g. "1.0.0-preview"). Mocks Get-PSResource / Get-Module / Import-Module
-        # so the test runs without touching real package feeds.
+        # (e.g. "1.0.0-preview") without touching real package feeds.
         It "Should import a module installed as prerelease when given the full prerelease version" {
             InModuleScope Microsoft.AVS.CDR {
                 $modName = "TestPrereleaseModule"
                 $baseVersion = "1.0.0"
                 $prereleaseSuffix = "preview"
                 $fullVersion = "$baseVersion-$prereleaseSuffix"
+                $modulesPath = Join-Path $TestDrive "modules"
+                $moduleVersionPath = Join-Path -Path (Join-Path -Path $modulesPath -ChildPath $modName) `
+                    -ChildPath $baseVersion
+                $moduleManifestPath = Join-Path -Path $moduleVersionPath -ChildPath "$modName.psd1"
+                $moduleScriptPath = Join-Path -Path $moduleVersionPath -ChildPath "$modName.psm1"
+
+                New-Item -ItemType Directory -Path $moduleVersionPath -Force | Out-Null
+                Set-Content -Path $moduleScriptPath -Value "function Get-PrereleaseTestValue { 42 }"
+                New-ModuleManifest -Path $moduleManifestPath -RootModule "$modName.psm1" `
+                    -ModuleVersion $baseVersion -Prerelease $prereleaseSuffix `
+                    -FunctionsToExport "Get-PrereleaseTestValue"
 
                 # Mimic real Get-PSResource: -Version "1.0.0-preview" matches the
                 # installed prerelease; -Version "1.0.0" (release) does not.
@@ -755,7 +904,7 @@ Describe "Import-ModulePinned" {
                             Name              = $modName
                             Version           = [version]$baseVersion
                             Prerelease        = $prereleaseSuffix
-                            InstalledLocation = "/tmp/modules"
+                            InstalledLocation = $modulesPath
                             Dependencies      = @()
                         }
                     }
@@ -763,14 +912,39 @@ Describe "Import-ModulePinned" {
                 }
 
                 Mock Get-Module { }
+                try {
+                    $result = Import-ModulePinned -Name $modName -RequiredVersion $fullVersion -PassThru
+                    $result.Name | Should -Be $modName
+                    Get-PrereleaseTestValue | Should -Be 42
+                }
+                finally {
+                    Remove-Module -Name $modName -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It "Should return the concrete root module for singleton exact syntax" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Get-PSResource {
+                    [PSCustomObject]@{
+                        Name = "TestModule"
+                        Version = [version]"1.2.3"
+                        InstalledLocation = "/tmp/modules"
+                        Dependencies = @()
+                    }
+                }
+                Mock Get-Module { @() }
                 Mock Import-Module {
-                    param($Name, $RequiredVersion)
-                    [PSCustomObject]@{ Name = $Name; Version = [version]$RequiredVersion }
-                } -ParameterFilter { $Name -eq $modName }
+                    [PSCustomObject]@{
+                        Name = "TestModule"
+                        Version = [version]"1.2.3"
+                    }
+                }
 
-                { Import-ModulePinned -Name $modName -RequiredVersion $fullVersion } | Should -Not -Throw
+                $result = Import-ModulePinned -Name "TestModule" -RequiredVersion "[1.2.3]" -PassThru
 
-                Should -Invoke Import-Module -Times 1 -ParameterFilter { $Name -eq $modName }
+                $result | Should -Not -BeNullOrEmpty
+                $result.Version.ToString() | Should -Be "1.2.3"
             }
         }
     }
@@ -833,6 +1007,12 @@ Describe "Find-DependencyRedirect" {
             { & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "" -RedirectMap $redirectMap } | 
                 Should -Throw "*Cannot conservatively resolve version*"
         }
+
+        It "Should reject '*' for an unversioned dependency" {
+            { & $script:FindDependencyRedirect -DependencyName "TestModule" `
+                -DependencyVersion "" -RedirectMap @{ "TestModule" = "*" } } |
+                Should -Throw "*must specify a concrete version*"
+        }
         
         It "Should normalize dependency name casing for empty version" {
             $redirectMap = @{ "TestModule" = "1.0.0" }
@@ -846,26 +1026,65 @@ Describe "Find-DependencyRedirect" {
     Context "Open-Ended Version Range Handling" {
         It "Should extract minimum version from open-ended range [1.0, )" {
             $redirectMap = @{}
-            $result = & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "[1.0, )" -RedirectMap $redirectMap
+            $result = & $script:FindDependencyRedirect -DependencyName "TestModule" `
+                -DependencyVersion "[1.0, )" -RedirectMap $redirectMap -DependencyVersionIsRange
             $result.ResolvedVersion | Should -Be "1.0"
             $result.ResolvedName | Should -Be "TestModule"
             $result.IsRedirected | Should -Be $false
+            $result.IsHardPin | Should -BeFalse
+            $result.Constraint.Minimum | Should -Be "1.0"
         }
         
-        It "Should extract minimum version from open-ended range (1.2.3, )" {
+        It "Should require a redirect for an exclusive lower bound" {
             $redirectMap = @{}
-            $result = & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "(1.2.3, )" -RedirectMap $redirectMap
-            $result.ResolvedVersion | Should -Be "1.2.3"
-            $result.ResolvedName | Should -Be "TestModule"
-            $result.IsRedirected | Should -Be $false
+            { & $script:FindDependencyRedirect -DependencyName "TestModule" `
+                -DependencyVersion "(1.2.3, )" -RedirectMap $redirectMap -DependencyVersionIsRange } |
+                Should -Throw "*Cannot conservatively resolve*explicit redirect*"
         }
         
         It "Should extract minimum version from range [2.1.0, ]" {
             $redirectMap = @{}
-            $result = & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "[2.1.0, ]" -RedirectMap $redirectMap
+            $result = & $script:FindDependencyRedirect -DependencyName "TestModule" `
+                -DependencyVersion "[2.1.0, ]" -RedirectMap $redirectMap -DependencyVersionIsRange
             $result.ResolvedVersion | Should -Be "2.1.0"
             $result.ResolvedName | Should -Be "TestModule"
             $result.IsRedirected | Should -Be $false
+        }
+
+        It "Should require a redirect for an upper-bound-only range" {
+            { & $script:FindDependencyRedirect -DependencyName "TestModule" `
+                -DependencyVersion "(, 2.0]" -RedirectMap @{} -DependencyVersionIsRange } |
+                Should -Throw "*Cannot conservatively resolve*explicit redirect*"
+        }
+
+        It "Should treat a bare dependency version as a minimum but a root version as exact" {
+            $redirectMap = @{ "TestModule" = "1.5.0" }
+
+            $dependency = & $script:FindDependencyRedirect -DependencyName "TestModule" `
+                -DependencyVersion "1.0.0" -RedirectMap $redirectMap -DependencyVersionIsRange
+
+            $dependency.ResolvedVersion | Should -Be "1.5.0"
+            $dependency.IsHardPin | Should -BeTrue
+            { & $script:FindDependencyRedirect -DependencyName "TestModule" `
+                -DependencyVersion "1.0.0" -RedirectMap $redirectMap } |
+                Should -Throw "*Cannot redirect exact version dependency*"
+        }
+
+        It "Should apply the shipped Management redirects to the bare Common minimum" -ForEach @(9, 10) {
+            $mapPath = Join-Path $PSScriptRoot ".." "Microsoft.AVS.CDR" "maps" "Microsoft.AVS.Management@$_.json"
+            $redirectMap = Get-Content $mapPath -Raw | ConvertFrom-Json -AsHashtable
+
+            $redirectMap["VMware.VimAutomation.Common"] | Should -Be "13.3.0.24145081"
+            $redirectMap.ContainsKey("VMware.VimAutomation.Common@12.0.0.15939652") | Should -BeFalse
+
+            $result = & $script:FindDependencyRedirect `
+                -DependencyName "VMware.VimAutomation.Common" `
+                -DependencyVersion "12.0.0.15939652" `
+                -RedirectMap $redirectMap `
+                -DependencyVersionIsRange
+
+            $result.ResolvedVersion | Should -Be "13.3.0.24145081"
+            $result.IsHardPin | Should -BeTrue
         }
     }
     
@@ -885,6 +1104,15 @@ Describe "Find-DependencyRedirect" {
             $result.ResolvedName | Should -Be "TestModule"
             $result.IsRedirected | Should -Be $false
         }
+
+        It "Should normalize singleton exact range notation" {
+            $redirectMap = @{ "TestModule" = "1.2.3" }
+            $result = & $script:FindDependencyRedirect -DependencyName "TestModule" `
+                -DependencyVersion "[1.2.3]" -RedirectMap $redirectMap
+            $result.ResolvedVersion | Should -Be "1.2.3"
+            $result.ResolvedName | Should -Be "TestModule"
+            $result.IsRedirected | Should -BeTrue
+        }
     }
     
     Context "Exact Version Specification - With Same Version Redirect" {
@@ -894,6 +1122,14 @@ Describe "Find-DependencyRedirect" {
             $result.ResolvedVersion | Should -Be "1.0"
             $result.ResolvedName | Should -Be "TestModule"
             $result.IsRedirected | Should -Be $true
+        }
+
+        It "Should allow an equivalent exact redirect spelling" {
+            $redirectMap = @{ "TestModule@1.0" = "1.0.0" }
+            $result = & $script:FindDependencyRedirect -DependencyName "TestModule" `
+                -DependencyVersion "1.0" -RedirectMap $redirectMap
+            $result.ResolvedVersion | Should -Be "1.0.0"
+            $result.IsHardPin | Should -BeTrue
         }
         
         It "Should allow redirect to same version for exact range" {
@@ -905,26 +1141,26 @@ Describe "Find-DependencyRedirect" {
         }
     }
     
-    Context "Exact Version Specification - With Different Version Redirect (Should Throw)" {
-        It "Should throw when redirecting simple version to different version" {
-            $redirectMap = @{ "TestModule@1.0" = "2.0" }
-            { & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "1.0" -RedirectMap $redirectMap } |
-                Should -Throw "*Cannot redirect exact version dependency*"
-        }
-        
-        It "Should throw when redirecting exact range to different version" {
-            $redirectMap = @{ "TestModule@1.0" = "1.1" }
-            { & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "[1.0, 1.0]" -RedirectMap $redirectMap } |
-                Should -Throw "*Cannot redirect exact version dependency*"
-        }
-        
+    Context "Exact Version Specification - Redirect To Different Version (Should Throw)" {
         It "Should throw when name-only redirect changes exact version" {
             $redirectMap = @{ "TestModule" = "2.0.0" }
             { & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "1.0.0" -RedirectMap $redirectMap } |
                 Should -Throw "*Cannot redirect exact version dependency*"
         }
+        
+        It "Should throw when only a name-only redirect exists for exact Common 12" {
+            $redirectMap = @{ "VMware.VimAutomation.Common" = "13.3.0.24145081" }
+            { & $script:FindDependencyRedirect -DependencyName "VMware.VimAutomation.Common" -DependencyVersion "12.0.0.15939652" -RedirectMap $redirectMap } |
+                Should -Throw "*Cannot redirect exact version dependency*"
+        }
+
+        It "Should throw when version-specific redirect changes exact version" {
+            $redirectMap = @{ "TestModule@1.0" = "2.0" }
+            { & $script:FindDependencyRedirect -DependencyName "TestModule" -DependencyVersion "1.0" -RedirectMap $redirectMap } |
+                Should -Throw "*Cannot redirect exact version dependency*"
+        }
     }
-    
+
     Context "Version-Specific Redirect (name@version)" {
         It "Should apply version-specific redirect" {
             $redirectMap = @{ "TestModule@1.0" = "1.1" }
@@ -1001,6 +1237,16 @@ Describe "Find-DependencyRedirect" {
             $result.ResolvedName | Should -Be "TestModule"
             $result.IsRedirected | Should -Be $true
         }
+
+        It "Should pin a dependency range to its inclusive minimum with '*' redirect" {
+            $redirectMap = @{ "TestModule" = "*" }
+            $result = & $script:FindDependencyRedirect -DependencyName "testmodule" `
+                -DependencyVersion "[2.0, 3.0)" -RedirectMap $redirectMap -DependencyVersionIsRange
+            $result.ResolvedVersion | Should -Be "2.0"
+            $result.ResolvedName | Should -Be "TestModule"
+            $result.IsRedirected | Should -Be $true
+            $result.IsHardPin | Should -BeFalse
+        }
     }
     
     Context "Case Sensitivity and Normalization" {
@@ -1050,6 +1296,53 @@ Describe "Find-DependencyRedirect" {
             $result.ResolvedVersion | Should -Be "1.8.0"
             $result.ResolvedName | Should -Be "TestModule"
             $result.IsRedirected | Should -Be $true
+        }
+
+        It "Should reject a redirect target outside the declared range" {
+            $redirectMap = @{ "TestModule" = "2.5.0" }
+            { & $script:FindDependencyRedirect -DependencyName "TestModule" `
+                -DependencyVersion "[1.0, 2.0]" -RedirectMap $redirectMap -DependencyVersionIsRange } |
+                Should -Throw "*does not satisfy dependency range*"
+        }
+
+        It "Should accept an equivalent spelling of an inclusive range minimum" {
+            $redirectMap = @{ "TestModule@1.0.0" = "1.0" }
+            $result = & $script:FindDependencyRedirect -DependencyName "TestModule" `
+                -DependencyVersion "[1.0.0, 2.0.0)" -RedirectMap $redirectMap -DependencyVersionIsRange
+            $result.ResolvedVersion | Should -Be "1.0"
+            $result.IsHardPin | Should -BeTrue
+        }
+
+        It "Should reject a non-concrete redirect target" {
+            $redirectMap = @{ "TestModule" = "[1.5.0, 2.0.0)" }
+            { & $script:FindDependencyRedirect -DependencyName "TestModule" `
+                -DependencyVersion "[1.0, 2.0]" -RedirectMap $redirectMap -DependencyVersionIsRange } |
+                Should -Throw "*must specify a concrete version*"
+        }
+
+        It "Should reject an invalid redirect target" {
+            $redirectMap = @{ "TestModule" = "not-a-version" }
+            { & $script:FindDependencyRedirect -DependencyName "TestModule" `
+                -DependencyVersion "[1.0, 2.0]" -RedirectMap $redirectMap -DependencyVersionIsRange } |
+                Should -Throw "*must specify a concrete version*"
+        }
+
+        It "Should accept parser-valid concrete redirect versions" -ForEach @(
+            "1.0.0+build.1"
+            "1.2.3.4-preview.1"
+        ) {
+            $redirectMap = @{ "TestModule" = $_ }
+            $result = & $script:FindDependencyRedirect -DependencyName "TestModule" `
+                -DependencyVersion "" -RedirectMap $redirectMap
+
+            $result.ResolvedVersion | Should -Be $_
+        }
+
+        It "Should reject invalid numeric prerelease identifiers" {
+            $redirectMap = @{ "TestModule" = "1.0.0-01" }
+            { & $script:FindDependencyRedirect -DependencyName "TestModule" `
+                -DependencyVersion "" -RedirectMap $redirectMap } |
+                Should -Throw "*must specify a concrete version*"
         }
     }
     
@@ -1255,6 +1548,77 @@ Describe "Topological Dependency Loading" {
         }
     }
 
+    Context "Pinned import ordering scenario" {
+        # Covers the ~50% pinned-import failure of Microsoft.AVS.Management.Internal 1.1.490.
+        # AzTable depends on Az.Storage/Az.Resources only via a versionless '#Requires' in its
+        # source, so the graph records AzTable as a leaf (no edge). The root lists the Az modules
+        # before AzTable; anchoring on the root must keep that reported order so the pinned Az
+        # versions load before AzTable's #Requires can autoload higher ones. This is the same
+        # scenario the integration repro exercised end to end.
+
+        It "Should order a graph-leaf (source-level #Requires) module after its reported dependencies" {
+            InModuleScope Microsoft.AVS.CDR {
+                # AzTable has no edge to the Az modules, yet must still come after them.
+                $graph = @{
+                    "Root@1.0.0"         = [DependencyGraphNode]::new("Root", "1.0.0", @("Az.Storage@8.0.0", "Az.Resources@7.7.0", "AzTable@2.1.0"), $false, $null, $null)
+                    "Az.Storage@8.0.0"   = [DependencyGraphNode]::new("Az.Storage", "8.0.0", @("Az.Accounts@4.0.1"), $false, $null, $null)
+                    "Az.Resources@7.7.0" = [DependencyGraphNode]::new("Az.Resources", "7.7.0", @("Az.Accounts@4.0.1"), $false, $null, $null)
+                    "AzTable@2.1.0"      = [DependencyGraphNode]::new("AzTable", "2.1.0", @(), $false, $null, $null)
+                    "Az.Accounts@4.0.1"  = [DependencyGraphNode]::new("Az.Accounts", "4.0.1", @(), $false, $null, $null)
+                }
+
+                $result = @(Get-TopologicalOrder -Graph $graph -RootKeys @("Root@1.0.0"))
+
+                $result.IndexOf("Az.Storage@8.0.0") | Should -BeLessThan $result.IndexOf("AzTable@2.1.0")
+                $result.IndexOf("Az.Resources@7.7.0") | Should -BeLessThan $result.IndexOf("AzTable@2.1.0")
+            }
+        }
+
+        It "Should preserve the root's reported dependency order (deterministic)" {
+            InModuleScope Microsoft.AVS.CDR {
+                $graph = @{
+                    "Root@1.0.0"         = [DependencyGraphNode]::new("Root", "1.0.0", @("Az.Storage@8.0.0", "Az.Resources@7.7.0", "AzTable@2.1.0"), $false, $null, $null)
+                    "Az.Storage@8.0.0"   = [DependencyGraphNode]::new("Az.Storage", "8.0.0", @("Az.Accounts@4.0.1"), $false, $null, $null)
+                    "Az.Resources@7.7.0" = [DependencyGraphNode]::new("Az.Resources", "7.7.0", @("Az.Accounts@4.0.1"), $false, $null, $null)
+                    "AzTable@2.1.0"      = [DependencyGraphNode]::new("AzTable", "2.1.0", @(), $false, $null, $null)
+                    "Az.Accounts@4.0.1"  = [DependencyGraphNode]::new("Az.Accounts", "4.0.1", @(), $false, $null, $null)
+                }
+
+                $result = @(Get-TopologicalOrder -Graph $graph -RootKeys @("Root@1.0.0"))
+
+                ($result -join ",") | Should -Be "Az.Accounts@4.0.1,Az.Storage@8.0.0,Az.Resources@7.7.0,AzTable@2.1.0,Root@1.0.0"
+            }
+        }
+
+        It "Should be deterministic regardless of graph key insertion order" {
+            InModuleScope Microsoft.AVS.CDR {
+                # Build the same logical graph twice, adding keys in opposite orders, to prove the
+                # result no longer depends on hashtable enumeration (the original ~50% failure).
+                $build = {
+                    param([string[]]$Order)
+                    $nodes = @{
+                        "Root@1.0.0"         = [DependencyGraphNode]::new("Root", "1.0.0", @("Az.Storage@8.0.0", "Az.Resources@7.7.0", "AzTable@2.1.0"), $false, $null, $null)
+                        "Az.Storage@8.0.0"   = [DependencyGraphNode]::new("Az.Storage", "8.0.0", @("Az.Accounts@4.0.1"), $false, $null, $null)
+                        "Az.Resources@7.7.0" = [DependencyGraphNode]::new("Az.Resources", "7.7.0", @("Az.Accounts@4.0.1"), $false, $null, $null)
+                        "AzTable@2.1.0"      = [DependencyGraphNode]::new("AzTable", "2.1.0", @(), $false, $null, $null)
+                        "Az.Accounts@4.0.1"  = [DependencyGraphNode]::new("Az.Accounts", "4.0.1", @(), $false, $null, $null)
+                    }
+                    $graph = @{}
+                    foreach ($k in $Order) { $graph[$k] = $nodes[$k] }
+                    $graph
+                }
+
+                $forward = @("Root@1.0.0", "Az.Storage@8.0.0", "Az.Resources@7.7.0", "AzTable@2.1.0", "Az.Accounts@4.0.1")
+                $reversed = @("Az.Accounts@4.0.1", "AzTable@2.1.0", "Az.Resources@7.7.0", "Az.Storage@8.0.0", "Root@1.0.0")
+
+                $orderA = @(Get-TopologicalOrder -Graph (& $build $forward) -RootKeys @("Root@1.0.0"))
+                $orderB = @(Get-TopologicalOrder -Graph (& $build $reversed) -RootKeys @("Root@1.0.0"))
+
+                ($orderA -join ",") | Should -Be ($orderB -join ",")
+            }
+        }
+    }
+
     Context "Compare-SemVer Function" {
         It "Should return 0 for equal versions" {
             InModuleScope Microsoft.AVS.CDR {
@@ -1314,9 +1678,19 @@ Describe "Topological Dependency Loading" {
 
         It "Should handle complex prerelease labels" {
             InModuleScope Microsoft.AVS.CDR {
-                # alpha.1 < alpha.2 (lexicographic)
+                # Numeric prerelease identifiers compare numerically.
                 Compare-SemVer -Version1 "1.0.0-alpha.1" -Version2 "1.0.0-alpha.2" | Should -BeLessThan 0
-                Compare-SemVer -Version1 "1.0.0-beta.10" -Version2 "1.0.0-beta.9" | Should -BeLessThan 0  # Lexicographic: "10" < "9"
+                Compare-SemVer -Version1 "1.0.0-beta.10" -Version2 "1.0.0-beta.9" | Should -BeGreaterThan 0
+                Compare-SemVer -Version1 "1.0.0-1" -Version2 "1.0.0-alpha" | Should -BeLessThan 0
+            }
+        }
+
+        It "Should compare arbitrarily large numeric prerelease identifiers" {
+            InModuleScope Microsoft.AVS.CDR {
+                Compare-SemVer `
+                    -Version1 "1.0.0-beta.100000000000000000000" `
+                    -Version2 "1.0.0-beta.9999999999999999999" |
+                    Should -BeGreaterThan 0
             }
         }
 
@@ -1330,24 +1704,131 @@ Describe "Topological Dependency Loading" {
     }
 
     Context "Resolve-DiamondDependencies Function" {
-        It "Should resolve diamond dependencies by selecting highest version" {
+        It "Should reject a diamond when no candidate satisfies every incoming range" {
             InModuleScope Microsoft.AVS.CDR {
-                # Graph with same module at different versions
                 $graph = @{
                     "ModuleA@1.0.0" = [DependencyGraphNode]::new("ModuleA", "1.0.0", @("SharedDep@1.0.0"), $false, $null, $null)
                     "ModuleB@1.0.0" = [DependencyGraphNode]::new("ModuleB", "1.0.0", @("SharedDep@2.0.0"), $false, $null, $null)
                     "SharedDep@1.0.0" = [DependencyGraphNode]::new("SharedDep", "1.0.0", @(), $false, $null, $null)
                     "SharedDep@2.0.0" = [DependencyGraphNode]::new("SharedDep", "2.0.0", @(), $false, $null, $null)
                 }
-                
+                [void]$graph["SharedDep@1.0.0"].Constraints.Add(@{
+                    OriginalSpec = "[1.0.0, 1.5.0]"
+                    Minimum = "1.0.0"
+                    Maximum = "1.5.0"
+                    IncludeMinimum = $true
+                    IncludeMaximum = $true
+                    IsExact = $false
+                    IsHardPin = $false
+                    ConcretePin = "1.0.0"
+                })
+                [void]$graph["SharedDep@2.0.0"].Constraints.Add(@{
+                    OriginalSpec = "[2.0.0, )"
+                    Minimum = "2.0.0"
+                    Maximum = $null
+                    IncludeMinimum = $true
+                    IncludeMaximum = $false
+                    IsExact = $false
+                    IsHardPin = $false
+                    ConcretePin = "2.0.0"
+                })
+
+                { Resolve-DiamondDependencies -Graph $graph } |
+                    Should -Throw "*No version of 'SharedDep' satisfies all dependency constraints*"
+            }
+        }
+
+        It "Should preserve a compatible redirect hard pin during diamond resolution" {
+            InModuleScope Microsoft.AVS.CDR {
+                $graph = @{
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new("ModuleA", "1.0.0", @("SharedDep@1.0.0"), $false, $null, $null)
+                    "ModuleB@1.0.0" = [DependencyGraphNode]::new("ModuleB", "1.0.0", @("SharedDep@1.5.0"), $false, $null, $null)
+                    "SharedDep@1.0.0" = [DependencyGraphNode]::new("SharedDep", "1.0.0", @(), $false, $null, $null)
+                    "SharedDep@1.5.0" = [DependencyGraphNode]::new("SharedDep", "1.5.0", @(), $false, $null, $null)
+                }
+                [void]$graph["SharedDep@1.0.0"].Constraints.Add(@{
+                    OriginalSpec = "[1.0.0, )"
+                    Minimum = "1.0.0"
+                    Maximum = $null
+                    IncludeMinimum = $true
+                    IncludeMaximum = $false
+                    IsExact = $false
+                    IsHardPin = $false
+                    ConcretePin = "1.0.0"
+                })
+                [void]$graph["SharedDep@1.5.0"].Constraints.Add(@{
+                    OriginalSpec = "[1.0.0, 2.0.0)"
+                    Minimum = "1.0.0"
+                    Maximum = "2.0.0"
+                    IncludeMinimum = $true
+                    IncludeMaximum = $false
+                    IsExact = $false
+                    IsHardPin = $true
+                    ConcretePin = "1.5.0"
+                })
+
                 Resolve-DiamondDependencies -Graph $graph
-                
-                # Only highest version should remain
-                $graph.ContainsKey("SharedDep@2.0.0") | Should -BeTrue
+
+                $graph.ContainsKey("SharedDep@1.5.0") | Should -BeTrue
                 $graph.ContainsKey("SharedDep@1.0.0") | Should -BeFalse
-                
-                # ModuleA's dependency should be updated to point to highest version
-                $graph["ModuleA@1.0.0"].Dependencies | Should -Contain "SharedDep@2.0.0"
+                $graph["ModuleA@1.0.0"].Dependencies | Should -Contain "SharedDep@1.5.0"
+            }
+        }
+
+        It "Should reject conflicting exact or redirect hard pins" {
+            InModuleScope Microsoft.AVS.CDR {
+                $graph = @{
+                    "SharedDep@1.0.0" = [DependencyGraphNode]::new("SharedDep", "1.0.0", @(), $false, $null, $null)
+                    "SharedDep@2.0.0" = [DependencyGraphNode]::new("SharedDep", "2.0.0", @(), $false, $null, $null)
+                }
+                [void]$graph["SharedDep@1.0.0"].Constraints.Add((Get-ConcreteVersionConstraint -Version "1.0.0"))
+                [void]$graph["SharedDep@2.0.0"].Constraints.Add((Get-ConcreteVersionConstraint -Version "2.0.0"))
+
+                { Resolve-DiamondDependencies -Graph $graph } |
+                    Should -Throw "*Conflicting hard pins for 'SharedDep'*"
+            }
+        }
+
+        It "Should treat equivalent hard-pin spellings as one version" {
+            InModuleScope Microsoft.AVS.CDR {
+                $graph = @{
+                    "SharedDep@1.0" = [DependencyGraphNode]::new("SharedDep", "1.0", @(), $false, $null, $null)
+                    "SharedDep@1.0.0" = [DependencyGraphNode]::new("SharedDep", "1.0.0", @(), $false, $null, $null)
+                }
+                [void]$graph["SharedDep@1.0"].Constraints.Add((Get-ConcreteVersionConstraint -Version "1.0"))
+                [void]$graph["SharedDep@1.0.0"].Constraints.Add((Get-ConcreteVersionConstraint -Version "1.0.0"))
+
+                { Resolve-DiamondDependencies -Graph $graph } | Should -Not -Throw
+                $graph.Count | Should -Be 1
+            }
+        }
+
+        It "Should select the lowest candidate satisfying every soft constraint" {
+            InModuleScope Microsoft.AVS.CDR {
+                $graph = @{
+                    "ModuleA@1.0.0" = [DependencyGraphNode]::new("ModuleA", "1.0.0", @("SharedDep@2.0.0"), $false, $null, $null)
+                    "ModuleB@1.0.0" = [DependencyGraphNode]::new("ModuleB", "1.0.0", @("SharedDep@3.0.0"), $false, $null, $null)
+                    "SharedDep@2.0.0" = [DependencyGraphNode]::new("SharedDep", "2.0.0", @(), $false, $null, $null)
+                    "SharedDep@3.0.0" = [DependencyGraphNode]::new("SharedDep", "3.0.0", @(), $false, $null, $null)
+                }
+                foreach ($key in @("SharedDep@2.0.0", "SharedDep@3.0.0")) {
+                    [void]$graph[$key].Constraints.Add(@{
+                        OriginalSpec = "[1.0.0, 4.0.0)"
+                        Minimum = "1.0.0"
+                        Maximum = "4.0.0"
+                        IncludeMinimum = $true
+                        IncludeMaximum = $false
+                        IsExact = $false
+                        IsHardPin = $false
+                        ConcretePin = $graph[$key].Version
+                    })
+                }
+
+                Resolve-DiamondDependencies -Graph $graph
+
+                $graph.ContainsKey("SharedDep@2.0.0") | Should -BeTrue
+                $graph.ContainsKey("SharedDep@3.0.0") | Should -BeFalse
+                $graph["ModuleB@1.0.0"].Dependencies | Should -Contain "SharedDep@2.0.0"
             }
         }
         
@@ -1447,7 +1928,7 @@ Describe "Topological Dependency Loading" {
             }
         }
 
-        It "Should prefer found lower version over not-found higher version" {
+        It "Should not substitute a lower version for a missing higher minimum" {
             InModuleScope Microsoft.AVS.CDR {
                 # Graph where higher version is not found but lower version exists
                 $graph = @{
@@ -1457,15 +1938,8 @@ Describe "Topological Dependency Loading" {
                     "SharedDep@2.0.0" = [DependencyGraphNode]::new("SharedDep", "2.0.0", @(), $true, $null, $null)  # Not found
                 }
                 
-                # Should not throw - the not-found higher version should be discarded
-                { Resolve-DiamondDependencies -Graph $graph } | Should -Not -Throw
-                
-                # Found version should be kept even though it's lower
-                $graph.ContainsKey("SharedDep@1.0.0") | Should -BeTrue
-                $graph.ContainsKey("SharedDep@2.0.0") | Should -BeFalse
-                
-                # ModuleB's dependency should be updated to found version
-                $graph["ModuleB@1.0.0"].Dependencies | Should -Contain "SharedDep@1.0.0"
+                { Resolve-DiamondDependencies -Graph $graph } |
+                    Should -Throw "*No version of 'SharedDep' satisfies all dependency constraints*"
             }
         }
 
@@ -1497,7 +1971,7 @@ Describe "Topological Dependency Loading" {
             }
         }
 
-        It "Should handle mixed found/not-found with multiple modules" {
+        It "Should reject a mixed graph when one dependency minimum is unavailable" {
             InModuleScope Microsoft.AVS.CDR {
                 # Complex scenario with multiple diamonds
                 $graph = @{
@@ -1510,16 +1984,8 @@ Describe "Topological Dependency Loading" {
                     "OtherDep@2.0.0" = [DependencyGraphNode]::new("OtherDep", "2.0.0", @(), $true, $null, $null)  # Not found
                 }
                 
-                # Should succeed - each diamond has at least one found version
-                { Resolve-DiamondDependencies -Graph $graph } | Should -Not -Throw
-                
-                # SharedDep should use 2.0.0 (found)
-                $graph.ContainsKey("SharedDep@2.0.0") | Should -BeTrue
-                $graph.ContainsKey("SharedDep@1.0.0") | Should -BeFalse
-                
-                # OtherDep should use 1.0.0 (found, even though lower)
-                $graph.ContainsKey("OtherDep@1.0.0") | Should -BeTrue
-                $graph.ContainsKey("OtherDep@2.0.0") | Should -BeFalse
+                { Resolve-DiamondDependencies -Graph $graph } |
+                    Should -Throw "*No version of 'OtherDep' satisfies all dependency constraints*"
             }
         }
     }
@@ -1695,6 +2161,22 @@ Describe "Save-PSResourcePinned" {
             }
         }
 
+        It "Should use the concrete root key for singleton exact syntax" {
+            Mock Find-PSResource -ModuleName Microsoft.AVS.CDR {
+                [PSCustomObject]@{
+                    Name = "TestModule"
+                    Version = [version]"1.0.0"
+                    Prerelease = $null
+                    Repository = "TestRepo"
+                    Dependencies = @()
+                }
+            }
+            Mock Save-PSResource -ModuleName Microsoft.AVS.CDR { }
+
+            { Save-PSResourcePinned -Name "TestModule" -RequiredVersion "[1.0.0]" -Path $script:testSavePath } |
+                Should -Not -Throw
+        }
+
         It "Should save dependencies before main module" {
             # Create mock module with dependency
             Mock Find-PSResource -ModuleName Microsoft.AVS.CDR {
@@ -1742,7 +2224,7 @@ Describe "Save-PSResourcePinned" {
         It "Should skip already saved packages" {
             Mock Find-PSResource -ModuleName Microsoft.AVS.CDR {
                 param($Name, $Version)
-                
+
                 if ($Name -eq "TestModule") {
                     [PSCustomObject]@{
                         Name = "TestModule"
@@ -1841,6 +2323,7 @@ Describe "Save-PSResourcePinned" {
                     $Graph["$ModuleName@$ModuleVersion"] = [DependencyGraphNode]::new(
                         $ModuleName, "1.0.0-dev", @(), $false, "TestRepo", $null
                     )
+                    return "$ModuleName@$ModuleVersion"
                 }
                 
                 Mock Save-PSResource { }
@@ -1861,6 +2344,7 @@ Describe "Save-PSResourcePinned" {
                     $Graph["$ModuleName@$ModuleVersion"] = [DependencyGraphNode]::new(
                         $ModuleName, "1.0.0-beta", @(), $false, "TestRepo", $null
                     )
+                    return "$ModuleName@$ModuleVersion"
                 }
                 
                 Mock Save-PSResource { }
@@ -1915,6 +2399,13 @@ Describe "Install-PSResourceDependencies" {
             $validateSet.ValidValues | Should -Contain 'CurrentUser'
             $validateSet.ValidValues | Should -Contain 'AllUsers'
         }
+
+        It "Should have Athenticode parameter as an optional enum" {
+            $command = Get-Command Install-PSResourceDependencies
+            $command.Parameters.ContainsKey('Athenticode') | Should -BeTrue
+            $command.Parameters['Athenticode'].ParameterType.IsEnum | Should -BeTrue
+            $command.Parameters['Athenticode'].Attributes.Mandatory | Should -Not -Contain $true
+        }
     }
 
     Context "Manifest Validation" {
@@ -1950,6 +2441,68 @@ Describe "Install-PSResourceDependencies" {
             # Should not throw, just return silently
             { Install-PSResourceDependencies -ManifestPath $script:testManifestPath } | Should -Not -Throw
         }
+
+        It "Should reject an unsigned manifest before resolving even when it has no dependencies" {
+            New-Item -Path $script:testManifestDir -ItemType Directory -Force | Out-Null
+
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+
+            InModuleScope Microsoft.AVS.CDR -ArgumentList $script:testManifestPath {
+                param($manifestPath)
+
+                Mock Assert-CdrFileSignature { throw 'unsigned manifest' }
+                Mock Find-PSResourceDependencies { throw 'dependency resolution should not run' }
+                Mock Install-CdrVerifiedResources { throw 'verified install should not run' }
+
+                { Install-PSResourceDependencies -ManifestPath $manifestPath -Athenticode Check } |
+                    Should -Throw '*unsigned manifest*'
+
+                Should -Invoke Assert-CdrFileSignature -Times 1 -ParameterFilter {
+                    $LiteralPath -eq $manifestPath -and
+                    $ModuleName -eq 'TestModule' -and
+                    $ModuleVersion -eq '1.0.0'
+                }
+                Should -Invoke Find-PSResourceDependencies -Times 0
+                Should -Invoke Install-CdrVerifiedResources -Times 0
+            }
+        }
+
+        It "Should resolve dependencies from the same absolute manifest path that was verified" {
+            $manifestDirectory = Join-Path $TestDrive 'RelativeManifest'
+            $null = New-Item -Path $manifestDirectory -ItemType Directory -Force
+            $manifestPath = Join-Path $manifestDirectory 'TestModule.psd1'
+            Set-Content -LiteralPath $manifestPath -Value "@{ ModuleVersion = '1.0.0'; RequiredModules = @() }"
+
+            InModuleScope Microsoft.AVS.CDR -ArgumentList $manifestDirectory, $manifestPath {
+                param($manifestDirectory, $expectedManifestPath)
+
+                Mock Assert-CdrFileSignature { }
+                Mock Find-PSResourceDependencies { @() }
+
+                Push-Location $manifestDirectory
+                try {
+                    Install-PSResourceDependencies -ManifestPath './TestModule.psd1' -Athenticode Check
+
+                    Should -Invoke Assert-CdrFileSignature -Times 1 -Exactly -ParameterFilter {
+                        $LiteralPath -ceq $expectedManifestPath
+                    }
+                    Should -Invoke Find-PSResourceDependencies -Times 1 -Exactly -ParameterFilter {
+                        $ManifestPath -ceq $expectedManifestPath
+                    }
+                }
+                finally {
+                    Pop-Location
+                }
+            }
+        }
     }
 
     Context "RequiredModules Processing" -Tag 'Integration' {
@@ -1971,6 +2524,64 @@ Describe "Install-PSResourceDependencies" {
 
         It "Should pass through Scope and Repository parameters" {
             Set-ItResult -Skipped -Because "Requires complex mocking of module resolution chain or integration environment"
+        }
+
+        It "Should pass every resolved dependency to Install-CdrVerifiedResources in Athenticode Check mode" {
+            $manifestContent = @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'TestModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = 'Shared.Dependency'; RequiredVersion = '2.0.0' }
+        @{ ModuleName = 'Leaf.Dependency'; RequiredVersion = '1.5.0' }
+    )
+}
+"@
+            $manifestContent | Set-Content $script:testManifestPath
+
+            $credential = [pscredential]::new(
+                'copilot',
+                (ConvertTo-SecureString 'secret' -AsPlainText -Force)
+            )
+
+            InModuleScope Microsoft.AVS.CDR -ArgumentList $script:testManifestPath, $credential {
+                param($manifestPath, $credential)
+
+                Mock Assert-CdrFileSignature { }
+                Mock Find-PSResourceDependencies {
+                    @(
+                        [pscustomobject]@{ Name = 'Shared.Dependency'; Version = '2.0.0'; Repository = 'SharedRepo'; IsRedirected = $false }
+                        [pscustomobject]@{ Name = 'Leaf.Dependency'; Version = '1.5.0'; Repository = 'LeafRepo'; IsRedirected = $false }
+                    )
+                }
+                Mock Install-CdrVerifiedResources { }
+                Mock Install-PSResource { throw 'unchecked install path should not run' }
+
+                Install-PSResourceDependencies -ManifestPath $manifestPath -Scope AllUsers `
+                    -Repository 'RequestedRepo' -Credential $credential -Force -Athenticode Check
+
+                Should -Invoke Assert-CdrFileSignature -Times 1 -ParameterFilter {
+                    $LiteralPath -eq $manifestPath -and
+                    $ModuleName -eq 'TestModule' -and
+                    $ModuleVersion -eq '1.0.0'
+                }
+                Should -Invoke Install-CdrVerifiedResources -Times 1 -ParameterFilter {
+                    $Scope -eq 'AllUsers' -and
+                    $Force -and
+                    $Repository -eq 'RequestedRepo' -and
+                    $Credential -eq $credential -and
+                    $Resources.Count -eq 2 -and
+                    $Resources[0].Name -eq 'Shared.Dependency' -and
+                    $Resources[0].Version -eq '2.0.0' -and
+                    $Resources[0].Repository -eq 'SharedRepo' -and
+                    $Resources[1].Name -eq 'Leaf.Dependency' -and
+                    $Resources[1].Version -eq '1.5.0' -and
+                    $Resources[1].Repository -eq 'LeafRepo'
+                }
+                Should -Invoke Install-PSResource -Times 0
+            }
         }
 
         AfterEach {
@@ -2114,9 +2725,65 @@ Describe "Import-PSResourceDependencies" {
             } | Should -Throw -ExpectedMessage "*not found*"
         }
 
+        It "Should have Athenticode parameter as an optional enum" {
+            $command = Get-Command Import-PSResourceDependencies
+            $command.Parameters.ContainsKey('Athenticode') | Should -BeTrue
+            $command.Parameters['Athenticode'].ParameterType.IsEnum | Should -BeTrue
+            $command.Parameters['Athenticode'].Attributes.Mandatory | Should -Not -Contain $true
+        }
+
         AfterEach {
             if (Test-Path $script:testManifestDir) {
                 Remove-Item $script:testManifestDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    Context "Prerelease Version Handling" {
+        It "Should import a prerelease dependency from its manifest path" {
+            InModuleScope Microsoft.AVS.CDR {
+                $modName = "TestPrereleaseDependency"
+                $baseVersion = "1.0.0"
+                $prereleaseSuffix = "preview"
+                $fullVersion = "$baseVersion-$prereleaseSuffix"
+                $modulesPath = Join-Path $TestDrive "dependency-modules"
+                $moduleVersionPath = Join-Path -Path (Join-Path -Path $modulesPath -ChildPath $modName) `
+                    -ChildPath $baseVersion
+                $moduleManifestPath = Join-Path -Path $moduleVersionPath -ChildPath "$modName.psd1"
+                $moduleScriptPath = Join-Path -Path $moduleVersionPath -ChildPath "$modName.psm1"
+                $rootManifestPath = Join-Path -Path $TestDrive -ChildPath "PrereleaseRoot.psd1"
+
+                New-Item -ItemType Directory -Path $moduleVersionPath -Force | Out-Null
+                Set-Content -Path $moduleScriptPath -Value "function Get-PrereleaseDependencyValue { 42 }"
+                New-ModuleManifest -Path $moduleManifestPath -RootModule "$modName.psm1" `
+                    -ModuleVersion $baseVersion -Prerelease $prereleaseSuffix `
+                    -FunctionsToExport "Get-PrereleaseDependencyValue"
+                @"
+@{
+    ModuleVersion = '1.0.0'
+    RequiredModules = @(
+        @{ ModuleName = '$modName'; RequiredVersion = '$fullVersion' }
+    )
+}
+"@ | Set-Content $rootManifestPath
+
+                Mock Get-PSResource {
+                    [PSCustomObject]@{
+                        Name              = $modName
+                        Version           = [version]$baseVersion
+                        Prerelease        = $prereleaseSuffix
+                        InstalledLocation = $modulesPath
+                        Dependencies      = @()
+                    }
+                }
+
+                try {
+                    Import-PSResourceDependencies -ManifestPath $rootManifestPath
+                    Get-PrereleaseDependencyValue | Should -Be 42
+                }
+                finally {
+                    Remove-Module -Name $modName -Force -ErrorAction SilentlyContinue
+                }
             }
         }
     }
@@ -2248,11 +2915,119 @@ Describe "Build-RemoteDependencyGraph" {
             }
         }
 
+        It "Should pin an unredirected dependency to its declared minimum" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    param($Name, $Version)
+
+                    if ($Name -eq "RootModule") {
+                        return [PSCustomObject]@{
+                            Name = "RootModule"
+                            Version = [version]"1.0.0"
+                            Repository = "TestRepo"
+                            Dependencies = @(
+                                [PSCustomObject]@{ Name = "OpenModule"; VersionRange = "1.0.0" }
+                            )
+                        }
+                    }
+
+                    [PSCustomObject]@{
+                        Name = "OpenModule"
+                        Version = [version]"1.0.0"
+                        Repository = "TestRepo"
+                        Dependencies = @()
+                    }
+                }
+
+                $graph = @{}
+                Build-RemoteDependencyGraph -ModuleName "RootModule" `
+                    -ModuleVersion "1.0.0" -Graph $graph -RedirectMap @{} | Out-Null
+
+                $graph.ContainsKey("OpenModule@1.0.0") | Should -BeTrue
+                $graph["OpenModule@1.0.0"].Constraints[0].OriginalSpec | Should -Be "1.0.0"
+                $graph["OpenModule@1.0.0"].Constraints[0].IsHardPin | Should -BeFalse
+                Should -Invoke Find-PSResource -Times 1 -Exactly -ParameterFilter {
+                    $Name -eq "OpenModule" -and $Version -eq "1.0.0"
+                }
+            }
+        }
+
+        It "Should reuse an existing concrete node before repository lookup" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource { throw "Repository lookup should not occur" }
+
+                $graph = @{
+                    "SharedDep@2.0.0" = [DependencyGraphNode]::new(
+                        "SharedDep", "2.0.0", @(), $false, "TestRepo", $null
+                    )
+                }
+                $resolvedKey = Build-RemoteDependencyGraph -ModuleName "SharedDep" `
+                    -ModuleVersion "2.0.0" -Graph $graph -RedirectMap @{}
+
+                $graph.ContainsKey("SharedDep@2.0.0") | Should -BeTrue
+                $resolvedKey | Should -Be "SharedDep@2.0.0"
+                Should -Invoke Find-PSResource -Times 0 -Exactly
+            }
+        }
+
+        It "Should reject a repository result that differs from the concrete pin" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    [PSCustomObject]@{
+                        Name = "PinnedModule"
+                        Version = [version]"2.5.0"
+                        Repository = "TestRepo"
+                        Dependencies = @()
+                    }
+                }
+
+                { Build-RemoteDependencyGraph -ModuleName "PinnedModule" -ModuleVersion "2.0.0" `
+                    -Graph @{} -RedirectMap @{} } |
+                    Should -Throw "*resolved to version 2.5.0 instead of concrete pin 2.0.0*"
+            }
+        }
+
+        It "Should collapse equivalent specifications that select the same concrete version" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    param($Name)
+
+                    if ($Name -eq "RootModule") {
+                        [PSCustomObject]@{
+                            Name = "RootModule"
+                            Version = [version]"1.0.0"
+                            Repository = "TestRepo"
+                            Dependencies = @(
+                                [PSCustomObject]@{ Name = "SharedDep"; VersionRange = "[2.0.0, )" }
+                                [PSCustomObject]@{ Name = "SharedDep"; VersionRange = "2.0.0" }
+                            )
+                        }
+                    }
+                    else {
+                        [PSCustomObject]@{
+                            Name = "SharedDep"
+                            Version = [version]"2.0.0"
+                            Repository = "TestRepo"
+                            Dependencies = @()
+                        }
+                    }
+                }
+
+                $graph = @{}
+                Build-RemoteDependencyGraph -ModuleName "RootModule" -ModuleVersion "1.0.0" `
+                    -Graph $graph -RedirectMap @{} | Out-Null
+
+                $graph.Count | Should -Be 2
+                $graph.ContainsKey("SharedDep@2.0.0") | Should -BeTrue
+                $graph["RootModule@1.0.0"].Dependencies | Should -Be @("SharedDep@2.0.0")
+            }
+        }
+
         It "Should build graph with transitive dependencies" {
             InModuleScope Microsoft.AVS.CDR {
                 Mock Find-PSResource {
                     param($Name, $Version)
-                    
+
                     switch ($Name) {
                         "RootModule" {
                             [PSCustomObject]@{
@@ -2633,6 +3408,97 @@ Describe "Build-InstalledDependencyGraph" {
             }
         }
 
+        It "Should use the installed module's canonical name in its Linux path" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Get-PSResource {
+                    [PSCustomObject]@{
+                        Name = "PreviewModule"
+                        Version = [version]"1.0.0"
+                        Prerelease = "preview"
+                        InstalledLocation = "/fake/path/to/modules"
+                        Dependencies = @()
+                    }
+                }
+
+                $graph = @{}
+                $key = Build-InstalledDependencyGraph -ModuleName "previewmodule" `
+                    -ModuleVersion "1.0.0-preview" -Graph $graph -RedirectMap @{}
+
+                $graph[$key].InstalledLocation |
+                    Should -BeExactly "/fake/path/to/modules/PreviewModule/1.0.0"
+            }
+        }
+
+        It "Should pin an installed unredirected dependency to its declared minimum" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Get-PSResource {
+                    param($Name, $Version)
+
+                    if ($Name -eq "RootModule") {
+                        return [PSCustomObject]@{
+                            Name = "RootModule"
+                            Version = [version]"1.0.0"
+                            InstalledLocation = "/fake/path/to/modules"
+                            Dependencies = @(
+                                [PSCustomObject]@{ Name = "InstalledOpenModule"; VersionRange = "1.0.0" }
+                            )
+                        }
+                    }
+
+                    [PSCustomObject]@{
+                        Name = "InstalledOpenModule"
+                        Version = [version]"1.0.0"
+                        InstalledLocation = "/fake/path/to/modules"
+                        Dependencies = @()
+                    }
+                }
+
+                $graph = @{}
+                Build-InstalledDependencyGraph -ModuleName "RootModule" `
+                    -ModuleVersion "1.0.0" -Graph $graph -RedirectMap @{} | Out-Null
+
+                $graph.ContainsKey("InstalledOpenModule@1.0.0") | Should -BeTrue
+                Should -Invoke Get-PSResource -Times 1 -Exactly -ParameterFilter {
+                    $Name -eq "InstalledOpenModule" -and $Version -eq "1.0.0"
+                }
+            }
+        }
+
+        It "Should reuse an existing installed concrete node before lookup" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Get-PSResource { throw "Installed lookup should not occur" }
+
+                $graph = @{
+                    "SharedDep@2.0.0" = [DependencyGraphNode]::new(
+                        "SharedDep", "2.0.0", @(), $false, $null, "/fake/path/to/modules"
+                    )
+                }
+                $resolvedKey = Build-InstalledDependencyGraph -ModuleName "SharedDep" `
+                    -ModuleVersion "2.0.0" -Graph $graph -RedirectMap @{}
+
+                $graph.ContainsKey("SharedDep@2.0.0") | Should -BeTrue
+                $resolvedKey | Should -Be "SharedDep@2.0.0"
+                Should -Invoke Get-PSResource -Times 0 -Exactly
+            }
+        }
+
+        It "Should reject an installed result that differs from the concrete pin" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Get-PSResource {
+                    [PSCustomObject]@{
+                        Name = "PinnedModule"
+                        Version = [version]"2.5.0"
+                        InstalledLocation = "/fake/path/to/modules"
+                        Dependencies = @()
+                    }
+                }
+
+                { Build-InstalledDependencyGraph -ModuleName "PinnedModule" -ModuleVersion "2.0.0" `
+                    -Graph @{} -RedirectMap @{} } |
+                    Should -Throw "*resolved to version 2.5.0 instead of concrete pin 2.0.0*"
+            }
+        }
+
         It "Should traverse nested installed dependencies" {
             InModuleScope Microsoft.AVS.CDR {
                 Mock Get-PSResource {
@@ -2808,6 +3674,29 @@ Describe "Find-PSResourcesPinned" {
             $command = Get-Command Find-PSResourcesPinned
             $command.Parameters.ContainsKey('RedirectMapPath') | Should -BeTrue
         }
+
+        It "Should reject a non-exact RequiredVersion range" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource { throw "Repository lookup should not occur" }
+
+                { Find-PSResourcesPinned -Name "TestModule" -RequiredVersion "[1.0.0, )" } |
+                    Should -Throw "*RequiredVersion must identify one exact version*"
+
+                Should -Invoke Find-PSResource -Times 0 -Exactly
+            }
+        }
+
+        It "Should reject a floating RequiredVersion before repository lookup" -ForEach @("*", "1.*") {
+            InModuleScope Microsoft.AVS.CDR {
+                param($RequiredVersion)
+                Mock Find-PSResource { throw "Repository lookup should not occur" }
+
+                { Find-PSResourcesPinned -Name "TestModule" -RequiredVersion $RequiredVersion } |
+                    Should -Throw "*RequiredVersion must identify one exact version*"
+
+                Should -Invoke Find-PSResource -Times 0 -Exactly
+            } -ArgumentList $_
+        }
     }
 
     Context "Redirect Map Validation" {
@@ -2956,6 +3845,86 @@ Describe "Find-PSResourcesPinned" {
                 $parentModule | Should -Not -BeNullOrEmpty
                 $childDep | Should -Not -BeNullOrEmpty
                 $childDep.Version | Should -Be "2.0.0"
+            }
+        }
+
+        It "Should apply a broad redirect before pinning an open dependency specification" {
+            $redirectMapPath = Join-Path $TestDrive "open-dependency-redirect.json"
+            @{ "VMware.VimAutomation.Common" = "13.3.0.24145081" } |
+                ConvertTo-Json |
+                Set-Content $redirectMapPath
+
+            InModuleScope Microsoft.AVS.CDR {
+                param($mapPath)
+
+                Mock Find-PSResource {
+                    param($Name, $Version)
+
+                    if ($Name -eq "RootModule") {
+                        [PSCustomObject]@{
+                            Name = "RootModule"
+                            Version = [version]"1.0.0"
+                            Repository = "TestRepo"
+                            Dependencies = @(
+                                [PSCustomObject]@{
+                                    Name = "VMware.VimAutomation.Common"
+                                    VersionRange = "12.0.0.15939652"
+                                }
+                            )
+                        }
+                    }
+                    elseif ($Name -eq "VMware.VimAutomation.Common" -and $Version -eq "13.3.0.24145081") {
+                        [PSCustomObject]@{
+                            Name = "VMware.VimAutomation.Common"
+                            Version = [version]"13.3.0.24145081"
+                            Repository = "TestRepo"
+                            Dependencies = @()
+                        }
+                    }
+                }
+
+                $result = Find-PSResourcesPinned -Name "RootModule" -RequiredVersion "1.0.0" `
+                    -RedirectMapPath $mapPath
+
+                ($result | Where-Object Name -eq "VMware.VimAutomation.Common").Version |
+                    Should -Be "13.3.0.24145081"
+                Should -Invoke Find-PSResource -Times 1 -Exactly -ParameterFilter {
+                    $Name -eq "VMware.VimAutomation.Common" -and $Version -eq "13.3.0.24145081"
+                }
+            } -ArgumentList $redirectMapPath
+        }
+
+        It "Should pin an open dependency specification to its minimum version" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Find-PSResource {
+                    param($Name, $Version)
+
+                    if ($Name -eq "RootModule") {
+                        [PSCustomObject]@{
+                            Name = "RootModule"
+                            Version = [version]"1.0.0"
+                            Repository = "TestRepo"
+                            Dependencies = @(
+                                [PSCustomObject]@{
+                                    Name = "OpenDependency"
+                                    VersionRange = "[2.0.0, )"
+                                }
+                            )
+                        }
+                    }
+                    elseif ($Name -eq "OpenDependency" -and $Version -eq "2.0.0") {
+                        [PSCustomObject]@{
+                            Name = "OpenDependency"
+                            Version = [version]"2.0.0"
+                            Repository = "TestRepo"
+                            Dependencies = @()
+                        }
+                    }
+                }
+
+                $result = Find-PSResourcesPinned -Name "RootModule" -RequiredVersion "1.0.0"
+
+                ($result | Where-Object Name -eq "OpenDependency").Version | Should -Be "2.0.0"
             }
         }
 
@@ -3287,6 +4256,25 @@ Describe "Get-PSResourcesPinned" {
                 $result[0].InstalledLocation | Should -Not -BeNullOrEmpty
             }
         }
+
+        It "Should preserve the selected installed prerelease version" {
+            InModuleScope Microsoft.AVS.CDR {
+                Mock Get-PSResource {
+                    [PSCustomObject]@{
+                        Name = "PreviewModule"
+                        Version = [version]"1.2.3"
+                        Prerelease = "preview.1"
+                        InstalledLocation = "/fake/modules"
+                        Dependencies = @()
+                    }
+                }
+
+                $result = Get-PSResourcesPinned -Name "PreviewModule" -RequiredVersion "1.2.3-preview.1"
+
+                $result[0].Version | Should -Be "1.2.3-preview.1"
+                $result[0].InstalledLocation | Should -Be "/fake/modules/PreviewModule/1.2.3"
+            }
+        }
     }
 
     Context "Module With Dependencies" {
@@ -3329,6 +4317,52 @@ Describe "Get-PSResourcesPinned" {
                 $childDep | Should -Not -BeNullOrEmpty
                 $childDep.Version | Should -Be "2.0.0"
             }
+        }
+
+        It "Should apply a broad redirect before pinning an installed open dependency specification" {
+            $redirectMapPath = Join-Path $TestDrive "installed-open-dependency-redirect.json"
+            @{ "VMware.VimAutomation.Common" = "13.3.0.24145081" } |
+                ConvertTo-Json |
+                Set-Content $redirectMapPath
+
+            InModuleScope Microsoft.AVS.CDR {
+                param($mapPath)
+
+                Mock Get-PSResource {
+                    param($Name, $Version)
+
+                    if ($Name -eq "RootModule") {
+                        [PSCustomObject]@{
+                            Name = "RootModule"
+                            Version = [version]"1.0.0"
+                            InstalledLocation = "/fake/modules"
+                            Dependencies = @(
+                                [PSCustomObject]@{
+                                    Name = "VMware.VimAutomation.Common"
+                                    VersionRange = "12.0.0.15939652"
+                                }
+                            )
+                        }
+                    }
+                    elseif ($Name -eq "VMware.VimAutomation.Common" -and $Version -eq "13.3.0.24145081") {
+                        [PSCustomObject]@{
+                            Name = "VMware.VimAutomation.Common"
+                            Version = [version]"13.3.0.24145081"
+                            InstalledLocation = "/fake/modules"
+                            Dependencies = @()
+                        }
+                    }
+                }
+
+                $result = Get-PSResourcesPinned -Name "RootModule" -RequiredVersion "1.0.0" `
+                    -RedirectMapPath $mapPath
+
+                ($result | Where-Object Name -eq "VMware.VimAutomation.Common").Version |
+                    Should -Be "13.3.0.24145081"
+                Should -Invoke Get-PSResource -Times 1 -Exactly -ParameterFilter {
+                    $Name -eq "VMware.VimAutomation.Common" -and $Version -eq "13.3.0.24145081"
+                }
+            } -ArgumentList $redirectMapPath
         }
 
         It "Should return dependencies before dependents (topological order)" {
@@ -3564,6 +4598,7 @@ Describe "Get-ManifestModuleDependencies" {
 
                 $result[0].Name | Should -Be "MinVerMod"
                 $result[0].Version | Should -Be "[3.2.0, )"
+                $result[0].IsVersionRange | Should -BeTrue
             }
         }
 
@@ -3683,6 +4718,45 @@ Describe "Find-PSResourceDependencies ModuleList" {
                 $result[0].Version | Should -Be "1.0.0"
             }
         }
+
+        It "Should preserve ModuleVersion range through repository selection" {
+            InModuleScope Microsoft.AVS.CDR {
+                $testManifestDir = Join-Path $TestDrive "OpenModListModule"
+                $testManifestPath = Join-Path $testManifestDir "OpenModListModule.psd1"
+                New-Item -Path $testManifestDir -ItemType Directory -Force | Out-Null
+
+                @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'd1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'OpenModListModule.psm1'
+    ModuleList = @(
+        @{ ModuleName = 'OpenListedDep'; ModuleVersion = '2.0.0' }
+    )
+}
+"@ | Set-Content $testManifestPath
+
+                Mock Find-PSResource {
+                    param($Name, $Version)
+                    if ($Name -eq "OpenListedDep" -and $Version -eq "2.0.0") {
+                        [PSCustomObject]@{
+                            Name = "OpenListedDep"
+                            Version = [version]"2.0.0"
+                            Repository = "TestRepo"
+                            Dependencies = @()
+                        }
+                    }
+                }
+
+                $result = Find-PSResourceDependencies -ManifestPath $testManifestPath
+
+                $result[0].Version | Should -Be "2.0.0"
+                Should -Invoke Find-PSResource -Times 1 -Exactly -ParameterFilter {
+                    $Name -eq "OpenListedDep" -and $Version -eq "2.0.0"
+                }
+            }
+        }
     }
 
     Context "Manifest with Both RequiredModules and ModuleList" {
@@ -3782,6 +4856,69 @@ Describe "Find-PSResourceDependencies ModuleList" {
     }
 
     Context "Diamond Resolution with ModuleList" {
+        It "Should remap a manifest root removed by diamond resolution" {
+            InModuleScope Microsoft.AVS.CDR {
+                $testManifestDir = Join-Path $TestDrive "RootRemapModule"
+                $testManifestPath = Join-Path $testManifestDir "RootRemapModule.psd1"
+                New-Item -Path $testManifestDir -ItemType Directory -Force | Out-Null
+
+                @"
+@{
+    ModuleVersion = '1.0.0'
+    GUID = 'e1234567-1234-1234-1234-123456789012'
+    Author = 'Test'
+    RootModule = 'RootRemapModule.psm1'
+    RequiredModules = @(
+        @{ ModuleName = 'SharedDep'; ModuleVersion = '1.0.0' }
+        @{ ModuleName = 'OtherDep'; RequiredVersion = '1.0.0' }
+    )
+}
+"@ | Set-Content $testManifestPath
+
+                Mock Build-RemoteDependencyGraph {
+                    param($ModuleName, $Graph, $Constraint)
+
+                    if ($ModuleName -eq "SharedDep") {
+                        $key = "SharedDep@1.0.0"
+                        $Graph[$key] = [DependencyGraphNode]::new(
+                            "SharedDep", "1.0.0", @(), $false, "TestRepo", $null
+                        )
+                        [void]$Graph[$key].Constraints.Add($Constraint)
+                        return $key
+                    }
+
+                    $otherKey = "OtherDep@1.0.0"
+                    $sharedKey = "SharedDep@2.0.0"
+                    $Graph[$otherKey] = [DependencyGraphNode]::new(
+                        "OtherDep", "1.0.0", @($sharedKey), $false, "TestRepo", $null
+                    )
+                    [void]$Graph[$otherKey].Constraints.Add($Constraint)
+                    $Graph[$sharedKey] = [DependencyGraphNode]::new(
+                        "SharedDep", "2.0.0", @(), $false, "TestRepo", $null
+                    )
+                    [void]$Graph[$sharedKey].Constraints.Add(@{
+                        OriginalSpec = "[2.0.0, )"
+                        Minimum = "2.0.0"
+                        Maximum = $null
+                        IncludeMinimum = $true
+                        IncludeMaximum = $false
+                        IsExact = $false
+                        IsHardPin = $false
+                        ConcretePin = "2.0.0"
+                    })
+                    return $otherKey
+                }
+
+                $result = Find-PSResourceDependencies `
+                    -ManifestPath $testManifestPath `
+                    -WarningAction SilentlyContinue
+
+                @($result).Count | Should -Be 2
+                ($result | Where-Object Name -eq "SharedDep").Version | Should -Be "2.0.0"
+                ($result | Where-Object Name -eq "OtherDep").Version | Should -Be "1.0.0"
+            }
+        }
+
         It "Should resolve diamond when RequiredModules and ModuleList deps share a transitive dependency" {
             InModuleScope Microsoft.AVS.CDR {
                 $testManifestDir = Join-Path $TestDrive "DiamondModule"

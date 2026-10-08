@@ -68,3 +68,14 @@ It "should clean up PSDrive on failure" {
 - Use `-ModuleName` parameter when the mock target is called inside a module
 - Use `-ParameterFilter` for targeted mock assertions
 - Never mock the function under test — only its dependencies
+
+## Compatibility Tests
+
+When changing parsing, validation, resolution, normalization, comparison, or path construction:
+
+- Inspect the BASE implementation and identify observable behavior that must remain unchanged.
+- Add table-driven characterization cases for previously accepted and rejected inputs.
+- Add separate failing regression cases for the behavior being changed.
+- Assert invalid input is rejected before external cmdlets are invoked.
+- Use `Should -BeExactly` for filesystem paths, canonical names, and any behavior whose correctness depends on casing.
+- Include Linux path casing whenever caller input and provider-returned names may differ.
