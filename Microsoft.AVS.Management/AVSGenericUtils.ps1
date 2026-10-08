@@ -149,3 +149,102 @@ Function Limit-WildcardsandCodeInjectionCharacters {
     }
 
 }
+
+function Normalize-VCBannerText {
+    <#
+        .DESCRIPTION
+            This function normalizes vCenter login banner text by replacing smart quotes,
+            cleaning unsupported characters, and preserving paragraph line breaks.
+        .PARAMETER String
+            Banner text to normalize.
+        .EXAMPLE
+            Normalize-VCBannerText -String "Welcome to \"AVS\""
+            Returns normalized text that is safe to pass to banner commands.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $String
+    )
+    begin {
+        # Normalize smart single and double quotes to ASCII quotes.
+        $String = $String.Replace([char]0x2018, "'").Replace([char]0x2019, "'")
+        $String = $String.Replace([char]0x201C, '"').Replace([char]0x201D, '"')
+
+        # Normalize non-breaking space to regular space.
+        $String = $String.Replace([char]0x00A0, ' ')
+
+        # Remove shell-sensitive special characters.
+        $String = $String.Replace("&", "").Replace("$", "")
+        $String = $String.Replace([string][char]0x0060, "")
+        $String = $String.Replace("(", "").Replace(")", "")
+        $String = $String.Replace("<", "").Replace(">", "")
+
+        # Remove emojis and unsupported symbols, while preserving letters, numbers,
+        # punctuation, spaces, and new lines.
+        $String = $String -replace '[^\p{L}\p{N}\p{P}\p{Zs}\t\r\n]', ''
+
+        # Collapse repeated spaces and tabs per line, preserving line breaks.
+        $lines = $String -split "(\r?\n)"
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -notmatch '^\r?\n$') {
+                $lines[$i] = ($lines[$i] -replace '[ \t]{2,}', ' ').TrimEnd()
+            }
+        }
+        $String = $lines -join ''
+    }
+    process {
+        return $String
+    }
+}
+
+function Assert-VCSSHSession {
+    [CmdletBinding()]
+    param()
+
+    if ($null -eq $SSH_Sessions -or -not $SSH_Sessions.ContainsKey("VC")) {
+        throw "SSH session to vCenter is not available. Ensure `$SSH_Sessions['VC'] is pre-established by the AVS platform."
+    }
+
+    $SshSession = $SSH_Sessions["VC"].Value
+    if ($null -eq $SshSession) {
+        throw "Failed to initialize SSH session to vCenter."
+    }
+
+    return $SshSession
+}
+
+function Write-VCSSHPermissionDiagnostic {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        $SshSession
+    )
+
+    try {
+        $probe = Invoke-SSHCommand -SSHSession $SshSession -Command "whoami; id; sudo -n -l 2>&1; echo SUDO_EXIT_CODE:`$?"
+        $lines = @($probe.Output | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+
+        $userName = if ($lines.Count -gt 0) { $lines[0].Trim() } else { "unknown" }
+
+        $idLine = $lines | Where-Object { $_ -match "^uid=" } | Select-Object -First 1
+        $isRoot = $false
+        if ($idLine -and $idLine -match "uid=0\(") {
+            $isRoot = $true
+        }
+
+        $hasPasswordlessSudo = $false
+        if ($lines -match "SUDO_EXIT_CODE:0") {
+            $hasPasswordlessSudo = $true
+        }
+        elseif ($lines -match "NOPASSWD") {
+            $hasPasswordlessSudo = $true
+        }
+
+        Write-Host ("VC SSH precheck: User={0}; IsRoot={1}; HasPasswordlessSudo={2}" -f $userName, $isRoot, $hasPasswordlessSudo)
+    }
+    catch {
+        Write-Warning ("VC SSH precheck could not run: {0}" -f $_.Exception.Message)
+    }
+}
