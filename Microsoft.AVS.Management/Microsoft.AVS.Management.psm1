@@ -1343,49 +1343,30 @@ function Get-VCBannerCommandStatus {
     $formatDiagnostic += "|(?im)^[ \t]*java\.lang\.IllegalArgumentException:[ \t]*Invalid value\.[ \t]*'Y' to enable,[ \t]*'N'"
 
     $hasConfiguration = Test-VCBannerConfiguration -Output $outputText
-    $operationalError = '(?im)^[ \t]*(?:sudo:|java\.(?:io|net)\.[\w.]+Exception\b|(?:permission denied|access denied|connection (?:closed|reset|refused)|operation timed out)\b)'
-    if ($errorText -match $operationalError -or (-not $hasConfiguration -and $outputText -match $operationalError)) {
+    $diagnosticText = $errorText
+    if (-not $hasConfiguration) {
+        $diagnosticText += "`n$outputText"
+    }
+    # Remove format-rejection prefixes before checking for operational errors.
+    $operationalError = '(?im)\b(?:error|failed|failure|[\w.]*Exception)\b|^[ \t]*(?:sudo:|fatal:)|\b(?:permission denied|access denied|connection (?:closed|reset|refused)|operation timed out)\b'
+    if (($diagnosticText -replace $formatDiagnostic, '') -match $operationalError) {
         return 'Failed'
     }
 
-    # A diagnostic prefix is not enough: unknown trailing text must fail, even with exit zero.
+    if ($diagnosticText -match $formatDiagnostic) {
+        return 'Retryable'
+    }
+
+    if ($Result.ExitStatus -ne 0 -and -not ($outputText -or $errorText)) {
+        return 'Failed'
+    }
     if (
-        -not $hasConfiguration -and
-        ($outputText -match $formatDiagnostic -or $errorText -match $formatDiagnostic)
+        $Result.ExitStatus -eq 0 -and -not $errorText -and
+        ($hasConfiguration -or -not $outputText -or $outputText -match '(?i)\A(?:ok[.!]?|success(?:ful(?:ly)?)?(?:[.!]|[ \t][^\r\n]*)?)\z')
     ) {
-        $optionToken = '[''"]?--?[\w-]+[''"]?'
-        $optionDiagnostic = '(?i)\A(?:(?:sso-config(?:\.sh)?|error):[ \t]*)?(?:(?:unknown|unrecognized|unsupported|invalid)[ \t]+(?:option|command)[ \t]*:?[ \t]*' + $optionToken +
-            '|(?:option|command)[ \t]+' + $optionToken + '[ \t]+(?:is[ \t]+)?(?:not supported|not recognized))[.!]?\z'
-        $checkboxDiagnostic = "(?i)\Ajava\.lang\.IllegalArgumentException:[ \t]*Invalid value\.[ \t]*'Y' to enable,[ \t]*'N' to disable[.]?\z"
-        foreach ($text in @($outputText, $errorText)) {
-            $inHelp = $false
-            $inCheckboxTrace = $false
-            foreach ($line in ($text -split '\r?\n')) {
-                $line = $line.Trim()
-                if (-not $line) { continue }
-                if ($line -match $optionDiagnostic) { continue }
-                if ($line -match '(?i)\Ausage:[ \t]*sso-config(?:\.sh)?(?:[ \t]+(?:\[options\]|--?[\w-]+))*\z') {
-                    $inHelp = $true
-                    continue
-                }
-                if ($inHelp -and $line -match '(?i)\A(?:options:|--?[\w-]+)\z') {
-                    continue
-                }
-                if ($line -match $checkboxDiagnostic) {
-                    $inCheckboxTrace = $true
-                    continue
-                }
-                if ($inCheckboxTrace -and $line -match '\Aat [\w.$/]+\([^()\r\n]+\)\z') { continue }
-                return 'Failed'
-            }
-        }
-        return 'UnsupportedFormat'
+        return 'Succeeded'
     }
-
-    if ($Result.ExitStatus -ne 0 -or $errorText) {
-        return 'Failed'
-    }
-    return 'Succeeded'
+    return 'Retryable'
 }
 
 function Set-VCLoginBanner {
@@ -1400,7 +1381,7 @@ function Set-VCLoginBanner {
         which cannot be achieved through the vCenter API alone.
         A failed activation command remains a failure even if banner content was saved.
         Warns when input cleanup changes the supplied banner title or message.
-        Retries alternate syntax only for recognized format-only diagnostics.
+        Tries alternate syntax once for help or uncertain responses, but stops on operational errors.
         Rejects text that is empty after cleanup before opening or using an SSH session.
         Optional login-page verification failures are reported as warnings.
         Requires the VCSA scripting account to be permitted to run the banner commands through passwordless sudo.
@@ -1470,7 +1451,8 @@ function Set-VCLoginBanner {
         $InvokeBannerCommand = {
             param(
                 [string]$Command,
-                [string]$StepName
+                [string]$StepName,
+                [switch]$AllowFallback
             )
 
             try {
@@ -1483,8 +1465,8 @@ function Set-VCLoginBanner {
                 throw "$StepName failed.`nDetails: no command result or exit status was returned."
             }
             $status = Get-VCBannerCommandStatus -Result $cmdResult
-            if ($status -eq 'UnsupportedFormat') {
-                Write-Warning "$StepName returned unsupported-format diagnostics: $(@($cmdResult.Error + $cmdResult.Output) -join ' ')"
+            if ($status -eq 'Retryable' -and $AllowFallback) {
+                Write-Warning "$StepName did not confirm success. Trying the alternate format. Details: $(@($cmdResult.Error + $cmdResult.Output) -join ' ') (exit status $($cmdResult.ExitStatus))"
                 return $false
             }
             if ($status -eq 'Succeeded') {
@@ -1498,7 +1480,7 @@ function Set-VCLoginBanner {
         # Step 1: Set the banner title and message content (Layer 1)
         $setContentCmd = "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -title '$escapedTitle' -content '$escapedMessage'"
         Write-Host "Setting login banner content using inline content format..."
-        $setContentSucceeded = & $InvokeBannerCommand -Command $setContentCmd -StepName "Set login banner content (inline)"
+        $setContentSucceeded = & $InvokeBannerCommand -Command $setContentCmd -StepName "Set login banner content (inline)" -AllowFallback
         if (-not $setContentSucceeded) {
             $bannerTempDir = "/tmp/avs-login-banner-{0}" -f ([guid]::NewGuid().ToString('N'))
             $bannerFilePath = "$bannerTempDir/message.txt"
@@ -1509,23 +1491,16 @@ function Set-VCLoginBanner {
             $createdTempDir = $null
             try {
                 $createBannerDirCmd = "mkdir -p '$bannerTempDir'"
-                $createDirSucceeded = & $InvokeBannerCommand -Command $createBannerDirCmd -StepName "Create temp directory for fallback"
+                & $InvokeBannerCommand -Command $createBannerDirCmd -StepName "Create temp directory for fallback" | Out-Null
+                $createdTempDir = $bannerTempDir
 
-                if ($createDirSucceeded) {
-                    $createdTempDir = $bannerTempDir
+                $createBannerFileCmd = "printf '%s' '$escapedMessage' > '$bannerFilePath'"
+                & $InvokeBannerCommand -Command $createBannerFileCmd -StepName "Create banner file for fallback" | Out-Null
 
-                    $createBannerFileCmd = "printf '%s' '$escapedMessage' > '$bannerFilePath'"
-                    $createFileSucceeded = & $InvokeBannerCommand -Command $createBannerFileCmd -StepName "Create banner file for fallback"
-
-                    if ($createFileSucceeded) {
-                        $setContentCmdFallback = "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -title '$escapedTitle' '$bannerFilePath'"
-                        Write-Host "Retrying login banner content using file format..."
-                        $setContentSucceeded = & $InvokeBannerCommand -Command $setContentCmdFallback -StepName "Set login banner content (file)"
-                        if ($setContentSucceeded) {
-                            Write-Host "Fallback content format (banner file) worked on this VCSA."
-                        }
-                    }
-                }
+                $setContentCmdFallback = "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -title '$escapedTitle' '$bannerFilePath'"
+                Write-Host "Retrying login banner content using file format..."
+                & $InvokeBannerCommand -Command $setContentCmdFallback -StepName "Set login banner content (file)" | Out-Null
+                Write-Host "Fallback content format (banner file) worked on this VCSA."
             }
             finally {
                 $deleteTempDir = $bannerTempDir
@@ -1535,10 +1510,7 @@ function Set-VCLoginBanner {
                 ) {
                     try {
                         $cleanupBannerDirCmd = "rm -rf -- '$deleteTempDir'"
-                        $cleanupSucceeded = & $InvokeBannerCommand -Command $cleanupBannerDirCmd -StepName "Cleanup temporary banner directory"
-                        if (-not $cleanupSucceeded) {
-                            Write-Warning "Temporary banner directory cleanup failed (non-blocking): $deleteTempDir"
-                        }
+                        & $InvokeBannerCommand -Command $cleanupBannerDirCmd -StepName "Cleanup temporary banner directory" | Out-Null
                     }
                     catch {
                         Write-Warning "Temporary banner directory cleanup failed for '$deleteTempDir': $($_.Exception.Message)"
@@ -1547,38 +1519,22 @@ function Set-VCLoginBanner {
             }
         }
 
-        if (-not $setContentSucceeded) {
-            throw "Failed to set login banner content using supported formats."
-        }
-
         # Step 2: Enable the consent checkbox setting
         $setConsentCmd = "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable_checkbox $consentFlag"
         Write-Host "Setting consent checkbox to $consentFlag..."
-        $setConsentSucceeded = & $InvokeBannerCommand -Command $setConsentCmd -StepName "Set consent checkbox ($consentFlag)"
+        $setConsentSucceeded = & $InvokeBannerCommand -Command $setConsentCmd -StepName "Set consent checkbox ($consentFlag)" -AllowFallback
         if (-not $setConsentSucceeded) {
             $setConsentCmdLegacy = "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable_checkbox $consentFlagYN"
             Write-Host "Retrying consent checkbox with legacy Y/N format ($consentFlagYN)..."
-            $setConsentSucceeded = & $InvokeBannerCommand -Command $setConsentCmdLegacy -StepName "Set consent checkbox ($consentFlagYN)"
-            if ($setConsentSucceeded) {
-                Write-Host "Legacy checkbox format (Y/N) worked on this VCSA."
-            }
-        }
-
-        if (-not $setConsentSucceeded) {
-            throw "Failed to set consent checkbox using supported formats."
+            & $InvokeBannerCommand -Command $setConsentCmdLegacy -StepName "Set consent checkbox ($consentFlagYN)" | Out-Null
+            Write-Host "Legacy checkbox format (Y/N) worked on this VCSA."
         }
 
         # Step 3: Enable the login banner toggle (Layer 2 — the activation switch)
         $enableCmd = "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable true"
         Write-Host "Enabling banner display on the login page..."
-        $enableSucceeded = & $InvokeBannerCommand -Command $enableCmd -StepName "Enabling banner display"
-
-        if (-not $enableSucceeded) {
-            throw "Enabling banner display failed.`nDetails: The banner activation command format is unsupported."
-        }
-        else {
-            Write-Host "vCenter login banner configured and enabled successfully."
-        }
+        & $InvokeBannerCommand -Command $enableCmd -StepName "Enabling banner display" | Out-Null
+        Write-Host "vCenter login banner configured and enabled successfully."
 
         # Step 4: Optional page-source verification (non-blocking)
         Write-Host "Checking login page source for banner content (non-blocking)..."
@@ -1627,7 +1583,8 @@ function Get-VCLoginBanner {
         Reads the current login banner settings (title, message, consent checkbox, enabled state)
         from the VCSA by executing sso-config.sh via the pre-established SSH session.
         Returns the configuration via the NamedOutputs hashtable.
-        Rejects help-only or unrecognized responses from either read command.
+        Tries the alternate read command once for help or uncertain responses.
+        Stops on operational errors and publishes only recognized banner settings.
         Requires the VCSA scripting account to be permitted to run the banner commands through passwordless sudo.
 
     .EXAMPLE
@@ -1647,8 +1604,8 @@ function Get-VCLoginBanner {
 
         $result = Invoke-SSHCommand -SSHSession $SshSession -Command $getCmd -ErrorAction Stop
         $status = Get-VCBannerCommandStatus -Result $result
-        if ($status -eq 'UnsupportedFormat') {
-            Write-Warning "Primary read command (-get_logon_banner) reported an unsupported format. Retrying with -print_logon_banner..."
+        if ($status -eq 'Retryable' -or ($status -eq 'Succeeded' -and -not (Test-VCBannerConfiguration -Output ($result.Output -join "`n")))) {
+            Write-Warning "Primary read command (-get_logon_banner) did not return banner settings. Retrying with -print_logon_banner. Details: $(@($result.Error + $result.Output) -join ' ') (exit status $($result.ExitStatus))"
             $result = Invoke-SSHCommand -SSHSession $SshSession -Command $printCmd -ErrorAction Stop
             $status = Get-VCBannerCommandStatus -Result $result
         }
@@ -1657,11 +1614,11 @@ function Get-VCLoginBanner {
             throw "Failed to retrieve login banner configuration: no command result or exit status was returned."
         }
         if ($status -ne 'Succeeded') {
-            throw "Failed to retrieve login banner configuration: $(@($result.Error + $result.Output) -join ' ')"
+            throw "Failed to retrieve login banner configuration: $(@($result.Error + $result.Output) -join ' ') (exit status $($result.ExitStatus))"
         }
         $bannerOutput = $result.Output -join "`n"
         if (-not (Test-VCBannerConfiguration -Output $bannerOutput)) {
-            throw "Failed to retrieve login banner configuration: the command returned help, empty, or unrecognized output instead of banner settings."
+            throw "Failed to retrieve login banner configuration: the command returned help, empty, or unrecognized output instead of banner settings. Details: $bannerOutput (exit status $($result.ExitStatus))"
         }
 
         Write-Host $bannerOutput
@@ -1678,7 +1635,7 @@ function Remove-VCLoginBanner {
     .DESCRIPTION
         Disables the login banner by toggling the "Show login message" switch OFF (Layer 2)
         on the VCSA via the pre-established SSH session.
-        Uses the fallback only for unsupported-format diagnostics, not operational failures.
+        Tries the alternate disable command once for help or uncertain responses, but stops on operational errors.
         Requires the VCSA scripting account to be permitted to run the banner commands through passwordless sudo.
 
     .EXAMPLE
@@ -1698,8 +1655,8 @@ function Remove-VCLoginBanner {
 
         $result = Invoke-SSHCommand -SSHSession $SshSession -Command $disableCmd -ErrorAction Stop
         $status = Get-VCBannerCommandStatus -Result $result
-        if ($status -eq 'UnsupportedFormat') {
-            Write-Warning "Primary disable command (-set_logon_banner -enable false) reported an unsupported format. Retrying with -disable_logon_banner..."
+        if ($status -eq 'Retryable') {
+            Write-Warning "Primary disable command (-set_logon_banner -enable false) did not confirm success. Retrying with -disable_logon_banner. Details: $(@($result.Error + $result.Output) -join ' ') (exit status $($result.ExitStatus))"
             $result = Invoke-SSHCommand -SSHSession $SshSession -Command $disableCmdFallback -ErrorAction Stop
             $status = Get-VCBannerCommandStatus -Result $result
         }
@@ -1708,7 +1665,7 @@ function Remove-VCLoginBanner {
             throw "Failed to disable login banner: no command result or exit status was returned."
         }
         if ($status -ne 'Succeeded') {
-            throw "Failed to disable login banner using supported formats: $(@($result.Error + $result.Output) -join ' ')"
+            throw "Failed to disable login banner using supported formats: $(@($result.Error + $result.Output) -join ' ') (exit status $($result.ExitStatus))"
         }
 
         Write-Host "vCenter login banner has been disabled successfully."

@@ -1557,7 +1557,7 @@ Describe "Set-VCLoginBanner" {
                 } -ModuleName Microsoft.AVS.Management
                 {
                     Set-VCLoginBanner -BannerTitle "Notice" -BannerMessage "Authorized use only." -EnableConsent $true
-                } | Should -Throw -ExpectedMessage "Enabling banner display failed.`nDetails: The banner activation command format is unsupported."
+                } | Should -Throw -ExpectedMessage "Enabling banner display failed.`nDetails: Usage: sso-config.sh (exit status 0)"
                 Should -Invoke Limit-WildcardsandCodeInjectionCharacters -ModuleName Microsoft.AVS.Management -Times 2
                 Should -Invoke Invoke-SSHCommand -ModuleName Microsoft.AVS.Management -Times 1 -ParameterFilter {
                     $Command -like "sudo -n /opt/vmware/bin/sso-config.sh *" -and
