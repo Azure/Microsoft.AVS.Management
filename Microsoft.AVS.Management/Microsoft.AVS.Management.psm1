@@ -1417,9 +1417,7 @@ function Set-VCLoginBanner {
     .DESCRIPTION
         Sets the vCenter login banner title, message, and optional consent checkbox by
         executing sso-config.sh commands on the VCSA via the pre-established SSH session.
-        This enables both Layer 1 (configuration data) and Layer 2 (activation toggle),
-        which cannot be achieved through the vCenter API alone.
-        A failed activation command remains a failure even if banner content was saved.
+        Setting the banner configuration also enables it for display.
         Warns when input cleanup changes the supplied banner title or message.
         Tries alternate syntax once for help or uncertain responses, but stops on operational errors.
         Rejects text that is empty after cleanup before opening or using an SSH session.
@@ -1584,19 +1582,13 @@ function Set-VCLoginBanner {
             Write-Host "Legacy checkbox format (Y/N) worked on this VCSA."
         }
 
-        # Step 3: Enable the login banner toggle (Layer 2 — the activation switch)
-        $bannerCommandState.PrimaryFailure = $null
-        $enableCmd = "sudo -n /opt/vmware/bin/sso-config.sh -set_logon_banner -enable true"
-        Write-Host "Enabling banner display on the login page..."
-        & $InvokeBannerCommand -Command $enableCmd -StepName "Enabling banner display" | Out-Null
-
         $bannerOutput = Get-VCLoginBannerText -SshSession $SshSession
         if (-not (Test-VCLoginBannerText -Output $bannerOutput -ExpectedTitle $BannerTitle -ExpectedMessage $BannerMessage)) {
             throw "Login banner verification failed. Expected title '$BannerTitle' and message '$BannerMessage'. Actual configuration: $bannerOutput"
         }
         Write-Host "vCenter login banner configured and enabled successfully."
 
-        # Step 4: Optional page-source verification (non-blocking)
+        # Step 3: Optional page-source verification (non-blocking)
         Write-Host "Checking login page source for banner content (non-blocking)..."
         $curlCmd = "/usr/bin/curl -k -s -L https://localhost/ui/login"
         $pageCheckWarning = "Could not verify the login page. Please check the banner in your browser."
