@@ -1398,7 +1398,7 @@ function Test-VCLoginBannerText {
 
     $match = [regex]::Match(
         $Output,
-        '(?is)\A\s*(?:Logon Banner )?Title[ \t]*:[ \t]*(?<Title>[^\r\n]*)\r?\n[ \t]*(?:(?:Logon Banner )?Content|Message)[ \t]*:[ \t]*(?<Message>.*?)(?:\r?\n[ \t]*Checkbox enabled[ \t]*:[^\r\n]*)?[ \t]*\z'
+        '(?is)\A\s*(?:Logon Banner )?Title[ \t]*:[ \t]*(?:\r?\n[ \t]*)?(?<Title>[^\r\n]*)\r?\n(?:[ \t]*\r?\n)*[ \t]*(?:(?:Logon Banner )?Content|Message)[ \t]*:[ \t]*(?<Message>.*?)(?:\r?\n[ \t]*Checkbox enabled[ \t]*:[^\r\n]*)?[ \t]*\z'
     )
     if (-not $match.Success) {
         return $false
@@ -1418,6 +1418,7 @@ function Set-VCLoginBanner {
         Sets the vCenter login banner title, message, and optional consent checkbox by
         executing sso-config.sh commands on the VCSA via the pre-established SSH session.
         Setting the banner configuration also enables it for display.
+        Verifies readback with values on the label line or the following line.
         Warns when input cleanup changes the supplied banner title or message.
         Tries alternate syntax once for help or uncertain responses, but stops on operational errors.
         Rejects text that is empty after cleanup before opening or using an SSH session.

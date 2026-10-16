@@ -1958,6 +1958,38 @@ Describe "Set-VCLoginBanner" {
                 TotalCount = 4
                 ShouldFail = $false
             }
+            @{
+                ReadPath = 'get with values on separate lines and blank separators'
+                GetOutput = @('Logon Banner Title:', 'Notice', '', 'Logon Banner Content:', '"Authorized use only."', '', 'Checkbox enabled : true')
+                PrintOutput = @()
+                PrintCount = 0
+                TotalCount = 4
+                ShouldFail = $false
+            }
+            @{
+                ReadPath = 'get with separate-line values and CRLF'
+                GetOutput = @("Logon Banner Title:`r`nNotice`r`n`r`nLogon Banner Content:`r`n`"Authorized use only.`"`r`n`r`nCheckbox enabled : true")
+                PrintOutput = @()
+                PrintCount = 0
+                TotalCount = 4
+                ShouldFail = $false
+            }
+            @{
+                ReadPath = 'print fallback with separate-line values'
+                GetOutput = @('Usage: sso-config.sh')
+                PrintOutput = @('Logon Banner Title:', 'Notice', '', 'Logon Banner Content:', '"Authorized use only."', '', 'Checkbox enabled : true')
+                PrintCount = 1
+                TotalCount = 5
+                ShouldFail = $false
+            }
+            @{
+                ReadPath = 'get with separate-line values and mismatched content'
+                GetOutput = @('Logon Banner Title:', 'Notice', '', 'Logon Banner Content:', 'Some other banner text.', '', 'Checkbox enabled : true')
+                PrintOutput = @()
+                PrintCount = 0
+                TotalCount = 3
+                ShouldFail = $true
+            }
         ) {
             param($ReadPath, $GetOutput, $PrintOutput, $PrintCount, $TotalCount, $ShouldFail)
             $originalSshSessions = $global:SSH_Sessions
