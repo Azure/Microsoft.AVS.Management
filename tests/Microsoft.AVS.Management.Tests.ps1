@@ -1950,6 +1950,14 @@ Describe "Set-VCLoginBanner" {
                 TotalCount = 5
                 ShouldFail = $false
             }
+            @{
+                ReadPath = 'get with trailing checkbox status'
+                GetOutput = @('Logon Banner Title: Notice', 'Logon Banner Content: "Authorized use only."', 'Checkbox enabled: true')
+                PrintOutput = @()
+                PrintCount = 0
+                TotalCount = 4
+                ShouldFail = $false
+            }
         ) {
             param($ReadPath, $GetOutput, $PrintOutput, $PrintCount, $TotalCount, $ShouldFail)
             $originalSshSessions = $global:SSH_Sessions

@@ -1398,7 +1398,7 @@ function Test-VCLoginBannerText {
 
     $match = [regex]::Match(
         $Output,
-        '(?is)\A\s*(?:Logon Banner )?Title[ \t]*:[ \t]*(?<Title>[^\r\n]*)\r?\n[ \t]*(?:(?:Logon Banner )?Content|Message)[ \t]*:[ \t]*(?<Message>.*)\z'
+        '(?is)\A\s*(?:Logon Banner )?Title[ \t]*:[ \t]*(?<Title>[^\r\n]*)\r?\n[ \t]*(?:(?:Logon Banner )?Content|Message)[ \t]*:[ \t]*(?<Message>.*?)(?:\r?\n[ \t]*Checkbox enabled[ \t]*:[^\r\n]*)?[ \t]*\z'
     )
     if (-not $match.Success) {
         return $false
