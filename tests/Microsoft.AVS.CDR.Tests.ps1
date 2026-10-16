@@ -292,7 +292,7 @@ Describe "Install-PSResourcePinned" {
         It "Should pass every resolved graph node to Install-CdrVerifiedResources in Athenticode Check mode" {
             $credential = [pscredential]::new(
                 'copilot',
-                (ConvertTo-SecureString 'secret' -AsPlainText -Force)
+                [System.Security.SecureString]::new()
             )
 
             InModuleScope Microsoft.AVS.CDR -ArgumentList $credential {
@@ -2543,7 +2543,7 @@ Describe "Install-PSResourceDependencies" {
 
             $credential = [pscredential]::new(
                 'copilot',
-                (ConvertTo-SecureString 'secret' -AsPlainText -Force)
+                [System.Security.SecureString]::new()
             )
 
             InModuleScope Microsoft.AVS.CDR -ArgumentList $script:testManifestPath, $credential {
