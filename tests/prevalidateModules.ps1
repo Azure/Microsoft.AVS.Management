@@ -5,7 +5,6 @@ param (
 
 Import-Module Pester -MinimumVersion 5.0 -ErrorAction Stop
 
-$script:zeroPSAnalyzerErrorsFound = $true
 $script:zeroTestScriptFileInfoErrorsFound = $true
 $script:zeroTestModuleManifestErrorsFound = $true
 $script:zeroPesterErrorsFound = $true
@@ -15,22 +14,9 @@ function Get-PrevalidationResults {
         [string]$targetDir,
         $fileExtList
     )
-    $scriptsToAnalyze = (Get-ChildItem "$targetDir\*" -Recurse -Include $fileExtList)
+    $scriptsToValidate = (Get-ChildItem "$targetDir\*" -Recurse -Include $fileExtList)
 
-    # Four typed of severity from PSScriptAnalyzer: Information, Error, ParseError, Warning. See https://github.com/PowerShell/PSScriptAnalyzer/blob/e51d50864106998a65e05971eff69d95bb80aaba/Engine/Generic/DiagnosticRecord.cs#L129
-    foreach ($script in $scriptsToAnalyze) {
-        $analyzerOptions = @{Settings="PSGallery"; Path=($script.FullName)}
-        $scriptIssues = (Invoke-ScriptAnalyzer @analyzerOptions)
-        $scriptIssues | Format-Table @{Label="Severity";Alignment="Left"; Expression={$_.Severity}},ScriptName,RuleName,Message -Autosize
-
-        $numberOfErrors = ($scriptIssues | Where-Object {$_.Severity -eq "Error" || $_.Severity -eq "ParseError"}).Count
-        $numberOfWarnings = ($scriptIssues | Where-Object {$_.Severity -eq "Warning"}).Count
-        $numberOfInfos = ($scriptIssues | Where-Object {$_.Severity -eq "Information"}).Count
-        if ($numberOfErrors -gt 0) {
-            $script:zeroPSAnalyzerErrorsFound = $false
-        }
-
-        [PSCustomObject]@{"# Errors" = $numberOfErrors; "# Warnings" = $numberOfWarnings; "# Information" = $numberOfInfos; "PS File" = $script.Name} | Format-Table
+    foreach ($script in $scriptsToValidate) {
         $fileExtension = ($script.Extension)
         switch ($fileExtension) {
             ".ps1" { 
@@ -56,6 +42,28 @@ function Get-PrevalidationResults {
     }
 }
 
+function Get-PesterTestPaths {
+    param(
+        [Parameter(Mandatory = $true)][string]$testsDir,
+        [Parameter(Mandatory = $true)][string]$moduleFolderName
+    )
+
+    $pesterTestPaths = @()
+    $basePesterTestFile = Join-Path -Path $testsDir -ChildPath "$moduleFolderName.Tests.ps1"
+
+    if (Test-Path $basePesterTestFile) {
+        $pesterTestPaths += $basePesterTestFile
+    }
+
+    if ($moduleFolderName -eq 'Microsoft.AVS.CDR') {
+        $pesterTestPaths += Get-ChildItem -Path $testsDir -Filter 'Microsoft.AVS.CDR.*.Tests.ps1' -File |
+            Sort-Object -Property Name |
+            Select-Object -ExpandProperty FullName
+    }
+
+    return $pesterTestPaths
+}
+
 Write-Output "---- START: Pre-Validation----"
 
 $repoRoot = "$env:SYSTEM_DEFAULTWORKINGDIRECTORY"
@@ -66,10 +74,10 @@ Get-PrevalidationResults (Join-Path -Path $repoRoot -ChildPath $modulesFolderPat
 # Check for and run Pester tests if they exist
 $moduleFolderName = Split-Path -Leaf $modulesFolderPath
 $testsDir = Join-Path -Path $repoRoot -ChildPath "tests"
-$pesterTestFile = Join-Path -Path $testsDir -ChildPath "$moduleFolderName.Tests.ps1"
+$pesterTestFiles = @(Get-PesterTestPaths -testsDir $testsDir -moduleFolderName $moduleFolderName)
 
-if (Test-Path $pesterTestFile) {
-    Write-Output "Found Pester test file: $pesterTestFile"
+if ($pesterTestFiles.Count -gt 0) {
+    Write-Output "Found Pester test file(s): $($pesterTestFiles -join ', ')"
     Write-Output "Running Pester tests..."
     
     $env:SKIP_INTEGRATION_TESTS = 'false'
@@ -78,7 +86,7 @@ if (Test-Path $pesterTestFile) {
     }
     
     $pesterConfig = New-PesterConfiguration
-    $pesterConfig.Run.Path = $pesterTestFile
+    $pesterConfig.Run.Path = $pesterTestFiles
     $pesterConfig.Run.Exit = $false
     $pesterConfig.Output.Verbosity = 'Detailed'
     $pesterConfig.Should.ErrorAction = 'Continue'
@@ -92,12 +100,9 @@ if (Test-Path $pesterTestFile) {
         Write-Output "SUCCESS: All Pester tests passed ($($pesterResults.PassedCount) passed)"
     }
 } else {
-    Write-Output "No Pester test file found at: $pesterTestFile"
+    Write-Output "No Pester test files found for module: $moduleFolderName"
 }
 
-if (!$script:zeroPSAnalyzerErrorsFound) {
-    Write-Error -Message "PRE-VALIDATION FAILED: PSScriptAnalyzer found errors"
-}
 if (!$script:zeroTestScriptFileInfoErrorsFound) {
     Write-Error -Message "PRE-VALIDATION FAILED: Test-PSScriptFileInfo found errors"
 }
@@ -107,7 +112,7 @@ if (!$script:zeroTestModuleManifestErrorsFound) {
 if (!$script:zeroPesterErrorsFound) {
     Write-Error -Message "PRE-VALIDATION FAILED: Pester tests failed"
 }
-if (!$script:zeroPSAnalyzerErrorsFound -or !$script:zeroTestScriptFileInfoErrorsFound -or !$script:zeroTestModuleManifestErrorsFound -or !$script:zeroPesterErrorsFound) {
+if (!$script:zeroTestScriptFileInfoErrorsFound -or !$script:zeroTestModuleManifestErrorsFound -or !$script:zeroPesterErrorsFound) {
     Write-Error -Message "PRE-VALIDATION FAILED: See above errors"
     Throw "Prevalidation failed"
 } else {

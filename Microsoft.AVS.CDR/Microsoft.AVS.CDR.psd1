@@ -25,7 +25,9 @@
 
     PowerShellVersion = '7.4'
 
-    RequiredModules = @()
+    RequiredModules = @(
+        @{ ModuleName = 'OpenAuthenticode'; RequiredVersion = '0.6.3' }
+    )
 
     FunctionsToExport = @(
         'Install-PSResourcePinned'
@@ -73,4 +75,3 @@
     # DefaultCommandPrefix = ''
 
 }
-

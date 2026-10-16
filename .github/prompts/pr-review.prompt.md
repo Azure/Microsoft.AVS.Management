@@ -44,6 +44,6 @@ For each changed `.psm1` / `.ps1` file, verify:
 
 ### Tests
 - [ ] Pester tests exist for new/modified functions
-- [ ] `Invoke-ScriptAnalyzer -Settings PSGallery` passes with no errors
+- [ ] The 1ES SDL PSScriptAnalyzer check passes with no errors
 
 Report findings grouped by severity: **Blocking** (must fix), **Warning** (should fix), **Info** (suggestion).

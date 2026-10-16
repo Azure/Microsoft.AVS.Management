@@ -66,8 +66,8 @@ Pre-established by AVS before script execution:
 # Run Pester tests
 Invoke-Pester -Path ./tests/
 
-# Run PSScriptAnalyzer (CI uses PSGallery ruleset)
-Invoke-ScriptAnalyzer -Path ./ -Recurse -Settings PSGallery
+# Run PSScriptAnalyzer locally (CI uses the 1ES SDL default preset)
+Invoke-ScriptAnalyzer -Path ./ -Recurse
 ```
 
 Test packages in a Linux [PowerShell container](https://hub.docker.com/_/microsoft-powershell) connecting to your datacenter.
