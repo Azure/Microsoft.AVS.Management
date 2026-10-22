@@ -10,6 +10,70 @@ enum CdrAuthenticodeMode {
 . (Join-Path -Path $PSScriptRoot -ChildPath 'Private/Authenticode.ps1')
 . (Join-Path -Path $PSScriptRoot -ChildPath 'Private/VerifiedInstall.ps1')
 
+function Invoke-CdrPSResourceWithRetry {
+    <#
+    .SYNOPSIS
+        Retries package acquisition when the repository returns HTTP 429.
+    .DESCRIPTION
+        Makes at most four attempts with exponential delays of 2, 4, and 8 seconds.
+        Other failures and the final throttling error are rethrown unchanged.
+    .PARAMETER CommandName
+        The PSResourceGet acquisition command to invoke.
+    .PARAMETER Parameters
+        The original acquisition parameters. Errors are always terminating.
+    .EXAMPLE
+        Invoke-CdrPSResourceWithRetry -CommandName Install-PSResource -Parameters $installParams
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('Install-PSResource', 'Save-PSResource')]
+        [string]$CommandName,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Parameters
+    )
+
+    $requestParameters = $Parameters.Clone()
+    $requestParameters['ErrorAction'] = 'Stop'
+
+    for ($retry = 0; $retry -le 3; $retry++) {
+        try {
+            & $CommandName @requestParameters
+            return
+        }
+        catch {
+            $isThrottled = $false
+            $exception = $_.Exception
+            while ($null -ne $exception) {
+                if (($exception.PSObject.Properties['StatusCode'] -and
+                        $exception.StatusCode -eq [System.Net.HttpStatusCode]::TooManyRequests) -or
+                    ($exception.PSObject.Properties['Response'] -and $null -ne $exception.Response -and
+                        $exception.Response.PSObject.Properties['StatusCode'] -and
+                        $exception.Response.StatusCode -eq [System.Net.HttpStatusCode]::TooManyRequests)) {
+                    $isThrottled = $true
+                    break
+                }
+
+                # PSResourceGet can flatten the HTTP exception into an error string.
+                if ($exception.Message -match '\bResponse status code does not indicate success:\s*429\b|\b429\s*\(Too Many Requests\)') {
+                    $isThrottled = $true
+                    break
+                }
+                $exception = $exception.InnerException
+            }
+
+            if (-not $isThrottled -or $retry -eq 3) {
+                throw
+            }
+
+            $delaySeconds = 2 * [math]::Pow(2, $retry)
+            Write-Warning "$CommandName for '$($Parameters.Name)' version '$($Parameters.Version)' was throttled (HTTP 429). Retrying in $delaySeconds seconds (retry $($retry + 1) of 3)."
+            Start-Sleep -Seconds $delaySeconds
+        }
+    }
+}
+
 class DependencyGraphNode {
     [string]$Name
     [string]$Version
@@ -1235,7 +1299,7 @@ function Install-PSResourcePinned {
                     $installParams['Reinstall'] = $true
                 }
                 
-                Install-PSResource @installParams
+                Invoke-CdrPSResourceWithRetry -CommandName Install-PSResource -Parameters $installParams
             }
             else {
                 Write-Verbose "Already installed: $modName version $modVersion"
@@ -1365,7 +1429,7 @@ function Save-PSResourcePinned {
                 $saveParams['Credential'] = $Credential
             }
             
-            Save-PSResource @saveParams
+            Invoke-CdrPSResourceWithRetry -CommandName Save-PSResource -Parameters $saveParams
         }
         else {
             Write-Verbose "Already saved: $modName version $modVersion"
@@ -1693,7 +1757,7 @@ function Install-PSResourceDependencies {
                     $installParams['Reinstall'] = $true
                 }
                 
-                Install-PSResource @installParams
+                Invoke-CdrPSResourceWithRetry -CommandName Install-PSResource -Parameters $installParams
             }
             else {
                 Write-Verbose "Already installed: $($dependency.Name) version $($dependency.Version)"

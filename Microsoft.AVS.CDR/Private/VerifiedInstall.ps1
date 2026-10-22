@@ -408,7 +408,7 @@ function Invoke-CdrVerifiedResourceInstallation {
                 $saveParams['Prerelease'] = $true
             }
 
-            Save-PSResource @saveParams
+            Invoke-CdrPSResourceWithRetry -CommandName Save-PSResource -Parameters $saveParams
             Assert-CdrSavedModuleIdentity -Resource $resource -VersionRoot $stagingPaths.VersionRoot -ExpectedInstalledLocation $stagingModulesRoot | Out-Null
 
             [pscustomobject]@{

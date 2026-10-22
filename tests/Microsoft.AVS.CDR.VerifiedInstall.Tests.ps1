@@ -293,6 +293,70 @@ Describe 'Checked installation transaction cleanup' {
         }
     }
 
+    It 'retries throttled staging without bypassing signature verification (trusted: <Trusted>)' -ForEach @(
+        @{ Trusted = $true }
+        @{ Trusted = $false }
+    ) {
+        InModuleScope Microsoft.AVS.CDR -Parameters @{ Trusted = $Trusted } {
+            param($Trusted)
+            $script:saveAttempts = 0
+            Mock Start-Sleep { }
+            Mock Save-PSResource {
+                $transaction.OperationRoot = Split-Path $Path -Parent
+                if ($Name -eq 'First.Module' -and ++$script:saveAttempts -lt 3) {
+                    throw 'Response status code does not indicate success: 429 (Too Many Requests).'
+                }
+                $null = New-TestModuleLayout -BasePath $Path -ModuleName $Name -BaseVersion $Version
+            }
+            if (-not $Trusted) {
+                Mock 'OpenAuthenticode\Get-OpenAuthenticodeSignature' { @() }
+            }
+
+            if ($Trusted) {
+                Install-CdrVerifiedResources -Resources $transaction.Resources -Scope CurrentUser -Athenticode Check
+                Test-Path -LiteralPath (Join-Path $transaction.Root 'First.Module/3.2.4/First.Module.psd1') |
+                    Should -BeTrue
+                Test-Path -LiteralPath (Join-Path $transaction.Root 'Second.Module/3.2.4/Second.Module.psd1') |
+                    Should -BeTrue
+            }
+            else {
+                { Install-CdrVerifiedResources -Resources $transaction.Resources -Scope CurrentUser -Athenticode Check } |
+                    Should -Throw '*No Authenticode signature*'
+                Test-Path -LiteralPath (Join-Path $transaction.Root 'First.Module') | Should -BeFalse
+                Test-Path -LiteralPath (Join-Path $transaction.Root 'Second.Module') | Should -BeFalse
+            }
+
+            Should -Invoke Save-PSResource -Times 4 -Exactly -ParameterFilter {
+                $IncludeXml -and $SkipDependencyCheck -and $ErrorAction -eq 'Stop'
+            }
+            Should -Invoke Start-Sleep -Times 2 -Exactly
+            Test-Path -LiteralPath $transaction.OperationRoot | Should -BeFalse
+        }
+    }
+
+    It 'cleans throttled staging after retry exhaustion without touching installed bytes' {
+        InModuleScope Microsoft.AVS.CDR {
+            $installed = New-TestModuleLayout -BasePath $transaction.Root -ModuleName 'First.Module' -BaseVersion '3.2.4'
+            $before = @(Get-ChildItem -LiteralPath $installed -File | Get-FileHash | Select-Object -ExpandProperty Hash)
+            Mock Start-Sleep { }
+            Mock Save-PSResource {
+                $transaction.OperationRoot = Split-Path $Path -Parent
+                $null = New-TestModuleLayout -BasePath $Path -ModuleName $Name -BaseVersion $Version
+                throw 'Response status code does not indicate success: 429 (Too Many Requests).'
+            }
+
+            { Install-CdrVerifiedResources -Resources $transaction.Resources -Scope CurrentUser -Force } |
+                Should -Throw '*429*'
+
+            Should -Invoke Save-PSResource -Times 4 -Exactly
+            Should -Invoke Start-Sleep -Times 3 -Exactly
+            @(Get-ChildItem -LiteralPath $installed -File | Get-FileHash | Select-Object -ExpandProperty Hash) |
+                Should -Be $before
+            Test-Path -LiteralPath $transaction.OperationRoot | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $transaction.Root 'Second.Module') | Should -BeFalse
+        }
+    }
+
     It 'preserves the original unsigned reused-dependency error and all installed bytes while deleting only its staging' {
         InModuleScope Microsoft.AVS.CDR {
             $emptyParent = Join-Path $transaction.Root 'First.Module'
