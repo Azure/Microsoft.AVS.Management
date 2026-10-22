@@ -1,4 +1,26 @@
 BeforeAll {
+    function New-TestSecureString {
+        <#
+        .SYNOPSIS
+            Converts dummy test passwords to SecureString for mocked credential forwarding.
+        .PARAMETER Text
+            A non-secret fixture password used only in tests.
+        .EXAMPLE
+            New-TestSecureString -Text 'fixture-password'
+        #>
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+            'PSAvoidUsingConvertToSecureStringWithPlainText', '',
+            Justification = 'Only non-secret dummy passwords are converted for mocked credential forwarding tests; no live credentials are used.')]
+        [CmdletBinding()]
+        [OutputType([System.Security.SecureString])]
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$Text
+        )
+
+        return $Text | ConvertTo-SecureString -AsPlainText -Force
+    }
+
     # Import the module under test
     $modulePath = Join-Path $PSScriptRoot ".." "Microsoft.AVS.CDR" "Microsoft.AVS.CDR.psd1"
     Import-Module $modulePath -Force
@@ -24,6 +46,15 @@ BeforeAll {
                 Uninstall-PSResource -Name $module.Name -Version $module.Version -ErrorAction SilentlyContinue
             }
         }
+    }
+}
+
+Describe 'CDR test SecureString shim' {
+    It 'preserves the dummy password required by credential forwarding tests' {
+        $password = New-TestSecureString -Text 'fixture-password'
+        $password | Should -BeOfType ([System.Security.SecureString])
+        $credential = [pscredential]::new('fixture-user', $password)
+        $credential.GetNetworkCredential().Password | Should -BeExactly 'fixture-password'
     }
 }
 
@@ -292,7 +323,7 @@ Describe "Install-PSResourcePinned" {
         It "Should pass every resolved graph node to Install-CdrVerifiedResources in Athenticode Check mode" {
             $credential = [pscredential]::new(
                 'copilot',
-                (ConvertTo-SecureString 'secret' -AsPlainText -Force)
+                (New-TestSecureString -Text 'secret')
             )
 
             InModuleScope Microsoft.AVS.CDR -ArgumentList $credential {
@@ -2543,7 +2574,7 @@ Describe "Install-PSResourceDependencies" {
 
             $credential = [pscredential]::new(
                 'copilot',
-                (ConvertTo-SecureString 'secret' -AsPlainText -Force)
+                (New-TestSecureString -Text 'secret')
             )
 
             InModuleScope Microsoft.AVS.CDR -ArgumentList $script:testManifestPath, $credential {
