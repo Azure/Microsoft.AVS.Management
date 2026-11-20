@@ -1435,3 +1435,693 @@ finally {
         $output | Should -Contain 'ok'
     }
 }
+
+# Keep synthetic-fixture analyzer suppressions off the legacy suite.
+function Register-ManagementLoginTest {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '', Justification = 'Exercises and restores the global session state consumed by workloads.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '', Justification = 'Only synthetic canary credentials are used.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingUsernameAndPasswordParams', '', Justification = 'The external SSO provider stub mirrors its legacy API.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', '', Justification = 'The external SSO provider accepts the legacy plaintext password argument.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'External transport stubs only record calls; they make no changes.')]
+    param()
+
+    Describe 'Management package login handlers' -Tag 'P1' {
+    BeforeAll {
+        $script:managementDirectory = Join-Path $PSScriptRoot '../Microsoft.AVS.Management'
+        $script:rootModulePath = Join-Path $script:managementDirectory 'Microsoft.AVS.Management.psm1'
+        $script:savedGlobals = @{}
+        foreach ($name in 'DefaultVIServer', 'DefaultVIServers', 'MOB_Connection', 'SSH_Sessions',
+            'SFTP_Sessions', 'PersistentSecrets', 'P1LoginCalls', 'P1LoginHosts') {
+            $variable = Get-Variable -Name $name -Scope Global -ErrorAction SilentlyContinue
+            $script:savedGlobals[$name] = @{ Exists = $null -ne $variable; Value = $variable.Value }
+        }
+
+        $global:P1LoginCalls = [System.Collections.Generic.List[object]]::new()
+        $script:externalProvider = New-Module -Name P1.Login.External {
+            function Add-LoginCall($Name, $Parameters) {
+                $global:P1LoginCalls.Add([pscustomobject]@{ Name = $Name; Parameters = $Parameters })
+            }
+            function Connect-VIServer {
+                [CmdletBinding()]
+                param($Server, $Port, [pscredential]$Credential, [switch]$Force)
+                Add-LoginCall 'VI' (@{}+$PSBoundParameters)
+                $session = [pscustomobject]@{
+                    Name = $Server
+                    Port = $Port
+                    IsConnected = $true
+                    ServiceUri = [uri]"https://${Server}:$Port/sdk"
+                    User = $Credential.UserName
+                }
+                $global:DefaultVIServer = $session
+                $global:DefaultVIServers = @($session)
+                $session
+            }
+            function Connect-SsoAdminServer {
+                [CmdletBinding()]
+                param($Server, $User, $Password, [switch]$SkipCertificateCheck)
+                Add-LoginCall 'SSO' (@{}+$PSBoundParameters)
+                [pscustomobject]@{ Name = $Server; User = $User }
+            }
+            function Get-VMHost {
+                [CmdletBinding()]
+                param()
+                Add-LoginCall 'Hosts' @{}
+                $global:P1LoginHosts
+            }
+            function New-SSHSession {
+                [CmdletBinding()]
+                param($ComputerName, [pscredential]$Credential, $KeyString, [switch]$AcceptKey)
+                Add-LoginCall 'SSH' (@{}+$PSBoundParameters)
+                [pscustomobject]@{ ComputerName = $ComputerName; Transport = 'SSH' }
+            }
+            function New-SFTPSession {
+                [CmdletBinding()]
+                param($ComputerName, [pscredential]$Credential, $KeyString, [switch]$AcceptKey)
+                Add-LoginCall 'SFTP' (@{}+$PSBoundParameters)
+                [pscustomobject]@{ ComputerName = $ComputerName; Transport = 'SFTP' }
+            }
+            Export-ModuleMember -Function Connect-VIServer, Connect-SsoAdminServer,
+                Get-VMHost, New-SSHSession, New-SFTPSession
+        }
+        $script:mobProvider = New-Module -Name VMware.vSphere.SsoAdmin {
+            function Connect-VcenterServerMOB {
+                [CmdletBinding()]
+                param($Server, [pscredential]$Credential, [switch]$SkipCertificateCheck)
+                $global:P1LoginCalls.Add([pscustomobject]@{
+                    Name = 'MOB'; Parameters = @{}+$PSBoundParameters
+                })
+                [pscustomobject]@{ Name = $Server; Kind = 'MOB' }
+            }
+            Export-ModuleMember -Function Connect-VcenterServerMOB
+        }
+        Import-Module $script:externalProvider -Global -Force
+        Import-Module $script:mobProvider -Global -Force
+        . (Join-Path $script:managementDirectory 'Classes.ps1')
+        # Exercise the real root module without claiming its unavailable manifest dependencies.
+        Import-Module $script:rootModulePath -Force -DisableNameChecking
+    }
+
+    AfterAll {
+        Remove-Module Microsoft.AVS.Management -Force -ErrorAction SilentlyContinue
+        Remove-Module $script:externalProvider, $script:mobProvider -Force -ErrorAction SilentlyContinue
+        foreach ($name in $script:savedGlobals.Keys) {
+            if ($script:savedGlobals[$name].Exists) {
+                Set-Variable -Name $name -Value $script:savedGlobals[$name].Value -Scope Global
+            } else {
+                Remove-Variable -Name $name -Scope Global -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    BeforeEach {
+        $global:P1LoginCalls.Clear()
+        $global:DefaultVIServer = $null
+        $global:DefaultVIServers = @()
+        $global:MOB_Connection = 'previous-mob'
+        $global:SSH_Sessions = 'previous-ssh'
+        $global:SFTP_Sessions = 'previous-sftp'
+        $global:PersistentSecrets = @{ Unrelated = 'keep-me' }
+        $global:P1LoginHosts = @(
+            [pscustomobject]@{ Name = 'esx-01' }
+            [pscustomobject]@{ Name = 'worker-01' }
+            [pscustomobject]@{ Name = 'odd-ESX-node' }
+        )
+        $script:inputs = @{
+            Server = 'vc.invalid:8443'
+            Credential = [pscredential]::new('vc-user', (ConvertTo-SecureString 'VC-PASSWORD-CANARY' -AsPlainText -Force))
+            ApiToken = ConvertTo-SecureString 'TOKEN-CANARY' -AsPlainText -Force
+            IdentityBrokerHostname = 'broker.invalid'
+            Tenant = 'tenant-fixture'
+            HostPassword = ConvertTo-SecureString 'HOST-PASSWORD-CANARY' -AsPlainText -Force
+            Key = [string[]]@('KEY-CANARY', 'second-line')
+        }
+    }
+
+    It 'exports the four independent login handlers' {
+        foreach ($name in 'Connect-VC', 'Connect-SSOAdmin', 'Connect-MOB', 'Initialize-SSH') {
+            Get-Command -Name $name -Module Microsoft.AVS.Management -ErrorAction Stop |
+                Should -Not -BeNullOrEmpty
+        }
+    }
+
+    It 'imports the root module without authenticating or replacing workload globals' {
+        Import-Module $script:rootModulePath -Force -DisableNameChecking
+        $global:P1LoginCalls.Count | Should -Be 0
+        $global:MOB_Connection | Should -BeExactly 'previous-mob'
+        $global:SSH_Sessions | Should -BeExactly 'previous-ssh'
+        $global:SFTP_Sessions | Should -BeExactly 'previous-sftp'
+        $global:PersistentSecrets.Unrelated | Should -BeExactly 'keep-me'
+    }
+
+    It 'accepts all seven inputs without exposing successful authentication output: <Handler>' -ForEach @(
+        @{ Handler = 'Connect-VC' }
+        @{ Handler = 'Connect-SSOAdmin' }
+        @{ Handler = 'Connect-MOB' }
+        @{ Handler = 'Initialize-SSH' }
+    ) {
+        @(& $Handler @script:inputs -Verbose -InformationAction Continue *>&1) | Should -BeNullOrEmpty
+        $global:PersistentSecrets.Unrelated | Should -BeExactly 'keep-me'
+        if ($Handler -ne 'Initialize-SSH') {
+            $global:SSH_Sessions | Should -BeExactly 'previous-ssh'
+            $global:SFTP_Sessions | Should -BeExactly 'previous-sftp'
+        }
+        if ($Handler -ne 'Connect-MOB') {
+            $global:MOB_Connection | Should -BeExactly 'previous-mob'
+        }
+        foreach ($call in $global:P1LoginCalls) {
+            $call.Parameters.Keys | Should -Not -Contain 'ApiToken'
+            $call.Parameters.Keys | Should -Not -Contain 'IdentityBrokerHostname'
+            $call.Parameters.Keys | Should -Not -Contain 'Tenant'
+        }
+    }
+
+    It 'rejects a missing required credential without disclosing other inputs: <Handler>' -ForEach @(
+        @{ Handler = 'Connect-VC' }
+        @{ Handler = 'Connect-SSOAdmin' }
+        @{ Handler = 'Connect-MOB' }
+        @{ Handler = 'Initialize-SSH' }
+    ) {
+        $script:inputs.Credential = $null
+        $failure = $null
+        $records = [System.Collections.Generic.List[object]]::new()
+        try {
+            & $Handler @script:inputs -ErrorAction Stop *>&1 | ForEach-Object { $records.Add($_) }
+        } catch { $failure = $_ }
+        $failure | Should -Not -BeNullOrEmpty
+        $failure.Exception.Message | Should -Match 'Credential'
+        $failure.Exception.Message | Should -Not -Match 'CANARY'
+        ($records | Out-String) | Should -Not -Match 'CANARY'
+        $global:P1LoginCalls.Count | Should -Be 0
+    }
+
+    It 'adapts the legacy VI endpoint <Endpoint> to <HostName>:<Port>' -ForEach @(
+        @{ Endpoint = 'vc.invalid:8443'; HostName = 'vc.invalid'; Port = 8443 }
+        @{ Endpoint = 'vc.invalid'; HostName = 'vc.invalid'; Port = 443 }
+        @{ Endpoint = 'vc.invalid:bad'; HostName = 'vc.invalid'; Port = 443 }
+        @{ Endpoint = 'vc.invalid::8443'; HostName = 'vc.invalid'; Port = 8443 }
+    ) {
+        $script:inputs.Server = $Endpoint
+        Connect-VC @script:inputs
+        $global:P1LoginCalls.Count | Should -Be 1
+        $call = $global:P1LoginCalls[0]
+        $call.Name | Should -BeExactly 'VI'
+        $call.Parameters.Server | Should -BeExactly $HostName
+        $call.Parameters.Port | Should -Be $Port
+        $call.Parameters.Credential.UserName | Should -BeExactly 'vc-user'
+        $call.Parameters.Credential.GetNetworkCredential().Password | Should -BeExactly 'VC-PASSWORD-CANARY'
+        $call.Parameters.Force | Should -BeTrue
+        $call.Parameters.ErrorAction | Should -Be 'Stop'
+    }
+
+    It 'rejects an endpoint with more than two nonempty colon segments before connecting' {
+        $script:inputs.Server = 'one:two:three'
+        { Connect-VC @script:inputs } | Should -Throw '*Missing VC address*'
+        $global:P1LoginCalls.Count | Should -Be 0
+    }
+
+    It 'reuses only a connected default session for the target host and port: <Case>' -ForEach @(
+        @{ Case = 'matching'; HostName = 'VC.INVALID'; Port = 8443; Connected = $true; Connections = 0 }
+        @{ Case = 'disconnected'; HostName = 'vc.invalid'; Port = 8443; Connected = $false; Connections = 1 }
+        @{ Case = 'different host'; HostName = 'other.invalid'; Port = 8443; Connected = $true; Connections = 1 }
+        @{ Case = 'different port'; HostName = 'vc.invalid'; Port = 443; Connected = $true; Connections = 1 }
+    ) {
+        $session = [pscustomobject]@{
+            Name = $HostName; Port = $Port; IsConnected = $Connected
+            ServiceUri = [uri]"https://${HostName}:$Port/sdk"; User = 'vc-user'
+        }
+        $global:DefaultVIServer = $session
+        $global:DefaultVIServers = @($session)
+        Connect-VC @script:inputs
+        @($global:P1LoginCalls | Where-Object Name -eq VI).Count | Should -Be $Connections
+    }
+
+    It 'reuses a matching active VI session without requiring a credential' {
+        $session = [pscustomobject]@{
+            Name = 'vc.invalid'; Port = 8443; IsConnected = $true
+            ServiceUri = [uri]'https://vc.invalid:8443/sdk'; User = 'vc-user'
+        }
+        $global:DefaultVIServer = $session
+        $global:DefaultVIServers = @($session)
+        $script:inputs.Remove('Credential')
+        @(Connect-VC @script:inputs) | Should -BeNullOrEmpty
+        $global:P1LoginCalls.Count | Should -Be 0
+    }
+
+    It 'initializes SSH discovery from an active VI session without a credential' {
+        $session = [pscustomobject]@{
+            Name = 'vc.invalid'; Port = 8443; IsConnected = $true
+            ServiceUri = [uri]'https://vc.invalid:8443/sdk'; User = 'vc-user'
+        }
+        $global:DefaultVIServer = $session
+        $global:DefaultVIServers = @($session)
+        $script:inputs.Remove('Credential')
+        @(Initialize-SSH @script:inputs) | Should -BeNullOrEmpty
+        @($global:P1LoginCalls.Name) | Should -Be @('Hosts')
+        $global:SSH_Sessions.ContainsKey('VC') | Should -BeTrue
+        $global:SFTP_Sessions.ContainsKey('esx-01') | Should -BeTrue
+        $global:SSH_Sessions['VC'].IsValueCreated | Should -BeFalse
+        $global:SFTP_Sessions['esx-01'].IsValueCreated | Should -BeFalse
+    }
+
+    It 'establishes VI before discovery exactly once with <First> first' -ForEach @(
+        @{ First = 'Connect-VC'; Second = 'Initialize-SSH' }
+        @{ First = 'Initialize-SSH'; Second = 'Connect-VC' }
+    ) {
+        & $First @script:inputs
+        & $Second @script:inputs
+        @($global:P1LoginCalls.Name) | Should -Be @('VI', 'Hosts')
+    }
+
+    It 'preserves SSO endpoint and <PasswordCase> plaintext password independently of VI and MOB' -ForEach @(
+        @{ PasswordCase = 'nonempty'; ExpectedPassword = 'VC-PASSWORD-CANARY' }
+        @{ PasswordCase = 'empty'; ExpectedPassword = '' }
+    ) {
+        if ($PasswordCase -eq 'empty') {
+            $script:inputs.Credential = [pscredential]::new('vc-user', [securestring]::new())
+        }
+        Connect-SSOAdmin @script:inputs
+        $global:P1LoginCalls.Count | Should -Be 1
+        $call = $global:P1LoginCalls[0]
+        $call.Name | Should -BeExactly 'SSO'
+        $call.Parameters.Server | Should -BeExactly 'vc.invalid:8443'
+        $call.Parameters.User | Should -BeExactly 'vc-user'
+        $call.Parameters.ContainsKey('Password') | Should -BeTrue
+        $call.Parameters.Password | Should -BeExactly $ExpectedPassword
+        $call.Parameters.SkipCertificateCheck | Should -BeTrue
+        $global:DefaultVIServer | Should -BeNullOrEmpty
+        $global:MOB_Connection | Should -BeExactly 'previous-mob'
+    }
+
+    It 'forwards an empty resolved password to VI without replacing it with the token' {
+        $script:inputs.Credential = [pscredential]::new('vc-user', [securestring]::new())
+        Connect-VC @script:inputs
+        $global:P1LoginCalls[0].Parameters.Credential.Password.Length | Should -Be 0
+    }
+
+    It 'connects MOB through its expected provider and publishes only the global MOB connection' {
+        Connect-MOB @script:inputs
+        $global:P1LoginCalls.Count | Should -Be 1
+        $call = $global:P1LoginCalls[0]
+        $call.Name | Should -BeExactly 'MOB'
+        $call.Parameters.Server | Should -BeExactly 'vc.invalid'
+        $call.Parameters.Credential.UserName | Should -BeExactly 'vc-user'
+        $call.Parameters.SkipCertificateCheck | Should -BeTrue
+        $global:MOB_Connection.Name | Should -BeExactly 'vc.invalid'
+        $global:MOB_Connection.Kind | Should -BeExactly 'MOB'
+        $global:DefaultVIServer | Should -BeNullOrEmpty
+        $global:SSH_Sessions | Should -BeExactly 'previous-ssh'
+        $global:SFTP_Sessions | Should -BeExactly 'previous-sftp'
+    }
+
+    It 'warns rather than invoking a wrong-source MOB command or clearing an old connection' {
+        function global:Connect-VcenterServerMOB { throw 'Wrong-source MOB connector must not run' }
+        try {
+            $warnings = @()
+            @(Connect-MOB @script:inputs -WarningVariable warnings -WarningAction SilentlyContinue) |
+                Should -BeNullOrEmpty
+            $warnings.Count | Should -Be 1
+            "$($warnings[0])" | Should -BeLike '*Connect-VcenterServerMOB is not available*'
+            $global:P1LoginCalls.Count | Should -Be 0
+            $global:MOB_Connection | Should -BeExactly 'previous-mob'
+        } finally {
+            Remove-Item Function:global:Connect-VcenterServerMOB -ErrorAction SilentlyContinue
+            Import-Module $script:mobProvider -Global -Force
+        }
+    }
+
+    It 'does nothing without a key, even without a credential' {
+        $script:inputs.Remove('Key')
+        $script:inputs.Remove('Credential')
+        @(Initialize-SSH @script:inputs) | Should -BeNullOrEmpty
+        $global:P1LoginCalls.Count | Should -Be 0
+        $global:SSH_Sessions | Should -BeExactly 'previous-ssh'
+        $global:SFTP_Sessions | Should -BeExactly 'previous-sftp'
+    }
+
+    It 'initializes lazy maps for a present empty key instead of treating it as absent' {
+        $script:inputs.Key = [string[]]@()
+        Initialize-SSH @script:inputs
+        @($global:P1LoginCalls.Name) | Should -Be @('VI', 'Hosts')
+        $global:SSH_Sessions.ContainsKey('VC') | Should -BeTrue
+        $global:SFTP_Sessions.ContainsKey('esx-01') | Should -BeTrue
+        $global:SSH_Sessions['VC'].IsValueCreated | Should -BeFalse
+        $global:SSH_Sessions['VC'].Value.ComputerName | Should -BeExactly 'vc.invalid'
+        $call = $global:P1LoginCalls | Where-Object Name -eq SSH
+        $call.Parameters.ContainsKey('KeyString') | Should -BeTrue
+        @($call.Parameters.KeyString).Count | Should -Be 0
+    }
+
+    It 'preserves duplicate-host replacement and case-sensitive host keys in both maps' {
+        $global:P1LoginHosts = @(
+            [pscustomobject]@{ Name = 'esx-01' }
+            [pscustomobject]@{ Name = 'esx-01' }
+            [pscustomobject]@{ Name = 'ESX-01' }
+        )
+        Initialize-SSH @script:inputs
+        foreach ($sessions in $global:SSH_Sessions, $global:SFTP_Sessions) {
+            $sessions.Count | Should -Be 3
+            $sessions.ContainsKey('esx-01') | Should -BeTrue
+            $sessions.ContainsKey('ESX-01') | Should -BeTrue
+            $sessions['esx-01'].Value.ComputerName | Should -BeExactly 'esx-01'
+            $sessions['ESX-01'].Value.ComputerName | Should -BeExactly 'ESX-01'
+        }
+    }
+
+    It 'retains independent lazy SSH and SFTP closures with <PasswordCase> host password' -ForEach @(
+        @{ PasswordCase = 'absent' }
+        @{ PasswordCase = 'empty' }
+        @{ PasswordCase = 'nonempty' }
+    ) {
+        switch ($PasswordCase) {
+            'absent' { $script:inputs.Remove('HostPassword') }
+            'empty' { $script:inputs.HostPassword = [securestring]::new() }
+        }
+        Initialize-SSH @script:inputs
+        @($global:P1LoginCalls.Name) | Should -Be @('VI', 'Hosts')
+        @($global:SSH_Sessions.Keys | Sort-Object) | Should -Be @('esx-01', 'odd-ESX-node', 'VC')
+        @($global:SFTP_Sessions.Keys | Sort-Object) | Should -Be @('esx-01', 'odd-ESX-node', 'VC')
+        foreach ($sessions in $global:SSH_Sessions, $global:SFTP_Sessions) {
+            foreach ($target in 'VC', 'esx-01', 'odd-ESX-node') {
+                $sessions[$target].IsValueCreated | Should -BeFalse
+            }
+        }
+
+        $workload = New-Module -Name P1.Login.Workload {
+            function Get-P1WorkloadSession {
+                $global:SSH_Sessions['esx-01'].Value
+                $global:SFTP_Sessions['odd-ESX-node'].Value
+            }
+            Export-ModuleMember -Function Get-P1WorkloadSession
+        }
+        Import-Module $workload
+        try {
+            @(Get-P1WorkloadSession | ForEach-Object ComputerName) | Should -Be @('esx-01', 'odd-ESX-node')
+            foreach ($sessions in $global:SSH_Sessions, $global:SFTP_Sessions) {
+                foreach ($target in 'VC', 'esx-01', 'odd-ESX-node') {
+                    $first = $sessions[$target].Value
+                    $second = $sessions[$target].Value
+                    [object]::ReferenceEquals($first, $second) | Should -BeTrue
+                    $expectedTarget = if ($target -eq 'VC') { 'vc.invalid' } else { $target }
+                    $first.ComputerName | Should -BeExactly $expectedTarget
+                }
+            }
+        } finally {
+            Remove-Module $workload -Force
+        }
+
+        $connections = @($global:P1LoginCalls | Where-Object Name -in SSH, SFTP)
+        $connections.Count | Should -Be 6
+        foreach ($call in $connections) {
+            $parameters = $call.Parameters
+            $parameters.Credential.UserName | Should -BeExactly ([Environment]::UserName)
+            $parameters.AcceptKey | Should -BeTrue
+            $expectedPassword = if ($PasswordCase -eq 'nonempty') { 'HOST-PASSWORD-CANARY' } else { '' }
+            $parameters.Credential.GetNetworkCredential().Password | Should -BeExactly $expectedPassword
+            $hasKey = $parameters.ComputerName -eq 'vc.invalid' -or $PasswordCase -ne 'nonempty'
+            $parameters.ContainsKey('KeyString') | Should -Be $hasKey
+            if ($hasKey) {
+                @($parameters.KeyString) | Should -Be @('KEY-CANARY', 'second-line')
+            }
+        }
+        $global:PersistentSecrets.Unrelated | Should -BeExactly 'keep-me'
+    }
+
+    It 'declares the complete login metadata against exported non-workload helpers without changing pins' {
+        $manifest = Import-PowerShellDataFile (Join-Path $script:managementDirectory 'Microsoft.AVS.Management.psd1')
+        $metadata = $manifest.PrivateData.PSData
+        $metadata.LoginContract | Should -Be 1
+        $metadata.Logins | Should -BeOfType [hashtable]
+        @($metadata.Logins.Keys | Sort-Object) | Should -Be @('MOB', 'SSH', 'SSO', 'vCenter')
+        $expected = @{
+            vCenter = 'Connect-VC'
+            SSO = 'Connect-SSOAdmin'
+            MOB = 'Connect-MOB'
+            SSH = 'Initialize-SSH'
+        }
+        foreach ($id in $expected.Keys) {
+            $name = $expected[$id]
+            $metadata.Logins[$id] | Should -BeExactly $name
+            @($metadata.Logins.Values | Where-Object { $_ -eq $name }).Count | Should -Be 1
+            @($manifest.FunctionsToExport | Where-Object { $_ -eq $name }).Count | Should -Be 1
+            $command = Get-Command -Name $name -Module Microsoft.AVS.Management -ErrorAction Stop
+            @($command.ScriptBlock.Attributes | Where-Object { $_ -is [AVSAttribute] }).Count | Should -Be 0
+        }
+        @($manifest.RequiredModules | ForEach-Object {
+            "$($_.ModuleName):$($_.RequiredVersion):$($_.ModuleVersion)"
+        }) | Should -Be @(
+            'VMware.vSphere.SsoAdmin:1.4.0:'
+            'VMware.VimAutomation.Core:13.3.0.24145081:'
+            'VMware.VimAutomation.Storage:13.3.0.24145081:'
+            'Posh-SSH::3.2.7'
+        )
+    }
+
+    It 'preserves custom manifest metadata when stamping <Scenario>' -ForEach @(
+        @{ Scenario = 'a new prerelease'; InitialSuffix = $null; RequestedSuffix = 'preview-test'; ExpectedSuffix = 'preview-test' }
+        @{ Scenario = 'an existing prerelease'; InitialSuffix = 'previous'; RequestedSuffix = 'preview-test'; ExpectedSuffix = 'preview-test' }
+        @{ Scenario = 'without a prerelease argument'; InitialSuffix = 'previous'; RequestedSuffix = ''; ExpectedSuffix = 'previous' }
+        @{ Scenario = 'with a blank prerelease argument'; InitialSuffix = 'previous'; RequestedSuffix = ' '; ExpectedSuffix = 'previous' }
+    ) {
+        $path = Join-Path $TestDrive 'ManifestStamp.psd1'
+        $content = @'
+@{
+    ModuleVersion = '12.0.0'
+    GUID = '11111111-2222-4333-8444-555555555555'
+    Author = 'Manifest test fixture'
+    Description = 'Metadata preservation fixture'
+    PrivateData = @{
+        PSData = @{
+            Logins = @{ vCenter = 'Connect-VC'; SSH = 'Initialize-SSH' }
+            LoginContract = 1
+            CustomMetadata = @{
+                ModuleVersion = 'unchanged-nested-version'
+                Prerelease = 'unchanged-nested-suffix'
+            }
+            # Prerelease = ''
+        }
+    }
+}
+'@
+        if ($null -ne $InitialSuffix) {
+            $content = $content.Replace("# Prerelease = ''", "Prerelease = '$InitialSuffix'")
+        }
+        Set-Content -LiteralPath $path -Value $content
+        $before = Import-PowerShellDataFile $path
+        $tokens = $null
+        $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PSScriptRoot '../.build-tools/publish.ps1'), [ref]$tokens, [ref]$parseErrors)
+        $parseErrors | Should -BeNullOrEmpty
+        $update = $ast.Find({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                $node.Name -eq 'update-moduleversion'
+        }, $true).Body.GetScriptBlock()
+        & {
+            param($ManifestPath, $Suffix, $UpdateBody)
+            $absolutePathToManifest = $ManifestPath
+            $buildNumber = '42'
+            $prereleaseString = $Suffix
+            & $UpdateBody | Out-Null
+        } $path $RequestedSuffix $update
+
+        $after = Import-PowerShellDataFile $path
+        $after.PrivateData.PSData.Logins | Should -Not -BeNullOrEmpty
+        $after.PrivateData.PSData.LoginContract | Should -Be 1
+        $after.ModuleVersion | Should -BeExactly '12.0.42'
+        $after.PrivateData.PSData.Prerelease | Should -BeExactly $ExpectedSuffix
+        $before.Remove('ModuleVersion')
+        $after.Remove('ModuleVersion')
+        $before.PrivateData.PSData.Remove('Prerelease')
+        $after.PrivateData.PSData.Remove('Prerelease')
+        [System.Text.Json.Nodes.JsonNode]::DeepEquals(
+            [System.Text.Json.Nodes.JsonNode]::Parse(($before | ConvertTo-Json -Depth 20)),
+            [System.Text.Json.Nodes.JsonNode]::Parse(($after | ConvertTo-Json -Depth 20))
+        ) | Should -BeTrue
+    }
+
+    It 'stamps the repository module manifests without changing their other fields' {
+        $repository = Split-Path $script:managementDirectory
+        $tokens = $null
+        $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $repository '.build-tools/publish.ps1'), [ref]$tokens, [ref]$parseErrors)
+        $parseErrors | Should -BeNullOrEmpty
+        $update = $ast.Find({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                $node.Name -eq 'update-moduleversion'
+        }, $true).Body.GetScriptBlock()
+        foreach ($name in 'Microsoft.AVS.Management', 'Microsoft.AVS.CDR', 'Microsoft.AVS.NFS', 'Microsoft.AVS.VMFS') {
+            $path = Join-Path $TestDrive "$name.psd1"
+            Copy-Item -LiteralPath (Join-Path $repository $name "$name.psd1") -Destination $path
+            $before = Import-PowerShellDataFile $path
+            $version = [version]$before.ModuleVersion
+            & {
+                param($ManifestPath, $UpdateBody)
+                $absolutePathToManifest = $ManifestPath
+                $buildNumber = '42'
+                $prereleaseString = 'preview-test'
+                & $UpdateBody | Out-Null
+            } $path $update
+            $after = Import-PowerShellDataFile $path
+            $after.ModuleVersion | Should -BeExactly "$($version.Major).$($version.Minor).42"
+            $after.PrivateData.PSData.Prerelease | Should -BeExactly 'preview-test'
+            $before.Remove('ModuleVersion')
+            $after.Remove('ModuleVersion')
+            $before.PrivateData.PSData.Remove('Prerelease')
+            $after.PrivateData.PSData.Remove('Prerelease')
+            [System.Text.Json.Nodes.JsonNode]::DeepEquals(
+                [System.Text.Json.Nodes.JsonNode]::Parse(($before | ConvertTo-Json -Depth 20)),
+                [System.Text.Json.Nodes.JsonNode]::Parse(($after | ConvertTo-Json -Depth 20))
+            ) | Should -BeTrue
+        }
+    }
+
+    It 'keeps real handlers globally available after a selected transitive CDR import with synthetic providers' {
+        $fixtureRoot = Join-Path $TestDrive 'login-dependencies'
+        $manifest = Import-PowerShellDataFile (Join-Path $script:managementDirectory 'Microsoft.AVS.Management.psd1')
+
+        function New-LoginDependencyFixture($Name, $Version, $Body, $Dependencies = @()) {
+            $directory = Join-Path $fixtureRoot $Name $Version
+            New-Item -Path $directory -ItemType Directory -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $directory "$Name.psm1") -Value $Body
+            New-ModuleManifest -Path (Join-Path $directory "$Name.psd1") -RootModule "$Name.psm1" `
+                -ModuleVersion $Version -RequiredModules $Dependencies -FunctionsToExport '*' `
+                -CmdletsToExport @() -AliasesToExport @()
+        }
+
+        $providerBodies = @{
+            'VMware.VimAutomation.Core' = @'
+function Connect-VIServer { $global:P1FixtureAuthCalls++; throw 'Unexpected VI authentication' }
+function Get-VMHost { $global:P1FixtureDiscoveries++; [pscustomobject]@{ Name = 'esx-fixture' } }
+'@
+            'VMware.vSphere.SsoAdmin' = @'
+function Connect-SsoAdminServer { $global:P1FixtureAuthCalls++; throw 'Unexpected SSO authentication' }
+function Connect-VcenterServerMOB { $global:P1FixtureAuthCalls++; throw 'Unexpected MOB authentication' }
+'@
+            'VMware.VimAutomation.Storage' = ''
+            'Posh-SSH' = @'
+function New-SSHSession {
+    param($ComputerName, [pscredential]$Credential, $KeyString, [switch]$AcceptKey)
+    $global:P1FixtureTransportCalls++
+    [pscustomobject]@{ ComputerName = $ComputerName; Transport = 'SSH' }
+}
+function New-SFTPSession {
+    param($ComputerName, [pscredential]$Credential, $KeyString, [switch]$AcceptKey)
+    $global:P1FixtureTransportCalls++
+    [pscustomobject]@{ ComputerName = $ComputerName; Transport = 'SFTP' }
+}
+'@
+        }
+        foreach ($dependency in $manifest.RequiredModules) {
+            $version = if ($dependency.RequiredVersion) { $dependency.RequiredVersion } else { $dependency.ModuleVersion }
+            New-LoginDependencyFixture $dependency.ModuleName $version $providerBodies[$dependency.ModuleName]
+        }
+
+        # Stage the package unchanged; synthetic providers satisfy its original manifest pins.
+        $managementVersion = [string]$manifest.ModuleVersion
+        $managementStage = Join-Path $fixtureRoot 'Microsoft.AVS.Management' $managementVersion
+        New-Item -Path $managementStage -ItemType Directory -Force | Out-Null
+        Copy-Item -Path (Join-Path $script:managementDirectory '*') -Destination $managementStage -Recurse
+        New-LoginDependencyFixture 'P1.Login.Middle' '1.0.0' '' @(
+            @{ ModuleName = 'Microsoft.AVS.Management'; RequiredVersion = $managementVersion }
+        )
+        New-LoginDependencyFixture 'P1.Login.SelectedWorkload' '1.0.0' @'
+function Invoke-P1SelectedWorkload {
+    $global:SSH_Sessions['VC'].Value
+    $global:SFTP_Sessions['esx-fixture'].Value
+}
+'@ @(@{ ModuleName = 'P1.Login.Middle'; RequiredVersion = '1.0.0' })
+
+        $originalModulePath = $env:PSModulePath
+        $shell = [powershell]::Create()
+        try {
+            $shell.AddScript({
+                param($FixtureRoot, $CdrManifest)
+                $ErrorActionPreference = 'Stop'
+                $env:PSModulePath = $FixtureRoot + [IO.Path]::PathSeparator + $env:PSModulePath
+                $global:P1FixtureAuthCalls = 0
+                $global:P1FixtureDiscoveries = 0
+                $global:P1FixtureTransportCalls = 0
+                $global:P1FixtureInventory = @{}
+                foreach ($path in Get-ChildItem -LiteralPath $FixtureRoot -Filter '*.psd1' -Recurse) {
+                    $data = Import-PowerShellDataFile $path.FullName
+                    $dependencies = @(foreach ($dependency in $data.RequiredModules) {
+                        $range = if ($dependency.RequiredVersion) { "[$($dependency.RequiredVersion)]" } else { "[$($dependency.ModuleVersion),)" }
+                        [pscustomobject]@{ Name = $dependency.ModuleName; VersionRange = $range }
+                    })
+                    $global:P1FixtureInventory[$path.BaseName] = [pscustomobject]@{
+                        Name = $path.BaseName; Version = [version]$data.ModuleVersion
+                        InstalledLocation = $FixtureRoot; Dependencies = $dependencies
+                    }
+                }
+                # Only the external installed-resource inventory is synthetic, not CDR resolution/import.
+                function global:Get-InstalledPSResource {
+                    param($Name, $Version)
+                    $resource = $global:P1FixtureInventory[$Name]
+                    if ($resource -and (-not $Version -or "$($resource.Version)" -eq $Version)) { $resource }
+                }
+                Import-Module $CdrManifest -Force
+                $names = 'Connect-VC', 'Connect-SSOAdmin', 'Connect-MOB', 'Initialize-SSH'
+                $alreadyImported = @(Get-Command -ListImported | Where-Object Name -in $names)
+                if ($alreadyImported.Count) {
+                    throw "Handlers were already imported before the dependency loader: $($alreadyImported | ForEach-Object { "$($_.Name)@$($_.ModuleName)" })"
+                }
+                $resolved = @(Get-PSResourcesPinned -Name P1.Login.SelectedWorkload -RequiredVersion 1.0.0)
+                $loader = New-Module -Name P1.Login.DependencyLoader {
+                    function Import-P1SelectedWorkload {
+                        Import-ModulePinned -Name P1.Login.SelectedWorkload -RequiredVersion 1.0.0 -Force
+                    }
+                    Export-ModuleMember -Function Import-P1SelectedWorkload
+                }
+                Import-Module $loader
+                Import-P1SelectedWorkload
+                Remove-Module $loader -Force
+                $commands = @(Get-Command -ListImported | Where-Object {
+                    $_.Name -in $names -and $_.ModuleName -eq 'Microsoft.AVS.Management'
+                })
+                $importWasIdle = $global:P1FixtureAuthCalls -eq 0 -and
+                    $global:P1FixtureDiscoveries -eq 0 -and $global:P1FixtureTransportCalls -eq 0
+                $global:DefaultVIServer = [pscustomobject]@{ Name = 'vc.invalid'; Port = 8443; IsConnected = $true }
+                $global:DefaultVIServers = @($global:DefaultVIServer)
+                Initialize-SSH -Server 'vc.invalid:8443' -Key @('fixture-key')
+                $transportsBeforeWorkload = $global:P1FixtureTransportCalls
+                $workload = Get-Command Invoke-P1SelectedWorkload -ListImported -ErrorAction Stop
+                $sessions = @(& $workload)
+                [pscustomobject]@{
+                    Helpers = @($commands.Name | Sort-Object)
+                    Resolved = @($resolved.Name)
+                    ImportWasIdle = $importWasIdle
+                    TransportsBeforeWorkload = $transportsBeforeWorkload
+                    Discoveries = $global:P1FixtureDiscoveries
+                    AuthCalls = $global:P1FixtureAuthCalls
+                    Targets = @($sessions.ComputerName)
+                    Transports = @($sessions.Transport)
+                    TransportCalls = $global:P1FixtureTransportCalls
+                }
+            }.ToString()).AddArgument($fixtureRoot).AddArgument(
+                (Join-Path $PSScriptRoot '../Microsoft.AVS.CDR/Microsoft.AVS.CDR.psd1')) | Out-Null
+            $result = @($shell.Invoke())
+            $shell.Streams.Error | Should -BeNullOrEmpty
+            $result.Count | Should -Be 1
+            $result[0].Helpers | Should -Be @('Connect-MOB', 'Connect-SSOAdmin', 'Connect-VC', 'Initialize-SSH')
+            $result[0].Resolved | Should -Contain 'P1.Login.Middle'
+            $result[0].Resolved | Should -Contain 'Microsoft.AVS.Management'
+            $result[0].Resolved[-1] | Should -BeExactly 'P1.Login.SelectedWorkload'
+            $result[0].ImportWasIdle | Should -BeTrue
+            $result[0].AuthCalls | Should -Be 0
+            $result[0].Discoveries | Should -Be 1
+            $result[0].TransportsBeforeWorkload | Should -Be 0
+            $result[0].Targets | Should -Be @('vc.invalid', 'esx-fixture')
+            $result[0].Transports | Should -Be @('SSH', 'SFTP')
+            $result[0].TransportCalls | Should -Be 2
+        } finally {
+            $shell.Dispose()
+            $env:PSModulePath = $originalModulePath
+        }
+    }
+    }
+}
+
+Register-ManagementLoginTest

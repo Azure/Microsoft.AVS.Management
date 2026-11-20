@@ -37,14 +37,91 @@ function New-PublishingSecureString {
 function update-moduleversion {
     $manifestVersionAsArray = (Import-PowerShellDataFile $absolutePathToManifest).ModuleVersion -split "\."
     $updatedModuleVersion = @( $manifestVersionAsArray[0], $manifestVersionAsArray[1],  $buildNumber ) | Join-String -Separator '.'
-    $targetModuleParams = @{ModuleVersion = $updatedModuleVersion; Path = $absolutePathToManifest}
-    
-    # Only add Prerelease parameter if prereleaseString is not null or empty
-    if (-not [String]::IsNullOrWhiteSpace($prereleaseString)) {
-        $targetModuleParams.Prerelease = $prereleaseString
+    $manifestText = Get-Content -LiteralPath $absolutePathToManifest -Raw
+    $tokens = $null
+    $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseInput(
+        $manifestText, [ref]$tokens, [ref]$parseErrors)
+    if ($parseErrors) {
+        throw 'Cannot update an invalid module manifest.'
     }
-    
-    Update-PSModuleManifest @targetModuleParams 
+    $table = $ast.Find({
+        param($node)
+        $node -is [System.Management.Automation.Language.HashtableAst]
+    }, $true)
+    $edits = [System.Collections.Generic.List[object]]::new()
+    $newline = if ($manifestText.Contains("`r`n")) { "`r`n" } else { "`n" }
+
+    function Get-ManifestEntryAst($TableAst, $Name) {
+        $TableAst.KeyValuePairs |
+            Where-Object { $_.Item1.SafeGetValue() -eq $Name } |
+            Select-Object -First 1
+    }
+
+    function Get-ManifestTableAst($Entry) {
+        if ($null -ne $Entry) {
+            $Entry.Item2.Find({
+                param($node)
+                $node -is [System.Management.Automation.Language.HashtableAst]
+            }, $true)
+        }
+    }
+
+    function Add-ManifestEntryEdit($TableAst, $EntryText) {
+        $offset = $TableAst.Extent.EndOffset - 1
+        $lineStart = $manifestText.LastIndexOf("`n", $offset) + 1
+        $indent = $manifestText.Substring($lineStart, $offset - $lineStart)
+        if ($indent -notmatch '^[ \t]*$') { $indent = '' }
+        $edits.Add(@{
+            Offset = $offset
+            Length = 0
+            Text = "$newline$indent    $EntryText$newline$indent"
+        })
+    }
+
+    # Replace only the field expressions; manifest regeneration discards custom PSData.
+    $versionEntry = Get-ManifestEntryAst $table 'ModuleVersion'
+    $version = ([version]$updatedModuleVersion).ToString()
+    $edits.Add(@{
+        Offset = $versionEntry.Item2.Extent.StartOffset
+        Length = $versionEntry.Item2.Extent.EndOffset - $versionEntry.Item2.Extent.StartOffset
+        Text = "'$version'"
+    })
+
+    if (-not [String]::IsNullOrWhiteSpace($prereleaseString)) {
+        $value = "'$($prereleaseString.Replace("'", "''"))'"
+        $privateDataEntry = Get-ManifestEntryAst $table 'PrivateData'
+        $privateData = Get-ManifestTableAst $privateDataEntry
+        if ($privateDataEntry -and -not $privateData) {
+            throw 'Manifest PrivateData must be a hashtable to set a prerelease.'
+        }
+        $psDataEntry = if ($privateData) { Get-ManifestEntryAst $privateData 'PSData' }
+        $psData = Get-ManifestTableAst $psDataEntry
+        if ($psDataEntry -and -not $psData) {
+            throw 'Manifest PSData must be a hashtable to set a prerelease.'
+        }
+        if ($psData) {
+            $prerelease = Get-ManifestEntryAst $psData 'Prerelease'
+            if ($prerelease) {
+                $edits.Add(@{
+                    Offset = $prerelease.Item2.Extent.StartOffset
+                    Length = $prerelease.Item2.Extent.EndOffset - $prerelease.Item2.Extent.StartOffset
+                    Text = $value
+                })
+            } else {
+                Add-ManifestEntryEdit $psData "Prerelease = $value"
+            }
+        } elseif ($privateData) {
+            Add-ManifestEntryEdit $privateData "PSData = @{ Prerelease = $value }"
+        } else {
+            Add-ManifestEntryEdit $table "PrivateData = @{ PSData = @{ Prerelease = $value } }"
+        }
+    }
+
+    foreach ($edit in $edits | Sort-Object Offset -Descending) {
+        $manifestText = $manifestText.Remove($edit.Offset, $edit.Length).Insert($edit.Offset, $edit.Text)
+    }
+    Set-Content -LiteralPath $absolutePathToManifest -Value $manifestText -NoNewline -ErrorAction Stop
     
     Write-Host "##vso[task.setvariable variable=moduleVersion]$updatedModuleVersion"
 

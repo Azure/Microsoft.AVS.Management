@@ -33,6 +33,28 @@ Your script will **not** have access to the administrator password. Before execu
 
 > **Do not** call any of these in your scripts — see [Session Management](#41-session-management).
 
+#### Platform login helpers
+
+`Microsoft.AVS.Management` exports `Connect-VC`, `Connect-SSOAdmin`, `Connect-MOB`, and `Initialize-SSH` for platform session initialization. These are login helpers, not customer Run Command actions: they do not carry `AVSAttribute`, and importing the package does not invoke them. Customer scripts must continue to use the pre-established sessions.
+
+Each helper accepts the same named inputs. All supplied inputs are passed to each selected helper; each validates the inputs it needs and ignores unrelated optional inputs.
+
+| Input | Type | Requirement |
+|-------|------|-------------|
+| `Server` | `String` | Mandatory vCenter address |
+| `Credential` | `PSCredential` | Required for a new VI connection and for SSO/MOB; SSH needs it only when its VI prerequisite requires a new connection |
+| `ApiToken` | `SecureString` | Optional shared input; unused by these helpers |
+| `IdentityBrokerHostname` | `String` | Optional shared input; unused by these helpers |
+| `Tenant` | `String` | Optional shared input; unused by these helpers |
+| `HostPassword` | `SecureString` | Optional ESXi password for SSH/SFTP |
+| `Key` | `String[]` | Optional SSH key lines; an explicitly supplied empty array counts as supplied |
+
+`Connect-VC` reuses `$global:DefaultVIServer` only when it is connected to the same parsed host and port; reuse does not require `Credential`. Other or disconnected sessions do not prevent connection. This check does not probe network liveness or compare credentials. `Connect-SSOAdmin` and `Connect-MOB` are independent of VI. MOB initialization warns without replacing an existing `$MOB_Connection` when its supported provider is unavailable.
+
+`Initialize-SSH` does nothing when `Key` is omitted, even if `HostPassword` is supplied. With `Key`, it first calls `Connect-VC`, then discovers ESXi hosts and creates separate lazy SSH/SFTP dictionaries for `"VC"` and host names matching `esx`. Actual SSH/SFTP authentication occurs only when an entry's `.Value` is accessed. SSH credentials use the process user's name. A nonempty `HostPassword` selects password authentication for ESXi hosts; otherwise hosts use key authentication with an empty password. The vCenter entries always receive the supplied key lines.
+
+The manifest declares the complete platform defaults in `PrivateData.PSData.Logins`: `vCenter = 'Connect-VC'`, `SSO = 'Connect-SSOAdmin'`, `MOB = 'Connect-MOB'`, and `SSH = 'Initialize-SSH'`, together with `LoginContract = 1`. Login IDs are identifiers, not dependency ordering; SSH establishes its own VI prerequisite.
+
 ### 1.2 Environment Variables
 
 AVS exposes the following PowerShell variables at runtime:
@@ -99,6 +121,8 @@ The module manifest (`.psd1`) must include:
 | `PowerShellVersion` | `'7.4'` |
 | `FunctionsToExport` | Explicit list of public functions |
 | `ProjectUri` | Product support landing page for AVS customers |
+
+The four platform login helpers and their private endpoint parser are implemented directly in `Microsoft.AVS.Management/Microsoft.AVS.Management.psm1`, keeping their executable bytes in the existing root-module signing inventory. No additional loose login `.ps1` is loaded. The package still includes the existing `Classes.ps1` and `AVSGenericUtils.ps1`; signatures are file-specific, so signing a root module does not sign separate files it loads. The checked-in pipelines do not declare a signing producer. Published-package byte/signature verification is a separate release-validation responsibility, not established by source-level tests.
 
 ### 2.2 Dependencies
 
