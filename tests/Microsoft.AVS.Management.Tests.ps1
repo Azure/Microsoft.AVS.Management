@@ -1876,6 +1876,108 @@ function Register-ManagementLoginTest {
         )
     }
 
+    It 'preserves custom manifest metadata when stamping <Scenario>' -ForEach @(
+        @{ Scenario = 'a new prerelease'; InitialSuffix = $null; RequestedSuffix = 'preview-test'; ExpectedSuffix = 'preview-test' }
+        @{ Scenario = 'an existing prerelease'; InitialSuffix = 'previous'; RequestedSuffix = 'preview-test'; ExpectedSuffix = 'preview-test' }
+        @{ Scenario = 'without a prerelease argument'; InitialSuffix = 'previous'; RequestedSuffix = ''; ExpectedSuffix = 'previous' }
+        @{ Scenario = 'with a blank prerelease argument'; InitialSuffix = 'previous'; RequestedSuffix = ' '; ExpectedSuffix = 'previous' }
+    ) {
+        $path = Join-Path $TestDrive 'ManifestStamp.psd1'
+        $content = @'
+@{
+    ModuleVersion = '12.0.0'
+    GUID = '11111111-2222-4333-8444-555555555555'
+    Author = 'Manifest test fixture'
+    Description = 'Metadata preservation fixture'
+    PrivateData = @{
+        PSData = @{
+            Logins = @{ vCenter = 'Connect-VC'; SSH = 'Initialize-SSH' }
+            LoginContract = 1
+            CustomMetadata = @{
+                ModuleVersion = 'unchanged-nested-version'
+                Prerelease = 'unchanged-nested-suffix'
+            }
+            # Prerelease = ''
+        }
+    }
+}
+'@
+        if ($null -ne $InitialSuffix) {
+            $content = $content.Replace("# Prerelease = ''", "Prerelease = '$InitialSuffix'")
+        }
+        Set-Content -LiteralPath $path -Value $content
+        $before = Import-PowerShellDataFile $path
+        $tokens = $null
+        $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PSScriptRoot '../.build-tools/publish.ps1'), [ref]$tokens, [ref]$parseErrors)
+        $parseErrors | Should -BeNullOrEmpty
+        $update = $ast.Find({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                $node.Name -eq 'update-moduleversion'
+        }, $true).Body.GetScriptBlock()
+        & {
+            param($ManifestPath, $Suffix, $UpdateBody)
+            $absolutePathToManifest = $ManifestPath
+            $buildNumber = '42'
+            $prereleaseString = $Suffix
+            & $UpdateBody | Out-Null
+        } $path $RequestedSuffix $update
+
+        $after = Import-PowerShellDataFile $path
+        $after.PrivateData.PSData.Logins | Should -Not -BeNullOrEmpty
+        $after.PrivateData.PSData.LoginContract | Should -Be 1
+        $after.ModuleVersion | Should -BeExactly '12.0.42'
+        $after.PrivateData.PSData.Prerelease | Should -BeExactly $ExpectedSuffix
+        $before.Remove('ModuleVersion')
+        $after.Remove('ModuleVersion')
+        $before.PrivateData.PSData.Remove('Prerelease')
+        $after.PrivateData.PSData.Remove('Prerelease')
+        [System.Text.Json.Nodes.JsonNode]::DeepEquals(
+            [System.Text.Json.Nodes.JsonNode]::Parse(($before | ConvertTo-Json -Depth 20)),
+            [System.Text.Json.Nodes.JsonNode]::Parse(($after | ConvertTo-Json -Depth 20))
+        ) | Should -BeTrue
+    }
+
+    It 'stamps the repository module manifests without changing their other fields' {
+        $repository = Split-Path $script:managementDirectory
+        $tokens = $null
+        $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $repository '.build-tools/publish.ps1'), [ref]$tokens, [ref]$parseErrors)
+        $parseErrors | Should -BeNullOrEmpty
+        $update = $ast.Find({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                $node.Name -eq 'update-moduleversion'
+        }, $true).Body.GetScriptBlock()
+        foreach ($name in 'Microsoft.AVS.Management', 'Microsoft.AVS.CDR', 'Microsoft.AVS.NFS', 'Microsoft.AVS.VMFS') {
+            $path = Join-Path $TestDrive "$name.psd1"
+            Copy-Item -LiteralPath (Join-Path $repository $name "$name.psd1") -Destination $path
+            $before = Import-PowerShellDataFile $path
+            $version = [version]$before.ModuleVersion
+            & {
+                param($ManifestPath, $UpdateBody)
+                $absolutePathToManifest = $ManifestPath
+                $buildNumber = '42'
+                $prereleaseString = 'preview-test'
+                & $UpdateBody | Out-Null
+            } $path $update
+            $after = Import-PowerShellDataFile $path
+            $after.ModuleVersion | Should -BeExactly "$($version.Major).$($version.Minor).42"
+            $after.PrivateData.PSData.Prerelease | Should -BeExactly 'preview-test'
+            $before.Remove('ModuleVersion')
+            $after.Remove('ModuleVersion')
+            $before.PrivateData.PSData.Remove('Prerelease')
+            $after.PrivateData.PSData.Remove('Prerelease')
+            [System.Text.Json.Nodes.JsonNode]::DeepEquals(
+                [System.Text.Json.Nodes.JsonNode]::Parse(($before | ConvertTo-Json -Depth 20)),
+                [System.Text.Json.Nodes.JsonNode]::Parse(($after | ConvertTo-Json -Depth 20))
+            ) | Should -BeTrue
+        }
+    }
+
     It 'keeps real handlers globally available after a selected transitive CDR import with synthetic providers' {
         $fixtureRoot = Join-Path $TestDrive 'login-dependencies'
         $manifest = Import-PowerShellDataFile (Join-Path $script:managementDirectory 'Microsoft.AVS.Management.psd1')
