@@ -1,6 +1,252 @@
 <# Private Function Import #>
 . $PSScriptRoot\AVSGenericUtils.ps1
 
+function Get-AVSLoginEndpoint {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Server
+    )
+
+    $parts = $Server.Split(':', [System.StringSplitOptions]::RemoveEmptyEntries)
+    if ($parts.Count -ne 1 -and $parts.Count -ne 2) {
+        throw 'Missing VC address'
+    }
+
+    $port = 443
+    $parsedPort = 0
+    if ($parts.Count -eq 2 -and [int]::TryParse($parts[1], [ref]$parsedPort)) {
+        $port = $parsedPort
+    }
+
+    [pscustomobject]@{ Server = $parts[0]; Port = $port }
+}
+
+function Connect-VC {
+    <#
+    .SYNOPSIS
+        Establishes the platform VI session unless the same target is already connected.
+    .PARAMETER Server
+        vCenter host, optionally followed by a colon and port.
+    .PARAMETER Credential
+        Required only when a new VI connection is needed.
+    .PARAMETER ApiToken
+        Shared login input; unused by this handler.
+    .PARAMETER IdentityBrokerHostname
+        Shared login input; unused by this handler.
+    .PARAMETER Tenant
+        Shared login input; unused by this handler.
+    .PARAMETER HostPassword
+        Shared login input; unused by this handler.
+    .PARAMETER Key
+        Shared login input; unused by this handler.
+    .EXAMPLE
+        Connect-VC -Server 'vc.example:443' -Credential $credential
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Server,
+        [PSCredential]$Credential,
+        [SecureString]$ApiToken,
+        [string]$IdentityBrokerHostname,
+        [string]$Tenant,
+        [SecureString]$HostPassword,
+        [AllowEmptyCollection()]
+        [string[]]$Key
+    )
+
+    $endpoint = Get-AVSLoginEndpoint -Server $Server
+    $session = Get-Variable -Name DefaultVIServer -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+    if ($null -ne $session -and $session.IsConnected -eq $true -and
+        $session.Name -eq $endpoint.Server -and $session.Port -eq $endpoint.Port) {
+        return
+    }
+
+    if ($null -eq $Credential) {
+        throw 'Credential is required for Connect-VC.'
+    }
+
+    Connect-VIServer -Server $endpoint.Server -Port $endpoint.Port -Credential $Credential -Force -ErrorAction Stop | Out-Null
+}
+
+function Connect-SSOAdmin {
+    <#
+    .SYNOPSIS
+        Establishes the platform SSO administration session independently of VI.
+    .PARAMETER Server
+        Original vCenter address, passed unchanged to the SSO provider.
+    .PARAMETER Credential
+        Required SSO administration credential.
+    .PARAMETER ApiToken
+        Shared login input; unused by this handler.
+    .PARAMETER IdentityBrokerHostname
+        Shared login input; unused by this handler.
+    .PARAMETER Tenant
+        Shared login input; unused by this handler.
+    .PARAMETER HostPassword
+        Shared login input; unused by this handler.
+    .PARAMETER Key
+        Shared login input; unused by this handler.
+    .EXAMPLE
+        Connect-SSOAdmin -Server 'vc.example:443' -Credential $credential
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Server,
+        [PSCredential]$Credential,
+        [SecureString]$ApiToken,
+        [string]$IdentityBrokerHostname,
+        [string]$Tenant,
+        [SecureString]$HostPassword,
+        [AllowEmptyCollection()]
+        [string[]]$Key
+    )
+
+    if ($null -eq $Credential) {
+        throw 'Credential is required for Connect-SSOAdmin.'
+    }
+
+    Connect-SsoAdminServer -Server $Server -User $Credential.UserName `
+        -Password $Credential.GetNetworkCredential().Password -SkipCertificateCheck | Out-Null
+}
+
+function Connect-MOB {
+    <#
+    .SYNOPSIS
+        Establishes the platform MOB session when the supported provider is available.
+    .PARAMETER Server
+        vCenter host, optionally followed by a colon and port.
+    .PARAMETER Credential
+        Required vCenter MOB credential.
+    .PARAMETER ApiToken
+        Shared login input; unused by this handler.
+    .PARAMETER IdentityBrokerHostname
+        Shared login input; unused by this handler.
+    .PARAMETER Tenant
+        Shared login input; unused by this handler.
+    .PARAMETER HostPassword
+        Shared login input; unused by this handler.
+    .PARAMETER Key
+        Shared login input; unused by this handler.
+    .EXAMPLE
+        Connect-MOB -Server 'vc.example:443' -Credential $credential
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Server,
+        [PSCredential]$Credential,
+        [SecureString]$ApiToken,
+        [string]$IdentityBrokerHostname,
+        [string]$Tenant,
+        [SecureString]$HostPassword,
+        [AllowEmptyCollection()]
+        [string[]]$Key
+    )
+
+    if ($null -eq $Credential) {
+        throw 'Credential is required for Connect-MOB.'
+    }
+
+    $endpoint = Get-AVSLoginEndpoint -Server $Server
+    $command = Get-Command Connect-VcenterServerMOB -ErrorAction SilentlyContinue
+    if ($command -and $command.Source -eq 'VMware.vSphere.SsoAdmin') {
+        $mob = Connect-VcenterServerMOB -Server $endpoint.Server -Credential $Credential -SkipCertificateCheck
+        Set-Variable -Name MOB_Connection -Value $mob -Scope Global
+    }
+    else {
+        Write-Warning 'Developer note: Connect-VcenterServerMOB is not available, please upgrade your Microsoft.AVS.Management dependency'
+    }
+}
+
+function Initialize-SSH {
+    <#
+    .SYNOPSIS
+        Prepares lazy platform SSH and SFTP sessions after ensuring the VI prerequisite.
+    .PARAMETER Server
+        vCenter host, optionally followed by a colon and port.
+    .PARAMETER Credential
+        Required only when Key is supplied and the VI prerequisite needs a new connection.
+    .PARAMETER ApiToken
+        Shared login input; unused by this handler.
+    .PARAMETER IdentityBrokerHostname
+        Shared login input; unused by this handler.
+    .PARAMETER Tenant
+        Shared login input; unused by this handler.
+    .PARAMETER HostPassword
+        Optional ESXi password. A nonempty value selects password authentication for hosts.
+    .PARAMETER Key
+        SSH key lines. Omission is a no-op; an explicitly supplied empty array initializes sessions.
+    .EXAMPLE
+        Initialize-SSH -Server 'vc.example:443' -Credential $credential -Key $keyLines
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Server,
+        [PSCredential]$Credential,
+        [SecureString]$ApiToken,
+        [string]$IdentityBrokerHostname,
+        [string]$Tenant,
+        [SecureString]$HostPassword,
+        [AllowEmptyCollection()]
+        [string[]]$Key
+    )
+
+    if (-not $PSBoundParameters.ContainsKey('Key')) {
+        return
+    }
+    Connect-VC @PSBoundParameters
+    $endpoint = Get-AVSLoginEndpoint -Server $Server
+    $hostParameters = if ($null -ne $HostPassword -and $HostPassword.Length -gt 0) {
+        @{
+            Credential = [PSCredential]::new([System.Environment]::UserName, $HostPassword)
+            AcceptKey = $true
+        }
+    }
+    else {
+        @{
+            KeyString = $Key
+            Credential = [PSCredential]::new([System.Environment]::UserName, [SecureString]::new())
+            AcceptKey = $true
+        }
+    }
+
+    # Retain module-imported commands when GetNewClosure creates its dynamic module.
+    $sshCommand = Get-Command New-SSHSession -ErrorAction Stop
+    $sftpCommand = Get-Command New-SFTPSession -ErrorAction Stop
+    $sshs = [System.Collections.Generic.Dictionary[string, object]]::new()
+    $sftps = [System.Collections.Generic.Dictionary[string, object]]::new()
+    $sessionParameters = @{
+        ComputerName = $endpoint.Server
+        KeyString = $Key
+        Credential = $hostParameters.Credential
+        AcceptKey = $true
+    }
+    $sshs['VC'] = [Lazy[object]]::new([System.Func[object]]{
+        & $sshCommand @sessionParameters
+    }.GetNewClosure())
+    $sftps['VC'] = [Lazy[object]]::new([System.Func[object]]{
+        & $sftpCommand @sessionParameters
+    }.GetNewClosure())
+
+    foreach ($vmHost in Get-VMHost | Where-Object Name -Match 'esx') {
+        $sessionParameters = $hostParameters.Clone()
+        $sessionParameters.ComputerName = $vmHost.Name
+        $sshs[$vmHost.Name] = [Lazy[object]]::new([System.Func[object]]{
+            & $sshCommand @sessionParameters
+        }.GetNewClosure())
+        $sftps[$vmHost.Name] = [Lazy[object]]::new([System.Func[object]]{
+            & $sftpCommand @sessionParameters
+        }.GetNewClosure())
+    }
+
+    Set-Variable -Name SSH_Sessions -Value $sshs -Scope Global
+    Set-Variable -Name SFTP_Sessions -Value $sftps -Scope Global
+}
+
 # Checks that the upload details and ZIP file path are valid.
 function Test-ToolsRepoUploadInput {
     param(

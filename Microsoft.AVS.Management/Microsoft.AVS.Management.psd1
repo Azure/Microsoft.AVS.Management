@@ -12,7 +12,7 @@
     RootModule = 'Microsoft.AVS.Management.psm1'
 
     # Version number of this module.
-    ModuleVersion = '11.0.0'
+    ModuleVersion = '12.0.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -78,6 +78,10 @@
         'Set-CustomDRS'
         'Remove-CustomRole'
         'Get-EsxtopData'
+        'Connect-VC'
+        'Connect-SSOAdmin'
+        'Connect-MOB'
+        'Initialize-SSH'
     )
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
@@ -105,6 +109,14 @@
 
             # Tags applied to this module. These help with module discovery in online galleries.
             Tags = 'VMware','PowerCLI','Azure','AVS'
+
+            Logins = @{
+                vCenter = 'Connect-VC'
+                SSO = 'Connect-SSOAdmin'
+                MOB = 'Connect-MOB'
+                SSH = 'Initialize-SSH'
+            }
+            LoginContract = 1
 
             # A URL to the license for this module.
             LicenseUri = 'https://raw.githubusercontent.com/Azure/Microsoft.AVS.Management/refs/heads/main/LICENSE'
