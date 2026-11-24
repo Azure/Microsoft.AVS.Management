@@ -14,7 +14,7 @@ variables:
   vmfsStageForSigningFolder: 'forSigningVmfs'
   nfsStageForUnsignedFolder: 'unsignedNfs'
   nfsStageForSigningFolder: 'forSigningNfs'
-  shuttleVersion: '1.10.63-0475c1ff'
+  shuttleVersion: '1.10.69-81e4d06f'
   metadataAuthority: 'https://msazure.visualstudio.com'
   metadataProject: 'One'
   metadataFeed: 'avs-scripting-metadata'
