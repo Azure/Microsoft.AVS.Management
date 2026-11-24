@@ -17,6 +17,9 @@ stages:
     variables:
       destination: '$(System.DefaultWorkingDirectory)/tmp'
     steps:
+    - bash: sudo dnf install -y dotnet-sdk-10.0
+      displayName: Install .NET SDK 10.0
+
     - bash: sudo dnf install -y "powershell-$(PS_VERSION)*"
       displayName: Install PowerShell
 
