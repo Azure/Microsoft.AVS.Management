@@ -13,12 +13,18 @@ stages:
   dependsOn: [Compliance_Checks]
   pool:
     os: linux
-    image: avs-management-ubuntu-22.04-1es-image
-    name: avs-management-1es-hosted-pool
+    image: avs-management-azure-linux-3-arm64-1es-image-westus2
+    name: avs-management-1es-arm64-pool-westus2
   jobs:
   - job: 'Build'
     displayName: 'Preview build for ${{ parameters.moduleFolderName }}'
     steps:
+    - bash: sudo dnf install -y dotnet-sdk-10.0
+      displayName: Install .NET SDK 10.0
+
+    - bash: sudo dnf install -y "powershell-$(PS_VERSION)*"
+      displayName: Install PowerShell
+
     - task: NuGetAuthenticate@1
     - task: AzureCLI@2
       inputs:
@@ -32,8 +38,6 @@ stages:
       displayName: Login to Azure
 
     - pwsh: |
-        dotnet tool update -g powershell `
-          --version $(PS_VERSION)
         dotnet tool install AVS.ScriptingMetadata.Shuttle `
           --tool-path shuttle `
           --version $(shuttleVersion)

@@ -30,8 +30,8 @@ extends:
       skipBuildTagsForGitHubPullRequests: true
     pool:
       os: linux
-      image: avs-management-ubuntu-22.04-1es-image
-      name: avs-management-1es-hosted-pool
+      image: avs-management-azure-linux-3-arm64-1es-image-westus2
+      name: avs-management-1es-arm64-pool-westus2
     featureFlags:
       autoBaseline: false
     sdl:
