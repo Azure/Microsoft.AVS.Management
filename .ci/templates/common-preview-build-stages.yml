@@ -19,6 +19,9 @@ stages:
   - job: 'Build'
     displayName: 'Preview build for ${{ parameters.moduleFolderName }}'
     steps:
+    - bash: sudo dnf install -y "powershell-$(PS_VERSION)*"
+      displayName: Install PowerShell
+
     - task: NuGetAuthenticate@1
     - task: AzureCLI@2
       inputs:
@@ -32,8 +35,6 @@ stages:
       displayName: Login to Azure
 
     - pwsh: |
-        dotnet tool update -g powershell `
-          --version $(PS_VERSION)
         dotnet tool install AVS.ScriptingMetadata.Shuttle `
           --tool-path shuttle `
           --version $(shuttleVersion)

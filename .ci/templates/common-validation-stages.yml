@@ -17,11 +17,12 @@ stages:
     variables:
       destination: '$(System.DefaultWorkingDirectory)/tmp'
     steps:
+    - bash: sudo dnf install -y "powershell-$(PS_VERSION)*"
+      displayName: Install PowerShell
+
     - task: NuGetAuthenticate@1
 
     - pwsh: |
-        dotnet tool update -g powershell `
-          --version $(PS_VERSION)
         dotnet tool install AVS.ScriptingMetadata.Shuttle `
           --tool-path shuttle `
           --version $(shuttleVersion)
